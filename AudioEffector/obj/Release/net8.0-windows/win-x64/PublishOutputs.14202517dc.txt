@@ -1,0 +1,7 @@
+C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\publish_v11_clean\AudioEffector.pdb
+C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\publish_v11_clean\D3DCompiler_47_cor3.dll
+C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\publish_v11_clean\PenImc_cor3.dll
+C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\publish_v11_clean\PresentationNative_cor3.dll
+C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\publish_v11_clean\vcruntime140_cor3.dll
+C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\publish_v11_clean\wpfgfx_cor3.dll
+C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\publish_v11_clean\AudioEffector.exe
