@@ -300,6 +300,17 @@ namespace AudioEffector.ViewModels
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
             ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
             ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
+            
+            // Auto-load last library folder on startup
+            var settings = _settingsService.LoadSettings();
+            if (!string.IsNullOrEmpty(settings.LastLibraryPath) && Directory.Exists(settings.LastLibraryPath))
+            {
+                IsLoading = true;
+                Task.Run(() => LoadLibrary(settings.LastLibraryPath)).ContinueWith(t =>
+                {
+                    Application.Current.Dispatcher.Invoke(() => IsLoading = false);
+                });
+            }
         }
 
         private void SortLibrary()
@@ -356,7 +367,14 @@ namespace AudioEffector.ViewModels
             var dialog = new OpenFolderDialog();
             if (dialog.ShowDialog() == true)
             {
-                LoadLibrary(dialog.FolderName);
+                string selectedPath = dialog.FolderName;
+                
+                // Save selected path to settings
+                var settings = _settingsService.LoadSettings();
+                settings.LastLibraryPath = selectedPath;
+                _settingsService.SaveSettings(settings);
+                
+                LoadLibrary(selectedPath);
             }
         }
 
@@ -533,8 +551,8 @@ namespace AudioEffector.ViewModels
             {
                 band.Gain = 0;
             }
-            // Set preset display to "Flat"
-            SelectedPreset = Presets.FirstOrDefault(p => p.Name == "Flat");
+            // Set preset display to "Flat" (match default preset name)
+            SelectedPreset = Presets.FirstOrDefault(p => p.Name.Contains("Flat"));
         }
 
         public void Cleanup()
@@ -686,6 +704,16 @@ namespace AudioEffector.ViewModels
                     bitmap.Freeze();
                     track.CoverImage = bitmap;
                 }
+
+                // Set quality information
+                track.Bitrate = tagFile.Properties.AudioBitrate;
+                track.SampleRate = tagFile.Properties.AudioSampleRate;
+                track.BitsPerSample = tagFile.Properties.BitsPerSample;
+                
+                string ext = Path.GetExtension(filePath).ToLower();
+                track.Format = ext.TrimStart('.').ToUpper();
+                track.IsLossless = new[] { ".flac", ".wav", ".aiff", ".alac" }.Contains(ext);
+                track.IsHiRes = track.SampleRate > 48000 || track.BitsPerSample > 16;
 
                 return track;
             }
