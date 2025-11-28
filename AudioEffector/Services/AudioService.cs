@@ -97,13 +97,16 @@ namespace AudioEffector.Services
             }
         }
 
-        public void PlayTrack(Track track)
+        public async void PlayTrack(Track track)
         {
             int index = _playlist.IndexOf(track);
             if (index >= 0)
             {
                 _currentIndex = index;
                 PlayCurrent();
+                // Wait for PlaybackState to update
+                await Task.Delay(100);
+                PlaybackStateChanged?.Invoke(IsPlaying);
             }
         }
 
