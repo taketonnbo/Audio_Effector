@@ -33,3 +33,5 @@ c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windo
 c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\AudioEffector.genruntimeconfig.cache
 c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\ref\AudioEffector.dll
 c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\AudioEffector.sourcelink.json
+c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\Views\PlaylistSelectionDialog.baml
+c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\Views\PlaylistSelectionDialog.g.cs

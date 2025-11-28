@@ -15,6 +15,7 @@ namespace AudioEffector.Services
         private List<Track> _originalPlaylist = new List<Track>();
         private int _currentIndex = -1;
         private bool _isShuffleEnabled;
+        private bool _wasPlayingBeforeSeek = false;
 
         public event Action<Track> TrackChanged;
         public event Action<bool> PlaybackStateChanged;
@@ -239,6 +240,23 @@ namespace AudioEffector.Services
 
         public TimeSpan CurrentTime => _audioFile?.CurrentTime ?? TimeSpan.Zero;
         public TimeSpan TotalTime => _audioFile?.TotalTime ?? TimeSpan.Zero;
+
+        public void PauseForSeek()
+        {
+            _wasPlayingBeforeSeek = IsPlaying;
+            if (_wasPlayingBeforeSeek)
+            {
+                _outputDevice?.Pause();
+            }
+        }
+
+        public void ResumeAfterSeek()
+        {
+            if (_wasPlayingBeforeSeek && _outputDevice != null)
+            {
+                _outputDevice.Play();
+            }
+        }
 
         public void Dispose()
         {

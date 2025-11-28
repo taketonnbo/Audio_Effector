@@ -20,7 +20,11 @@ namespace AudioEffector
         private void Slider_DragStarted(object sender, DragStartedEventArgs e)
         {
             var vm = DataContext as MainViewModel;
-            if (vm != null) vm.IsDraggingProgress = true;
+            if (vm != null)
+            {
+                vm.IsDraggingProgress = true;
+                vm.AudioService.PauseForSeek(); // Pause playback during seek
+            }
         }
 
         private void Slider_DragCompleted(object sender, DragCompletedEventArgs e)
@@ -29,6 +33,7 @@ namespace AudioEffector
             if (vm != null)
             {
                 vm.IsDraggingProgress = false;
+                vm.AudioService.ResumeAfterSeek(); // Resume playback after seek
             }
         }
     }

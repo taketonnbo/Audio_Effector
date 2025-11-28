@@ -22,6 +22,9 @@ namespace AudioEffector.ViewModels
         private readonly FavoriteService _favoriteService;
         private readonly PlaylistService _playlistService;
         private readonly SettingsService _settingsService;
+        
+        public AudioService AudioService => _audioService; // Public accessor for code-behind
+        
         private Preset _selectedPreset;
         private Track _currentTrack;
         private bool _isPlaying;
@@ -204,6 +207,7 @@ namespace AudioEffector.ViewModels
         public ICommand ShowFavoritesCommand { get; }
         public ICommand ShowLibraryCommand { get; }
         public ICommand ShowPlaylistSelectorCommand { get; }
+        public ICommand ShowAddToPlaylistDialogCommand { get; }
 
         private bool _isAscending = true;
 
@@ -287,6 +291,7 @@ namespace AudioEffector.ViewModels
             ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
             ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
+            ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
         }
 
         private void SortLibrary()
@@ -311,8 +316,7 @@ namespace AudioEffector.ViewModels
         private void OnTrackChanged(Track track)
         {
             CurrentTrack = track;
-            IsPlaying = true;
-            _timer.Start();
+            Progress = 0; // Reset progress when track changes
         }
 
         private void OnPlaybackStateChanged(bool isPlaying)
@@ -541,6 +545,35 @@ namespace AudioEffector.ViewModels
             }
         }
 
+
+        private void ShowAddToPlaylistDialog(object obj)
+        {
+            if (obj is Track track && UserPlaylists.Any())
+            {
+                var dialog = new Views.PlaylistSelectionDialog(UserPlaylists, track)
+                {
+                    Owner = Application.Current.MainWindow
+                };
+                
+                if (dialog.ShowDialog() == true && dialog.SelectedPlaylist != null)
+                {
+                    if (!dialog.SelectedPlaylist.TrackPaths.Contains(track.FilePath))
+                    {
+                        dialog.SelectedPlaylist.TrackPaths.Add(track.FilePath);
+                        _playlistService.SavePlaylists(UserPlaylists.ToList());
+                        MessageBox.Show($"Added '{track.Title}' to '{dialog.SelectedPlaylist.Name}'", "Track Added");
+                    }
+                    else
+                    {
+                        MessageBox.Show($"'{track.Title}' is already in '{dialog.SelectedPlaylist.Name}'", "Already Added");
+                    }
+                }
+            }
+            else if (!UserPlaylists.Any())
+            {
+                MessageBox.Show("Please create a playlist first", "No Playlists");
+            }
+        }
 
         private void AddToPlaylist(object obj)
         {
