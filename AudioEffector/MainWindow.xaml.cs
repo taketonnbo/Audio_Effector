@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using System.Windows.Controls.Primitives;
 using AudioEffector.ViewModels;
 
 namespace AudioEffector
@@ -14,6 +15,21 @@ namespace AudioEffector
         {
             base.OnClosed(e);
             (DataContext as MainViewModel)?.Cleanup();
+        }
+
+        private void Slider_DragStarted(object sender, DragStartedEventArgs e)
+        {
+            var vm = DataContext as MainViewModel;
+            if (vm != null) vm.IsDraggingProgress = true;
+        }
+
+        private void Slider_DragCompleted(object sender, DragCompletedEventArgs e)
+        {
+            var vm = DataContext as MainViewModel;
+            if (vm != null)
+            {
+                vm.IsDraggingProgress = false;
+            }
         }
     }
 }

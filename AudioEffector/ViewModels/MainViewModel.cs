@@ -20,6 +20,8 @@ namespace AudioEffector.ViewModels
         private readonly AudioService _audioService;
         private readonly PresetService _presetService;
         private readonly FavoriteService _favoriteService;
+        private readonly PlaylistService _playlistService;
+        private readonly SettingsService _settingsService;
         private Preset _selectedPreset;
         private Track _currentTrack;
         private bool _isPlaying;
@@ -33,12 +35,45 @@ namespace AudioEffector.ViewModels
         private bool _isGridView = true;
         private string _selectedSortOption = "Artist";
         private List<string> _favoritePaths;
-
-
+        private ObservableCollection<UserPlaylist> _userPlaylists = new ObservableCollection<UserPlaylist>();
+        private ObservableCollection<Track> _playlistTracks = new ObservableCollection<Track>();
+        private bool _isLibraryVisible = true;
+        private bool _isPlaylistSelectorVisible = false;
+        private bool _isPlaylistTracksVisible = false;
 
         public ObservableCollection<BandViewModel> Bands { get; set; }
         public ObservableCollection<Preset> Presets { get; set; }
         public ObservableCollection<Album> Albums { get; set; } = new ObservableCollection<Album>();
+
+        public ObservableCollection<UserPlaylist> UserPlaylists
+        {
+            get => _userPlaylists;
+            set { _userPlaylists = value; OnPropertyChanged(); }
+        }
+
+        public ObservableCollection<Track> PlaylistTracks
+        {
+            get => _playlistTracks;
+            set { _playlistTracks = value; OnPropertyChanged(); }
+        }
+
+        public bool IsLibraryVisible
+        {
+            get => _isLibraryVisible;
+            set { _isLibraryVisible = value; OnPropertyChanged(); }
+        }
+
+        public bool IsPlaylistSelectorVisible
+        {
+            get => _isPlaylistSelectorVisible;
+            set { _isPlaylistSelectorVisible = value; OnPropertyChanged(); }
+        }
+
+        public bool IsPlaylistTracksVisible
+        {
+            get => _isPlaylistTracksVisible;
+            set { _isPlaylistTracksVisible = value; OnPropertyChanged(); }
+        }
 
         public bool IsLoading
         {
@@ -163,6 +198,12 @@ namespace AudioEffector.ViewModels
         public ICommand PlayTrackCommand { get; }
         public ICommand ToggleFavoriteCommand { get; }
         public ICommand ToggleViewCommand { get; }
+        public ICommand CreatePlaylistCommand { get; }
+        public ICommand AddToPlaylistCommand { get; }
+        public ICommand ShowPlaylistCommand { get; }
+        public ICommand ShowFavoritesCommand { get; }
+        public ICommand ShowLibraryCommand { get; }
+        public ICommand ShowPlaylistSelectorCommand { get; }
 
         private bool _isAscending = true;
 
@@ -184,7 +225,13 @@ namespace AudioEffector.ViewModels
             _audioService = new AudioService();
             _presetService = new PresetService();
             _favoriteService = new FavoriteService();
+            _playlistService = new PlaylistService();
+            _settingsService = new SettingsService();
             _favoritePaths = _favoriteService.LoadFavorites();
+            
+            // Load playlists
+            var loadedPlaylists = _playlistService.LoadPlaylists();
+            UserPlaylists = new ObservableCollection<UserPlaylist>(loadedPlaylists);
             
             _audioService.TrackChanged += OnTrackChanged;
             _audioService.PlaybackStateChanged += OnPlaybackStateChanged;
@@ -232,6 +279,14 @@ namespace AudioEffector.ViewModels
             ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
             ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
             ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
+            
+            // Playlist commands
+            CreatePlaylistCommand = new RelayCommand(CreatePlaylist);
+            AddToPlaylistCommand = new RelayCommand(AddToPlaylist);
+            ShowPlaylistCommand = new RelayCommand(ShowPlaylist);
+            ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
+            ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
+            ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
         }
 
         private void SortLibrary()
@@ -472,6 +527,118 @@ namespace AudioEffector.ViewModels
         {
             _timer.Stop();
             _audioService.Dispose();
+        }
+
+        // Playlist management methods
+        private void CreatePlaylist(object obj)
+        {
+            var dialog = new InputBox("New Playlist", "Enter playlist name:");
+            if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.InputText))
+            {
+                var newPlaylist = new UserPlaylist { Name = dialog.InputText };
+                UserPlaylists.Add(newPlaylist);
+                _playlistService.SavePlaylists(UserPlaylists.ToList());
+            }
+        }
+
+
+        private void AddToPlaylist(object obj)
+        {
+            if (obj is UserPlaylist playlist && CurrentTrack != null)
+            {
+                if (!playlist.TrackPaths.Contains(CurrentTrack.FilePath))
+                {
+                    playlist.TrackPaths.Add(CurrentTrack.FilePath);
+                    _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    MessageBox.Show($"Added '{CurrentTrack.Title}' to '{playlist.Name}'", "Track Added");
+                }
+            }
+        }
+
+        private void ShowPlaylist(object obj)
+        {
+            if (obj is UserPlaylist playlist)
+            {
+                IsLibraryVisible = false;
+                IsPlaylistSelectorVisible = false;
+                IsPlaylistTracksVisible = true;
+
+                PlaylistTracks.Clear();
+                foreach (var path in playlist.TrackPaths)
+                {
+                    var track = LoadTrack(path);
+                    if (track != null)
+                        PlaylistTracks.Add(track);
+                }
+            }
+        }
+
+        private void ShowFavorites()
+        {
+            IsLibraryVisible = false;
+            IsPlaylistSelectorVisible = false;
+            IsPlaylistTracksVisible = true;
+
+            PlaylistTracks.Clear();
+            foreach (var path in _favoritePaths)
+            {
+                var track = LoadTrack(path);
+                if (track != null)
+                    PlaylistTracks.Add(track);
+            }
+        }
+
+        private void ShowLibrary()
+        {
+            IsLibraryVisible = true;
+            IsPlaylistSelectorVisible = false;
+            IsPlaylistTracksVisible = false;
+        }
+
+        private void ShowPlaylistSelector()
+        {
+            IsLibraryVisible = false;
+            IsPlaylistSelectorVisible = true;
+            IsPlaylistTracksVisible = false;
+        }
+
+        private Track? LoadTrack(string filePath)
+        {
+            if (!File.Exists(filePath))
+                return null;
+
+            try
+            {
+                var tagFile = TagLib.File.Create(filePath);
+                var track = new Track
+                {
+                    Title = tagFile.Tag.Title ?? Path.GetFileNameWithoutExtension(filePath),
+                    Artist = tagFile.Tag.FirstPerformer ?? "Unknown Artist",
+                    Album = tagFile.Tag.Album ?? "Unknown Album",
+                    FilePath = filePath,
+                    Duration = tagFile.Properties.Duration,
+                    IsFavorite = _favoritePaths.Contains(filePath)
+                };
+
+                // Load cover art
+                if (tagFile.Tag.Pictures.Length > 0)
+                {
+                    var bin = tagFile.Tag.Pictures[0].Data.Data;
+                    var bitmap = new BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.StreamSource = new MemoryStream(bin);
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.EndInit();
+                    bitmap.Freeze();
+                    track.CoverImage = bitmap;
+                }
+
+                return track;
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }

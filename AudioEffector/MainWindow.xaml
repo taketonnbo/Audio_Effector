@@ -57,6 +57,11 @@
             
             
             <StackPanel Grid.Row="1" Margin="10,0,10,10">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
+                     <Button Content="LIB" Command="{Binding ShowLibraryCommand}" Width="40" Height="25" Margin="0,0,5,0" Background="#202020" ToolTip="Library"/>
+                     <Button Content="FAV" Command="{Binding ShowFavoritesCommand}" Width="40" Height="25" Margin="0,0,5,0" Background="#202020" ToolTip="Favorites"/>
+                     <Button Content="PL" Command="{Binding ShowPlaylistSelectorCommand}" Width="40" Height="25" Background="#202020" ToolTip="Playlists"/>
+                </StackPanel>
                 <Button Content="SCAN FOLDER" Command="{Binding OpenFolderCommand}" 
  
                             HorizontalAlignment="Stretch" Margin="0,0,0,10"
@@ -105,8 +110,7 @@
                     </Grid>
             </StackPanel>
 
-
-            <Grid Grid.Row="2">
+            <Grid Grid.Row="2" Visibility="{Binding IsLibraryVisible, Converter={StaticResource BoolToVis}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="{Binding IsListView, Converter={StaticResource BoolToVis}}">
 
                     <ItemsControl ItemsSource="{Binding Albums}">
@@ -204,6 +208,54 @@
                 </ScrollViewer>
 
             </Grid>
+
+            <!-- Playlist Selector View -->
+            <Grid Grid.Row="2" Visibility="{Binding IsPlaylistSelectorVisible, Converter={StaticResource BoolToVis}}">
+                 <Grid.RowDefinitions>
+                     <RowDefinition Height="Auto"/>
+                     <RowDefinition Height="*"/>
+                 </Grid.RowDefinitions>
+                 <Button Grid.Row="0" Content="+ NEW PLAYLIST" Command="{Binding CreatePlaylistCommand}" 
+                         HorizontalAlignment="Stretch" Margin="10,0,10,10" Background="#202020" Height="30"/>
+                 <ListBox Grid.Row="1" ItemsSource="{Binding UserPlaylists}" Background="Transparent" BorderThickness="0" Margin="10,0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding Name}" Command="{Binding DataContext.ShowPlaylistCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" 
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" Foreground="White" Margin="0,2" Padding="5"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                 </ListBox>
+            </Grid>
+
+            <!-- Playlist Tracks View -->
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="{Binding IsPlaylistTracksVisible, Converter={StaticResource BoolToVis}}">
+                 <ItemsControl ItemsSource="{Binding PlaylistTracks}">
+                     <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Vertical"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                    HorizontalContentAlignment="Left" Margin="5,2" Background="Transparent">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" Foreground="White" FontSize="12"/>
+                                        <TextBlock Text="{Binding Artist}" Foreground="#808080" FontSize="10"/>
+                                    </StackPanel>
+                                    <Path Grid.Column="1" Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
+                                          Fill="#FF4081" Width="10" Height="10" Stretch="Uniform" Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVis}}"/>
+                                </Grid>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                 </ItemsControl>
+            </ScrollViewer>
             
             <Grid Grid.Row="0" Grid.RowSpan="3" Background="#80000000" Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -300,8 +352,10 @@
                             
                             <!-- Seek Bar -->
                             <Grid Grid.Row="3" VerticalAlignment="Bottom">
-                                <Slider Value="{Binding Progress}" Maximum="100" Height="20" VerticalAlignment="Center" 
-                                        IsMoveToPointEnabled="True">
+                                <Slider Value="{Binding Progress, Mode=TwoWay}" Maximum="100" Height="20" VerticalAlignment="Center" 
+                                        IsMoveToPointEnabled="True"
+                                        Thumb.DragStarted="Slider_DragStarted"
+                                        Thumb.DragCompleted="Slider_DragCompleted">
                                 </Slider>
                                 <Grid Margin="0,15,0,0">
                                     <TextBlock Text="{Binding CurrentTimeDisplay}" HorizontalAlignment="Left" Foreground="#606060" FontSize="12"/>

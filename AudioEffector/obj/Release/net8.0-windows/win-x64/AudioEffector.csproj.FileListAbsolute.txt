@@ -491,3 +491,4 @@ C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windo
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\win-x64\AudioEffector.pdb
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\win-x64\AudioEffector.genruntimeconfig.cache
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\win-x64\ref\AudioEffector.dll
+c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\win-x64\AudioEffector.sourcelink.json
