@@ -533,6 +533,8 @@ namespace AudioEffector.ViewModels
             {
                 band.Gain = 0;
             }
+            // Set preset display to "Flat"
+            SelectedPreset = Presets.FirstOrDefault(p => p.Name == "Flat");
         }
 
         public void Cleanup()
@@ -600,6 +602,8 @@ namespace AudioEffector.ViewModels
         {
             if (obj is UserPlaylist playlist)
             {
+                System.Diagnostics.Debug.WriteLine($"ShowPlaylist: {playlist.Name}, Tracks: {playlist.TrackPaths.Count}");
+                
                 IsLibraryVisible = false;
                 IsPlaylistSelectorVisible = false;
                 IsPlaylistTracksVisible = true;
@@ -607,10 +611,19 @@ namespace AudioEffector.ViewModels
                 PlaylistTracks.Clear();
                 foreach (var path in playlist.TrackPaths)
                 {
+                    System.Diagnostics.Debug.WriteLine($"Loading track: {path}");
                     var track = LoadTrack(path);
                     if (track != null)
+                    {
                         PlaylistTracks.Add(track);
+                        System.Diagnostics.Debug.WriteLine($"Added track: {track.Title}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to load track: {path}");
+                    }
                 }
+                System.Diagnostics.Debug.WriteLine($"Total tracks loaded: {PlaylistTracks.Count}");
             }
         }
 

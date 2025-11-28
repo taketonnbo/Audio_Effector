@@ -186,21 +186,25 @@ namespace AudioEffector.Services
             }
         }
 
-        public void Next()
+       public async void Next()
         {
             if (_playlist.Count == 0) return;
             _currentIndex++;
             if (_currentIndex >= _playlist.Count) _currentIndex = 0; // Loop
             PlayCurrent();
+            // Wait for PlaybackState to update
+            await Task.Delay(100);
             PlaybackStateChanged?.Invoke(IsPlaying);
         }
 
-        public void Previous()
+        public async void Previous()
         {
             if (_playlist.Count == 0) return;
             _currentIndex--;
-            if (_currentIndex < 0) _currentIndex = _playlist.Count - 1;
+            if (_currentIndex < 0) _currentIndex = _playlist.Count - 1; // Loop
             PlayCurrent();
+            // Wait for PlaybackState to update
+            await Task.Delay(100);
             PlaybackStateChanged?.Invoke(IsPlaying);
         }
 
