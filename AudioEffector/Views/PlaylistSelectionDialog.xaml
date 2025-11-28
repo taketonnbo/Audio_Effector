@@ -43,8 +43,7 @@
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
             <Button x:Name="OkButton" Content="ADD" Click="OkButton_Click" Width="80" Height="30" 
-                    Background="#00FFFF" Foreground="Black" BorderThickness="0" Margin="0,0,10,0" FontWeight="Bold"
-                    IsEnabled="{Binding SelectedPlaylist, Converter={StaticResource NotNullToBool}}"/>
+                    Background="#00FFFF" Foreground="Black" BorderThickness="0" Margin="0,0,10,0" FontWeight="Bold"/>
             <Button Content="CANCEL" IsCancel="True" Width="80" Height="30" 
                     Background="#303030" Foreground="White" BorderThickness="0"/>
         </StackPanel>

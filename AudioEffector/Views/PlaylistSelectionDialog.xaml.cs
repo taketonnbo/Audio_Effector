@@ -20,7 +20,14 @@ namespace AudioEffector.Views
 
         private void OkButton_Click(object sender, RoutedEventArgs e)
         {
-            DialogResult = true;
+            if (SelectedPlaylist != null)
+            {
+                DialogResult = true;
+            }
+            else
+            {
+                MessageBox.Show("Please select a playlist", "No Selection", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
     }
 }

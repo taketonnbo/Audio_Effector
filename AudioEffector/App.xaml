@@ -4,6 +4,7 @@
              xmlns:local="clr-namespace:AudioEffector"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        <local:BoolToVisConverter x:Key="BoolToVis"/>
         <SolidColorBrush x:Key="NeonCyanBrush" Color="#00FFFF"/>
         
         <!-- Vertical Slider Style for EQ -->

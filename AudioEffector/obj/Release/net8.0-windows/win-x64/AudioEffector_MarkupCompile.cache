@@ -10,11 +10,11 @@ none
 false
 TRACE;RELEASE;NET;NET8_0;NETCOREAPP
 c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\App.xaml
-2-1085819087
+32066067181
 
-21-383486304
+22196928896
 2141474958722
-MainWindow.xaml;Views\InputBox.xaml;
+MainWindow.xaml;Views\InputBox.xaml;Views\PlaylistSelectionDialog.xaml;
 
 False
 

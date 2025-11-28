@@ -271,10 +271,18 @@ namespace AudioEffector.ViewModels
             {
                 if (o is AudioEffector.Models.Track t) 
                 {
-                    var album = Albums.FirstOrDefault(a => a.Tracks.Contains(t));
-                    if (album != null)
+                    // Check if playing from playlist/favorites view
+                    if (IsPlaylistTracksVisible && PlaylistTracks.Any())
                     {
-                        _audioService.SetPlaylist(album.Tracks);
+                        _audioService.SetPlaylist(PlaylistTracks.ToList());
+                    }
+                    else
+                    {
+                        var album = Albums.FirstOrDefault(a => a.Tracks.Contains(t));
+                        if (album != null)
+                        {
+                            _audioService.SetPlaylist(album.Tracks);
+                        }
                     }
                     _audioService.PlayTrack(t);
                 }
