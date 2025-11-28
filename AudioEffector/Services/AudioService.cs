@@ -192,6 +192,7 @@ namespace AudioEffector.Services
             _currentIndex++;
             if (_currentIndex >= _playlist.Count) _currentIndex = 0; // Loop
             PlayCurrent();
+            PlaybackStateChanged?.Invoke(IsPlaying);
         }
 
         public void Previous()
@@ -200,6 +201,7 @@ namespace AudioEffector.Services
             _currentIndex--;
             if (_currentIndex < 0) _currentIndex = _playlist.Count - 1;
             PlayCurrent();
+            PlaybackStateChanged?.Invoke(IsPlaying);
         }
 
         public void Stop(bool internalStop = false)
