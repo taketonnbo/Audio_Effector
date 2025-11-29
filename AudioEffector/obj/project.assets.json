@@ -521,7 +521,7 @@
     "C:\\Users\\tnish\\.nuget\\packages\\": {}
   },
   "project": {
-    "version": "14.0.0",
+    "version": "14.1.0",
     "restore": {
       "projectUniqueName": "c:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj",
       "projectName": "AudioEffector",
