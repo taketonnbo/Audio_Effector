@@ -840,6 +840,20 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        private string _currentPlaylistName;
+        public string CurrentPlaylistName
+        {
+            get => _currentPlaylistName;
+            set
+            {
+                if (_currentPlaylistName != value)
+                {
+                    _currentPlaylistName = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         private void ShowPlaylist(object obj)
         {
             if (obj is UserPlaylist playlist)
@@ -850,6 +864,7 @@ namespace AudioEffector.ViewModels
                 IsPlaylistSelectorVisible = false;
                 IsPlaylistTracksVisible = true;
                 IsFavoritesView = false;
+                CurrentPlaylistName = playlist.Name;
 
                 PlaylistTracks.Clear();
                 foreach (var path in playlist.TrackPaths)
@@ -876,6 +891,7 @@ namespace AudioEffector.ViewModels
             IsPlaylistSelectorVisible = false;
             IsPlaylistTracksVisible = true;
             IsFavoritesView = true;
+            CurrentPlaylistName = "Favorites";
 
             PlaylistTracks.Clear();
             foreach (var path in _favoritePaths)
