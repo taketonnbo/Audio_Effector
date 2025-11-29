@@ -524,11 +524,28 @@ namespace AudioEffector.ViewModels
 
                 if (CurrentTrack.IsFavorite)
                 {
-                    if (!_favoritePaths.Contains(CurrentTrack.FilePath)) _favoritePaths.Add(CurrentTrack.FilePath);
+                    if (!_favoritePaths.Contains(CurrentTrack.FilePath)) 
+                    {
+                        _favoritePaths.Add(CurrentTrack.FilePath);
+                        // Immediate update if viewing favorites
+                        if (IsFavoritesView)
+                        {
+                            PlaylistTracks.Add(CurrentTrack);
+                        }
+                    }
                 }
                 else
                 {
                     _favoritePaths.Remove(CurrentTrack.FilePath);
+                    // Immediate update if viewing favorites
+                    if (IsFavoritesView)
+                    {
+                        var trackToRemove = PlaylistTracks.FirstOrDefault(t => t.FilePath == CurrentTrack.FilePath);
+                        if (trackToRemove != null)
+                        {
+                            PlaylistTracks.Remove(trackToRemove);
+                        }
+                    }
                 }
                 _favoriteService.SaveFavorites(_favoritePaths);
             }
@@ -580,6 +597,13 @@ namespace AudioEffector.ViewModels
                     {
                         selectedPlaylist.TrackPaths.Add(track.FilePath);
                         _playlistService.SavePlaylists(UserPlaylists.ToList());
+                        
+                        // Immediate update if viewing this playlist
+                        if (CurrentPlaylistName == selectedPlaylist.Name && IsPlaylistTracksVisible)
+                        {
+                            PlaylistTracks.Add(track);
+                        }
+
                         MessageBox.Show($"Added '{track.Title}' to '{selectedPlaylist.Name}'", "Track Added");
                     }
                     else
@@ -638,6 +662,13 @@ namespace AudioEffector.ViewModels
                     if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
                     {
                         selectedPlaylist.TrackPaths.Add(track.FilePath);
+                        
+                        // Immediate update if viewing this playlist
+                        if (CurrentPlaylistName == selectedPlaylist.Name && IsPlaylistTracksVisible)
+                        {
+                            PlaylistTracks.Add(track);
+                        }
+                        
                         addedCount++;
                     }
                 }
@@ -818,6 +849,13 @@ namespace AudioEffector.ViewModels
                 {
                     playlist.TrackPaths.Add(CurrentTrack.FilePath);
                     _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    
+                    // Immediate update if viewing this playlist
+                    if (CurrentPlaylistName == playlist.Name && IsPlaylistTracksVisible)
+                    {
+                        PlaylistTracks.Add(CurrentTrack);
+                    }
+
                     MessageBox.Show($"Added '{CurrentTrack.Title}' to '{playlist.Name}'", "Track Added");
                 }
             }
