@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using AudioEffector.Models;
+using System.Threading.Tasks;
 
 namespace AudioEffector.Services
 {
@@ -16,10 +17,12 @@ namespace AudioEffector.Services
         private int _currentIndex = -1;
         private bool _isShuffleEnabled;
         private bool _wasPlayingBeforeSeek = false;
+        private bool _stopRequested;
 
         public event Action<Track> TrackChanged;
         public event Action<bool> PlaybackStateChanged;
         public event Action PlaybackStopped;
+        public event EventHandler PlaylistEnded;
 
         // 10-band EQ frequencies
         public readonly float[] Frequencies = { 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
@@ -45,6 +48,8 @@ namespace AudioEffector.Services
                 }
             }
         }
+
+        public bool IsRepeatEnabled { get; set; }
 
         public void SetPlaylist(List<Track> tracks)
         {
@@ -110,7 +115,7 @@ namespace AudioEffector.Services
             }
         }
 
-        private bool _stopRequested = false;
+
 
         private void PlayCurrent()
         {
@@ -189,12 +194,30 @@ namespace AudioEffector.Services
             }
         }
 
-       public async void Next()
+        public async void Next()
         {
             if (_playlist.Count == 0) return;
-            _currentIndex++;
-            if (_currentIndex >= _playlist.Count) _currentIndex = 0; // Loop
-            PlayCurrent();
+            
+            if (_currentIndex < _playlist.Count - 1)
+            {
+                _currentIndex++;
+                PlayCurrent();
+            }
+            else
+            {
+                // End of playlist
+                if (IsRepeatEnabled)
+                {
+                    _currentIndex = 0;
+                    PlayCurrent();
+                }
+                else
+                {
+                    Stop(true); // Stop and reset position
+                    PlaylistEnded?.Invoke(this, EventArgs.Empty);
+                }
+            }
+            
             // Wait for PlaybackState to update
             await Task.Delay(100);
             PlaybackStateChanged?.Invoke(IsPlaying);

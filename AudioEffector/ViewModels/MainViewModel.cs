@@ -10,6 +10,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
@@ -222,7 +224,33 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        private bool _isSelectionMode;
+        public bool IsSelectionMode
+        {
+            get => _isSelectionMode;
+            set
+            {
+                _isSelectionMode = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isAlbumRepeat;
+        public bool IsAlbumRepeat
+        {
+            get => _isAlbumRepeat;
+            set
+            {
+                _isAlbumRepeat = value;
+                _audioService.IsRepeatEnabled = value;
+                OnPropertyChanged();
+            }
+        }
+
         public ICommand ToggleSortDirectionCommand { get; }
+        public ICommand ToggleSelectionModeCommand { get; }
+        public ICommand ToggleRepeatCommand { get; }
+        public ICommand AddSelectedToPlaylistCommand { get; }
 
         public MainViewModel()
         {
@@ -301,16 +329,13 @@ namespace AudioEffector.ViewModels
             ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
             ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
             
-            // Auto-load last library folder on startup
-            var settings = _settingsService.LoadSettings();
-            if (!string.IsNullOrEmpty(settings.LastLibraryPath) && Directory.Exists(settings.LastLibraryPath))
-            {
-                IsLoading = true;
-                Task.Run(() => LoadLibrary(settings.LastLibraryPath)).ContinueWith(t =>
-                {
-                    Application.Current.Dispatcher.Invoke(() => IsLoading = false);
-                });
-            }
+            ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
+            ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
+            AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
+
+            _audioService.PlaylistEnded += OnPlaylistEnded;
+
+            LoadLibrary();
         }
 
         private void SortLibrary()
@@ -388,8 +413,16 @@ namespace AudioEffector.ViewModels
             }
         }
 
-        private async void LoadLibrary(string rootFolder)
+        private async void LoadLibrary(string rootFolder = null)
         {
+            if (string.IsNullOrEmpty(rootFolder))
+            {
+                var settings = _settingsService.LoadSettings();
+                rootFolder = settings.LastLibraryPath;
+            }
+
+            if (string.IsNullOrEmpty(rootFolder) || !Directory.Exists(rootFolder)) return;
+
             IsLoading = true;
             Albums.Clear();
             
@@ -501,11 +534,215 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        private void ToggleRepeat(object obj)
+        {
+            IsAlbumRepeat = !IsAlbumRepeat;
+        }
+
+        private void OnPlaylistEnded(object sender, EventArgs e)
+        {
+            // If repeat is OFF, try to play next album
+            if (!IsAlbumRepeat && CurrentTrack != null)
+            {
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    var currentAlbum = Albums.FirstOrDefault(a => a.Tracks.Any(t => t.FilePath == CurrentTrack.FilePath));
+                    if (currentAlbum != null)
+                    {
+                        int index = Albums.IndexOf(currentAlbum);
+                        if (index >= 0 && index < Albums.Count - 1)
+                        {
+                            var nextAlbum = Albums[index + 1];
+                            if (nextAlbum.Tracks.Any())
+                            {
+                                _audioService.SetPlaylist(nextAlbum.Tracks);
+                                _audioService.PlayTrack(nextAlbum.Tracks.First());
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        private void ShowAddToPlaylistDialog(object parameter)
+        {
+            if (parameter is Track track)
+            {
+                if (!UserPlaylists.Any())
+                {
+                    MessageBox.Show("Please create a playlist first", "No Playlists");
+                    return;
+                }
+
+                ShowPlaylistSelectionDialog(selectedPlaylist =>
+                {
+                    if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
+                    {
+                        selectedPlaylist.TrackPaths.Add(track.FilePath);
+                        _playlistService.SavePlaylists(UserPlaylists.ToList());
+                        MessageBox.Show($"Added '{track.Title}' to '{selectedPlaylist.Name}'", "Track Added");
+                    }
+                    else
+                    {
+                        MessageBox.Show($"'{track.Title}' is already in '{selectedPlaylist.Name}'", "Already Added");
+                    }
+                });
+            }
+        }
+
+        private void AddSelectedToPlaylist(object parameter)
+        {
+            var selectedTracks = new List<Track>();
+
+            // Collect from Album tracks
+            if (Albums != null)
+            {
+                foreach (var album in Albums)
+                {
+                    if (album.Tracks != null)
+                    {
+                        foreach (var track in album.Tracks)
+                        {
+                            if (track.IsSelected) selectedTracks.Add(track);
+                        }
+                    }
+                }
+            }
+
+            // Collect from Playlist tracks
+            if (PlaylistTracks != null)
+            {
+                foreach (var track in PlaylistTracks)
+                {
+                    if (track.IsSelected) selectedTracks.Add(track);
+                }
+            }
+
+            // Also include the parameter if it's a track and not already selected
+            if (parameter is Track paramTrack && !selectedTracks.Contains(paramTrack))
+            {
+                selectedTracks.Add(paramTrack);
+            }
+
+            if (selectedTracks.Count == 0)
+            {
+                MessageBox.Show("No tracks selected.", "Add to Playlist");
+                return;
+            }
+
+            ShowPlaylistSelectionDialog(selectedPlaylist =>
+            {
+                int addedCount = 0;
+                foreach (var track in selectedTracks)
+                {
+                    if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
+                    {
+                        selectedPlaylist.TrackPaths.Add(track.FilePath);
+                        addedCount++;
+                    }
+                }
+
+                if (addedCount > 0)
+                {
+                    _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    MessageBox.Show($"Added {addedCount} tracks to '{selectedPlaylist.Name}'", "Tracks Added");
+                    
+                    // Clear selection
+                    foreach (var track in selectedTracks)
+                    {
+                        track.IsSelected = false;
+                    }
+                }
+                else
+                {
+                    MessageBox.Show("All selected tracks are already in the playlist.", "No Tracks Added");
+                }
+            });
+        }
+
+        private void ShowPlaylistSelectionDialog(Action<UserPlaylist> onPlaylistSelected)
+        {
+            var dialog = new Window
+            {
+                Title = "Add to Playlist",
+                Width = 300,
+                Height = 450,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                ResizeMode = ResizeMode.NoResize,
+                Background = new SolidColorBrush(Color.FromRgb(20, 20, 20))
+            };
+            dialog.MouseLeftButtonDown += (s, e) => dialog.DragMove();
+
+            var stackPanel = new StackPanel { Margin = new Thickness(20) };
+
+            var title = new TextBlock
+            {
+                Text = "Select Playlist",
+                Foreground = Brushes.White,
+                FontSize = 18,
+                Margin = new Thickness(0, 0, 0, 20),
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            stackPanel.Children.Add(title);
+
+            var listBox = new ListBox
+            {
+                ItemsSource = UserPlaylists,
+                DisplayMemberPath = "Name",
+                Height = 250,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(60, 60, 60)),
+                Foreground = Brushes.White,
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+            stackPanel.Children.Add(listBox);
+
+            var buttonsPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+            
+            var addButton = new Button
+            {
+                Content = "ADD",
+                Width = 80,
+                Height = 30,
+                Background = new SolidColorBrush(Color.FromRgb(0, 255, 255)),
+                Foreground = Brushes.Black,
+                Margin = new Thickness(0, 0, 10, 0),
+                BorderThickness = new Thickness(0)
+            };
+            addButton.Click += (s, e) =>
+            {
+                if (listBox.SelectedItem is UserPlaylist selectedPlaylist)
+                {
+                    onPlaylistSelected(selectedPlaylist);
+                    dialog.Close();
+                }
+            };
+            buttonsPanel.Children.Add(addButton);
+
+            var cancelButton = new Button
+            {
+                Content = "CANCEL",
+                Width = 80,
+                Height = 30,
+                Background = Brushes.Transparent,
+                Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
+                BorderThickness = new Thickness(1)
+            };
+            cancelButton.Click += (s, e) => dialog.Close();
+            buttonsPanel.Children.Add(cancelButton);
+
+            stackPanel.Children.Add(buttonsPanel);
+            dialog.Content = stackPanel;
+            dialog.ShowDialog();
+        }
+
         private void SavePreset(object obj)
         {
             try
             {
-                var inputBox = new InputBox("Enter Preset Name:", $"User Preset {DateTime.Now:MM-dd HH:mm}");
+                var inputBox = new Views.InputBox("Enter Preset Name:", $"User Preset {DateTime.Now:MM-dd HH:mm}");
                 if (inputBox.ShowDialog() == true)
                 {
                     string name = inputBox.InputText;
@@ -564,42 +801,12 @@ namespace AudioEffector.ViewModels
         // Playlist management methods
         private void CreatePlaylist(object obj)
         {
-            var dialog = new InputBox("New Playlist", "Enter playlist name:");
+            var dialog = new Views.InputBox("New Playlist", "Enter playlist name:");
             if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.InputText))
             {
                 var newPlaylist = new UserPlaylist { Name = dialog.InputText };
                 UserPlaylists.Add(newPlaylist);
                 _playlistService.SavePlaylists(UserPlaylists.ToList());
-            }
-        }
-
-
-        private void ShowAddToPlaylistDialog(object obj)
-        {
-            if (obj is Track track && UserPlaylists.Any())
-            {
-                var dialog = new Views.PlaylistSelectionDialog(UserPlaylists, track)
-                {
-                    Owner = Application.Current.MainWindow
-                };
-                
-                if (dialog.ShowDialog() == true && dialog.SelectedPlaylist != null)
-                {
-                    if (!dialog.SelectedPlaylist.TrackPaths.Contains(track.FilePath))
-                    {
-                        dialog.SelectedPlaylist.TrackPaths.Add(track.FilePath);
-                        _playlistService.SavePlaylists(UserPlaylists.ToList());
-                        MessageBox.Show($"Added '{track.Title}' to '{dialog.SelectedPlaylist.Name}'", "Track Added");
-                    }
-                    else
-                    {
-                        MessageBox.Show($"'{track.Title}' is already in '{dialog.SelectedPlaylist.Name}'", "Already Added");
-                    }
-                }
-            }
-            else if (!UserPlaylists.Any())
-            {
-                MessageBox.Show("Please create a playlist first", "No Playlists");
             }
         }
 
@@ -615,6 +822,9 @@ namespace AudioEffector.ViewModels
                 }
             }
         }
+
+
+
 
         private void ShowPlaylist(object obj)
         {

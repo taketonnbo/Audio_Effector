@@ -58,14 +58,52 @@
             
             <StackPanel Grid.Row="1" Margin="10,0,10,10">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
-                     <Button Content="LIB" Command="{Binding ShowLibraryCommand}" Width="40" Height="25" Margin="0,0,5,0" Background="#202020" ToolTip="Library"/>
-                     <Button Content="FAV" Command="{Binding ShowFavoritesCommand}" Width="40" Height="25" Margin="0,0,5,0" Background="#202020" ToolTip="Favorites"/>
-                     <Button Content="PL" Command="{Binding ShowPlaylistSelectorCommand}" Width="40" Height="25" Background="#202020" ToolTip="Playlists"/>
+                     <RadioButton Content="LIB" Command="{Binding ShowLibraryCommand}" IsChecked="{Binding IsLibraryVisible, Mode=OneWay}" Width="40" Height="25" Margin="0,0,5,0" Style="{StaticResource {x:Type ToggleButton}}" Background="#202020" ToolTip="Library"/>
+                     <RadioButton Content="FAV" Command="{Binding ShowFavoritesCommand}" IsChecked="{Binding IsPlaylistTracksVisible, Mode=OneWay}" Width="40" Height="25" Margin="0,0,5,0" Style="{StaticResource {x:Type ToggleButton}}" Background="#202020" ToolTip="Favorites"/>
+                     <RadioButton Content="PL" Command="{Binding ShowPlaylistSelectorCommand}" IsChecked="{Binding IsPlaylistSelectorVisible, Mode=OneWay}" Width="40" Height="25" Style="{StaticResource {x:Type ToggleButton}}" Background="#202020" ToolTip="Playlists"/>
                 </StackPanel>
                 <Button Content="SCAN FOLDER" Command="{Binding OpenFolderCommand}" 
  
                             HorizontalAlignment="Stretch" Margin="0,0,0,10"
                             Foreground="{StaticResource NeonCyanBrush}" BorderBrush="{StaticResource NeonCyanBrush}" BorderThickness="1" Padding="10,5">
+                        <Button.Template>
+                             <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <Button Content="{Binding IsSelectionMode, Converter={StaticResource BoolToVis}, ConverterParameter=SELECT|CANCEL}" 
+                            Command="{Binding ToggleSelectionModeCommand}" 
+                            HorizontalAlignment="Stretch" Margin="0,0,0,10"
+                            Foreground="White" BorderBrush="#404040" BorderThickness="1" Padding="10,5">
+                         <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Content" Value="SELECT"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelectionMode}" Value="True">
+                                        <Setter Property="Content" Value="CANCEL"/>
+                                        <Setter Property="Foreground" Value="#FF4040"/>
+                                        <Setter Property="BorderBrush" Value="#FF4040"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <Button.Template>
+                             <ControlTemplate TargetType="Button">
+                                <Border Background="Transparent" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <Button Content="ADD SELECTED" Command="{Binding AddSelectedToPlaylistCommand}" 
+                            HorizontalAlignment="Stretch" Margin="0,0,0,10"
+                            Foreground="#00FFFF" BorderBrush="#00FFFF" BorderThickness="1" Padding="10,5"
+                            Visibility="{Binding IsSelectionMode, Converter={StaticResource BoolToVis}}">
                         <Button.Template>
                              <ControlTemplate TargetType="Button">
                                 <Border Background="Transparent" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5">
@@ -141,19 +179,22 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
-                                                        HorizontalContentAlignment="Left" Margin="0,2">
+                                                        HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
                                                      <!-- Context menu removed -->
 
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
                                                             <ColumnDefinition Width="*"/>
                                                             <ColumnDefinition Width="Auto"/>
                                                             <ColumnDefinition Width="Auto"/>
                                                         </Grid.ColumnDefinitions>
-                                                        <TextBlock Text="{Binding Title}" Foreground="#CCCCCC" FontSize="12"/>
-                                                        <Path Grid.Column="1" Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
+                                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
+                                                                  Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Title}" Foreground="#CCCCCC" FontSize="12"/>
+                                                        <Path Grid.Column="2" Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
                                                               Fill="#FF4081" Width="10" Height="10" Stretch="Uniform" Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVis}}" Margin="0,0,5,0"/>
-                                                        <Button Grid.Column="2" Content="+" ToolTip="Add to Playlist" 
+                                                        <Button Grid.Column="3" Content="+" ToolTip="Add to Playlist" 
                                                                 Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                 CommandParameter="{Binding}"
                                                                 Width="18" Height="18" FontSize="14" FontWeight="Bold"
@@ -197,11 +238,23 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
-                                                        HorizontalContentAlignment="Left" Margin="0,2">
+                                                        HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
                                                      <!-- Context menu removed -->
 
                                                     <Grid>
-                                                        <TextBlock Text="{Binding Title}" Foreground="#CCCCCC" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
+                                                                  Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Title}" Foreground="#CCCCCC" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                                        <Button Grid.Column="2" Content="+" ToolTip="Add to Playlist" 
+                                                                Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                CommandParameter="{Binding}"
+                                                                Width="18" Height="18" FontSize="14" FontWeight="Bold"
+                                                                Background="Transparent" Foreground="#00FFFF" BorderThickness="0" Padding="0" Margin="0"/>
                                                     </Grid>
                                                 </Button>
                                             </DataTemplate>
@@ -244,18 +297,27 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
-                                    HorizontalContentAlignment="Left" Margin="5,2" Background="Transparent">
+                                    HorizontalContentAlignment="Left" Margin="5,2" Background="Transparent" BorderThickness="0">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel>
+                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
+                                              Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
+                                    <StackPanel Grid.Column="1">
                                         <TextBlock Text="{Binding Title}" Foreground="White" FontSize="12"/>
                                         <TextBlock Text="{Binding Artist}" Foreground="#808080" FontSize="10"/>
                                     </StackPanel>
-                                    <Path Grid.Column="1" Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
-                                          Fill="#FF4081" Width="10" Height="10" Stretch="Uniform" Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVis}}"/>
+                                    <Path Grid.Column="2" Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
+                                          Fill="#FF4081" Width="10" Height="10" Stretch="Uniform" Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVis}}" Margin="0,0,5,0"/>
+                                    <Button Grid.Column="3" Content="+" ToolTip="Add to Playlist" 
+                                            Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"
+                                            Width="18" Height="18" FontSize="14" FontWeight="Bold"
+                                            Background="Transparent" Foreground="#00FFFF" BorderThickness="0" Padding="0" Margin="0"/>
                                 </Grid>
                             </Button>
                         </DataTemplate>
@@ -407,6 +469,28 @@
                                 </Style>
                             </Path.Style>
                          </Path>
+                    </ToggleButton>
+
+                    <!-- Repeat -->
+                    <ToggleButton Command="{Binding ToggleRepeatCommand}" IsChecked="{Binding IsAlbumRepeat, Mode=OneWay}" Margin="0,0,20,0" Width="20" Height="20" Background="Transparent" BorderThickness="0">
+                         <ToggleButton.Template>
+                            <ControlTemplate TargetType="ToggleButton">
+                                <Grid Background="Transparent">
+                                    <Path Data="M7,7h10v3l4-4l-4-4v3H5v6h2V7z M17,17H7v-3l-4,4l4,4v-3h12v-6h-2V17z" Stretch="Uniform" Width="15" Height="15">
+                                        <Path.Style>
+                                            <Style TargetType="Path">
+                                                <Setter Property="Fill" Value="#606060"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsAlbumRepeat}" Value="True">
+                                                        <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Path.Style>
+                                    </Path>
+                                </Grid>
+                            </ControlTemplate>
+                        </ToggleButton.Template>
                     </ToggleButton>
 
                     <!-- Prev -->

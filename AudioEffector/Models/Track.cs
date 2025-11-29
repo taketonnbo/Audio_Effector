@@ -19,6 +19,7 @@ namespace AudioEffector.Models
         public string Format { get; set; }
         public bool IsLossless { get; set; }
         public bool IsHiRes { get; set; }
+        public bool IsSelected { get; set; }
 
         public string QualityInfo => $"{BitsPerSample}bit/{SampleRate / 1000.0:F1}kHz {Format}";
         public string QualityLabel => IsHiRes ? "Hi-Res" : (IsLossless ? "Lossless" : "");
