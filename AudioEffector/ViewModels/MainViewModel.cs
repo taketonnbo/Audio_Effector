@@ -826,6 +826,20 @@ namespace AudioEffector.ViewModels
 
 
 
+        private bool _isFavoritesView;
+        public bool IsFavoritesView
+        {
+            get => _isFavoritesView;
+            set
+            {
+                if (_isFavoritesView != value)
+                {
+                    _isFavoritesView = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         private void ShowPlaylist(object obj)
         {
             if (obj is UserPlaylist playlist)
@@ -835,6 +849,7 @@ namespace AudioEffector.ViewModels
                 IsLibraryVisible = false;
                 IsPlaylistSelectorVisible = false;
                 IsPlaylistTracksVisible = true;
+                IsFavoritesView = false;
 
                 PlaylistTracks.Clear();
                 foreach (var path in playlist.TrackPaths)
@@ -860,6 +875,7 @@ namespace AudioEffector.ViewModels
             IsLibraryVisible = false;
             IsPlaylistSelectorVisible = false;
             IsPlaylistTracksVisible = true;
+            IsFavoritesView = true;
 
             PlaylistTracks.Clear();
             foreach (var path in _favoritePaths)
@@ -875,6 +891,7 @@ namespace AudioEffector.ViewModels
             IsLibraryVisible = true;
             IsPlaylistSelectorVisible = false;
             IsPlaylistTracksVisible = false;
+            IsFavoritesView = false;
         }
 
         private void ShowPlaylistSelector()
@@ -882,6 +899,7 @@ namespace AudioEffector.ViewModels
             IsLibraryVisible = false;
             IsPlaylistSelectorVisible = true;
             IsPlaylistTracksVisible = false;
+            IsFavoritesView = false;
         }
 
         private Track? LoadTrack(string filePath)

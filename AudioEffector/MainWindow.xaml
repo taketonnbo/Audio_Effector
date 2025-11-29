@@ -59,7 +59,7 @@
             <StackPanel Grid.Row="1" Margin="10,0,10,10">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
                      <RadioButton Content="LIB" Command="{Binding ShowLibraryCommand}" IsChecked="{Binding IsLibraryVisible, Mode=OneWay}" Width="40" Height="25" Margin="0,0,5,0" Style="{StaticResource {x:Type ToggleButton}}" Background="#202020" ToolTip="Library"/>
-                     <RadioButton Content="FAV" Command="{Binding ShowFavoritesCommand}" IsChecked="{Binding IsPlaylistTracksVisible, Mode=OneWay}" Width="40" Height="25" Margin="0,0,5,0" Style="{StaticResource {x:Type ToggleButton}}" Background="#202020" ToolTip="Favorites"/>
+                     <RadioButton Content="FAV" Command="{Binding ShowFavoritesCommand}" IsChecked="{Binding IsFavoritesView, Mode=OneWay}" Width="40" Height="25" Margin="0,0,5,0" Style="{StaticResource {x:Type ToggleButton}}" Background="#202020" ToolTip="Favorites"/>
                      <RadioButton Content="PL" Command="{Binding ShowPlaylistSelectorCommand}" IsChecked="{Binding IsPlaylistSelectorVisible, Mode=OneWay}" Width="40" Height="25" Style="{StaticResource {x:Type ToggleButton}}" Background="#202020" ToolTip="Playlists"/>
                 </StackPanel>
                 <Button Content="SCAN FOLDER" Command="{Binding OpenFolderCommand}" 
@@ -340,16 +340,15 @@
         <!-- Right Column: Player & EQ -->
         <Grid Grid.Column="2" Background="#050510">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" MinHeight="50"/> <!-- Now Playing Info -->
-                <RowDefinition Height="Auto"/> <!-- Splitter -->
-                <RowDefinition Height="Auto"/> <!-- Controls -->
+                <RowDefinition Height="*" MinHeight="50"/> <!-- Now Playing Info -->
                 <RowDefinition Height="Auto"/> <!-- Splitter -->
                 <RowDefinition Height="*" MinHeight="50"/>    <!-- EQ -->
                 <RowDefinition Height="Auto"/> <!-- Presets -->
+                <RowDefinition Height="Auto"/> <!-- Controls -->
             </Grid.RowDefinitions>
 
             <!-- Now Playing Info -->
-            <Grid Grid.Row="0" Margin="20" Visibility="{Binding IsNowPlayingVisible, Converter={StaticResource BoolToVis}}">
+            <Grid Grid.Row="0" Margin="20">
                 <Border Background="#101020" CornerRadius="10" BorderBrush="#303040" BorderThickness="1">
                     <Grid Margin="20">
                         <Grid.ColumnDefinitions>
@@ -436,21 +435,57 @@
             </Grid>
             
             <!-- Splitter -->
-            <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="#202020" Visibility="{Binding IsNowPlayingVisible, Converter={StaticResource BoolToVis}}"/>
+            <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="#202020"/>
 
-            <!-- Playback Controls & Toggles -->
-            <Grid Grid.Row="2" Margin="0,10">
+            <!-- EQ Sliders (Resizable Area) -->
+            <Grid Grid.Row="2" Margin="20,0">
+                <ItemsControl ItemsSource="{Binding Bands}" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="5,0" Width="35">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="{Binding Label}" HorizontalAlignment="Center" Foreground="#808080" FontSize="10" Margin="0,0,0,10"/>
+                                <Slider Grid.Row="1" Style="{StaticResource NeonSliderStyle}" Minimum="-10" Maximum="10" Value="{Binding Gain}" MinHeight="150"/>
+                                <Ellipse Grid.Row="1" Width="4" Height="4" Fill="{StaticResource NeonCyanBrush}" VerticalAlignment="Center" Opacity="0.5" IsHitTestVisible="False"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+
+            <!-- Presets -->
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,20">
+                <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}" DisplayMemberPath="Name" 
+                          Width="200" Height="30" VerticalContentAlignment="Center" Margin="0,0,10,0"/>
+                <Button Content="SAVE PRESET" Command="{Binding SavePresetCommand}" Foreground="{StaticResource NeonCyanBrush}" BorderBrush="{StaticResource NeonCyanBrush}" BorderThickness="1" Padding="10,5">
+                     <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="15">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button Content="RESET" Command="{Binding ResetCommand}" Foreground="#808080" Margin="10,0,0,0"/>
+                <Button Content="DELETE" Command="{Binding DeletePresetCommand}" Foreground="#FF4040" Margin="10,0,0,0" BorderThickness="0" Background="Transparent"/>
+            </StackPanel>
+
+            <!-- Playback Controls (Fixed at Bottom) -->
+            <Grid Grid.Row="4" Margin="0,10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-
-                <!-- Left Toggles -->
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="20,0">
-                    <CheckBox Content="INFO" IsChecked="{Binding IsNowPlayingVisible}" Foreground="White" Margin="0,0,10,0"/>
-                    <CheckBox Content="EQ" IsChecked="{Binding IsEqualizerVisible}" Foreground="White"/>
-                </StackPanel>
 
                 <!-- Center Controls -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
@@ -515,51 +550,6 @@
                     </Button>
                 </StackPanel>
             </Grid>
-
-            <!-- Splitter -->
-            <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="#202020" Visibility="{Binding IsEqualizerVisible, Converter={StaticResource BoolToVis}}"/>
-
-            <!-- EQ Sliders (Resizable Area) -->
-            <Grid Grid.Row="4" Margin="20,0" Visibility="{Binding IsEqualizerVisible, Converter={StaticResource BoolToVis}}">
-                <ItemsControl ItemsSource="{Binding Bands}" VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal"/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Margin="5,0" Width="35">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="{Binding Label}" HorizontalAlignment="Center" Foreground="#808080" FontSize="10" Margin="0,0,0,10"/>
-                                <Slider Grid.Row="1" Style="{StaticResource NeonSliderStyle}" Minimum="-10" Maximum="10" Value="{Binding Gain}" MinHeight="150"/>
-                                <Ellipse Grid.Row="1" Width="4" Height="4" Fill="{StaticResource NeonCyanBrush}" VerticalAlignment="Center" Opacity="0.5" IsHitTestVisible="False"/>
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </Grid>
-
-            <!-- Presets -->
-            <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,20">
-                <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}" DisplayMemberPath="Name" 
-                          Width="200" Height="30" VerticalContentAlignment="Center" Margin="0,0,10,0"/>
-                <Button Content="SAVE PRESET" Command="{Binding SavePresetCommand}" Foreground="{StaticResource NeonCyanBrush}" BorderBrush="{StaticResource NeonCyanBrush}" BorderThickness="1" Padding="10,5">
-                     <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="15">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
-                            </Border>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-                <Button Content="RESET" Command="{Binding ResetCommand}" Foreground="#808080" Margin="10,0,0,0"/>
-                <Button Content="DELETE" Command="{Binding DeletePresetCommand}" Foreground="#FF4040" Margin="10,0,0,0" BorderThickness="0" Background="Transparent"/>
-            </StackPanel>
         </Grid>
     </Grid>
 </Window>
