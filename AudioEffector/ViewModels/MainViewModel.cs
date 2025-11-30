@@ -501,8 +501,8 @@ namespace AudioEffector.ViewModels
                                      .Where(f => extensions.Contains(Path.GetExtension(f).ToLower()))
                                      .ToList();
 
+                // _albumArtCache is no longer used here for bulk loading
                 var tracks = new List<Track>();
-                // _albumArtCache is now class-level
                 foreach (var file in files)
                 {
                     var track = new Track { FilePath = file, Title = Path.GetFileNameWithoutExtension(file) };
@@ -527,41 +527,8 @@ namespace AudioEffector.ViewModels
                             track.IsLossless = new[] { ".flac", ".wav", ".aiff", ".alac" }.Contains(ext);
                             track.IsHiRes = track.SampleRate > 48000 || track.BitsPerSample > 16;
                             
-                            if (tfile.Tag.Pictures.Length > 0)
-                            {
-                                string cacheKey = $"{track.Artist}|{track.Album}";
-                                
-                                if (_albumArtCache.TryGetValue(cacheKey, out var cachedImage))
-                                {
-                                    track.CoverImage = cachedImage;
-                                }
-                                else
-                                {
-                                    var bin = tfile.Tag.Pictures[0].Data.Data;
-                                    Application.Current.Dispatcher.Invoke(() =>
-                                    {
-                                        var image = new BitmapImage();
-                                        using (var mem = new MemoryStream(bin))
-                                        {
-                                            mem.Position = 0;
-                                            image.BeginInit();
-                                            image.DecodePixelWidth = 150; // Reduce memory usage further for thumbnails
-                                            image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                                            image.CacheOption = BitmapCacheOption.OnLoad;
-                                            image.UriSource = null;
-                                            image.StreamSource = mem;
-                                            image.EndInit();
-                                        }
-                                        image.Freeze();
-                                        track.CoverImage = image;
-                                    });
-
-                                    if (track.CoverImage != null)
-                                    {
-                                        _albumArtCache[cacheKey] = track.CoverImage;
-                                    }
-                                }
-                            }
+                            // Image loading removed to save memory. 
+                            // Images will be loaded on-demand via AlbumArtLoader in the UI.
                         }
                     }
                     catch { }
@@ -586,7 +553,7 @@ namespace AudioEffector.ViewModels
                         {
                             Title = g.Key,
                             Artist = g.First().Artist,
-                            CoverImage = g.First().CoverImage,
+                            CoverImage = null, // Will be loaded by UI
                             Tracks = g.ToList(),
                             Year = albumYear
                         });

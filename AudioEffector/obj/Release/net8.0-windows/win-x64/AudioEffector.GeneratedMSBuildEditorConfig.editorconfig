@@ -8,6 +8,6 @@ build_property.PlatformNeutralAssembly =
 build_property.EnforceExtendedAnalyzerRules = 
 build_property._SupportedPlatformList = Linux,macOS,Windows
 build_property.RootNamespace = AudioEffector
-build_property.ProjectDir = c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\
+build_property.ProjectDir = C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\
 build_property.EnableComHosting = 
 build_property.EnableGeneratedComInterfaceComImportInterop = 

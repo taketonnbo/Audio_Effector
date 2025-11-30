@@ -1,11 +1,11 @@
-﻿        
-<Window x:Class="AudioEffector.MainWindow"
+﻿<Window x:Class="AudioEffector.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AudioEffector"
         xmlns:vm="clr-namespace:AudioEffector.ViewModels"
+        xmlns:services="clr-namespace:AudioEffector.Services"
         mc:Ignorable="d"
         Title="Audio Effector" Height="650" Width="1000"
         Icon="pack://application:,,,/Audio_Effector_icon_1.0.1.ico"
@@ -35,6 +35,43 @@
                         <Border Background="{TemplateBinding Background}" CornerRadius="20">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Slider Style -->
+        <Style x:Key="NeonSliderStyle" TargetType="Slider">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto" MinWidth="{TemplateBinding MinWidth}"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TickBar x:Name="TopTick" Visibility="Collapsed" Fill="{TemplateBinding Foreground}" Placement="Top" Height="4" Grid.ColumnSpan="3"/>
+                            <TickBar x:Name="BottomTick" Visibility="Collapsed" Fill="{TemplateBinding Foreground}" Placement="Bottom" Height="4" Grid.ColumnSpan="3"/>
+                            <Border x:Name="TrackBackground" Background="#303030" BorderBrush="#303030" BorderThickness="1" CornerRadius="2" Margin="5,0" VerticalAlignment="Center" Height="4.0" Grid.Column="1"/>
+                            <Track x:Name="PART_Track" Grid.Column="1">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Background="{StaticResource NeonCyanBrush}" Opacity="0.5" BorderThickness="0" Height="4" VerticalAlignment="Center"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Background="Transparent" BorderThickness="0" Height="4" VerticalAlignment="Center"/>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Width="10" Height="10" Background="White" BorderBrush="{StaticResource NeonCyanBrush}" BorderThickness="1">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Ellipse Fill="{TemplateBinding Background}" Stroke="{TemplateBinding BorderBrush}" StrokeThickness="1"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -185,7 +222,8 @@
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
                                         <Border Grid.Column="0" Width="40" Height="40" CornerRadius="4" Background="#202020">
-                                            <Image Source="{Binding CoverImage}" Stretch="UniformToFill"/>
+                                            <!-- Use AlbumArtLoader attached property -->
+                                            <Image services:AlbumArtLoader.SourcePath="{Binding Tracks[0].FilePath}" Stretch="UniformToFill"/>
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
                                             <TextBlock Text="{Binding Title}" Foreground="White" FontSize="14" TextTrimming="CharacterEllipsis"/>
@@ -243,7 +281,8 @@
                                                 <RowDefinition Height="Auto"/>
                                             </Grid.RowDefinitions>
                                             <Border Grid.Row="0" CornerRadius="8" Background="#202020" Margin="5">
-                                                <Image Source="{Binding CoverImage}" Stretch="UniformToFill"/>
+                                                <!-- Use AlbumArtLoader attached property -->
+                                                <Image services:AlbumArtLoader.SourcePath="{Binding Tracks[0].FilePath}" Stretch="UniformToFill"/>
                                             </Border>
                                             <TextBlock Grid.Row="1" Text="{Binding Title}" Foreground="White" FontSize="12" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="5,2,5,0"/>
                                             <TextBlock Grid.Row="2" Text="{Binding Artist}" Foreground="#808080" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="5,0,5,5"/>
@@ -388,7 +427,7 @@
                     <Border Background="#101020" CornerRadius="10" BorderBrush="#303040" BorderThickness="1">
                         <Grid Margin="20">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" MinWidth="120" MaxWidth="300"/> <!-- Flexible Image Column -->
+                                <ColumnDefinition Width="Auto" MinWidth="120"/> <!-- Flexible Image Column, MaxWidth removed -->
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             
@@ -592,18 +631,8 @@
                 <!-- Presets -->
                 <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,20">
                     <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}" DisplayMemberPath="Name" 
-                              Width="200" Height="30" VerticalContentAlignment="Center" Margin="0,0,10,0"/>
-                    <Button Content="SAVE PRESET" Command="{Binding SavePresetCommand}" Foreground="{StaticResource NeonCyanBrush}" BorderBrush="{StaticResource NeonCyanBrush}" BorderThickness="1" Padding="10,5">
-                         <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="15">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                    <Button Content="RESET" Command="{Binding ResetCommand}" Foreground="#808080" Margin="10,0,0,0"/>
-                    <Button Content="DELETE" Command="{Binding DeletePresetCommand}" Foreground="#FF4040" Margin="10,0,0,0" BorderThickness="0" Background="Transparent"/>
+                              Width="150" Height="25" VerticalContentAlignment="Center" Margin="0,0,10,0"/>
+                    <Button Content="SAVE" Command="{Binding SavePresetCommand}" Width="60" Height="25" Background="#202020" BorderBrush="#404040" BorderThickness="1"/>
                 </StackPanel>
             </Grid>
         </Grid>
