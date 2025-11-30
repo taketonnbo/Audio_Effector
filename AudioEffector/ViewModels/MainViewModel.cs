@@ -14,6 +14,7 @@ using System.Windows.Media;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using MediaDevices;
 
 namespace AudioEffector.ViewModels
 {
@@ -50,19 +51,55 @@ namespace AudioEffector.ViewModels
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
 
         // Device Sync Properties
-        public ObservableCollection<DriveInfo> RemovableDrives { get; set; } = new ObservableCollection<DriveInfo>();
+        public enum DeviceType { FileSystem, MTP }
 
-        private DriveInfo _selectedDrive;
-        public DriveInfo SelectedDrive
+        public class DeviceViewModel
         {
-            get => _selectedDrive;
+            public string Name { get; set; } = string.Empty;
+            public DeviceType Type { get; set; }
+            public DriveInfo? Drive { get; set; }
+            public MediaDevice? MtpDevice { get; set; }
+            public string RootPath { get; set; } = string.Empty; // For MTP, this might be device ID or root
+        }
+
+        public ObservableCollection<DeviceViewModel> RemovableDrives { get; set; } = new ObservableCollection<DeviceViewModel>();
+
+        private DeviceViewModel? _selectedDevice;
+        public DeviceViewModel? SelectedDevice
+        {
+            get => _selectedDevice;
             set
             {
-                _selectedDrive = value;
-                OnPropertyChanged();
-                if (_selectedDrive != null)
+                if (_selectedDevice != value)
                 {
-                    LoadDeviceDirectories(_selectedDrive.RootDirectory.FullName);
+                    // Disconnect previous MTP device if applicable
+                    if (_selectedDevice?.Type == DeviceType.MTP && _selectedDevice.MtpDevice != null && _selectedDevice.MtpDevice.IsConnected)
+                    {
+                        try { _selectedDevice.MtpDevice.Disconnect(); } catch { }
+                    }
+
+                    _selectedDevice = value;
+                    OnPropertyChanged();
+
+                    if (_selectedDevice != null)
+                    {
+                        if (_selectedDevice.Type == DeviceType.MTP && _selectedDevice.MtpDevice != null)
+                        {
+                            try
+                            {
+                                _selectedDevice.MtpDevice.Connect();
+                                LoadDeviceDirectories(@"\"); // Root for MTP
+                            }
+                            catch (Exception ex)
+                            {
+                                MessageBox.Show($"Failed to connect to device: {ex.Message}");
+                            }
+                        }
+                        else if (_selectedDevice.Type == DeviceType.FileSystem && _selectedDevice.Drive != null)
+                        {
+                            LoadDeviceDirectories(_selectedDevice.Drive.RootDirectory.FullName);
+                        }
+                    }
                 }
             }
         }
@@ -464,12 +501,41 @@ namespace AudioEffector.ViewModels
         private void RefreshDrives()
         {
             RemovableDrives.Clear();
+
+            // Add File System Drives
             var drives = DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Removable).ToList();
             foreach (var drive in drives)
             {
-                RemovableDrives.Add(drive);
+                RemovableDrives.Add(new DeviceViewModel
+                {
+                    Name = $"{drive.VolumeLabel} ({drive.Name})",
+                    Type = DeviceType.FileSystem,
+                    Drive = drive,
+                    RootPath = drive.RootDirectory.FullName
+                });
             }
-            SelectedDrive = RemovableDrives.FirstOrDefault();
+
+            // Add MTP Devices
+            try
+            {
+                var devices = MediaDevice.GetDevices();
+                foreach (var device in devices)
+                {
+                    RemovableDrives.Add(new DeviceViewModel
+                    {
+                        Name = device.FriendlyName,
+                        Type = DeviceType.MTP,
+                        MtpDevice = device,
+                        RootPath = @"\" // MTP root
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error listing MTP devices: {ex.Message}");
+            }
+
+            SelectedDevice = RemovableDrives.FirstOrDefault();
         }
 
         private void LoadDeviceDirectories(string path)
@@ -479,36 +545,73 @@ namespace AudioEffector.ViewModels
                 DeviceDirectories.Clear();
                 CurrentDevicePath = path;
 
-                if (Directory.Exists(path))
-                {
-                    // Add Directories
-                    var dirs = Directory.GetDirectories(path);
-                    foreach (var dir in dirs)
-                    {
-                        DeviceDirectories.Add(new DirectoryItem
-                        {
-                            Name = Path.GetFileName(dir),
-                            FullPath = dir,
-                            IsFolder = true
-                        });
-                    }
+                if (SelectedDevice == null) return;
 
-                    // Add Files
-                    var files = Directory.GetFiles(path);
-                    foreach (var file in files)
+                if (SelectedDevice.Type == DeviceType.FileSystem)
+                {
+                    if (Directory.Exists(path))
                     {
-                        DeviceDirectories.Add(new DirectoryItem
+                        // Add Directories
+                        var dirs = Directory.GetDirectories(path);
+                        foreach (var dir in dirs)
                         {
-                            Name = Path.GetFileName(file),
-                            FullPath = file,
-                            IsFolder = false
-                        });
+                            DeviceDirectories.Add(new DirectoryItem
+                            {
+                                Name = Path.GetFileName(dir),
+                                FullPath = dir,
+                                IsFolder = true
+                            });
+                        }
+
+                        // Add Files
+                        var files = Directory.GetFiles(path);
+                        foreach (var file in files)
+                        {
+                            DeviceDirectories.Add(new DirectoryItem
+                            {
+                                Name = Path.GetFileName(file),
+                                FullPath = file,
+                                IsFolder = false
+                            });
+                        }
+                    }
+                }
+                else if (SelectedDevice.Type == DeviceType.MTP && SelectedDevice.MtpDevice != null)
+                {
+                    if (SelectedDevice.MtpDevice.IsConnected)
+                    {
+                        // Add Directories
+                        var dirs = SelectedDevice.MtpDevice.GetDirectories(path);
+                        foreach (var dir in dirs)
+                        {
+                            // MTP paths might need adjustment depending on library behavior
+                            // MediaDevices library usually returns full path or name
+                            DeviceDirectories.Add(new DirectoryItem
+                            {
+                                Name = Path.GetFileName(dir), // or dir itself if it's just name
+                                FullPath = dir,
+                                IsFolder = true
+                            });
+                        }
+
+                        // Add Files
+                        var files = SelectedDevice.MtpDevice.GetFiles(path);
+                        foreach (var file in files)
+                        {
+                            DeviceDirectories.Add(new DirectoryItem
+                            {
+                                Name = Path.GetFileName(file),
+                                FullPath = file,
+                                IsFolder = false
+                            });
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error loading directories: {ex.Message}");
+                MessageBox.Show($"Error loading directory: {ex.Message}");
             }
         }
 
@@ -520,27 +623,42 @@ namespace AudioEffector.ViewModels
 
         private void NavigateUp()
         {
-            if (string.IsNullOrEmpty(CurrentDevicePath)) return;
-            var parent = Directory.GetParent(CurrentDevicePath);
-            if (parent != null)
+            if (string.IsNullOrEmpty(CurrentDevicePath) || SelectedDevice == null) return;
+
+            if (SelectedDevice.Type == DeviceType.FileSystem)
             {
-                LoadDeviceDirectories(parent.FullName);
+                var parent = Directory.GetParent(CurrentDevicePath);
+                if (parent != null)
+                {
+                    LoadDeviceDirectories(parent.FullName);
+                }
+            }
+            else if (SelectedDevice.Type == DeviceType.MTP)
+            {
+                // MTP path handling (simple string manipulation for now)
+                // Assuming paths are like \Folder\Subfolder
+                if (CurrentDevicePath == @"\" || CurrentDevicePath == "/") return;
+
+                var parentPath = Path.GetDirectoryName(CurrentDevicePath);
+                if (string.IsNullOrEmpty(parentPath)) parentPath = @"\";
+                LoadDeviceDirectories(parentPath);
             }
         }
 
+
         private async void TransferSelected()
         {
-            if (SelectedDrive == null || SelectedDrive.RootDirectory == null)
+            if (SelectedDevice == null)
             {
-                MessageBox.Show("Please select a device drive first.", "No Device Selected");
+                MessageBox.Show("Please select a device first.", "No Device Selected");
                 return;
             }
 
             // Use current path or root
-            string destinationFolder = !string.IsNullOrEmpty(CurrentDevicePath) ? CurrentDevicePath : SelectedDrive.RootDirectory.FullName;
+            string destinationFolder = !string.IsNullOrEmpty(CurrentDevicePath) ? CurrentDevicePath : SelectedDevice.RootPath;
 
-            // Verify destination is on the selected drive
-            if (!destinationFolder.StartsWith(SelectedDrive.RootDirectory.FullName, StringComparison.OrdinalIgnoreCase))
+            // Verify destination is on the selected drive (FileSystem only check)
+            if (SelectedDevice.Type == DeviceType.FileSystem && !destinationFolder.StartsWith(SelectedDevice.RootPath, StringComparison.OrdinalIgnoreCase))
             {
                 MessageBox.Show("Current folder is not on the selected drive.", "Error");
                 return;
@@ -579,7 +697,36 @@ namespace AudioEffector.ViewModels
             try
             {
                 var progress = new Progress<double>(p => TransferProgress = p);
-                await _deviceSyncService.TransferFilesAsync(filesToTransfer, destinationFolder, progress);
+
+                if (SelectedDevice.Type == DeviceType.FileSystem)
+                {
+                    await _deviceSyncService.TransferFilesAsync(filesToTransfer, destinationFolder, progress);
+                }
+                else if (SelectedDevice.Type == DeviceType.MTP && SelectedDevice.MtpDevice != null)
+                {
+                    await Task.Run(() =>
+                    {
+                        int total = filesToTransfer.Count;
+                        int current = 0;
+                        foreach (var file in filesToTransfer)
+                        {
+                            if (!File.Exists(file)) continue;
+
+                            string fileName = Path.GetFileName(file);
+                            // MTP path separator is usually backslash, but library might handle it.
+                            // Construct destination path.
+                            string destPath = Path.Combine(destinationFolder, fileName);
+
+                            // Upload
+                            // Note: MediaDevices UploadFile takes (localPath, remotePath)
+                            // We might need to ensure destinationFolder is correct for MTP
+                            SelectedDevice.MtpDevice.UploadFile(file, destPath);
+
+                            current++;
+                            ((IProgress<double>)progress).Report((double)current / total * 100);
+                        }
+                    });
+                }
 
                 // Refresh to show new files
                 LoadDeviceDirectories(destinationFolder);

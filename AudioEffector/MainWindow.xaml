@@ -988,7 +988,7 @@
                         <TextBlock Text="CONNECTED DEVICE:" Foreground="#808080" FontSize="12" Margin="0,0,0,5"/>
                         
                         <!-- Device ComboBox -->
-                        <ComboBox ItemsSource="{Binding RemovableDrives}" SelectedItem="{Binding SelectedDrive}" 
+                        <ComboBox ItemsSource="{Binding RemovableDrives}" SelectedItem="{Binding SelectedDevice}" 
                                   Height="30" Margin="0,0,0,10"
                                   Background="#303030" Foreground="White" BorderThickness="0" VerticalContentAlignment="Center" Padding="5,0">
                             <ComboBox.ItemTemplate>
