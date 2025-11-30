@@ -207,7 +207,7 @@ namespace AudioEffector.ViewModels
         public ICommand PreviousCommand { get; }
         public ICommand SavePresetCommand { get; }
         public ICommand DeletePresetCommand { get; }
-        public ICommand ResetCommand { get; }
+        public ICommand ResetPresetCommand { get; }
         public ICommand PlayTrackCommand { get; }
         public ICommand ToggleFavoriteCommand { get; }
         public ICommand ToggleViewCommand { get; }
@@ -301,7 +301,7 @@ namespace AudioEffector.ViewModels
             PreviousCommand = new RelayCommand(o => _audioService.Previous());
             SavePresetCommand = new RelayCommand(SavePreset);
             DeletePresetCommand = new RelayCommand(DeletePreset);
-            ResetCommand = new RelayCommand(Reset);
+            ResetPresetCommand = new RelayCommand(Reset);
             
             PlayTrackCommand = new RelayCommand(o => 
             {

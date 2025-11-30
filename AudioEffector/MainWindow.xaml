@@ -76,6 +76,43 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        
+        <!-- Vertical Slider Style -->
+        <Style x:Key="NeonVerticalSliderStyle" TargetType="Slider">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto" MinHeight="{TemplateBinding MinHeight}"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TickBar x:Name="TopTick" Visibility="Collapsed" Fill="{TemplateBinding Foreground}" Placement="Left" Width="4" Grid.RowSpan="3"/>
+                            <TickBar x:Name="BottomTick" Visibility="Collapsed" Fill="{TemplateBinding Foreground}" Placement="Right" Width="4" Grid.RowSpan="3"/>
+                            <Border x:Name="TrackBackground" Background="#303030" BorderBrush="#303030" BorderThickness="1" CornerRadius="2" Margin="0,5" HorizontalAlignment="Center" Width="4.0" Grid.Row="1"/>
+                            <Track x:Name="PART_Track" Grid.Row="1">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Background="Transparent" BorderThickness="0" Width="4" HorizontalAlignment="Center"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Background="{StaticResource NeonCyanBrush}" Opacity="0.5" BorderThickness="0" Width="4" HorizontalAlignment="Center"/>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Width="10" Height="10" Background="White" BorderBrush="{StaticResource NeonCyanBrush}" BorderThickness="1">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Ellipse Fill="{TemplateBinding Background}" Stroke="{TemplateBinding BorderBrush}" StrokeThickness="1"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
     </Window.Resources>
 
@@ -620,7 +657,7 @@
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
                                     <TextBlock Grid.Row="0" Text="{Binding Label}" HorizontalAlignment="Center" Foreground="#808080" FontSize="10" Margin="0,0,0,10"/>
-                                    <Slider Grid.Row="1" Style="{StaticResource NeonSliderStyle}" Orientation="Vertical" Minimum="-10" Maximum="10" Value="{Binding Gain}" MinHeight="150"/>
+                                    <Slider Grid.Row="1" Style="{StaticResource NeonVerticalSliderStyle}" Orientation="Vertical" Minimum="-10" Maximum="10" Value="{Binding Gain}" MinHeight="150"/>
                                     <Ellipse Grid.Row="1" Width="4" Height="4" Fill="{StaticResource NeonCyanBrush}" VerticalAlignment="Center" Opacity="0.5" IsHitTestVisible="False"/>
                                 </Grid>
                             </DataTemplate>
