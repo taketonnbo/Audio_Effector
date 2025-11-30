@@ -12,11 +12,11 @@ using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("AudioEffector")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("15.9.2.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("15.9.2+1fdbd00285b2f0dcb87996cce06987a499b8f986")]
+[assembly: System.Reflection.AssemblyFileVersionAttribute("15.9.3.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("15.9.3+90873384f4d7d4428cb1852fa9f303377a8c3dc0")]
 [assembly: System.Reflection.AssemblyProductAttribute("AudioEffector")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AudioEffector")]
-[assembly: System.Reflection.AssemblyVersionAttribute("15.9.2.0")]
+[assembly: System.Reflection.AssemblyVersionAttribute("15.9.3.0")]
 [assembly: System.Runtime.Versioning.TargetPlatformAttribute("Windows7.0")]
 [assembly: System.Runtime.Versioning.SupportedOSPlatformAttribute("Windows7.0")]
 
