@@ -332,21 +332,22 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Expander Background="Transparent" BorderThickness="0" Margin="5" Width="130">
+                                <Expander Background="Transparent" BorderThickness="0" Margin="5" Width="140" Padding="0">
                                     <Expander.Header>
-                                        <Grid Width="130" Height="160">
+                                        <Grid Width="140" Height="170" ClipToBounds="False">
                                             <Grid.RowDefinitions>
-                                                <RowDefinition Height="130"/>
+                                                <RowDefinition Height="140"/>
                                                 <RowDefinition Height="Auto"/>
                                                 <RowDefinition Height="Auto"/>
                                             </Grid.RowDefinitions>
-                                            <Border Grid.Row="0" CornerRadius="8" Background="#202020" Margin="5">
+                                            <Border Grid.Row="0" CornerRadius="8" Background="#202020" Margin="5" ClipToBounds="True">
                                                 <Grid>
                                                     <!-- Use AlbumArtLoader attached property -->
                                                     <Image services:AlbumArtLoader.SourcePath="{Binding Tracks[0].FilePath}" Stretch="UniformToFill"/>
                                                     
                                                     <!-- Album Selection CheckBox -->
-                                                    <CheckBox IsChecked="{Binding IsSelected}" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,5,5,0">
+                                                    <CheckBox IsChecked="{Binding IsSelected}" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
+                                                              Panel.ZIndex="10">
                                                         <CheckBox.Style>
                                                             <Style TargetType="CheckBox">
                                                                 <Setter Property="Visibility" Value="Collapsed"/>
@@ -1018,20 +1019,28 @@
 
                         <!-- Folder List -->
                         <ListBox ItemsSource="{Binding DeviceDirectories}" Height="150" Background="#101010" BorderBrush="#303030" Margin="0,0,0,10">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Padding" Value="2"/>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="📁" Foreground="#FFD700" Margin="0,0,5,0" 
-                                                   Visibility="{Binding IsFolder, Converter={StaticResource BoolToVis}}"/>
-                                        <TextBlock Text="📄" Foreground="#AAAAAA" Margin="0,0,5,0" 
-                                                   Visibility="{Binding IsFolder, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
-                                        <TextBlock Text="{Binding Name}" Foreground="White" Padding="2"/>
-                                    </StackPanel>
+                                    <Grid Background="Transparent">
+                                        <Grid.InputBindings>
+                                            <MouseBinding Gesture="LeftDoubleClick" Command="{Binding DataContext.NavigateDirectoryCommand, ElementName=MainWindowRoot}" CommandParameter="{Binding}"/>
+                                        </Grid.InputBindings>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="📁" Foreground="#FFD700" Margin="0,0,5,0" 
+                                                       Visibility="{Binding IsFolder, Converter={StaticResource BoolToVis}}"/>
+                                            <TextBlock Text="📄" Foreground="#AAAAAA" Margin="0,0,5,0" 
+                                                       Visibility="{Binding IsFolder, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
+                                            <TextBlock Text="{Binding Name}" Foreground="White" Padding="2"/>
+                                        </StackPanel>
+                                    </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
-                            <ListBox.InputBindings>
-                                <MouseBinding Gesture="LeftDoubleClick" Command="{Binding DataContext.NavigateDirectoryCommand, ElementName=MainWindowRoot}" CommandParameter="{Binding}"/>
-                            </ListBox.InputBindings>
                         </ListBox>
 
                         <Grid>
