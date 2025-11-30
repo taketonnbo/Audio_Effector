@@ -54,26 +54,6 @@ namespace AudioEffector.Services
             // Default Flat
             defaults.Add(new Preset { Name = "フラット (Flat)", Gains = new List<float>(new float[16]) });
 
-            // Rock (V-shape)
-            var rock = new List<float>();
-            for(int i=0; i<16; i++) 
-            {
-                if(i < 4) rock.Add(4); // Bass boost
-                else if(i > 11) rock.Add(3); // Treble boost
-                else rock.Add(-2); // Mid cut
-            }
-            defaults.Add(new Preset { Name = "ロック (Rock)", Gains = rock });
-
-            // Pop
-            var pop = new List<float>();
-            for(int i=0; i<16; i++) 
-            {
-                if(i < 3) pop.Add(-1);
-                else if(i > 10) pop.Add(-1);
-                else pop.Add(3); // Mid boost
-            }
-            defaults.Add(new Preset { Name = "ポップ (Pop)", Gains = pop });
-
             return defaults;
         }
     }

@@ -42,6 +42,8 @@ namespace AudioEffector.Views
                 InputTextBox.Focus();
                 InputTextBox.SelectAll();
             };
+
+            MouseLeftButtonDown += (s, e) => DragMove();
         }
 
         private void OkButton_Click(object sender, RoutedEventArgs e)

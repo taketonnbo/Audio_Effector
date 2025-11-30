@@ -1,7 +1,7 @@
 <Window x:Class="AudioEffector.Views.InputBox"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Input" Height="150" Width="300" WindowStartupLocation="CenterOwner"
+        Title="Input" Height="150" Width="300" WindowStartupLocation="CenterScreen"
         Background="#101015" Foreground="White" ResizeMode="NoResize" WindowStyle="None">
     <Border BorderBrush="#303040" BorderThickness="1">
         <StackPanel Margin="20">

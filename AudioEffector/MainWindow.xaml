@@ -1,4 +1,5 @@
-﻿<Window x:Class="AudioEffector.MainWindow"
+﻿        
+<Window x:Class="AudioEffector.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -6,8 +7,10 @@
         xmlns:local="clr-namespace:AudioEffector"
         xmlns:vm="clr-namespace:AudioEffector.ViewModels"
         mc:Ignorable="d"
-        Title="Audio Effector" Height="700" Width="1100"
-        Background="#050510" Foreground="White">
+        Title="Audio Effector" Height="650" Width="1000"
+        Icon="pack://application:,,,/Audio_Effector_icon_1.0.1.ico"
+        Background="#1E1E1E"
+        WindowStartupLocation="CenterScreen">
     <Window.DataContext>
         <vm:MainViewModel/>
     </Window.DataContext>

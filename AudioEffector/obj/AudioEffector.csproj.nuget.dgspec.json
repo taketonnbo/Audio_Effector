@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "c:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj": {}
+    "C:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj": {}
   },
   "projects": {
-    "c:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj": {
-      "version": "14.2.0",
+    "C:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj": {
+      "version": "15.1.0",
       "restore": {
-        "projectUniqueName": "c:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj",
+        "projectUniqueName": "C:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj",
         "projectName": "AudioEffector",
-        "projectPath": "c:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj",
+        "projectPath": "C:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj",
         "packagesPath": "C:\\Users\\tnish\\.nuget\\packages\\",
-        "outputPath": "c:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\obj\\",
+        "outputPath": "C:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\tnish\\AppData\\Roaming\\NuGet\\NuGet.Config"

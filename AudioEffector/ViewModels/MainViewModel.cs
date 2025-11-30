@@ -335,7 +335,20 @@ namespace AudioEffector.ViewModels
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
 
+            PlaylistTracks.CollectionChanged += OnPlaylistTracksChanged;
+
             LoadLibrary();
+        }
+
+        private void OnPlaylistTracksChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        {
+            // If we are currently playing/viewing this playlist, sync with AudioService
+            if (IsPlaylistTracksVisible)
+            {
+                // Use a slight delay or debounce if frequent updates occur, but for now direct update is fine
+                // as SetPlaylist is relatively cheap (just list replacement)
+                _audioService.SetPlaylist(PlaylistTracks.ToList());
+            }
         }
 
         private void SortLibrary()
@@ -434,6 +447,7 @@ namespace AudioEffector.ViewModels
                                      .ToList();
 
                 var tracks = new List<Track>();
+                var albumArtCache = new Dictionary<string, BitmapImage>();
                 foreach (var file in files)
                 {
                     var track = new Track { FilePath = file, Title = Path.GetFileNameWithoutExtension(file) };
@@ -460,23 +474,38 @@ namespace AudioEffector.ViewModels
                             
                             if (tfile.Tag.Pictures.Length > 0)
                             {
-                                var bin = tfile.Tag.Pictures[0].Data.Data;
-                                Application.Current.Dispatcher.Invoke(() =>
+                                string cacheKey = $"{track.Artist}|{track.Album}";
+                                
+                                if (albumArtCache.TryGetValue(cacheKey, out var cachedImage))
                                 {
-                                    var image = new BitmapImage();
-                                    using (var mem = new MemoryStream(bin))
+                                    track.CoverImage = cachedImage;
+                                }
+                                else
+                                {
+                                    var bin = tfile.Tag.Pictures[0].Data.Data;
+                                    Application.Current.Dispatcher.Invoke(() =>
                                     {
-                                        mem.Position = 0;
-                                        image.BeginInit();
-                                        image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                                        image.CacheOption = BitmapCacheOption.OnLoad;
-                                        image.UriSource = null;
-                                        image.StreamSource = mem;
-                                        image.EndInit();
+                                        var image = new BitmapImage();
+                                        using (var mem = new MemoryStream(bin))
+                                        {
+                                            mem.Position = 0;
+                                            image.BeginInit();
+                                            image.DecodePixelWidth = 300; // Reduce memory usage
+                                            image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                                            image.CacheOption = BitmapCacheOption.OnLoad;
+                                            image.UriSource = null;
+                                            image.StreamSource = mem;
+                                            image.EndInit();
+                                        }
+                                        image.Freeze();
+                                        track.CoverImage = image;
+                                    });
+
+                                    if (track.CoverImage != null)
+                                    {
+                                        albumArtCache[cacheKey] = track.CoverImage;
                                     }
-                                    image.Freeze();
-                                    track.CoverImage = image;
-                                });
+                                }
                             }
                         }
                     }
@@ -800,11 +829,28 @@ namespace AudioEffector.ViewModels
         {
             if (SelectedPreset != null && Presets.Contains(SelectedPreset))
             {
+                // Prevent deletion of default presets
+                var defaultPresets = new[] { "フラット (Flat)", "ロック (Rock)", "ポップ (Pop)" };
+                if (defaultPresets.Contains(SelectedPreset.Name))
+                {
+                    MessageBox.Show($"'{SelectedPreset.Name}' is a default preset and cannot be deleted.", "Cannot Delete", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
                 if (MessageBox.Show($"Are you sure you want to delete '{SelectedPreset.Name}'?", "Delete Preset", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
                 {
-                    Presets.Remove(SelectedPreset);
-                    _presetService.SavePresets(Presets.ToList());
-                    SelectedPreset = Presets.FirstOrDefault();
+                    try
+                    {
+                        Presets.Remove(SelectedPreset);
+                        _presetService.SavePresets(Presets.ToList());
+                        SelectedPreset = Presets.FirstOrDefault();
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error saving presets: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        // Optionally reload presets to ensure UI is in sync with file
+                        // Presets = new ObservableCollection<Preset>(_presetService.LoadPresets());
+                    }
                 }
             }
         }

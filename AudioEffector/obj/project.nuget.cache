@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "54X/lFK+/7I=",
+  "dgSpecHash": "fXPZ6D/Qwl4=",
   "success": true,
-  "projectFilePath": "c:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj",
+  "projectFilePath": "C:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\tnish\\.nuget\\packages\\microsoft.netcore.platforms\\3.1.0\\microsoft.netcore.platforms.3.1.0.nupkg.sha512",
     "C:\\Users\\tnish\\.nuget\\packages\\microsoft.win32.registry\\4.7.0\\microsoft.win32.registry.4.7.0.nupkg.sha512",

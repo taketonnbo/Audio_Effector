@@ -4,15 +4,15 @@
 winexe
 C#
 .cs
-c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\
+C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\
 AudioEffector
 none
 false
 TRACE;RELEASE;NET;NET8_0;NETCOREAPP
-c:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\App.xaml
+C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\App.xaml
 32066067181
 
-22-973526972
+23-426842786
 2141474958722
 MainWindow.xaml;Views\InputBox.xaml;Views\PlaylistSelectionDialog.xaml;
 

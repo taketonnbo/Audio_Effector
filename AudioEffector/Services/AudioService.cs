@@ -17,7 +17,9 @@ namespace AudioEffector.Services
         private int _currentIndex = -1;
         private bool _isShuffleEnabled;
         private bool _wasPlayingBeforeSeek = false;
+
         private bool _stopRequested;
+        private readonly object _lock = new object();
 
         public event Action<Track> TrackChanged;
         public event Action<bool> PlaybackStateChanged;
@@ -34,16 +36,19 @@ namespace AudioEffector.Services
             get => _isShuffleEnabled;
             set
             {
-                if (_isShuffleEnabled != value)
+                lock (_lock)
                 {
-                    _isShuffleEnabled = value;
-                    if (_isShuffleEnabled)
+                    if (_isShuffleEnabled != value)
                     {
-                        ShufflePlaylist();
-                    }
-                    else
-                    {
-                        RestorePlaylist();
+                        _isShuffleEnabled = value;
+                        if (_isShuffleEnabled)
+                        {
+                            ShufflePlaylist();
+                        }
+                        else
+                        {
+                            RestorePlaylist();
+                        }
                     }
                 }
             }
@@ -53,16 +58,39 @@ namespace AudioEffector.Services
 
         public void SetPlaylist(List<Track> tracks)
         {
-            _originalPlaylist = new List<Track>(tracks);
-            if (_isShuffleEnabled)
+            lock (_lock)
             {
-                ShufflePlaylist();
+                // Capture current track before updating
+                var currentTrack = _currentIndex >= 0 && _currentIndex < _playlist.Count ? _playlist[_currentIndex] : null;
+
+                _originalPlaylist = new List<Track>(tracks);
+                if (_isShuffleEnabled)
+                {
+                    ShufflePlaylist();
+                }
+                else
+                {
+                    _playlist = new List<Track>(tracks);
+                }
+
+                // Restore index if current track still exists
+                if (currentTrack != null)
+                {
+                    var newIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
+                    if (newIndex >= 0)
+                    {
+                        _currentIndex = newIndex;
+                    }
+                    else
+                    {
+                        _currentIndex = -1; // Track removed
+                    }
+                }
+                else
+                {
+                    _currentIndex = -1;
+                }
             }
-            else
-            {
-                _playlist = new List<Track>(tracks);
-            }
-            _currentIndex = -1;
         }
 
         private void ShufflePlaylist()
@@ -119,32 +147,56 @@ namespace AudioEffector.Services
 
         private void PlayCurrent()
         {
-            if (_currentIndex < 0 || _currentIndex >= _playlist.Count) return;
-
-            // Stop explicitly without triggering Next
-            Stop(true);
-
-            var track = _playlist[_currentIndex];
-            try
+            lock (_lock)
             {
-                _audioFile = new AudioFileReader(track.FilePath);
-                
-                // Setup EQ
-                _equalizer = new Equalizer(_audioFile, Frequencies);
+                if (_currentIndex < 0 || _currentIndex >= _playlist.Count) return;
 
-                _outputDevice = new WaveOutEvent();
-                _outputDevice.Init(_equalizer);
-                _outputDevice.PlaybackStopped += OnPlaybackStopped;
-                
-                TrackChanged?.Invoke(track);
-                _outputDevice.Play();
-                PlaybackStateChanged?.Invoke(true);
+                // Stop explicitly without triggering Next
+                Stop(true);
+
+                var track = _playlist[_currentIndex];
+                try
+                {
+                    _audioFile = new AudioFileReader(track.FilePath);
+                    
+                    // Setup EQ
+                    _equalizer = new Equalizer(_audioFile, Frequencies);
+
+                    // Wrap with EndOfStreamProvider to detect end of playback reliably
+                    var endOfStreamProvider = new EndOfStreamProvider(_equalizer);
+                    endOfStreamProvider.EndOfStream += OnEndOfStream;
+
+                    _outputDevice = new WaveOutEvent();
+                    _outputDevice.Init(endOfStreamProvider);
+                    _outputDevice.PlaybackStopped += OnPlaybackStopped;
+                    
+                    TrackChanged?.Invoke(track);
+                    _outputDevice.Play();
+                    PlaybackStateChanged?.Invoke(true);
+                }
+                catch (Exception ex)
+                {
+                    // Handle error (e.g. file not found)
+                    System.Diagnostics.Debug.WriteLine($"Error playing file: {ex.Message}");
+                    // Ensure cleanup if initialization fails
+                    Stop(true);
+                }
             }
-            catch (Exception ex)
+        }
+
+        private void OnEndOfStream()
+        {
+            // Trigger Next() when the stream ends (0 bytes read)
+            // Run asynchronously to avoid blocking the audio thread
+            Task.Run(() => 
             {
-                // Handle error (e.g. file not found)
-                System.Diagnostics.Debug.WriteLine($"Error playing file: {ex.Message}");
-            }
+                // Add a small delay to allow the last buffer to play out
+                // WaveOutEvent has latency, so immediate stop might cut the tail.
+                // However, since the user reported "stops before end", immediate next might be better.
+                // But let's give it 500ms to be safe.
+                System.Threading.Thread.Sleep(500);
+                Next();
+            });
         }
 
         private void OnPlaybackStopped(object sender, StoppedEventArgs e)
@@ -159,8 +211,15 @@ namespace AudioEffector.Services
 
             if (e.Exception == null)
             {
-                // Natural end of track, play next
-                Next();
+                // Natural end of track, play next asynchronously to avoid disposing active device in event handler
+                // Note: If OnEndOfStream triggered Next(), this might be redundant or race.
+                // But Next() handles re-entrancy by checking state or just starting next.
+                // If OnEndOfStream already called Next(), _stopRequested might be true (from Stop(true) in PlayCurrent),
+                // so the check at the top of this method would catch it.
+                Task.Run(() => 
+                {
+                    Next();
+                });
             }
             else
             {
@@ -172,25 +231,38 @@ namespace AudioEffector.Services
 
         public void TogglePlayPause()
         {
-            if (_outputDevice == null) 
+            lock (_lock)
             {
-                if (_playlist.Any() && _currentIndex == -1)
+                if (_outputDevice == null) 
                 {
-                    _currentIndex = 0;
-                    PlayCurrent();
+                    if (_playlist.Any() && _currentIndex == -1)
+                    {
+                        _currentIndex = 0;
+                        PlayCurrent();
+                    }
+                    return;
                 }
-                return;
-            }
 
-            if (_outputDevice.PlaybackState == PlaybackState.Playing)
-            {
-                _outputDevice.Pause();
-                PlaybackStateChanged?.Invoke(false);
-            }
-            else
-            {
-                _outputDevice.Play();
-                PlaybackStateChanged?.Invoke(true);
+                try
+                {
+                    if (_outputDevice.PlaybackState == PlaybackState.Playing)
+                    {
+                        _outputDevice.Pause();
+                        PlaybackStateChanged?.Invoke(false);
+                    }
+                    else
+                    {
+                        _outputDevice.Play();
+                        PlaybackStateChanged?.Invoke(true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error in TogglePlayPause: {ex.Message}");
+                    // If device is in bad state, stop and cleanup
+                    Stop(true);
+                    PlaybackStateChanged?.Invoke(false);
+                }
             }
         }
 
@@ -236,32 +308,38 @@ namespace AudioEffector.Services
 
         public void Stop(bool internalStop = false)
         {
-            if (internalStop) _stopRequested = true;
+            lock (_lock)
+            {
+                if (internalStop) _stopRequested = true;
 
-            if (_outputDevice != null)
-            {
-                _outputDevice.Stop();
-                _outputDevice.Dispose();
-                _outputDevice = null;
-            }
-            if (_audioFile != null)
-            {
-                _audioFile.Dispose();
-                _audioFile = null;
-            }
-            
-            if (!internalStop)
-            {
-                PlaybackStateChanged?.Invoke(false);
+                if (_outputDevice != null)
+                {
+                    _outputDevice.Stop();
+                    _outputDevice.Dispose();
+                    _outputDevice = null;
+                }
+                if (_audioFile != null)
+                {
+                    _audioFile.Dispose();
+                    _audioFile = null;
+                }
+                
+                if (!internalStop)
+                {
+                    PlaybackStateChanged?.Invoke(false);
+                }
             }
         }
 
         public void SeekTo(double percentage)
         {
-            if (_audioFile != null)
+            lock (_lock)
             {
-                long position = (long)(_audioFile.Length * (percentage / 100));
-                _audioFile.Position = position;
+                if (_audioFile != null)
+                {
+                    long position = (long)(_audioFile.Length * (percentage / 100));
+                    _audioFile.Position = position;
+                }
             }
         }
 
@@ -270,29 +348,81 @@ namespace AudioEffector.Services
             _equalizer?.UpdateGain(bandIndex, gain);
         }
 
-        public TimeSpan CurrentTime => _audioFile?.CurrentTime ?? TimeSpan.Zero;
-        public TimeSpan TotalTime => _audioFile?.TotalTime ?? TimeSpan.Zero;
+        public TimeSpan CurrentTime
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _audioFile?.CurrentTime ?? TimeSpan.Zero;
+                }
+            }
+        }
+
+        public TimeSpan TotalTime
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _audioFile?.TotalTime ?? TimeSpan.Zero;
+                }
+            }
+        }
 
         public void PauseForSeek()
         {
-            _wasPlayingBeforeSeek = IsPlaying;
-            if (_wasPlayingBeforeSeek)
+            lock (_lock)
             {
-                _outputDevice?.Pause();
+                _wasPlayingBeforeSeek = IsPlaying;
+                if (_wasPlayingBeforeSeek)
+                {
+                    _outputDevice?.Pause();
+                }
             }
         }
 
         public void ResumeAfterSeek()
         {
-            if (_wasPlayingBeforeSeek && _outputDevice != null)
+            lock (_lock)
             {
-                _outputDevice.Play();
+                if (_wasPlayingBeforeSeek && _outputDevice != null)
+                {
+                    _outputDevice.Play();
+                }
             }
         }
 
         public void Dispose()
         {
             Stop();
+        }
+    }
+
+    // Helper class to detect end of stream
+    public class EndOfStreamProvider : ISampleProvider
+    {
+        private readonly ISampleProvider _source;
+        private bool _endReached;
+
+        public event Action EndOfStream;
+
+        public EndOfStreamProvider(ISampleProvider source)
+        {
+            _source = source;
+        }
+
+        public WaveFormat WaveFormat => _source.WaveFormat;
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int read = _source.Read(buffer, offset, count);
+            if (read == 0 && !_endReached)
+            {
+                _endReached = true;
+                EndOfStream?.Invoke();
+            }
+            return read;
         }
     }
 }
