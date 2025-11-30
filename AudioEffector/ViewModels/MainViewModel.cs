@@ -518,6 +518,7 @@ namespace AudioEffector.ViewModels
                             track.Album = tfile.Tag.Album ?? "Unknown Album";
                             track.Duration = tfile.Properties.Duration;
                             track.Year = tfile.Tag.Year;
+                            track.TrackNumber = tfile.Tag.Track;
                             
                             track.Bitrate = tfile.Properties.AudioBitrate;
                             track.SampleRate = tfile.Properties.AudioSampleRate;
@@ -555,7 +556,7 @@ namespace AudioEffector.ViewModels
                             Title = g.Key,
                             Artist = g.First().Artist,
                             CoverImage = null, // Will be loaded by UI
-                            Tracks = g.ToList(),
+                            Tracks = g.OrderBy(t => t.TrackNumber).ThenBy(t => t.Title).ToList(),
                             Year = albumYear
                         });
                     }

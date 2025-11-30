@@ -13,6 +13,7 @@ namespace AudioEffector.Models
         public TimeSpan Duration { get; set; }
         public bool IsFavorite { get; set; }
         public uint Year { get; set; }
+        public uint TrackNumber { get; set; }
         public int Bitrate { get; set; }
         public int SampleRate { get; set; }
         public int BitsPerSample { get; set; }
