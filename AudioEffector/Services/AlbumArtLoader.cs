@@ -86,23 +86,21 @@ namespace AudioEffector.Services
                         if (tfile.Tag.Pictures.Length > 0)
                         {
                             var bin = tfile.Tag.Pictures[0].Data.Data;
-                            return Application.Current.Dispatcher.Invoke(() =>
+                            
+                            var image = new BitmapImage();
+                            using (var mem = new MemoryStream(bin))
                             {
-                                var image = new BitmapImage();
-                                using (var mem = new MemoryStream(bin))
-                                {
-                                    mem.Position = 0;
-                                    image.BeginInit();
-                                    image.DecodePixelWidth = 150; // Thumbnail size
-                                    image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                                    image.CacheOption = BitmapCacheOption.OnLoad;
-                                    image.UriSource = null;
-                                    image.StreamSource = mem;
-                                    image.EndInit();
-                                }
-                                image.Freeze();
-                                return image;
-                            });
+                                mem.Position = 0;
+                                image.BeginInit();
+                                image.DecodePixelWidth = 150; // Thumbnail size
+                                image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                                image.CacheOption = BitmapCacheOption.OnLoad;
+                                image.UriSource = null;
+                                image.StreamSource = mem;
+                                image.EndInit();
+                            }
+                            image.Freeze();
+                            return image;
                         }
                     }
                 }

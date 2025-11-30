@@ -502,8 +502,9 @@ namespace AudioEffector.ViewModels
                                      .ToList();
 
                 // _albumArtCache is no longer used here for bulk loading
-                var tracks = new List<Track>();
-                foreach (var file in files)
+                var tracks = new System.Collections.Concurrent.ConcurrentBag<Track>();
+                
+                Parallel.ForEach(files, file =>
                 {
                     var track = new Track { FilePath = file, Title = Path.GetFileNameWithoutExtension(file) };
                     uint year = 0;
@@ -539,7 +540,7 @@ namespace AudioEffector.ViewModels
                     }
 
                     tracks.Add(track);
-                }
+                });
 
                 Application.Current.Dispatcher.Invoke(() =>
                 {
@@ -559,7 +560,7 @@ namespace AudioEffector.ViewModels
                         });
                     }
                     SortLibrary();
-                    _audioService.SetPlaylist(tracks);
+                    _audioService.SetPlaylist(tracks.ToList());
                 });
             });
 

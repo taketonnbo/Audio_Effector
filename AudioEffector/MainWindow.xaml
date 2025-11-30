@@ -620,7 +620,7 @@
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
                                     <TextBlock Grid.Row="0" Text="{Binding Label}" HorizontalAlignment="Center" Foreground="#808080" FontSize="10" Margin="0,0,0,10"/>
-                                    <Slider Grid.Row="1" Style="{StaticResource NeonSliderStyle}" Minimum="-10" Maximum="10" Value="{Binding Gain}" MinHeight="150"/>
+                                    <Slider Grid.Row="1" Style="{StaticResource NeonSliderStyle}" Orientation="Vertical" Minimum="-10" Maximum="10" Value="{Binding Gain}" MinHeight="150"/>
                                     <Ellipse Grid.Row="1" Width="4" Height="4" Fill="{StaticResource NeonCyanBrush}" VerticalAlignment="Center" Opacity="0.5" IsHitTestVisible="False"/>
                                 </Grid>
                             </DataTemplate>
