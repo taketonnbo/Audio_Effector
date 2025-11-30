@@ -255,14 +255,23 @@
                                 <Expander.Header>
                                     <Grid Width="250">
                                         <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="50"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Grid.Column="0" Width="40" Height="40" CornerRadius="4" Background="#202020">
+                                        
+                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                                  Visibility="{Binding DataContext.IsDeviceSyncVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}">
+                                            <CheckBox.LayoutTransform>
+                                                <ScaleTransform ScaleX="1.2" ScaleY="1.2"/>
+                                            </CheckBox.LayoutTransform>
+                                        </CheckBox>
+
+                                        <Border Grid.Column="1" Width="40" Height="40" CornerRadius="4" Background="#202020">
                                             <!-- Use AlbumArtLoader attached property -->
                                             <Image services:AlbumArtLoader.SourcePath="{Binding Tracks[0].FilePath}" Stretch="UniformToFill"/>
                                         </Border>
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0">
                                             <TextBlock Text="{Binding Title}" Foreground="White" FontSize="14" TextTrimming="CharacterEllipsis"/>
                                             <TextBlock Text="{Binding Artist}" Foreground="#808080" FontSize="11" TextTrimming="CharacterEllipsis"/>
                                         </StackPanel>
@@ -628,29 +637,261 @@
                         </Button>
                     </StackPanel>
                 </Grid>
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="LOADING..." Foreground="{StaticResource NeonCyanBrush}" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center"/>
+                    <!-- Simple spinner animation could be added here, using text for now -->
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+
+        <!-- GridSplitter (Vertical) -->
+        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="#202020"/>
+
+        <!-- Right Column: Player & EQ -->
+        <Grid Grid.Column="2" Background="#050510">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/> <!-- Top Section (Now Playing + Controls) -->
+                <RowDefinition Height="Auto"/> <!-- Splitter -->
+                <RowDefinition Height="*"/> <!-- Bottom Section (EQ + Presets) -->
+            </Grid.RowDefinitions>
+
+            <!-- Top Section: Now Playing + Controls -->
+            <Grid Grid.Row="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" MinHeight="100"/> <!-- Now Playing Info (Flexible) -->
+                    <RowDefinition Height="60"/> <!-- Controls (Fixed Height) -->
+                </Grid.RowDefinitions>
+
+                <!-- Now Playing Info -->
+                <Grid Grid.Row="0" Margin="20">
+                    <Border Background="#101020" CornerRadius="10" BorderBrush="#303040" BorderThickness="1">
+                        <Grid Margin="20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" MinWidth="120"/> <!-- Flexible Image Column, MaxWidth removed -->
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <!-- Large Cover Art (Flexible) -->
+                            <Border Grid.Column="0" CornerRadius="4" Background="#000" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
+                                <Image Source="{Binding NowPlayingImage}" Stretch="Uniform"/>
+                            </Border>
+                            
+                            <!-- Info & Progress -->
+                            <Grid Grid.Column="1" Margin="20,0,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" FontSize="24" Foreground="White" FontFamily="Segoe UI Light" TextTrimming="CharacterEllipsis"/>
+                                    
+                                    <!-- Add to Playlist Button -->
+                                    <Button Grid.Column="1" Command="{Binding ShowAddToPlaylistDialogCommand}" 
+                                            CommandParameter="{Binding CurrentTrack}"
+                                            ToolTip="Add to Playlist"
+                                            Background="Transparent" BorderThickness="0" Padding="0" Margin="10,0,0,0">
+                                        <Path Data="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" 
+                                              Fill="#00FFFF" Width="24" Height="24" Stretch="Uniform"/>
+                                    </Button>
+
+                                    <Button Grid.Column="2" Command="{Binding ToggleFavoriteCommand}" Margin="10,0,0,0">
+                                        <Path Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
+                                              Width="24" Height="24" Stretch="Uniform">
+                                            <Path.Style>
+                                                <Style TargetType="Path">
+                                                    <Setter Property="Fill" Value="#404040"/> <!-- Default gray -->
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CurrentTrack.IsFavorite}" Value="True">
+                                                            <Setter Property="Fill" Value="#FF4081"/> <!-- Pink when favorite -->
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Path.Style>
+                                        </Path>
+                                    </Button>
+                                    
+                                </Grid>
+                                
+                                <TextBlock Grid.Row="1" Text="{Binding CurrentTrack.Artist, FallbackValue=''}" FontSize="16" Foreground="#AAAAAA" Margin="0,5,0,0" TextTrimming="CharacterEllipsis"/>
+                                
+                                <!-- Quality Info -->
+                                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,5,0,0">
+                                    <Border Background="#202020" CornerRadius="3" Padding="6,2" Margin="0,0,8,0" VerticalAlignment="Center">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CurrentTrack.QualityLabel}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding CurrentTrack.QualityLabel}" Value="{x:Null}">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding CurrentTrack.QualityLabel}" FontSize="10" Foreground="#FFD700" FontWeight="Bold"/>
+                                    </Border>
+                                    <TextBlock Text="{Binding CurrentTrack.QualityInfo}" FontSize="11" Foreground="#666666" VerticalAlignment="Center" FontFamily="Consolas"/>
+                                </StackPanel>
+                                
+                                <!-- Seek Bar -->
+                                <Grid Grid.Row="3" VerticalAlignment="Bottom">
+                                    <Slider Value="{Binding Progress, Mode=TwoWay}" Maximum="100" Height="20" VerticalAlignment="Center" 
+                                            IsMoveToPointEnabled="True"
+                                            Thumb.DragStarted="Slider_DragStarted"
+                                            Thumb.DragCompleted="Slider_DragCompleted">
+                                    </Slider>
+                                    <Grid Margin="0,15,0,0">
+                                        <TextBlock Text="{Binding CurrentTimeDisplay}" HorizontalAlignment="Left" Foreground="#606060" FontSize="12"/>
+                                        <TextBlock Text="{Binding TotalTimeDisplay}" HorizontalAlignment="Right" Foreground="#606060" FontSize="12"/>
+                                    </Grid>
+                                </Grid>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- Playback Controls (Attached to Now Playing) -->
+                <Grid Grid.Row="1" Margin="0,0,0,10" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Center Controls -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+                        <!-- Shuffle -->
+                        <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Margin="0,0,20,0" Background="Transparent" BorderThickness="0">
+                             <Path Data="M10.59,9.17L5.41,4L4,5.41L9.17,10.58L10.59,9.17M14.5,4L16.54,6.04L4,18.59L5.41,20L17.96,7.46L20,9.5V4M14.83,13.41L13.42,14.83L16.55,17.96L14.5,20H20V14.5L17.96,16.54" 
+                                   Width="20" Height="20" Stretch="Uniform">
+                                 <Path.Style>
+                                    <Style TargetType="Path">
+                                        <Setter Property="Fill" Value="#606060"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsShuffleEnabled}" Value="True">
+                                                <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Path.Style>
+                             </Path>
+                        </ToggleButton>
+
+                        <!-- Repeat -->
+                        <ToggleButton Command="{Binding ToggleRepeatCommand}" IsChecked="{Binding IsAlbumRepeat, Mode=OneWay}" Margin="0,0,20,0" Width="20" Height="20" Background="Transparent" BorderThickness="0">
+                             <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Grid Background="Transparent">
+                                        <Path Data="M7,7h10v3l4-4l-4-4v3H5v6h2V7z M17,17H7v-3l-4,4l4,4v-3h12v-6h-2V17z" Stretch="Uniform" Width="15" Height="15">
+                                            <Path.Style>
+                                                <Style TargetType="Path">
+                                                    <Setter Property="Fill" Value="#606060"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsAlbumRepeat}" Value="True">
+                                                            <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Path.Style>
+                                        </Path>
+                                    </Grid>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+
+                        <!-- Prev -->
+                        <Button Command="{Binding PreviousCommand}" Margin="20,0">
+                            <Path Data="M11,18V6l-8.5,6L11,18z M11.5,12l8.5,6V6L11.5,12z" Fill="{StaticResource NeonCyanBrush}" Width="20" Height="20" Stretch="Uniform"/>
+                        </Button>
+                        
+                        <!-- Play/Pause -->
+                        <Button Command="{Binding TogglePlayPauseCommand}" Width="60" Height="60">
+                            <Grid>
+                                <Ellipse Stroke="{StaticResource NeonCyanBrush}" StrokeThickness="2" Fill="Transparent"/>
+                                <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="White" Width="20" Height="20" Stretch="Uniform" Margin="4,0,0,0"
+                                      Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
+                                <Path Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="White" Width="20" Height="20" Stretch="Uniform"
+                                      Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}"/>
+                            </Grid>
+                        </Button>
+
+                        <!-- Next -->
+                        <Button Command="{Binding NextCommand}" Margin="20,0">
+                            <Path Data="M4,18l8.5-6L4,6V18z M13,6v12l8.5-6L13,6z" Fill="{StaticResource NeonCyanBrush}" Width="20" Height="20" Stretch="Uniform"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
             </Grid>
 
             <!-- Splitter -->
             <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="#202020"/>
 
-            <!-- Bottom Section: EQ + Presets -->
+            <!-- Bottom Section: EQ + Presets + Device Sync -->
             <Grid Grid.Row="2">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="*" MinHeight="50"/> <!-- EQ -->
-                    <RowDefinition Height="Auto"/> <!-- Presets -->
+                    <RowDefinition Height="Auto"/> <!-- Tabs -->
+                    <RowDefinition Height="*"/> <!-- Content -->
                 </Grid.RowDefinitions>
 
-                <!-- EQ Sliders (Resizable Area) -->
-                <Grid Grid.Row="0" Margin="20,0">
-                    <ItemsControl ItemsSource="{Binding Bands}" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <!-- Tabs -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Background="#252525">
+                    <Button Content="EQUALIZER" Command="{Binding SwitchToEqualizerCommand}" Width="150" Height="30" Margin="0">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="Foreground" Value="#808080"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsEqualizerVisible}" Value="True">
+                                        <Setter Property="Background" Value="#303030"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Content="DEVICE SYNC" Command="{Binding SwitchToDeviceSyncCommand}" Width="150" Height="30" Margin="0">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="Foreground" Value="#808080"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDeviceSyncVisible}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource NeonCyanBrush}"/>
+                                        <Setter Property="Foreground" Value="Black"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+
+                <!-- Equalizer View -->
+                <Grid Grid.Row="1" Visibility="{Binding IsEqualizerVisible, Converter={StaticResource BoolToVis}}">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <ItemsControl ItemsSource="{Binding Bands}" Margin="20,10">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal"/>
+                                <UniformGrid Rows="1"/>
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="5,0" Width="35">
+                                <Grid Margin="5,0">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="*"/>
@@ -663,16 +904,82 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <!-- Presets Control -->
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,20">
+                        <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}" DisplayMemberPath="Name" Width="200" Height="30" Margin="0,0,10,0"
+                                  Background="#303030" Foreground="White" BorderThickness="0" VerticalContentAlignment="Center" Padding="10,0">
+                            <ComboBox.Resources>
+                                <Style TargetType="ComboBoxItem">
+                                    <Setter Property="Background" Value="#303030"/>
+                                    <Setter Property="Foreground" Value="White"/>
+                                </Style>
+                            </ComboBox.Resources>
+                        </ComboBox>
+                        <Button Content="SAVE" Command="{Binding SavePresetCommand}" Width="80" Height="30" Margin="0,0,10,0" Background="#404040"/>
+                        <Button Content="RESET" Command="{Binding ResetPresetCommand}" Width="80" Height="30" Margin="0,0,10,0" Background="#404040"/>
+                        <Button Content="DELETE" Command="{Binding DeletePresetCommand}" Width="80" Height="30" Background="#8B0000"/>
+                    </StackPanel>
                 </Grid>
 
-                <!-- Presets -->
-                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,20">
-                    <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}" DisplayMemberPath="Name" 
-                              Width="150" Height="25" VerticalContentAlignment="Center" Margin="0,0,10,0"/>
-                    <Button Content="SAVE" Command="{Binding SavePresetCommand}" Width="60" Height="25" Background="#202020" BorderBrush="#404040" BorderThickness="1" Margin="0,0,5,0"/>
-                    <Button Content="RESET" Command="{Binding ResetPresetCommand}" Width="60" Height="25" Background="#202020" BorderBrush="#404040" BorderThickness="1" Margin="0,0,5,0"/>
-                    <Button Content="DELETE" Command="{Binding DeletePresetCommand}" Width="60" Height="25" Background="#202020" BorderBrush="#404040" BorderThickness="1"/>
-                </StackPanel>
+                <!-- Device Sync View -->
+                <Grid Grid.Row="1" Visibility="{Binding IsDeviceSyncVisible, Converter={StaticResource BoolToVis}}" Margin="20">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Device Selection -->
+                    <StackPanel Grid.Row="0">
+                        <TextBlock Text="CONNECTED DEVICE:" Foreground="#808080" FontSize="12" Margin="0,0,0,5"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ComboBox ItemsSource="{Binding RemovableDrives}" SelectedItem="{Binding SelectedDrive}" DisplayMemberPath="Name" Height="30" 
+                                      Background="#303030" Foreground="White" BorderThickness="0" VerticalContentAlignment="Center" Padding="10,0">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" Margin="0,0,10,0"/>
+                                            <TextBlock Text="{Binding VolumeLabel}" Foreground="#AAAAAA"/>
+                                            <TextBlock Text="{Binding TotalSize, StringFormat=' ({0:N0} bytes)'}" Foreground="#808080" FontSize="10" VerticalAlignment="Center" Margin="5,0,0,0"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button Grid.Column="1" Content="REFRESH" Command="{Binding RefreshDrivesCommand}" Width="80" Height="30" Margin="10,0,0,0" Background="#404040"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Info Area -->
+                    <Border Grid.Row="1" Background="#151515" CornerRadius="5" Margin="0,20">
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <Path Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M11,16.5L18,9.5L16.59,8.09L11,13.67L7.91,10.59L6.5,12L11,16.5Z" 
+                                  Fill="{StaticResource NeonCyanBrush}" Width="48" Height="48" Stretch="Uniform" Opacity="0.2"/>
+                            <TextBlock Text="Select albums from the library on the left." Foreground="#606060" Margin="0,10,0,0" HorizontalAlignment="Center"/>
+                            <TextBlock Text="Checkboxes appear when this tab is active." Foreground="#404040" FontSize="10" Margin="0,5,0,0" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Transfer Controls -->
+                    <StackPanel Grid.Row="2">
+                        <Grid Margin="0,0,0,10" Visibility="{Binding IsTransferring, Converter={StaticResource BoolToVis}}">
+                            <ProgressBar Value="{Binding TransferProgress}" Maximum="100" Height="4" Background="#303030" BorderThickness="0" Foreground="{StaticResource NeonCyanBrush}"/>
+                            <TextBlock Text="{Binding TransferProgress, StringFormat='Transferring: {0:0}%'}" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,6" FontSize="10"/>
+                        </Grid>
+                        
+                        <Button Command="{Binding TransferSelectedCommand}" Height="50" Background="{StaticResource NeonCyanBrush}" IsEnabled="{Binding IsTransferring, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}">
+                            <Grid>
+                                <TextBlock Text="TRANSFER SELECTED" Foreground="Black" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Path Data="M14,2L20,8V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2H14M14,4V8H18L14,4M12,13V18H10V13H7L11,9L15,13H12Z" 
+                                      Fill="Black" Width="20" Height="20" HorizontalAlignment="Right" Margin="0,0,20,0" Opacity="0.5"/>
+                            </Grid>
+                        </Button>
+                    </StackPanel>
+                </Grid>
             </Grid>
         </Grid>
     </Grid>

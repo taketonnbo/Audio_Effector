@@ -24,6 +24,7 @@ namespace AudioEffector.ViewModels
         private readonly FavoriteService _favoriteService;
         private readonly PlaylistService _playlistService;
         private readonly SettingsService _settingsService;
+        private readonly DeviceSyncService _deviceSyncService;
         
         public AudioService AudioService => _audioService; // Public accessor for code-behind
         
@@ -36,6 +37,7 @@ namespace AudioEffector.ViewModels
         private DispatcherTimer _timer;
         private bool _isNowPlayingVisible = true;
         private bool _isEqualizerVisible = true;
+        private bool _isDeviceSyncVisible = false;
         private bool _isLoading;
         private bool _isGridView = true;
         private string _selectedSortOption = "Artist";
@@ -46,6 +48,48 @@ namespace AudioEffector.ViewModels
         private bool _isPlaylistSelectorVisible = false;
         private bool _isPlaylistTracksVisible = false;
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
+
+        // Device Sync Properties
+        public ObservableCollection<DriveInfo> RemovableDrives { get; set; } = new ObservableCollection<DriveInfo>();
+        
+        private DriveInfo _selectedDrive;
+        public DriveInfo SelectedDrive
+        {
+            get => _selectedDrive;
+            set { _selectedDrive = value; OnPropertyChanged(); }
+        }
+
+        private double _transferProgress;
+        public double TransferProgress
+        {
+            get => _transferProgress;
+            set { _transferProgress = value; OnPropertyChanged(); }
+        }
+
+        private bool _isTransferring;
+        public bool IsTransferring
+        {
+            get => _isTransferring;
+            set { _isTransferring = value; OnPropertyChanged(); }
+        }
+
+        public bool IsDeviceSyncVisible
+        {
+            get => _isDeviceSyncVisible;
+            set 
+            { 
+                if (_isDeviceSyncVisible != value)
+                {
+                    _isDeviceSyncVisible = value; 
+                    OnPropertyChanged();
+                    if (value) 
+                    {
+                        IsEqualizerVisible = false;
+                        RefreshDrives();
+                    }
+                }
+            }
+        }
 
         private BitmapImage _nowPlayingImage;
         public BitmapImage NowPlayingImage
@@ -184,7 +228,15 @@ namespace AudioEffector.ViewModels
         public bool IsEqualizerVisible
         {
             get => _isEqualizerVisible;
-            set { _isEqualizerVisible = value; OnPropertyChanged(); }
+            set 
+            { 
+                if (_isEqualizerVisible != value)
+                {
+                    _isEqualizerVisible = value; 
+                    OnPropertyChanged();
+                    if (value) IsDeviceSyncVisible = false;
+                }
+            }
         }
 
         public Preset SelectedPreset
@@ -218,6 +270,12 @@ namespace AudioEffector.ViewModels
         public ICommand ShowLibraryCommand { get; }
         public ICommand ShowPlaylistSelectorCommand { get; }
         public ICommand ShowAddToPlaylistDialogCommand { get; }
+        
+        // Device Sync Commands
+        public ICommand SwitchToDeviceSyncCommand { get; }
+        public ICommand SwitchToEqualizerCommand { get; }
+        public ICommand TransferSelectedCommand { get; }
+        public ICommand RefreshDrivesCommand { get; }
 
         private bool _isAscending = true;
 
@@ -267,6 +325,7 @@ namespace AudioEffector.ViewModels
             _favoriteService = new FavoriteService();
             _playlistService = new PlaylistService();
             _settingsService = new SettingsService();
+            _deviceSyncService = new DeviceSyncService();
             _favoritePaths = _favoriteService.LoadFavorites();
             
             // Load playlists
@@ -341,11 +400,89 @@ namespace AudioEffector.ViewModels
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
             AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
 
+            // Device Sync Command Initialization
+            SwitchToDeviceSyncCommand = new RelayCommand(o => IsDeviceSyncVisible = true);
+            SwitchToEqualizerCommand = new RelayCommand(o => IsEqualizerVisible = true);
+            RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
+            TransferSelectedCommand = new RelayCommand(o => TransferSelected());
+
             _audioService.PlaylistEnded += OnPlaylistEnded;
 
             PlaylistTracks.CollectionChanged += OnPlaylistTracksChanged;
 
             LoadLibrary();
+        }
+
+        private void RefreshDrives()
+        {
+            var drives = _deviceSyncService.GetRemovableDrives();
+            RemovableDrives.Clear();
+            foreach (var drive in drives)
+            {
+                RemovableDrives.Add(drive);
+            }
+            SelectedDrive = RemovableDrives.FirstOrDefault();
+        }
+
+        private async void TransferSelected()
+        {
+            if (SelectedDrive == null)
+            {
+                MessageBox.Show("Please select a target drive/device.", "No Device Selected");
+                return;
+            }
+
+            var selectedAlbums = Albums.Where(a => a.IsSelected).ToList();
+            if (!selectedAlbums.Any())
+            {
+                MessageBox.Show("Please select at least one album to transfer.", "No Albums Selected");
+                return;
+            }
+
+            // Folder Selection Dialog
+            var dialog = new OpenFolderDialog
+            {
+                InitialDirectory = SelectedDrive.RootDirectory.FullName,
+                Title = "Select Destination Folder on Device"
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                string destinationFolder = dialog.FolderName;
+                
+                // Verify the selected folder is actually on the selected drive (optional safety check)
+                if (!destinationFolder.StartsWith(SelectedDrive.RootDirectory.FullName, StringComparison.OrdinalIgnoreCase))
+                {
+                    var result = MessageBox.Show($"The selected folder '{destinationFolder}' does not appear to be on the selected drive '{SelectedDrive.Name}'. Continue anyway?", 
+                        "Drive Mismatch Warning", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    if (result == MessageBoxResult.No) return;
+                }
+
+                IsTransferring = true;
+                TransferProgress = 0;
+
+                var filesToTransfer = new List<string>();
+                foreach (var album in selectedAlbums)
+                {
+                    filesToTransfer.AddRange(album.Tracks.Select(t => t.FilePath));
+                }
+
+                try
+                {
+                    var progress = new Progress<double>(p => TransferProgress = p);
+                    await _deviceSyncService.TransferFilesAsync(filesToTransfer, destinationFolder, progress);
+                    MessageBox.Show("Transfer completed successfully!", "Success");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Transfer failed: {ex.Message}", "Error");
+                }
+                finally
+                {
+                    IsTransferring = false;
+                    TransferProgress = 0;
+                }
+            }
         }
 
         private void OnPlaylistTracksChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
