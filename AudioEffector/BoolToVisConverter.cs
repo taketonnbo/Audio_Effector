@@ -9,9 +9,12 @@ namespace AudioEffector
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            bool b = (bool)value;
-            if (parameter?.ToString() == "Invert") b = !b;
-            return b ? Visibility.Visible : Visibility.Collapsed;
+            if (value is bool b)
+            {
+                if (parameter?.ToString() == "Invert") b = !b;
+                return b ? Visibility.Visible : Visibility.Collapsed;
+            }
+            return Visibility.Collapsed;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
