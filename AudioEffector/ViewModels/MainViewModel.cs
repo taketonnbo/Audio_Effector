@@ -45,6 +45,14 @@ namespace AudioEffector.ViewModels
         private bool _isLibraryVisible = true;
         private bool _isPlaylistSelectorVisible = false;
         private bool _isPlaylistTracksVisible = false;
+        private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
+
+        private BitmapImage _nowPlayingImage;
+        public BitmapImage NowPlayingImage
+        {
+            get => _nowPlayingImage;
+            set { _nowPlayingImage = value; OnPropertyChanged(); }
+        }
 
         public ObservableCollection<BandViewModel> Bands { get; set; }
         public ObservableCollection<Preset> Presets { get; set; }
@@ -374,6 +382,53 @@ namespace AudioEffector.ViewModels
         {
             CurrentTrack = track;
             Progress = 0; // Reset progress when track changes
+
+            // Load high-res image for Now Playing
+            if (track != null && File.Exists(track.FilePath))
+            {
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        using (var tfile = TagLib.File.Create(track.FilePath))
+                        {
+                            if (tfile.Tag.Pictures.Length > 0)
+                            {
+                                var bin = tfile.Tag.Pictures[0].Data.Data;
+                                Application.Current.Dispatcher.Invoke(() =>
+                                {
+                                    var image = new BitmapImage();
+                                    using (var mem = new MemoryStream(bin))
+                                    {
+                                        mem.Position = 0;
+                                        image.BeginInit();
+                                        image.DecodePixelWidth = 500; // Higher quality for Now Playing
+                                        image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                                        image.CacheOption = BitmapCacheOption.OnLoad;
+                                        image.UriSource = null;
+                                        image.StreamSource = mem;
+                                        image.EndInit();
+                                    }
+                                    image.Freeze();
+                                    NowPlayingImage = image;
+                                });
+                            }
+                            else
+                            {
+                                Application.Current.Dispatcher.Invoke(() => NowPlayingImage = null);
+                            }
+                        }
+                    }
+                    catch 
+                    {
+                        Application.Current.Dispatcher.Invoke(() => NowPlayingImage = null);
+                    }
+                });
+            }
+            else
+            {
+                NowPlayingImage = null;
+            }
         }
 
         private void OnPlaybackStateChanged(bool isPlaying)
@@ -447,7 +502,7 @@ namespace AudioEffector.ViewModels
                                      .ToList();
 
                 var tracks = new List<Track>();
-                var albumArtCache = new Dictionary<string, BitmapImage>();
+                // _albumArtCache is now class-level
                 foreach (var file in files)
                 {
                     var track = new Track { FilePath = file, Title = Path.GetFileNameWithoutExtension(file) };
@@ -476,7 +531,7 @@ namespace AudioEffector.ViewModels
                             {
                                 string cacheKey = $"{track.Artist}|{track.Album}";
                                 
-                                if (albumArtCache.TryGetValue(cacheKey, out var cachedImage))
+                                if (_albumArtCache.TryGetValue(cacheKey, out var cachedImage))
                                 {
                                     track.CoverImage = cachedImage;
                                 }
@@ -490,7 +545,7 @@ namespace AudioEffector.ViewModels
                                         {
                                             mem.Position = 0;
                                             image.BeginInit();
-                                            image.DecodePixelWidth = 300; // Reduce memory usage
+                                            image.DecodePixelWidth = 150; // Reduce memory usage further for thumbnails
                                             image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
                                             image.CacheOption = BitmapCacheOption.OnLoad;
                                             image.UriSource = null;
@@ -503,7 +558,7 @@ namespace AudioEffector.ViewModels
 
                                     if (track.CoverImage != null)
                                     {
-                                        albumArtCache[cacheKey] = track.CoverImage;
+                                        _albumArtCache[cacheKey] = track.CoverImage;
                                     }
                                 }
                             }
@@ -1023,14 +1078,25 @@ namespace AudioEffector.ViewModels
                 // Load cover art
                 if (tagFile.Tag.Pictures.Length > 0)
                 {
-                    var bin = tagFile.Tag.Pictures[0].Data.Data;
-                    var bitmap = new BitmapImage();
-                    bitmap.BeginInit();
-                    bitmap.StreamSource = new MemoryStream(bin);
-                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                    bitmap.EndInit();
-                    bitmap.Freeze();
-                    track.CoverImage = bitmap;
+                    string cacheKey = $"{track.Artist}|{track.Album}";
+                    if (_albumArtCache.TryGetValue(cacheKey, out var cachedImage))
+                    {
+                        track.CoverImage = cachedImage;
+                    }
+                    else
+                    {
+                        var bin = tagFile.Tag.Pictures[0].Data.Data;
+                        var bitmap = new BitmapImage();
+                        bitmap.BeginInit();
+                        bitmap.StreamSource = new MemoryStream(bin);
+                        bitmap.DecodePixelWidth = 150; // Reduce memory usage
+                        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                        bitmap.EndInit();
+                        bitmap.Freeze();
+                        track.CoverImage = bitmap;
+                        
+                        _albumArtCache[cacheKey] = bitmap;
+                    }
                 }
 
                 // Set quality information

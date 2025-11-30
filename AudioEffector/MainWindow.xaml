@@ -382,7 +382,7 @@
                             
                             <!-- Large Cover Art (Flexible) -->
                             <Border Grid.Column="0" CornerRadius="4" Background="#000" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
-                                <Image Source="{Binding CurrentTrack.CoverImage}" Stretch="Uniform"/>
+                                <Image Source="{Binding NowPlayingImage}" Stretch="Uniform"/>
                             </Border>
                             
                             <!-- Info & Progress -->
