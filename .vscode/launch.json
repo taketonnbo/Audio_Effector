@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": ".NET WPF Launch",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            // 変更点1: exeを直接指定します
+            "program": "${workspaceFolder}/AudioEffector/bin/Debug/net8.0-windows/AudioEffector.exe",
+            // 変更点2: 引数は空にします
+            "args": [],
+            "cwd": "${workspaceFolder}/AudioEffector/bin/Debug/net8.0-windows",
+            "stopAtEntry": false,
+            "console": "internalConsole"
+        }
+    ]
+}

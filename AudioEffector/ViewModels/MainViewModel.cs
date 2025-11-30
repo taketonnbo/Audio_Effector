@@ -25,9 +25,9 @@ namespace AudioEffector.ViewModels
         private readonly PlaylistService _playlistService;
         private readonly SettingsService _settingsService;
         private readonly DeviceSyncService _deviceSyncService;
-        
+
         public AudioService AudioService => _audioService; // Public accessor for code-behind
-        
+
         private Preset _selectedPreset;
         private Track _currentTrack;
         private bool _isPlaying;
@@ -51,12 +51,20 @@ namespace AudioEffector.ViewModels
 
         // Device Sync Properties
         public ObservableCollection<DriveInfo> RemovableDrives { get; set; } = new ObservableCollection<DriveInfo>();
-        
+
         private DriveInfo _selectedDrive;
         public DriveInfo SelectedDrive
         {
             get => _selectedDrive;
-            set { _selectedDrive = value; OnPropertyChanged(); }
+            set
+            {
+                _selectedDrive = value;
+                OnPropertyChanged();
+                if (_selectedDrive != null)
+                {
+                    LoadDeviceDirectories(_selectedDrive.RootDirectory.FullName);
+                }
+            }
         }
 
         private double _transferProgress;
@@ -76,13 +84,13 @@ namespace AudioEffector.ViewModels
         public bool IsDeviceSyncVisible
         {
             get => _isDeviceSyncVisible;
-            set 
-            { 
+            set
+            {
                 if (_isDeviceSyncVisible != value)
                 {
-                    _isDeviceSyncVisible = value; 
+                    _isDeviceSyncVisible = value;
                     OnPropertyChanged();
-                    if (value) 
+                    if (value)
                     {
                         IsEqualizerVisible = false;
                         RefreshDrives();
@@ -141,11 +149,11 @@ namespace AudioEffector.ViewModels
         public bool IsGridView
         {
             get => _isGridView;
-            set 
-            { 
-                _isGridView = value; 
-                OnPropertyChanged(); 
-                OnPropertyChanged(nameof(IsListView)); 
+            set
+            {
+                _isGridView = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsListView));
             }
         }
 
@@ -202,9 +210,9 @@ namespace AudioEffector.ViewModels
         public double Progress
         {
             get => _progress;
-            set 
-            { 
-                _progress = value; 
+            set
+            {
+                _progress = value;
                 OnPropertyChanged();
                 if (_isDraggingProgress)
                 {
@@ -228,11 +236,11 @@ namespace AudioEffector.ViewModels
         public bool IsEqualizerVisible
         {
             get => _isEqualizerVisible;
-            set 
-            { 
+            set
+            {
                 if (_isEqualizerVisible != value)
                 {
-                    _isEqualizerVisible = value; 
+                    _isEqualizerVisible = value;
                     OnPropertyChanged();
                     if (value) IsDeviceSyncVisible = false;
                 }
@@ -252,7 +260,7 @@ namespace AudioEffector.ViewModels
                 }
             }
         }
-        
+
         public ICommand OpenFolderCommand { get; }
         public ICommand TogglePlayPauseCommand { get; }
         public ICommand NextCommand { get; }
@@ -270,12 +278,14 @@ namespace AudioEffector.ViewModels
         public ICommand ShowLibraryCommand { get; }
         public ICommand ShowPlaylistSelectorCommand { get; }
         public ICommand ShowAddToPlaylistDialogCommand { get; }
-        
+
         // Device Sync Commands
         public ICommand SwitchToDeviceSyncCommand { get; }
         public ICommand SwitchToEqualizerCommand { get; }
         public ICommand TransferSelectedCommand { get; }
         public ICommand RefreshDrivesCommand { get; }
+        public ICommand NavigateDirectoryCommand { get; }
+        public ICommand NavigateUpCommand { get; }
 
         private bool _isAscending = true;
 
@@ -327,11 +337,11 @@ namespace AudioEffector.ViewModels
             _settingsService = new SettingsService();
             _deviceSyncService = new DeviceSyncService();
             _favoritePaths = _favoriteService.LoadFavorites();
-            
+
             // Load playlists
             var loadedPlaylists = _playlistService.LoadPlaylists();
             UserPlaylists = new ObservableCollection<UserPlaylist>(loadedPlaylists);
-            
+
             _audioService.TrackChanged += OnTrackChanged;
             _audioService.PlaybackStateChanged += OnPlaybackStateChanged;
 
@@ -343,9 +353,9 @@ namespace AudioEffector.ViewModels
             Bands = new ObservableCollection<BandViewModel>();
             for (int i = 0; i < _audioService.Frequencies.Length; i++)
             {
-                Bands.Add(new BandViewModel 
-                { 
-                    Index = i, 
+                Bands.Add(new BandViewModel
+                {
+                    Index = i,
                     Frequency = _audioService.Frequencies[i],
                     OnGainChanged = (idx, gain) => _audioService.SetGain(idx, gain)
                 });
@@ -361,10 +371,10 @@ namespace AudioEffector.ViewModels
             SavePresetCommand = new RelayCommand(SavePreset);
             DeletePresetCommand = new RelayCommand(DeletePreset);
             ResetPresetCommand = new RelayCommand(Reset);
-            
-            PlayTrackCommand = new RelayCommand(o => 
+
+            PlayTrackCommand = new RelayCommand(o =>
             {
-                if (o is AudioEffector.Models.Track t) 
+                if (o is AudioEffector.Models.Track t)
                 {
                     // Check if playing from playlist/favorites view
                     if (IsPlaylistTracksVisible && PlaylistTracks.Any())
@@ -382,11 +392,11 @@ namespace AudioEffector.ViewModels
                     _audioService.PlayTrack(t);
                 }
             });
-            
+
             ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
             ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
             ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
-            
+
             // Playlist commands
             CreatePlaylistCommand = new RelayCommand(CreatePlaylist);
             AddToPlaylistCommand = new RelayCommand(AddToPlaylist);
@@ -395,7 +405,7 @@ namespace AudioEffector.ViewModels
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
             ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
             ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
-            
+
             ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
             AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
@@ -405,6 +415,9 @@ namespace AudioEffector.ViewModels
             SwitchToEqualizerCommand = new RelayCommand(o => IsEqualizerVisible = true);
             RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
             TransferSelectedCommand = new RelayCommand(o => TransferSelected());
+            NavigateDirectoryCommand = new RelayCommand(o => NavigateDirectory(o as DirectoryItem));
+            NavigateUpCommand = new RelayCommand(o => NavigateUp());
+            RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
 
@@ -413,10 +426,45 @@ namespace AudioEffector.ViewModels
             LoadLibrary();
         }
 
+        public class DirectoryItem
+        {
+            public string Name { get; set; } = string.Empty;
+            public string FullPath { get; set; } = string.Empty;
+            public bool IsFolder { get; set; }
+        }
+
+        public ObservableCollection<DirectoryItem> DeviceDirectories { get; set; } = new ObservableCollection<DirectoryItem>();
+
+        public ICommand RefreshDirectoryCommand { get; private set; }
+
+        private string _currentDevicePath = string.Empty;
+        public string CurrentDevicePath
+        {
+            get => _currentDevicePath;
+            set
+            {
+                _currentDevicePath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private DirectoryItem? _selectedDeviceDirectory;
+        public DirectoryItem? SelectedDeviceDirectory
+        {
+            get => _selectedDeviceDirectory;
+            set
+            {
+                _selectedDeviceDirectory = value;
+                OnPropertyChanged();
+                // Navigation is now handled by double-click command, not selection change
+                // to allow selecting items without navigating immediately
+            }
+        }
+
         private void RefreshDrives()
         {
-            var drives = _deviceSyncService.GetRemovableDrives();
             RemovableDrives.Clear();
+            var drives = DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Removable).ToList();
             foreach (var drive in drives)
             {
                 RemovableDrives.Add(drive);
@@ -424,64 +472,128 @@ namespace AudioEffector.ViewModels
             SelectedDrive = RemovableDrives.FirstOrDefault();
         }
 
+        private void LoadDeviceDirectories(string path)
+        {
+            try
+            {
+                DeviceDirectories.Clear();
+                CurrentDevicePath = path;
+
+                if (Directory.Exists(path))
+                {
+                    // Add Directories
+                    var dirs = Directory.GetDirectories(path);
+                    foreach (var dir in dirs)
+                    {
+                        DeviceDirectories.Add(new DirectoryItem
+                        {
+                            Name = Path.GetFileName(dir),
+                            FullPath = dir,
+                            IsFolder = true
+                        });
+                    }
+
+                    // Add Files
+                    var files = Directory.GetFiles(path);
+                    foreach (var file in files)
+                    {
+                        DeviceDirectories.Add(new DirectoryItem
+                        {
+                            Name = Path.GetFileName(file),
+                            FullPath = file,
+                            IsFolder = false
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading directories: {ex.Message}");
+            }
+        }
+
+        private void NavigateDirectory(DirectoryItem? dir)
+        {
+            if (dir == null || !dir.IsFolder) return;
+            LoadDeviceDirectories(dir.FullPath);
+        }
+
+        private void NavigateUp()
+        {
+            if (string.IsNullOrEmpty(CurrentDevicePath)) return;
+            var parent = Directory.GetParent(CurrentDevicePath);
+            if (parent != null)
+            {
+                LoadDeviceDirectories(parent.FullName);
+            }
+        }
+
         private async void TransferSelected()
         {
-            if (SelectedDrive == null)
+            if (SelectedDrive == null || SelectedDrive.RootDirectory == null)
             {
-                MessageBox.Show("Please select a target drive/device.", "No Device Selected");
+                MessageBox.Show("Please select a device drive first.", "No Device Selected");
+                return;
+            }
+
+            // Use current path or root
+            string destinationFolder = !string.IsNullOrEmpty(CurrentDevicePath) ? CurrentDevicePath : SelectedDrive.RootDirectory.FullName;
+
+            // Verify destination is on the selected drive
+            if (!destinationFolder.StartsWith(SelectedDrive.RootDirectory.FullName, StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show("Current folder is not on the selected drive.", "Error");
                 return;
             }
 
             var selectedAlbums = Albums.Where(a => a.IsSelected).ToList();
-            if (!selectedAlbums.Any())
+            var filesToTransfer = new List<string>();
+
+            // Add tracks from selected albums
+            foreach (var album in selectedAlbums)
             {
-                MessageBox.Show("Please select at least one album to transfer.", "No Albums Selected");
+                filesToTransfer.AddRange(album.Tracks.Select(t => t.FilePath));
+            }
+
+            // Add individually selected tracks (avoiding duplicates)
+            foreach (var album in Albums)
+            {
+                foreach (var track in album.Tracks.Where(t => t.IsSelected))
+                {
+                    if (!filesToTransfer.Contains(track.FilePath))
+                    {
+                        filesToTransfer.Add(track.FilePath);
+                    }
+                }
+            }
+
+            if (!filesToTransfer.Any())
+            {
+                MessageBox.Show("Please select at least one album or track to transfer.", "No Items Selected");
                 return;
             }
 
-            // Folder Selection Dialog
-            var dialog = new OpenFolderDialog
-            {
-                InitialDirectory = SelectedDrive.RootDirectory.FullName,
-                Title = "Select Destination Folder on Device"
-            };
+            IsTransferring = true;
+            TransferProgress = 0;
 
-            if (dialog.ShowDialog() == true)
+            try
             {
-                string destinationFolder = dialog.FolderName;
-                
-                // Verify the selected folder is actually on the selected drive (optional safety check)
-                if (!destinationFolder.StartsWith(SelectedDrive.RootDirectory.FullName, StringComparison.OrdinalIgnoreCase))
-                {
-                    var result = MessageBox.Show($"The selected folder '{destinationFolder}' does not appear to be on the selected drive '{SelectedDrive.Name}'. Continue anyway?", 
-                        "Drive Mismatch Warning", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                    if (result == MessageBoxResult.No) return;
-                }
+                var progress = new Progress<double>(p => TransferProgress = p);
+                await _deviceSyncService.TransferFilesAsync(filesToTransfer, destinationFolder, progress);
 
-                IsTransferring = true;
+                // Refresh to show new files
+                LoadDeviceDirectories(destinationFolder);
+
+                MessageBox.Show("Transfer completed successfully!", "Success");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Transfer failed: {ex.Message}", "Error");
+            }
+            finally
+            {
+                IsTransferring = false;
                 TransferProgress = 0;
-
-                var filesToTransfer = new List<string>();
-                foreach (var album in selectedAlbums)
-                {
-                    filesToTransfer.AddRange(album.Tracks.Select(t => t.FilePath));
-                }
-
-                try
-                {
-                    var progress = new Progress<double>(p => TransferProgress = p);
-                    await _deviceSyncService.TransferFilesAsync(filesToTransfer, destinationFolder, progress);
-                    MessageBox.Show("Transfer completed successfully!", "Success");
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Transfer failed: {ex.Message}", "Error");
-                }
-                finally
-                {
-                    IsTransferring = false;
-                    TransferProgress = 0;
-                }
             }
         }
 
@@ -556,7 +668,7 @@ namespace AudioEffector.ViewModels
                             }
                         }
                     }
-                    catch 
+                    catch
                     {
                         Application.Current.Dispatcher.Invoke(() => NowPlayingImage = null);
                     }
@@ -581,7 +693,7 @@ namespace AudioEffector.ViewModels
             {
                 var current = _audioService.CurrentTime;
                 var total = _audioService.TotalTime;
-                
+
                 CurrentTimeDisplay = current.ToString(@"mm\:ss");
                 TotalTimeDisplay = total.ToString(@"mm\:ss");
 
@@ -598,12 +710,12 @@ namespace AudioEffector.ViewModels
             if (dialog.ShowDialog() == true)
             {
                 string selectedPath = dialog.FolderName;
-                
+
                 // Save selected path to settings
                 var settings = _settingsService.LoadSettings();
                 settings.LastLibraryPath = selectedPath;
                 _settingsService.SaveSettings(settings);
-                
+
                 LoadLibrary(selectedPath);
             }
         }
@@ -611,7 +723,7 @@ namespace AudioEffector.ViewModels
         private void ApplyPreset(Preset preset)
         {
             if (preset == null || preset.Gains == null) return;
-            
+
             for (int i = 0; i < Bands.Count && i < preset.Gains.Count; i++)
             {
                 Bands[i].Gain = preset.Gains[i];
@@ -630,7 +742,7 @@ namespace AudioEffector.ViewModels
 
             IsLoading = true;
             Albums.Clear();
-            
+
             await Task.Run(() =>
             {
                 var extensions = new[] { ".mp3", ".wav", ".aiff", ".wma", ".m4a", ".flac" };
@@ -640,7 +752,7 @@ namespace AudioEffector.ViewModels
 
                 // _albumArtCache is no longer used here for bulk loading
                 var tracks = new System.Collections.Concurrent.ConcurrentBag<Track>();
-                
+
                 Parallel.ForEach(files, file =>
                 {
                     var track = new Track { FilePath = file, Title = Path.GetFileNameWithoutExtension(file) };
@@ -656,16 +768,16 @@ namespace AudioEffector.ViewModels
                             track.Duration = tfile.Properties.Duration;
                             track.Year = tfile.Tag.Year;
                             track.TrackNumber = tfile.Tag.Track;
-                            
+
                             track.Bitrate = tfile.Properties.AudioBitrate;
                             track.SampleRate = tfile.Properties.AudioSampleRate;
                             track.BitsPerSample = tfile.Properties.BitsPerSample;
                             string ext = Path.GetExtension(file).ToLower();
                             track.Format = ext.TrimStart('.').ToUpper();
-                            
+
                             track.IsLossless = new[] { ".flac", ".wav", ".aiff", ".alac" }.Contains(ext);
                             track.IsHiRes = track.SampleRate > 48000 || track.BitsPerSample > 16;
-                            
+
                             // Image loading removed to save memory. 
                             // Images will be loaded on-demand via AlbumArtLoader in the UI.
                         }
@@ -714,7 +826,7 @@ namespace AudioEffector.ViewModels
 
                 if (CurrentTrack.IsFavorite)
                 {
-                    if (!_favoritePaths.Contains(CurrentTrack.FilePath)) 
+                    if (!_favoritePaths.Contains(CurrentTrack.FilePath))
                     {
                         _favoritePaths.Add(CurrentTrack.FilePath);
                         // Immediate update if viewing favorites
@@ -787,7 +899,7 @@ namespace AudioEffector.ViewModels
                     {
                         selectedPlaylist.TrackPaths.Add(track.FilePath);
                         _playlistService.SavePlaylists(UserPlaylists.ToList());
-                        
+
                         // Immediate update if viewing this playlist
                         if (CurrentPlaylistName == selectedPlaylist.Name && IsPlaylistTracksVisible)
                         {
@@ -852,13 +964,13 @@ namespace AudioEffector.ViewModels
                     if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
                     {
                         selectedPlaylist.TrackPaths.Add(track.FilePath);
-                        
+
                         // Immediate update if viewing this playlist
                         if (CurrentPlaylistName == selectedPlaylist.Name && IsPlaylistTracksVisible)
                         {
                             PlaylistTracks.Add(track);
                         }
-                        
+
                         addedCount++;
                     }
                 }
@@ -867,7 +979,7 @@ namespace AudioEffector.ViewModels
                 {
                     _playlistService.SavePlaylists(UserPlaylists.ToList());
                     MessageBox.Show($"Added {addedCount} tracks to '{selectedPlaylist.Name}'", "Tracks Added");
-                    
+
                     // Clear selection
                     foreach (var track in selectedTracks)
                     {
@@ -920,7 +1032,7 @@ namespace AudioEffector.ViewModels
             stackPanel.Children.Add(listBox);
 
             var buttonsPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            
+
             var addButton = new Button
             {
                 Content = "ADD",
@@ -1056,7 +1168,7 @@ namespace AudioEffector.ViewModels
                 {
                     playlist.TrackPaths.Add(CurrentTrack.FilePath);
                     _playlistService.SavePlaylists(UserPlaylists.ToList());
-                    
+
                     // Immediate update if viewing this playlist
                     if (CurrentPlaylistName == playlist.Name && IsPlaylistTracksVisible)
                     {
@@ -1104,7 +1216,7 @@ namespace AudioEffector.ViewModels
             if (obj is UserPlaylist playlist)
             {
                 System.Diagnostics.Debug.WriteLine($"ShowPlaylist: {playlist.Name}, Tracks: {playlist.TrackPaths.Count}");
-                
+
                 IsLibraryVisible = false;
                 IsPlaylistSelectorVisible = false;
                 IsPlaylistTracksVisible = true;
@@ -1200,7 +1312,7 @@ namespace AudioEffector.ViewModels
                         bitmap.EndInit();
                         bitmap.Freeze();
                         track.CoverImage = bitmap;
-                        
+
                         _albumArtCache[cacheKey] = bitmap;
                     }
                 }
@@ -1209,7 +1321,7 @@ namespace AudioEffector.ViewModels
                 track.Bitrate = tagFile.Properties.AudioBitrate;
                 track.SampleRate = tagFile.Properties.AudioSampleRate;
                 track.BitsPerSample = tagFile.Properties.BitsPerSample;
-                
+
                 string ext = Path.GetExtension(filePath).ToLower();
                 track.Format = ext.TrimStart('.').ToUpper();
                 track.IsLossless = new[] { ".flac", ".wav", ".aiff", ".alac" }.Contains(ext);

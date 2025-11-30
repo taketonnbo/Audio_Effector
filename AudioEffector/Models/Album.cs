@@ -23,6 +23,15 @@ namespace AudioEffector.Models
                 {
                     _isSelected = value;
                     OnPropertyChanged();
+
+                    // Propagate selection to tracks
+                    if (Tracks != null)
+                    {
+                        foreach (var track in Tracks)
+                        {
+                            track.IsSelected = value;
+                        }
+                    }
                 }
             }
         }

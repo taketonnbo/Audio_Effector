@@ -5,7 +5,7 @@
   },
   "projects": {
     "C:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj": {
-      "version": "15.9.3",
+      "version": "16.0.0",
       "restore": {
         "projectUniqueName": "C:\\Users\\tnish\\vs_code_git\\Audio_Effector\\AudioEffector\\AudioEffector.csproj",
         "projectName": "AudioEffector",
@@ -43,6 +43,10 @@
         "net8.0-windows7.0": {
           "targetAlias": "net8.0-windows",
           "dependencies": {
+            "MediaDevices": {
+              "target": "Package",
+              "version": "[1.10.0, )"
+            },
             "NAudio": {
               "target": "Package",
               "version": "[2.2.1, )"
@@ -72,11 +76,6 @@
             }
           },
           "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.404/PortableRuntimeIdentifierGraph.json"
-        }
-      },
-      "runtimes": {
-        "win-x64": {
-          "#import": []
         }
       }
     }
