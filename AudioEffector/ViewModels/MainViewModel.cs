@@ -1,4 +1,4 @@
-using AudioEffector.Models;
+﻿using AudioEffector.Models;
 using AudioEffector.Services;
 using AudioEffector.Views;
 using Microsoft.Win32;
@@ -49,6 +49,7 @@ namespace AudioEffector.ViewModels
         private bool _isPlaylistSelectorVisible = false;
         private bool _isPlaylistTracksVisible = false;
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
+        private UserPlaylist? _currentViewingPlaylist;
 
         // Device Sync Properties
         public enum DeviceType { FileSystem, MTP }
@@ -315,6 +316,8 @@ namespace AudioEffector.ViewModels
         public ICommand ShowLibraryCommand { get; }
         public ICommand ShowPlaylistSelectorCommand { get; }
         public ICommand ShowAddToPlaylistDialogCommand { get; }
+        public ICommand DeletePlaylistCommand { get; }
+        public ICommand RemoveFromPlaylistCommand { get; }
 
         // Device Sync Commands
         public ICommand SwitchToDeviceSyncCommand { get; }
@@ -442,6 +445,8 @@ namespace AudioEffector.ViewModels
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
             ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
             ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
+            DeletePlaylistCommand = new RelayCommand(DeletePlaylist);
+            RemoveFromPlaylistCommand = new RelayCommand(RemoveFromPlaylist);
 
             ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
@@ -460,6 +465,12 @@ namespace AudioEffector.ViewModels
 
             PlaylistTracks.CollectionChanged += OnPlaylistTracksChanged;
 
+            var settings = _settingsService.LoadSettings();
+            if (settings.LeftColumnWidth > 0)
+            {
+                LeftColumnWidth = new GridLength(settings.LeftColumnWidth);
+            }
+
             LoadLibrary();
         }
 
@@ -471,6 +482,20 @@ namespace AudioEffector.ViewModels
         }
 
         public ObservableCollection<DirectoryItem> DeviceDirectories { get; set; } = new ObservableCollection<DirectoryItem>();
+
+        private GridLength _leftColumnWidth = new GridLength(300);
+        public GridLength LeftColumnWidth
+        {
+            get => _leftColumnWidth;
+            set
+            {
+                _leftColumnWidth = value;
+                OnPropertyChanged();
+                var settings = _settingsService.LoadSettings();
+                settings.LeftColumnWidth = value.Value;
+                _settingsService.SaveSettings(settings);
+            }
+        }
 
         public ICommand RefreshDirectoryCommand { get; private set; }
 
@@ -623,28 +648,47 @@ namespace AudioEffector.ViewModels
 
         private void NavigateUp()
         {
-            if (string.IsNullOrEmpty(CurrentDevicePath) || SelectedDevice == null) return;
-
-            if (SelectedDevice.Type == DeviceType.FileSystem)
+            try
             {
-                var parent = Directory.GetParent(CurrentDevicePath);
-                if (parent != null)
+                if (string.IsNullOrEmpty(CurrentDevicePath) || SelectedDevice == null) return;
+
+                if (SelectedDevice.Type == DeviceType.FileSystem)
                 {
-                    LoadDeviceDirectories(parent.FullName);
+                    var parent = Directory.GetParent(CurrentDevicePath);
+                    if (parent != null)
+                    {
+                        LoadDeviceDirectories(parent.FullName);
+                    }
+                }
+                else if (SelectedDevice.Type == DeviceType.MTP)
+                {
+                    // MTP path handling (simple string manipulation for now)
+                    // Assuming paths are like \Folder\Subfolder
+                    if (CurrentDevicePath == @"\" || CurrentDevicePath == "/") return;
+
+                    var parentPath = Path.GetDirectoryName(CurrentDevicePath);
+                    if (string.IsNullOrEmpty(parentPath)) parentPath = @"\";
+                    // We need to actually navigate to the parent path here for MTP?
+                    // LoadDeviceDirectories(parentPath); // This was missing in previous code too?
+                    // Assuming LoadDeviceDirectories is called or CurrentDevicePath is updated?
+                    // Wait, LoadDeviceDirectories updates CurrentDevicePath.
+                    // But for MTP, we just calculated parentPath but didn't USE it.
+                    // Let's fix that too.
+                    LoadDeviceDirectories(parentPath);
                 }
             }
-            else if (SelectedDevice.Type == DeviceType.MTP)
+            finally
             {
-                // MTP path handling (simple string manipulation for now)
-                // Assuming paths are like \Folder\Subfolder
-                if (CurrentDevicePath == @"\" || CurrentDevicePath == "/") return;
-
-                var parentPath = Path.GetDirectoryName(CurrentDevicePath);
-                if (string.IsNullOrEmpty(parentPath)) parentPath = @"\";
-                LoadDeviceDirectories(parentPath);
+                IsTransferring = false;
+                TransferProgress = 0;
             }
         }
-
+        private string SanitizeFileName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "Unknown";
+            var invalid = System.IO.Path.GetInvalidFileNameChars();
+            return new string(name.Where(c => !invalid.Contains(c)).ToArray()).Trim();
+        }
 
         private async void TransferSelected()
         {
@@ -664,13 +708,12 @@ namespace AudioEffector.ViewModels
                 return;
             }
 
-            var selectedAlbums = Albums.Where(a => a.IsSelected).ToList();
-            var filesToTransfer = new List<string>();
+            var tracksToTransfer = new List<Track>();
 
             // Add tracks from selected albums
-            foreach (var album in selectedAlbums)
+            foreach (var album in Albums.Where(a => a.IsSelected))
             {
-                filesToTransfer.AddRange(album.Tracks.Select(t => t.FilePath));
+                tracksToTransfer.AddRange(album.Tracks);
             }
 
             // Add individually selected tracks (avoiding duplicates)
@@ -678,14 +721,14 @@ namespace AudioEffector.ViewModels
             {
                 foreach (var track in album.Tracks.Where(t => t.IsSelected))
                 {
-                    if (!filesToTransfer.Contains(track.FilePath))
+                    if (!tracksToTransfer.Contains(track))
                     {
-                        filesToTransfer.Add(track.FilePath);
+                        tracksToTransfer.Add(track);
                     }
                 }
             }
 
-            if (!filesToTransfer.Any())
+            if (!tracksToTransfer.Any())
             {
                 MessageBox.Show("Please select at least one album or track to transfer.", "No Items Selected");
                 return;
@@ -700,27 +743,72 @@ namespace AudioEffector.ViewModels
 
                 if (SelectedDevice.Type == DeviceType.FileSystem)
                 {
-                    await _deviceSyncService.TransferFilesAsync(filesToTransfer, destinationFolder, progress);
+                    await Task.Run(() =>
+                    {
+                        int total = tracksToTransfer.Count;
+                        int current = 0;
+                        foreach (var track in tracksToTransfer)
+                        {
+                            if (!System.IO.File.Exists(track.FilePath)) continue;
+
+                            string artist = SanitizeFileName(track.Artist);
+                            string album = SanitizeFileName(track.Album);
+                            string fileName = System.IO.Path.GetFileName(track.FilePath);
+
+                            string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
+                            if (!System.IO.Directory.Exists(targetDir))
+                            {
+                                System.IO.Directory.CreateDirectory(targetDir);
+                            }
+
+                            string destPath = System.IO.Path.Combine(targetDir, fileName);
+                            System.IO.File.Copy(track.FilePath, destPath, true);
+
+                            current++;
+                            ((IProgress<double>)progress).Report((double)current / total * 100);
+                        }
+                    });
                 }
                 else if (SelectedDevice.Type == DeviceType.MTP && SelectedDevice.MtpDevice != null)
                 {
                     await Task.Run(() =>
                     {
-                        int total = filesToTransfer.Count;
+                        int total = tracksToTransfer.Count;
                         int current = 0;
-                        foreach (var file in filesToTransfer)
+                        foreach (var track in tracksToTransfer)
                         {
-                            if (!File.Exists(file)) continue;
+                            if (!System.IO.File.Exists(track.FilePath)) continue;
 
-                            string fileName = Path.GetFileName(file);
-                            // MTP path separator is usually backslash, but library might handle it.
-                            // Construct destination path.
-                            string destPath = Path.Combine(destinationFolder, fileName);
+                            string artist = SanitizeFileName(track.Artist);
+                            string album = SanitizeFileName(track.Album);
+                            string fileName = System.IO.Path.GetFileName(track.FilePath);
 
-                            // Upload
-                            // Note: MediaDevices UploadFile takes (localPath, remotePath)
-                            // We might need to ensure destinationFolder is correct for MTP
-                            SelectedDevice.MtpDevice.UploadFile(file, destPath);
+                            // MTP paths use backslash usually
+                            string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
+
+                            // Ensure directory exists on MTP
+                            try
+                            {
+                                // We might need to create artist dir first then album dir
+                                string artistDir = System.IO.Path.Combine(destinationFolder, artist);
+                                // MediaDevices DirectoryExists might throw or return false
+                                if (!SelectedDevice.MtpDevice.DirectoryExists(artistDir))
+                                {
+                                    SelectedDevice.MtpDevice.CreateDirectory(artistDir);
+                                }
+                                if (!SelectedDevice.MtpDevice.DirectoryExists(targetDir))
+                                {
+                                    SelectedDevice.MtpDevice.CreateDirectory(targetDir);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Error creating MTP directory: {ex.Message}");
+                            }
+
+                            string destPath = System.IO.Path.Combine(targetDir, fileName);
+
+                            SelectedDevice.MtpDevice.UploadFile(track.FilePath, destPath);
 
                             current++;
                             ((IProgress<double>)progress).Report((double)current / total * 100);
@@ -1250,7 +1338,7 @@ namespace AudioEffector.ViewModels
             if (SelectedPreset != null && Presets.Contains(SelectedPreset))
             {
                 // Prevent deletion of default presets
-                var defaultPresets = new[] { "フラット (Flat)", "ロック (Rock)", "ポップ (Pop)" };
+                var defaultPresets = new[] { "繝輔Λ繝・ヨ (Flat)", "繝ｭ繝・け (Rock)", "繝昴ャ繝・(Pop)" };
                 if (defaultPresets.Contains(SelectedPreset.Name))
                 {
                     MessageBox.Show($"'{SelectedPreset.Name}' is a default preset and cannot be deleted.", "Cannot Delete", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1369,6 +1457,7 @@ namespace AudioEffector.ViewModels
                 IsPlaylistTracksVisible = true;
                 IsFavoritesView = false;
                 CurrentPlaylistName = playlist.Name;
+                _currentViewingPlaylist = playlist;
 
                 PlaylistTracks.Clear();
                 foreach (var path in playlist.TrackPaths)
@@ -1396,6 +1485,7 @@ namespace AudioEffector.ViewModels
             IsPlaylistTracksVisible = true;
             IsFavoritesView = true;
             CurrentPlaylistName = "Favorites";
+            _currentViewingPlaylist = null;
 
             PlaylistTracks.Clear();
             foreach (var path in _favoritePaths)
@@ -1411,6 +1501,7 @@ namespace AudioEffector.ViewModels
             IsLibraryVisible = true;
             IsPlaylistSelectorVisible = false;
             IsPlaylistTracksVisible = false;
+            _currentViewingPlaylist = null;
             IsFavoritesView = false;
         }
 
@@ -1479,6 +1570,45 @@ namespace AudioEffector.ViewModels
             catch
             {
                 return null;
+            }
+        }
+        private void DeletePlaylist(object parameter)
+        {
+            if (parameter is UserPlaylist playlist)
+            {
+                if (MessageBox.Show($"Are you sure you want to delete playlist '{playlist.Name}'?", "Delete Playlist", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                {
+                    UserPlaylists.Remove(playlist);
+                    _playlistService.SavePlaylists(UserPlaylists.ToList());
+                }
+            }
+        }
+
+        private void RemoveFromPlaylist(object parameter)
+        {
+            if (parameter is Track track)
+            {
+                // Find the current playlist
+                // Since we are in the playlist view, we can assume we want to remove from the currently viewed playlist.
+                // However, we need to know WHICH playlist is currently being viewed.
+                // We don't have a direct reference to the "Current Playlist Object" in the ViewModel properties easily accessible here 
+                // except maybe by inferring from the tracks or adding a property.
+                // Let's look at how ShowPlaylist works.
+
+                // Wait, ShowPlaylist sets PlaylistTracks. 
+                // We need to know which playlist 'PlaylistTracks' belongs to.
+                // Let's add a _currentPlaylist field or property to track this.
+
+                if (_currentViewingPlaylist != null)
+                {
+                    if (MessageBox.Show($"Remove '{track.Title}' from playlist?", "Remove Song", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                    {
+                        PlaylistTracks.Remove(track);
+                        _currentViewingPlaylist.TrackPaths = PlaylistTracks.Select(t => t.FilePath).ToList();
+
+                        _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    }
+                }
             }
         }
     }

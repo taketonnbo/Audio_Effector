@@ -8,15 +8,24 @@ namespace AudioEffector.Services
 {
     public class FavoriteService
     {
-        private const string FavoritesFileName = "favorites.json";
+        private readonly string _favoritesFilePath;
+
+        public FavoriteService()
+        {
+            var appDataPath = Path.Combine(
+                System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
+                "AudioEffector");
+            Directory.CreateDirectory(appDataPath);
+            _favoritesFilePath = Path.Combine(appDataPath, "favorites.json");
+        }
 
         public List<string> LoadFavorites()
         {
-            if (File.Exists(FavoritesFileName))
+            if (File.Exists(_favoritesFilePath))
             {
                 try
                 {
-                    string json = File.ReadAllText(FavoritesFileName);
+                    string json = File.ReadAllText(_favoritesFilePath);
                     return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
                 }
                 catch { }
@@ -29,7 +38,7 @@ namespace AudioEffector.Services
             try
             {
                 string json = JsonSerializer.Serialize(favorites);
-                File.WriteAllText(FavoritesFileName, json);
+                File.WriteAllText(_favoritesFilePath, json);
             }
             catch { }
         }

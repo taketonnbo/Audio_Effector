@@ -7,6 +7,7 @@ namespace AudioEffector.Services
     public class AppSettings
     {
         public string? LastLibraryPath { get; set; }
+        public double LeftColumnWidth { get; set; } = 300;
     }
 
     public class SettingsService
