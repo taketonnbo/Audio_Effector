@@ -52,8 +52,239 @@ namespace AudioEffector.ViewModels
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
         private UserPlaylist? _currentViewingPlaylist;
         private BitmapImage? _defaultSpectrumImage;
+        private BitmapImage? _defaultNowPlayingImage;
 
-        // Device Sync Properties
+        private BitmapImage? _spectrumBackgroundImage;
+        public BitmapImage? SpectrumBackgroundImage
+        {
+            get => _spectrumBackgroundImage;
+            set { _spectrumBackgroundImage = value; OnPropertyChanged(); }
+        }
+
+        // ... (existing code) ...
+
+        public MainViewModel()
+        {
+            _audioService = new AudioService();
+            _presetService = new PresetService();
+            _favoriteService = new FavoriteService();
+            _playlistService = new PlaylistService();
+            _settingsService = new SettingsService();
+            _deviceSyncService = new DeviceSyncService();
+            _favoritePaths = _favoriteService.LoadFavorites();
+
+            // Load playlists
+            var loadedPlaylists = _playlistService.LoadPlaylists();
+            UserPlaylists = new ObservableCollection<UserPlaylist>(loadedPlaylists);
+
+            _audioService.TrackChanged += OnTrackChanged;
+            _audioService.PlaybackStateChanged += OnPlaybackStateChanged;
+
+            _timer = new DispatcherTimer();
+            _timer.Interval = TimeSpan.FromMilliseconds(500);
+            _timer.Tick += OnTimerTick;
+            _timer.Start();
+
+            LoadDefaultImages();
+            NowPlayingImage = _defaultNowPlayingImage;
+            SpectrumBackgroundImage = _defaultSpectrumImage;
+
+            Bands = new ObservableCollection<BandViewModel>();
+            for (int i = 0; i < _audioService.Frequencies.Length; i++)
+            {
+                Bands.Add(new BandViewModel
+                {
+                    Index = i,
+                    Frequency = _audioService.Frequencies[i],
+                    OnGainChanged = (idx, gain) => _audioService.SetGain(idx, gain)
+                });
+            }
+
+            Presets = new ObservableCollection<Preset>(_presetService.LoadPresets());
+            SelectedPreset = Presets.FirstOrDefault();
+
+            OpenFolderCommand = new RelayCommand(OpenFolder);
+            TogglePlayPauseCommand = new RelayCommand(o => _audioService.TogglePlayPause());
+            NextCommand = new RelayCommand(o => _audioService.Next());
+            PreviousCommand = new RelayCommand(o => _audioService.Previous());
+            SavePresetCommand = new RelayCommand(SavePreset);
+            DeletePresetCommand = new RelayCommand(DeletePreset);
+            ResetPresetCommand = new RelayCommand(Reset);
+
+            PlayTrackCommand = new RelayCommand(o =>
+            {
+                if (o is AudioEffector.Models.Track t)
+                {
+                    // Check if playing from playlist/favorites view
+                    if (IsPlaylistTracksVisible && PlaylistTracks.Any())
+                    {
+                        _audioService.SetPlaylist(PlaylistTracks.ToList());
+                    }
+                    else
+                    {
+                        var album = Albums.FirstOrDefault(a => a.Tracks.Contains(t));
+                        if (album != null)
+                        {
+                            _audioService.SetPlaylist(album.Tracks);
+                        }
+                    }
+                    _audioService.PlayTrack(t);
+                }
+            });
+
+            ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
+            ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
+            ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
+
+            // Playlist commands
+            CreatePlaylistCommand = new RelayCommand(CreatePlaylist);
+            AddToPlaylistCommand = new RelayCommand(AddToPlaylist);
+            ShowPlaylistCommand = new RelayCommand(ShowPlaylist);
+            ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
+            ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
+            ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
+            ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
+            DeletePlaylistCommand = new RelayCommand(DeletePlaylist);
+            RemoveFromPlaylistCommand = new RelayCommand(RemoveFromPlaylist);
+
+            ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
+            ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
+            AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
+            PlayAlbumCommand = new RelayCommand(PlayAlbum);
+
+            // Device Sync Command Initialization
+            SwitchToDeviceSyncCommand = new RelayCommand(o => IsDeviceSyncVisible = true);
+            SwitchToEqualizerCommand = new RelayCommand(o => IsEqualizerVisible = true);
+            SwitchToSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = true);
+
+            RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
+            TransferSelectedCommand = new RelayCommand(o => TransferSelected());
+            NavigateDirectoryCommand = new RelayCommand(o => NavigateDirectory(o as DirectoryItem));
+            NavigateUpCommand = new RelayCommand(o => NavigateUp());
+            RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
+
+            _audioService.PlaylistEnded += OnPlaylistEnded;
+            _audioService.FftCalculated += OnFftCalculated;
+
+            PlaylistTracks.CollectionChanged += OnPlaylistTracksChanged;
+
+            var settings = _settingsService.LoadSettings();
+            if (settings.LeftColumnWidth > 0)
+            {
+                LeftColumnWidth = new GridLength(settings.LeftColumnWidth);
+            }
+
+            LoadLibrary();
+        }
+
+        private void LoadDefaultImages()
+        {
+            try
+            {
+                // Load Spectrum Default
+                var uriSpectrum = new Uri("pack://application:,,,/Assets/Images/default_spectrum_bg.png");
+                var bitmapSpectrum = new BitmapImage();
+                bitmapSpectrum.BeginInit();
+                bitmapSpectrum.UriSource = uriSpectrum;
+                bitmapSpectrum.CacheOption = BitmapCacheOption.OnLoad;
+                bitmapSpectrum.EndInit();
+                bitmapSpectrum.Freeze();
+                _defaultSpectrumImage = bitmapSpectrum;
+
+                // Load Now Playing Default
+                var uriNowPlaying = new Uri("pack://application:,,,/Assets/Images/default_now_playing_bg.png");
+                var bitmapNowPlaying = new BitmapImage();
+                bitmapNowPlaying.BeginInit();
+                bitmapNowPlaying.UriSource = uriNowPlaying;
+                bitmapNowPlaying.CacheOption = BitmapCacheOption.OnLoad;
+                bitmapNowPlaying.EndInit();
+                bitmapNowPlaying.Freeze();
+                _defaultNowPlayingImage = bitmapNowPlaying;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load default images: {ex.Message}");
+            }
+        }
+
+        // ...
+
+        private void OnTrackChanged(Track track)
+        {
+            CurrentTrack = track;
+            Progress = 0;
+
+            if (track != null && File.Exists(track.FilePath))
+            {
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        using (var tfile = TagLib.File.Create(track.FilePath))
+                        {
+                            if (tfile.Tag.Pictures.Length > 0)
+                            {
+                                var bin = tfile.Tag.Pictures[0].Data.Data;
+                                Application.Current.Dispatcher.Invoke(() =>
+                                {
+                                    var image = new BitmapImage();
+                                    using (var mem = new MemoryStream(bin))
+                                    {
+                                        mem.Position = 0;
+                                        image.BeginInit();
+                                        image.DecodePixelWidth = 500;
+                                        image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                                        image.CacheOption = BitmapCacheOption.OnLoad;
+                                        image.UriSource = null;
+                                        image.StreamSource = mem;
+                                        image.EndInit();
+                                    }
+                                    image.Freeze();
+                                    NowPlayingImage = image;
+                                    SpectrumBackgroundImage = image;
+                                });
+                            }
+                            else
+                            {
+                                Application.Current.Dispatcher.Invoke(() =>
+                                {
+                                    NowPlayingImage = _defaultNowPlayingImage;
+                                    SpectrumBackgroundImage = _defaultSpectrumImage;
+                                });
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            NowPlayingImage = _defaultNowPlayingImage;
+                            SpectrumBackgroundImage = _defaultSpectrumImage;
+                        });
+                    }
+                });
+            }
+            else
+            {
+                NowPlayingImage = _defaultNowPlayingImage;
+                SpectrumBackgroundImage = _defaultSpectrumImage;
+            }
+        }
+
+        private void OnPlaybackStateChanged(bool isPlaying)
+        {
+            IsPlaying = isPlaying;
+            if (isPlaying)
+            {
+                _timer.Start();
+            }
+            else
+            {
+                _timer.Stop();
+                NowPlayingImage = _defaultNowPlayingImage;
+                SpectrumBackgroundImage = _defaultSpectrumImage;
+            }
+        }
         public enum DeviceType { FileSystem, MTP }
 
         public class DeviceViewModel
@@ -376,137 +607,7 @@ namespace AudioEffector.ViewModels
         public ICommand ToggleRepeatCommand { get; }
         public ICommand AddSelectedToPlaylistCommand { get; }
 
-        public MainViewModel()
-        {
-            _audioService = new AudioService();
-            _presetService = new PresetService();
-            _favoriteService = new FavoriteService();
-            _playlistService = new PlaylistService();
-            _settingsService = new SettingsService();
-            _deviceSyncService = new DeviceSyncService();
-            _favoritePaths = _favoriteService.LoadFavorites();
 
-            // Load playlists
-            var loadedPlaylists = _playlistService.LoadPlaylists();
-            UserPlaylists = new ObservableCollection<UserPlaylist>(loadedPlaylists);
-
-            _audioService.TrackChanged += OnTrackChanged;
-            _audioService.PlaybackStateChanged += OnPlaybackStateChanged;
-
-            _timer = new DispatcherTimer();
-            _timer.Interval = TimeSpan.FromMilliseconds(500);
-            _timer.Tick += OnTimerTick;
-            _timer.Start();
-
-            LoadDefaultSpectrumImage();
-            NowPlayingImage = _defaultSpectrumImage;
-
-            Bands = new ObservableCollection<BandViewModel>();
-            for (int i = 0; i < _audioService.Frequencies.Length; i++)
-            {
-                Bands.Add(new BandViewModel
-                {
-                    Index = i,
-                    Frequency = _audioService.Frequencies[i],
-                    OnGainChanged = (idx, gain) => _audioService.SetGain(idx, gain)
-                });
-            }
-
-            Presets = new ObservableCollection<Preset>(_presetService.LoadPresets());
-            SelectedPreset = Presets.FirstOrDefault();
-
-            OpenFolderCommand = new RelayCommand(OpenFolder);
-            TogglePlayPauseCommand = new RelayCommand(o => _audioService.TogglePlayPause());
-            NextCommand = new RelayCommand(o => _audioService.Next());
-            PreviousCommand = new RelayCommand(o => _audioService.Previous());
-            SavePresetCommand = new RelayCommand(SavePreset);
-            DeletePresetCommand = new RelayCommand(DeletePreset);
-            ResetPresetCommand = new RelayCommand(Reset);
-
-            PlayTrackCommand = new RelayCommand(o =>
-            {
-                if (o is AudioEffector.Models.Track t)
-                {
-                    // Check if playing from playlist/favorites view
-                    if (IsPlaylistTracksVisible && PlaylistTracks.Any())
-                    {
-                        _audioService.SetPlaylist(PlaylistTracks.ToList());
-                    }
-                    else
-                    {
-                        var album = Albums.FirstOrDefault(a => a.Tracks.Contains(t));
-                        if (album != null)
-                        {
-                            _audioService.SetPlaylist(album.Tracks);
-                        }
-                    }
-                    _audioService.PlayTrack(t);
-                }
-            });
-
-            ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
-            ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
-            ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
-
-            // Playlist commands
-            CreatePlaylistCommand = new RelayCommand(CreatePlaylist);
-            AddToPlaylistCommand = new RelayCommand(AddToPlaylist);
-            ShowPlaylistCommand = new RelayCommand(ShowPlaylist);
-            ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
-            ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
-            ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
-            ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
-            DeletePlaylistCommand = new RelayCommand(DeletePlaylist);
-            RemoveFromPlaylistCommand = new RelayCommand(RemoveFromPlaylist);
-
-            ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
-            ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
-            AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
-            PlayAlbumCommand = new RelayCommand(PlayAlbum);
-
-            // Device Sync Command Initialization
-            SwitchToDeviceSyncCommand = new RelayCommand(o => IsDeviceSyncVisible = true);
-            SwitchToEqualizerCommand = new RelayCommand(o => IsEqualizerVisible = true);
-            SwitchToSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = true);
-
-            RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
-            TransferSelectedCommand = new RelayCommand(o => TransferSelected());
-            NavigateDirectoryCommand = new RelayCommand(o => NavigateDirectory(o as DirectoryItem));
-            NavigateUpCommand = new RelayCommand(o => NavigateUp());
-            RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
-
-            _audioService.PlaylistEnded += OnPlaylistEnded;
-            _audioService.FftCalculated += OnFftCalculated;
-
-            PlaylistTracks.CollectionChanged += OnPlaylistTracksChanged;
-
-            var settings = _settingsService.LoadSettings();
-            if (settings.LeftColumnWidth > 0)
-            {
-                LeftColumnWidth = new GridLength(settings.LeftColumnWidth);
-            }
-
-            LoadLibrary();
-        }
-
-        private void LoadDefaultSpectrumImage()
-        {
-            try
-            {
-                var uri = new Uri("pack://application:,,,/Assets/Images/default_spectrum_bg.png");
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.UriSource = uri;
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.EndInit();
-                bitmap.Freeze();
-                _defaultSpectrumImage = bitmap;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to load default spectrum image: {ex.Message}");
-            }
-        }
 
         public class DirectoryItem
         {
@@ -872,71 +973,7 @@ namespace AudioEffector.ViewModels
             foreach (var album in sorted) Albums.Add(album);
         }
 
-        private void OnTrackChanged(Track track)
-        {
-            CurrentTrack = track;
-            Progress = 0;
 
-            if (track != null && File.Exists(track.FilePath))
-            {
-                Task.Run(() =>
-                {
-                    try
-                    {
-                        using (var tfile = TagLib.File.Create(track.FilePath))
-                        {
-                            if (tfile.Tag.Pictures.Length > 0)
-                            {
-                                var bin = tfile.Tag.Pictures[0].Data.Data;
-                                Application.Current.Dispatcher.Invoke(() =>
-                                {
-                                    var image = new BitmapImage();
-                                    using (var mem = new MemoryStream(bin))
-                                    {
-                                        mem.Position = 0;
-                                        image.BeginInit();
-                                        image.DecodePixelWidth = 500;
-                                        image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                                        image.CacheOption = BitmapCacheOption.OnLoad;
-                                        image.UriSource = null;
-                                        image.StreamSource = mem;
-                                        image.EndInit();
-                                    }
-                                    image.Freeze();
-                                    NowPlayingImage = image;
-                                });
-                            }
-                            else
-                            {
-                                Application.Current.Dispatcher.Invoke(() => NowPlayingImage = _defaultSpectrumImage);
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        Application.Current.Dispatcher.Invoke(() => NowPlayingImage = _defaultSpectrumImage);
-                    }
-                });
-            }
-            else
-            {
-                NowPlayingImage = _defaultSpectrumImage;
-            }
-        }
-
-        private void OnPlaybackStateChanged(bool isPlaying)
-        {
-            IsPlaying = isPlaying;
-            if (isPlaying)
-            {
-                _timer.Start();
-            }
-            else
-            {
-                _timer.Stop();
-                NowPlayingImage = _defaultSpectrumImage;
-            }
-        }
 
         private void OnTimerTick(object sender, EventArgs e)
         {

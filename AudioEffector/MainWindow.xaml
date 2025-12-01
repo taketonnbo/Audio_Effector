@@ -1014,7 +1014,7 @@
                 <!-- Spectrum Analyzer View -->
                 <Grid Grid.Row="1" Visibility="{Binding IsSpectrumVisible, Converter={StaticResource BoolToVis}}" ClipToBounds="True">
                     <!-- Background Album Art -->
-                    <Image Source="{Binding NowPlayingImage}" Stretch="UniformToFill" Opacity="0.8" VerticalAlignment="Center">
+                    <Image Source="{Binding SpectrumBackgroundImage}" Stretch="UniformToFill" Opacity="0.8" VerticalAlignment="Center">
                         <Image.Effect>
                             <BlurEffect Radius="30"/>
                         </Image.Effect>
