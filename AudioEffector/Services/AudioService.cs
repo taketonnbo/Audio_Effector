@@ -1,4 +1,5 @@
 using NAudio.Wave;
+using NAudio.Dsp;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,6 +18,7 @@ namespace AudioEffector.Services
         private int _currentIndex = -1;
         private bool _isShuffleEnabled;
         private bool _wasPlayingBeforeSeek = false;
+        private Guid _currentPlaybackId;
 
         private bool _stopRequested;
         private readonly object _lock = new object();
@@ -25,6 +27,7 @@ namespace AudioEffector.Services
         public event Action<bool> PlaybackStateChanged;
         public event Action PlaybackStopped;
         public event EventHandler PlaylistEnded;
+        public event EventHandler<FftEventArgs>? FftCalculated;
 
         // 10-band EQ frequencies
         public readonly float[] Frequencies = { 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
@@ -96,9 +99,9 @@ namespace AudioEffector.Services
         private void ShufflePlaylist()
         {
             if (_originalPlaylist == null || !_originalPlaylist.Any()) return;
-            
+
             var currentTrack = _currentIndex >= 0 && _currentIndex < _playlist.Count ? _playlist[_currentIndex] : null;
-            
+
             var rng = new Random();
             _playlist = _originalPlaylist.OrderBy(x => rng.Next()).ToList();
 
@@ -154,22 +157,29 @@ namespace AudioEffector.Services
                 // Stop explicitly without triggering Next
                 Stop(true);
 
+                // Generate new session ID
+                _currentPlaybackId = Guid.NewGuid();
+
                 var track = _playlist[_currentIndex];
                 try
                 {
                     _audioFile = new AudioFileReader(track.FilePath);
-                    
+
                     // Setup EQ
                     _equalizer = new Equalizer(_audioFile, Frequencies);
 
+                    // Setup SampleAggregator for FFT
+                    var aggregator = new SampleAggregator(_equalizer);
+                    aggregator.FftCalculated += (s, e) => FftCalculated?.Invoke(this, e);
+
                     // Wrap with EndOfStreamProvider to detect end of playback reliably
-                    var endOfStreamProvider = new EndOfStreamProvider(_equalizer);
+                    var endOfStreamProvider = new EndOfStreamProvider(aggregator);
                     endOfStreamProvider.EndOfStream += OnEndOfStream;
 
                     _outputDevice = new WaveOutEvent();
                     _outputDevice.Init(endOfStreamProvider);
                     _outputDevice.PlaybackStopped += OnPlaybackStopped;
-                    
+
                     TrackChanged?.Invoke(track);
                     _outputDevice.Play();
                     PlaybackStateChanged?.Invoke(true);
@@ -186,15 +196,22 @@ namespace AudioEffector.Services
 
         private void OnEndOfStream()
         {
+            // Capture the current ID
+            var sessionId = _currentPlaybackId;
+
             // Trigger Next() when the stream ends (0 bytes read)
             // Run asynchronously to avoid blocking the audio thread
-            Task.Run(() => 
+            Task.Run(() =>
             {
                 // Add a small delay to allow the last buffer to play out
-                // WaveOutEvent has latency, so immediate stop might cut the tail.
-                // However, since the user reported "stops before end", immediate next might be better.
-                // But let's give it 500ms to be safe.
                 System.Threading.Thread.Sleep(500);
+
+                // Check if the session is still valid
+                lock (_lock)
+                {
+                    if (_currentPlaybackId != sessionId) return;
+                }
+
                 Next();
             });
         }
@@ -216,7 +233,7 @@ namespace AudioEffector.Services
                 // But Next() handles re-entrancy by checking state or just starting next.
                 // If OnEndOfStream already called Next(), _stopRequested might be true (from Stop(true) in PlayCurrent),
                 // so the check at the top of this method would catch it.
-                Task.Run(() => 
+                Task.Run(() =>
                 {
                     Next();
                 });
@@ -233,7 +250,7 @@ namespace AudioEffector.Services
         {
             lock (_lock)
             {
-                if (_outputDevice == null) 
+                if (_outputDevice == null)
                 {
                     if (_playlist.Any() && _currentIndex == -1)
                     {
@@ -269,7 +286,7 @@ namespace AudioEffector.Services
         public async void Next()
         {
             if (_playlist.Count == 0) return;
-            
+
             if (_currentIndex < _playlist.Count - 1)
             {
                 _currentIndex++;
@@ -289,7 +306,7 @@ namespace AudioEffector.Services
                     PlaylistEnded?.Invoke(this, EventArgs.Empty);
                 }
             }
-            
+
             // Wait for PlaybackState to update
             await Task.Delay(100);
             PlaybackStateChanged?.Invoke(IsPlaying);
@@ -323,7 +340,7 @@ namespace AudioEffector.Services
                     _audioFile.Dispose();
                     _audioFile = null;
                 }
-                
+
                 if (!internalStop)
                 {
                     PlaybackStateChanged?.Invoke(false);

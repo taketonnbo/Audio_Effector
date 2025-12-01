@@ -7,14 +7,14 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using MediaDevices;
+using NAudio.Dsp;
 
 namespace AudioEffector.ViewModels
 {
@@ -29,15 +29,16 @@ namespace AudioEffector.ViewModels
 
         public AudioService AudioService => _audioService; // Public accessor for code-behind
 
-        private Preset _selectedPreset;
-        private Track _currentTrack;
+        private Preset? _selectedPreset;
+        private Track? _currentTrack;
         private bool _isPlaying;
         private string _currentTimeDisplay = "00:00";
+        private BitmapImage? _nowPlayingImage;
         private string _totalTimeDisplay = "00:00";
         private double _progress;
         private DispatcherTimer _timer;
         private bool _isNowPlayingVisible = true;
-        private bool _isEqualizerVisible = true;
+        private bool _isEqualizerVisible = false;
         private bool _isDeviceSyncVisible = false;
         private bool _isLoading;
         private bool _isGridView = true;
@@ -50,6 +51,7 @@ namespace AudioEffector.ViewModels
         private bool _isPlaylistTracksVisible = false;
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
         private UserPlaylist? _currentViewingPlaylist;
+        private BitmapImage? _defaultSpectrumImage;
 
         // Device Sync Properties
         public enum DeviceType { FileSystem, MTP }
@@ -131,14 +133,15 @@ namespace AudioEffector.ViewModels
                     if (value)
                     {
                         IsEqualizerVisible = false;
+                        IsSpectrumVisible = false;
                         RefreshDrives();
                     }
                 }
             }
         }
 
-        private BitmapImage _nowPlayingImage;
-        public BitmapImage NowPlayingImage
+
+        public BitmapImage? NowPlayingImage
         {
             get => _nowPlayingImage;
             set { _nowPlayingImage = value; OnPropertyChanged(); }
@@ -220,7 +223,7 @@ namespace AudioEffector.ViewModels
             set { _audioService.IsShuffleEnabled = value; OnPropertyChanged(); }
         }
 
-        public Track CurrentTrack
+        public Track? CurrentTrack
         {
             get => _currentTrack;
             set { _currentTrack = value; OnPropertyChanged(); }
@@ -280,12 +283,16 @@ namespace AudioEffector.ViewModels
                 {
                     _isEqualizerVisible = value;
                     OnPropertyChanged();
-                    if (value) IsDeviceSyncVisible = false;
+                    if (value)
+                    {
+                        IsDeviceSyncVisible = false;
+                        IsSpectrumVisible = false;
+                    }
                 }
             }
         }
 
-        public Preset SelectedPreset
+        public Preset? SelectedPreset
         {
             get => _selectedPreset;
             set
@@ -294,7 +301,7 @@ namespace AudioEffector.ViewModels
                 {
                     _selectedPreset = value;
                     OnPropertyChanged();
-                    ApplyPreset(_selectedPreset);
+                    if (_selectedPreset != null) ApplyPreset(_selectedPreset);
                 }
             }
         }
@@ -318,6 +325,7 @@ namespace AudioEffector.ViewModels
         public ICommand ShowAddToPlaylistDialogCommand { get; }
         public ICommand DeletePlaylistCommand { get; }
         public ICommand RemoveFromPlaylistCommand { get; }
+        public ICommand PlayAlbumCommand { get; }
 
         // Device Sync Commands
         public ICommand SwitchToDeviceSyncCommand { get; }
@@ -390,6 +398,9 @@ namespace AudioEffector.ViewModels
             _timer.Tick += OnTimerTick;
             _timer.Start();
 
+            LoadDefaultSpectrumImage();
+            NowPlayingImage = _defaultSpectrumImage;
+
             Bands = new ObservableCollection<BandViewModel>();
             for (int i = 0; i < _audioService.Frequencies.Length; i++)
             {
@@ -451,10 +462,13 @@ namespace AudioEffector.ViewModels
             ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
             AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
+            PlayAlbumCommand = new RelayCommand(PlayAlbum);
 
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => IsDeviceSyncVisible = true);
             SwitchToEqualizerCommand = new RelayCommand(o => IsEqualizerVisible = true);
+            SwitchToSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = true);
+
             RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
             TransferSelectedCommand = new RelayCommand(o => TransferSelected());
             NavigateDirectoryCommand = new RelayCommand(o => NavigateDirectory(o as DirectoryItem));
@@ -462,6 +476,7 @@ namespace AudioEffector.ViewModels
             RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
+            _audioService.FftCalculated += OnFftCalculated;
 
             PlaylistTracks.CollectionChanged += OnPlaylistTracksChanged;
 
@@ -472,6 +487,25 @@ namespace AudioEffector.ViewModels
             }
 
             LoadLibrary();
+        }
+
+        private void LoadDefaultSpectrumImage()
+        {
+            try
+            {
+                var uri = new Uri("pack://application:,,,/Assets/Images/default_spectrum_bg.png");
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = uri;
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                _defaultSpectrumImage = bitmap;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load default spectrum image: {ex.Message}");
+            }
         }
 
         public class DirectoryItem
@@ -518,8 +552,6 @@ namespace AudioEffector.ViewModels
             {
                 _selectedDeviceDirectory = value;
                 OnPropertyChanged();
-                // Navigation is now handled by double-click command, not selection change
-                // to allow selecting items without navigating immediately
             }
         }
 
@@ -609,11 +641,9 @@ namespace AudioEffector.ViewModels
                         var dirs = SelectedDevice.MtpDevice.GetDirectories(path);
                         foreach (var dir in dirs)
                         {
-                            // MTP paths might need adjustment depending on library behavior
-                            // MediaDevices library usually returns full path or name
                             DeviceDirectories.Add(new DirectoryItem
                             {
-                                Name = Path.GetFileName(dir), // or dir itself if it's just name
+                                Name = Path.GetFileName(dir),
                                 FullPath = dir,
                                 IsFolder = true
                             });
@@ -662,27 +692,19 @@ namespace AudioEffector.ViewModels
                 }
                 else if (SelectedDevice.Type == DeviceType.MTP)
                 {
-                    // MTP path handling (simple string manipulation for now)
-                    // Assuming paths are like \Folder\Subfolder
                     if (CurrentDevicePath == @"\" || CurrentDevicePath == "/") return;
 
                     var parentPath = Path.GetDirectoryName(CurrentDevicePath);
                     if (string.IsNullOrEmpty(parentPath)) parentPath = @"\";
-                    // We need to actually navigate to the parent path here for MTP?
-                    // LoadDeviceDirectories(parentPath); // This was missing in previous code too?
-                    // Assuming LoadDeviceDirectories is called or CurrentDevicePath is updated?
-                    // Wait, LoadDeviceDirectories updates CurrentDevicePath.
-                    // But for MTP, we just calculated parentPath but didn't USE it.
-                    // Let's fix that too.
                     LoadDeviceDirectories(parentPath);
                 }
             }
-            finally
+            catch (Exception ex)
             {
-                IsTransferring = false;
-                TransferProgress = 0;
+                System.Diagnostics.Debug.WriteLine($"Error navigating up: {ex.Message}");
             }
         }
+
         private string SanitizeFileName(string name)
         {
             if (string.IsNullOrWhiteSpace(name)) return "Unknown";
@@ -698,10 +720,8 @@ namespace AudioEffector.ViewModels
                 return;
             }
 
-            // Use current path or root
             string destinationFolder = !string.IsNullOrEmpty(CurrentDevicePath) ? CurrentDevicePath : SelectedDevice.RootPath;
 
-            // Verify destination is on the selected drive (FileSystem only check)
             if (SelectedDevice.Type == DeviceType.FileSystem && !destinationFolder.StartsWith(SelectedDevice.RootPath, StringComparison.OrdinalIgnoreCase))
             {
                 MessageBox.Show("Current folder is not on the selected drive.", "Error");
@@ -710,13 +730,11 @@ namespace AudioEffector.ViewModels
 
             var tracksToTransfer = new List<Track>();
 
-            // Add tracks from selected albums
             foreach (var album in Albums.Where(a => a.IsSelected))
             {
                 tracksToTransfer.AddRange(album.Tracks);
             }
 
-            // Add individually selected tracks (avoiding duplicates)
             foreach (var album in Albums)
             {
                 foreach (var track in album.Tracks.Where(t => t.IsSelected))
@@ -783,15 +801,11 @@ namespace AudioEffector.ViewModels
                             string album = SanitizeFileName(track.Album);
                             string fileName = System.IO.Path.GetFileName(track.FilePath);
 
-                            // MTP paths use backslash usually
                             string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
 
-                            // Ensure directory exists on MTP
                             try
                             {
-                                // We might need to create artist dir first then album dir
                                 string artistDir = System.IO.Path.Combine(destinationFolder, artist);
-                                // MediaDevices DirectoryExists might throw or return false
                                 if (!SelectedDevice.MtpDevice.DirectoryExists(artistDir))
                                 {
                                     SelectedDevice.MtpDevice.CreateDirectory(artistDir);
@@ -816,7 +830,6 @@ namespace AudioEffector.ViewModels
                     });
                 }
 
-                // Refresh to show new files
                 LoadDeviceDirectories(destinationFolder);
 
                 MessageBox.Show("Transfer completed successfully!", "Success");
@@ -834,11 +847,8 @@ namespace AudioEffector.ViewModels
 
         private void OnPlaylistTracksChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
         {
-            // If we are currently playing/viewing this playlist, sync with AudioService
             if (IsPlaylistTracksVisible)
             {
-                // Use a slight delay or debounce if frequent updates occur, but for now direct update is fine
-                // as SetPlaylist is relatively cheap (just list replacement)
                 _audioService.SetPlaylist(PlaylistTracks.ToList());
             }
         }
@@ -865,9 +875,8 @@ namespace AudioEffector.ViewModels
         private void OnTrackChanged(Track track)
         {
             CurrentTrack = track;
-            Progress = 0; // Reset progress when track changes
+            Progress = 0;
 
-            // Load high-res image for Now Playing
             if (track != null && File.Exists(track.FilePath))
             {
                 Task.Run(() =>
@@ -886,7 +895,7 @@ namespace AudioEffector.ViewModels
                                     {
                                         mem.Position = 0;
                                         image.BeginInit();
-                                        image.DecodePixelWidth = 500; // Higher quality for Now Playing
+                                        image.DecodePixelWidth = 500;
                                         image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
                                         image.CacheOption = BitmapCacheOption.OnLoad;
                                         image.UriSource = null;
@@ -899,27 +908,34 @@ namespace AudioEffector.ViewModels
                             }
                             else
                             {
-                                Application.Current.Dispatcher.Invoke(() => NowPlayingImage = null);
+                                Application.Current.Dispatcher.Invoke(() => NowPlayingImage = _defaultSpectrumImage);
                             }
                         }
                     }
                     catch
                     {
-                        Application.Current.Dispatcher.Invoke(() => NowPlayingImage = null);
+                        Application.Current.Dispatcher.Invoke(() => NowPlayingImage = _defaultSpectrumImage);
                     }
                 });
             }
             else
             {
-                NowPlayingImage = null;
+                NowPlayingImage = _defaultSpectrumImage;
             }
         }
 
         private void OnPlaybackStateChanged(bool isPlaying)
         {
             IsPlaying = isPlaying;
-            if (isPlaying) _timer.Start();
-            else _timer.Stop();
+            if (isPlaying)
+            {
+                _timer.Start();
+            }
+            else
+            {
+                _timer.Stop();
+                NowPlayingImage = _defaultSpectrumImage;
+            }
         }
 
         private void OnTimerTick(object sender, EventArgs e)
@@ -946,7 +962,6 @@ namespace AudioEffector.ViewModels
             {
                 string selectedPath = dialog.FolderName;
 
-                // Save selected path to settings
                 var settings = _settingsService.LoadSettings();
                 settings.LastLibraryPath = selectedPath;
                 _settingsService.SaveSettings(settings);
@@ -1610,6 +1625,111 @@ namespace AudioEffector.ViewModels
                     }
                 }
             }
+        }
+
+        private void PlayAlbum(object parameter)
+        {
+            if (parameter is Album album && album.Tracks.Any())
+            {
+                _audioService.SetPlaylist(album.Tracks);
+                _audioService.PlayTrack(album.Tracks.First());
+            }
+        }
+
+        // Spectrum Analyzer Logic
+        private bool _isSpectrumVisible = true; // Default to true as requested
+        public bool IsSpectrumVisible
+        {
+            get => _isSpectrumVisible;
+            set
+            {
+                if (_isSpectrumVisible != value)
+                {
+                    _isSpectrumVisible = value;
+                    OnPropertyChanged();
+                    if (value)
+                    {
+                        IsEqualizerVisible = false;
+                        IsDeviceSyncVisible = false;
+                    }
+                }
+            }
+        }
+
+
+
+        public ICommand SwitchToSpectrumCommand { get; }
+
+        public ObservableCollection<double> SpectrumValues { get; } = new ObservableCollection<double>();
+
+        private void OnFftCalculated(object? sender, FftEventArgs e)
+        {
+            if (!IsSpectrumVisible) return;
+
+            // Process FFT data on UI thread
+            // Group into bars (e.g. 32 bars)
+            // Apply smoothing
+
+            // For simplicity, let's just take magnitudes and group them.
+            // e.Result has 1024 complex numbers. We only need first 512.
+            // We want 32 bars. 512 / 32 = 16 samples per bar.
+
+            int barCount = 32;
+            int samplesPerBar = 16;
+
+            var newValues = new double[barCount];
+
+            for (int i = 0; i < barCount; i++)
+            {
+                double sum = 0;
+                for (int j = 0; j < samplesPerBar; j++)
+                {
+                    int index = i * samplesPerBar + j;
+                    if (index < e.Result.Length)
+                    {
+                        // Magnitude = sqrt(X^2 + Y^2)
+                        double mag = Math.Sqrt(e.Result[index].X * e.Result[index].X + e.Result[index].Y * e.Result[index].Y);
+                        sum += mag;
+                    }
+                }
+                // Logarithmic scaling for better visualization
+                double avg = sum / samplesPerBar;
+                double db = 20 * Math.Log10(avg);
+
+                // Map dB to 0-600 range roughly (MaxHeight is 600)
+                // Noise floor around -60dB?
+                // -60dB -> 0, -10dB -> 600
+                double val = Math.Max(0, db + 60) * 12;
+
+                newValues[i] = val;
+            }
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                // Initialize if empty
+                if (SpectrumValues.Count != barCount)
+                {
+                    SpectrumValues.Clear();
+                    for (int i = 0; i < barCount; i++) SpectrumValues.Add(0);
+                }
+
+                // Update with smoothing
+                for (int i = 0; i < barCount; i++)
+                {
+                    double current = SpectrumValues[i];
+                    double target = newValues[i];
+
+                    // Rise fast, fall slow
+                    if (target > current)
+                    {
+                        SpectrumValues[i] = current + (target - current) * 0.2;
+                    }
+                    else
+                    {
+                        SpectrumValues[i] = current - (current - target) * 0.05;
+                    }
+                }
+            });
         }
     }
 }
