@@ -15,6 +15,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using MediaDevices;
 using NAudio.Dsp;
+using System.Threading.Tasks;
 
 namespace AudioEffector.ViewModels
 {
@@ -46,16 +47,59 @@ namespace AudioEffector.ViewModels
         private List<string> _favoritePaths;
         private ObservableCollection<UserPlaylist> _userPlaylists = new ObservableCollection<UserPlaylist>();
         private ObservableCollection<Track> _playlistTracks = new ObservableCollection<Track>();
+        private const int SpectrumBarCount = 32;
+        private int _spectrumGeneration = 0;
         private bool _isLibraryVisible = true;
         private bool _isPlaylistSelectorVisible = false;
         private bool _isPlaylistTracksVisible = false;
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
         private UserPlaylist? _currentViewingPlaylist;
+        public UserPlaylist? CurrentViewingPlaylist
+        {
+            get => _currentViewingPlaylist;
+            set
+            {
+                if (_currentViewingPlaylist != value)
+                {
+                    _currentViewingPlaylist = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+        private string _playbackListName = "No Album Selected";
+        public string PlaybackListName
+        {
+            get => _playbackListName;
+            set { _playbackListName = value; OnPropertyChanged(); }
+        }
+
+        private string _playbackListSubtitle = "";
+        public string PlaybackListSubtitle
+        {
+            get => _playbackListSubtitle;
+            set { _playbackListSubtitle = value; OnPropertyChanged(); }
+        }
+
+        private ObservableCollection<Track> _playbackListTracks = new ObservableCollection<Track>();
+        public ObservableCollection<Track> PlaybackListTracks
+        {
+            get => _playbackListTracks;
+            set { _playbackListTracks = value; OnPropertyChanged(); }
+        }
+
         private BitmapImage? _defaultSpectrumImage;
+        private BitmapImage? _favoritesImage;
         private BitmapImage? _defaultNowPlayingImage;
 
-        private BitmapImage? _spectrumBackgroundImage;
-        public BitmapImage? SpectrumBackgroundImage
+        private ImageSource? _playlistBackgroundImage;
+        public ImageSource? PlaylistBackgroundImage
+        {
+            get => _playlistBackgroundImage;
+            set { _playlistBackgroundImage = value; OnPropertyChanged(); }
+        }
+
+        private ImageSource? _spectrumBackgroundImage;
+        public ImageSource? SpectrumBackgroundImage
         {
             get => _spectrumBackgroundImage;
             set { _spectrumBackgroundImage = value; OnPropertyChanged(); }
@@ -76,6 +120,12 @@ namespace AudioEffector.ViewModels
             // Load playlists
             var loadedPlaylists = _playlistService.LoadPlaylists();
             UserPlaylists = new ObservableCollection<UserPlaylist>(loadedPlaylists);
+
+            // Generate thumbnails for loaded playlists
+            foreach (var playlist in UserPlaylists)
+            {
+                UpdatePlaylistThumbnails(playlist);
+            }
 
             _audioService.TrackChanged += OnTrackChanged;
             _audioService.PlaybackStateChanged += OnPlaybackStateChanged;
@@ -100,6 +150,12 @@ namespace AudioEffector.ViewModels
                 });
             }
 
+            // Pre-populate SpectrumValues to avoid layout glitches
+            for (int i = 0; i < SpectrumBarCount; i++)
+            {
+                SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
+            }
+
             Presets = new ObservableCollection<Preset>(_presetService.LoadPresets());
             SelectedPreset = Presets.FirstOrDefault();
 
@@ -116,9 +172,12 @@ namespace AudioEffector.ViewModels
                 if (o is AudioEffector.Models.Track t)
                 {
                     // Check if playing from playlist/favorites view
-                    if (IsPlaylistTracksVisible && PlaylistTracks.Any())
+                    if (IsPlaylistTracksVisible && PlaylistTracks.Any() && PlaylistTracks.Contains(t))
                     {
                         _audioService.SetPlaylist(PlaylistTracks.ToList());
+                        PlaybackListName = CurrentPlaylistName;
+                        PlaybackListSubtitle = IsFavoritesView ? "Selected You" : "Playlist"; // Phase 8: Selected You
+                        PlaybackListTracks = new ObservableCollection<Track>(PlaylistTracks);
                     }
                     else
                     {
@@ -126,6 +185,9 @@ namespace AudioEffector.ViewModels
                         if (album != null)
                         {
                             _audioService.SetPlaylist(album.Tracks);
+                            PlaybackListName = album.Title;
+                            PlaybackListSubtitle = album.Artist;
+                            PlaybackListTracks = new ObservableCollection<Track>(album.Tracks);
                         }
                     }
                     _audioService.PlayTrack(t);
@@ -152,6 +214,9 @@ namespace AudioEffector.ViewModels
             AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
             PlayAlbumCommand = new RelayCommand(PlayAlbum);
 
+            IncreaseVolumeCommand = new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
+            DecreaseVolumeCommand = new RelayCommand(o => Volume = Math.Max(0.0f, Volume - 0.05f));
+
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => IsDeviceSyncVisible = true);
             SwitchToEqualizerCommand = new RelayCommand(o => IsEqualizerVisible = true);
@@ -173,6 +238,8 @@ namespace AudioEffector.ViewModels
             {
                 LeftColumnWidth = new GridLength(settings.LeftColumnWidth);
             }
+            // Load Volume
+            Volume = settings.Volume;
 
             LoadLibrary();
         }
@@ -200,6 +267,16 @@ namespace AudioEffector.ViewModels
                 bitmapNowPlaying.EndInit();
                 bitmapNowPlaying.Freeze();
                 _defaultNowPlayingImage = bitmapNowPlaying;
+
+                // Load Favorites Image (Phase 8)
+                var uriFav = new Uri("pack://application:,,,/Assets/Images/favorites_bg.png");
+                var bitmapFav = new BitmapImage();
+                bitmapFav.BeginInit();
+                bitmapFav.UriSource = uriFav;
+                bitmapFav.CacheOption = BitmapCacheOption.OnLoad;
+                bitmapFav.EndInit();
+                bitmapFav.Freeze();
+                _favoritesImage = bitmapFav;
             }
             catch (Exception ex)
             {
@@ -209,82 +286,7 @@ namespace AudioEffector.ViewModels
 
         // ...
 
-        private void OnTrackChanged(Track track)
-        {
-            CurrentTrack = track;
-            Progress = 0;
 
-            if (track != null && File.Exists(track.FilePath))
-            {
-                Task.Run(() =>
-                {
-                    try
-                    {
-                        using (var tfile = TagLib.File.Create(track.FilePath))
-                        {
-                            if (tfile.Tag.Pictures.Length > 0)
-                            {
-                                var bin = tfile.Tag.Pictures[0].Data.Data;
-                                Application.Current.Dispatcher.Invoke(() =>
-                                {
-                                    var image = new BitmapImage();
-                                    using (var mem = new MemoryStream(bin))
-                                    {
-                                        mem.Position = 0;
-                                        image.BeginInit();
-                                        image.DecodePixelWidth = 500;
-                                        image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                                        image.CacheOption = BitmapCacheOption.OnLoad;
-                                        image.UriSource = null;
-                                        image.StreamSource = mem;
-                                        image.EndInit();
-                                    }
-                                    image.Freeze();
-                                    NowPlayingImage = image;
-                                    SpectrumBackgroundImage = image;
-                                });
-                            }
-                            else
-                            {
-                                Application.Current.Dispatcher.Invoke(() =>
-                                {
-                                    NowPlayingImage = _defaultNowPlayingImage;
-                                    SpectrumBackgroundImage = _defaultSpectrumImage;
-                                });
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        Application.Current.Dispatcher.Invoke(() =>
-                        {
-                            NowPlayingImage = _defaultNowPlayingImage;
-                            SpectrumBackgroundImage = _defaultSpectrumImage;
-                        });
-                    }
-                });
-            }
-            else
-            {
-                NowPlayingImage = _defaultNowPlayingImage;
-                SpectrumBackgroundImage = _defaultSpectrumImage;
-            }
-        }
-
-        private void OnPlaybackStateChanged(bool isPlaying)
-        {
-            IsPlaying = isPlaying;
-            if (isPlaying)
-            {
-                _timer.Start();
-            }
-            else
-            {
-                _timer.Stop();
-                NowPlayingImage = _defaultNowPlayingImage;
-                SpectrumBackgroundImage = _defaultSpectrumImage;
-            }
-        }
         public enum DeviceType { FileSystem, MTP }
 
         public class DeviceViewModel
@@ -454,10 +456,30 @@ namespace AudioEffector.ViewModels
             set { _audioService.IsShuffleEnabled = value; OnPropertyChanged(); }
         }
 
+        private Album? _currentAlbum;
+        public Album? CurrentAlbum
+        {
+            get => _currentAlbum;
+            set { _currentAlbum = value; OnPropertyChanged(); }
+        }
+
         public Track? CurrentTrack
         {
             get => _currentTrack;
-            set { _currentTrack = value; OnPropertyChanged(); }
+            set
+            {
+                _currentTrack = value;
+                OnPropertyChanged();
+
+                if (_currentTrack != null)
+                {
+                    CurrentAlbum = Albums.FirstOrDefault(a => a.Tracks.Contains(_currentTrack));
+                }
+                else
+                {
+                    CurrentAlbum = null;
+                }
+            }
         }
 
         public bool IsPlaying
@@ -606,6 +628,30 @@ namespace AudioEffector.ViewModels
         public ICommand ToggleSelectionModeCommand { get; }
         public ICommand ToggleRepeatCommand { get; }
         public ICommand AddSelectedToPlaylistCommand { get; }
+
+        public ICommand IncreaseVolumeCommand { get; }
+        public ICommand DecreaseVolumeCommand { get; }
+
+        public float Volume
+        {
+            get => _audioService.Volume;
+            set
+            {
+                if (_audioService.Volume != value)
+                {
+                    _audioService.Volume = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(VolumePercent));
+
+                    // Save settings
+                    var settings = _settingsService.LoadSettings();
+                    settings.Volume = value;
+                    _settingsService.SaveSettings(settings);
+                }
+            }
+        }
+
+        public string VolumePercent => $"{(int)(Volume * 100)}%";
 
 
 
@@ -769,6 +815,63 @@ namespace AudioEffector.ViewModels
                 System.Diagnostics.Debug.WriteLine($"Error loading directories: {ex.Message}");
                 MessageBox.Show($"Error loading directory: {ex.Message}");
             }
+
+            CheckDeviceAlbums();
+        }
+
+        private async void CheckDeviceAlbums()
+        {
+            if (SelectedDevice == null || string.IsNullOrEmpty(CurrentDevicePath)) return;
+
+            await Task.Run(() =>
+            {
+                foreach (var album in Albums)
+                {
+                    string artist = SanitizeFileName(album.Artist);
+                    string albumName = SanitizeFileName(album.Title);
+                    bool allTracksExist = true;
+
+                    if (album.Tracks != null)
+                    {
+                        foreach (var track in album.Tracks)
+                        {
+                            string fileName = System.IO.Path.GetFileName(track.FilePath);
+                            bool trackExists = false;
+
+                            try
+                            {
+                                if (SelectedDevice.Type == DeviceType.FileSystem)
+                                {
+                                    string path = System.IO.Path.Combine(CurrentDevicePath, artist, albumName, fileName);
+                                    trackExists = System.IO.File.Exists(path);
+                                }
+                                else if (SelectedDevice.Type == DeviceType.MTP && SelectedDevice.MtpDevice != null && SelectedDevice.MtpDevice.IsConnected)
+                                {
+                                    string path = System.IO.Path.Combine(CurrentDevicePath, artist, albumName, fileName);
+                                    trackExists = SelectedDevice.MtpDevice.FileExists(path);
+                                }
+                            }
+                            catch { }
+
+                            if (!trackExists)
+                            {
+                                allTracksExist = false;
+                                break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        allTracksExist = false;
+                    }
+
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        album.IsOnDevice = allTracksExist;
+                        if (allTracksExist) album.IsSelected = false;
+                    });
+                }
+            });
         }
 
         private void NavigateDirectory(DirectoryItem? dir)
@@ -875,12 +978,21 @@ namespace AudioEffector.ViewModels
                             string fileName = System.IO.Path.GetFileName(track.FilePath);
 
                             string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
+                            string destPath = System.IO.Path.Combine(targetDir, fileName);
+
+                            // Skip if already exists
+                            if (System.IO.File.Exists(destPath))
+                            {
+                                current++;
+                                ((IProgress<double>)progress).Report((double)current / total * 100);
+                                continue;
+                            }
+
                             if (!System.IO.Directory.Exists(targetDir))
                             {
                                 System.IO.Directory.CreateDirectory(targetDir);
                             }
 
-                            string destPath = System.IO.Path.Combine(targetDir, fileName);
                             System.IO.File.Copy(track.FilePath, destPath, true);
 
                             current++;
@@ -923,6 +1035,17 @@ namespace AudioEffector.ViewModels
 
                             string destPath = System.IO.Path.Combine(targetDir, fileName);
 
+                            // Skip if already exists
+                            bool fileExists = false;
+                            try { fileExists = SelectedDevice.MtpDevice.FileExists(destPath); } catch { }
+
+                            if (fileExists)
+                            {
+                                current++;
+                                ((IProgress<double>)progress).Report((double)current / total * 100);
+                                continue;
+                            }
+
                             SelectedDevice.MtpDevice.UploadFile(track.FilePath, destPath);
 
                             current++;
@@ -932,6 +1055,7 @@ namespace AudioEffector.ViewModels
                 }
 
                 LoadDeviceDirectories(destinationFolder);
+                CheckDeviceAlbums(); // Refresh status
 
                 MessageBox.Show("Transfer completed successfully!", "Success");
             }
@@ -974,6 +1098,415 @@ namespace AudioEffector.ViewModels
         }
 
 
+
+
+        private ImageSource? _spectrumBackgroundImageGray;
+        public ImageSource? SpectrumBackgroundImageGray
+        {
+            get => _spectrumBackgroundImageGray;
+            set { _spectrumBackgroundImageGray = value; OnPropertyChanged(); }
+        }
+
+        private bool _isDefaultSpectrumImage;
+        public bool IsDefaultSpectrumImage
+        {
+            get => _isDefaultSpectrumImage;
+            set { _isDefaultSpectrumImage = value; OnPropertyChanged(); }
+        }
+
+        private Brush _spectrumBarBrush;
+        public Brush SpectrumBarBrush
+        {
+            get
+            {
+                if (_spectrumBarBrush == null)
+                {
+                    // Default Gradient: Horizontal, Right (Low Sat) to Left (High Sat)
+                    var brush = new LinearGradientBrush();
+                    brush.StartPoint = new Point(1, 0.5); // Right
+                    brush.EndPoint = new Point(0, 0.5);   // Left
+
+                    // Right (High Freq): Low Saturation (pale), High Opacity (Bright)
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
+                    // Left (Low Freq): High Saturation (vibrant)
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+
+                    _spectrumBarBrush = brush;
+                }
+                return _spectrumBarBrush;
+            }
+            set { _spectrumBarBrush = value; OnPropertyChanged(); }
+        }
+
+        private Brush _spectrumBorderBrush = new SolidColorBrush(Color.FromArgb(230, 0, 229, 255)); // Default Neon Cyan Border (90%)
+        public Brush SpectrumBorderBrush
+        {
+            get => _spectrumBorderBrush;
+            set { _spectrumBorderBrush = value; OnPropertyChanged(); }
+        }
+
+        private Color _spectrumShadowColor = Color.FromRgb(0, 229, 255); // Default Neon Cyan
+        public Color SpectrumShadowColor
+        {
+            get => _spectrumShadowColor;
+            set { _spectrumShadowColor = value; OnPropertyChanged(); }
+        }
+
+        private void UpdateSpectrumBrush(BitmapSource bitmap)
+        {
+            try
+            {
+                // 1. Force Convert to Bgra32 to ensure byte order is B-G-R-A
+                var converted = new FormatConvertedBitmap();
+                converted.BeginInit();
+                converted.Source = bitmap;
+                converted.DestinationFormat = PixelFormats.Bgra32;
+                converted.EndInit();
+                converted.Freeze();
+
+                // 2. Resize to small size for performance
+                var resized = new TransformedBitmap(converted, new ScaleTransform(100.0 / converted.PixelWidth, 100.0 / converted.PixelHeight));
+                int width = resized.PixelWidth;
+                int height = resized.PixelHeight;
+                int stride = width * 4;
+                byte[] pixels = new byte[height * stride];
+                resized.CopyPixels(pixels, stride, 0);
+
+                // 3. Histogram / Bucketing Approach
+                // Buckets for Hue (0-360), e.g., 36 buckets of 10 degrees
+                long[] bucketR = new long[36];
+                long[] bucketG = new long[36];
+                long[] bucketB = new long[36];
+                int[] bucketCount = new int[36];
+
+                for (int i = 0; i < pixels.Length; i += 4)
+                {
+                    byte b = pixels[i];
+                    byte g = pixels[i + 1];
+                    byte r = pixels[i + 2];
+                    // alpha is pixels[i+3], ignore
+
+                    Color c = Color.FromRgb(r, g, b);
+                    ColorToHsv(c, out double h, out double s, out double v);
+
+                    // Skip grays, blacks, whites
+                    if (s < 0.2 || v < 0.2) continue;
+
+                    int bucketIndex = (int)(h / 10.0);
+                    if (bucketIndex >= 36) bucketIndex = 35;
+
+                    bucketR[bucketIndex] += r;
+                    bucketG[bucketIndex] += g;
+                    bucketB[bucketIndex] += b;
+                    bucketCount[bucketIndex]++;
+                }
+
+                // Find winning bucket
+                int maxCount = 0;
+                int winningBucket = -1;
+                for (int i = 0; i < 36; i++)
+                {
+                    if (bucketCount[i] > maxCount)
+                    {
+                        maxCount = bucketCount[i];
+                        winningBucket = i;
+                    }
+                }
+
+                Color finalColor;
+                if (winningBucket != -1)
+                {
+                    byte avgR = (byte)(bucketR[winningBucket] / bucketCount[winningBucket]);
+                    byte avgG = (byte)(bucketG[winningBucket] / bucketCount[winningBucket]);
+                    byte avgB = (byte)(bucketB[winningBucket] / bucketCount[winningBucket]);
+                    finalColor = Color.FromRgb(avgR, avgG, avgB);
+                }
+                else
+                {
+                    // Fallback to simple average if no vibrant pixels found
+                    long sumR = 0, sumG = 0, sumB = 0;
+                    int total = 0;
+                    for (int i = 0; i < pixels.Length; i += 4)
+                    {
+                        sumB += pixels[i];
+                        sumG += pixels[i + 1];
+                        sumR += pixels[i + 2];
+                        total++;
+                    }
+                    if (total > 0)
+                    {
+                        finalColor = Color.FromRgb((byte)(sumR / total), (byte)(sumG / total), (byte)(sumB / total));
+                    }
+                    else
+                    {
+                        finalColor = Color.FromRgb(64, 235, 255);
+                    }
+                }
+
+                // 4. Boost Saturation/Value
+                ColorToHsv(finalColor, out double fh, out double fs, out double fv);
+
+                // Boost Saturation
+                // Saturation Gradient: Right (Low) -> Left (High)
+                // Right (Start): Low Saturation
+                double satRight = 0.3;
+                // Left (End): High Saturation
+                double satLeft = 1.0;
+
+                // Value/Brightness: Max
+                double val = 1.0;
+
+                // Color 1 (Right/High Freq)
+                Color colorRight = HsvToColor(fh, satRight, val);
+                colorRight.A = 242; // ~95% Opacity (Bright)
+
+                // Color 2 (Left/Low Freq)
+                Color colorLeft = HsvToColor(fh, satLeft, val);
+                colorLeft.A = 153; // ~60% Opacity
+
+                // Border Color: Brighter (Lower Saturation), 100% Opacity
+                // Use 20% saturation to make it whiter/brighter
+                Color borderColor = HsvToColor(fh, 0.2, 1.0);
+                borderColor.A = 255; // 100%
+                SpectrumBorderBrush = new SolidColorBrush(borderColor);
+
+                // Shadow Color
+                SpectrumShadowColor = HsvToColor(fh, 1.0, 1.0);
+
+                var brush = new LinearGradientBrush();
+                brush.StartPoint = new Point(1, 0.5); // Right
+                brush.EndPoint = new Point(0, 0.5);   // Left
+                brush.GradientStops.Add(new GradientStop(colorRight, 0.0));
+                brush.GradientStops.Add(new GradientStop(colorLeft, 1.0));
+
+                SpectrumBarBrush = brush;
+            }
+            catch
+            {
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    // Default Gradient
+                    // Default Gradient: Right (Low Sat) -> Left (High Sat)
+                    var brush = new LinearGradientBrush();
+                    brush.StartPoint = new Point(1, 0.5);
+                    brush.EndPoint = new Point(0, 0.5);
+
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+
+                    SpectrumBarBrush = brush;
+                    SpectrumShadowColor = Color.FromRgb(0, 229, 255);
+
+                    // Border: Brighter (Lower Saturation), 100% Opacity
+                    var borderColor = Color.FromRgb(204, 249, 255);
+                    borderColor.A = 255;
+                    SpectrumBorderBrush = new SolidColorBrush(borderColor);
+                });
+            }
+        }
+
+        private void OnTrackChanged(Track track)
+        {
+            // Increment generation to invalidate pending FFT updates
+            System.Threading.Interlocked.Increment(ref _spectrumGeneration);
+
+            // Reset Spectrum immediately to prevent glitches
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                foreach (var item in SpectrumValues)
+                {
+                    item.Value = 0;
+                }
+            });
+
+            CurrentTrack = track;
+            Progress = 0;
+
+            // Phase 9: Logic Update
+            // If viewing Favorites, FORCE Background to Galaxy.
+            if (IsFavoritesView && _favoritesImage != null)
+            {
+                PlaylistBackgroundImage = _favoritesImage;
+            }
+            // If viewing anything else (Playlist), use Track Art (NowPlayingImage).
+            // But NowPlayingImage is not yet updated here (async).
+            // So we wait for async block below.
+
+            if (track != null && File.Exists(track.FilePath))
+            {
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        using (var tfile = TagLib.File.Create(track.FilePath))
+                        {
+                            if (tfile.Tag.Pictures.Length > 0)
+                            {
+                                var bin = tfile.Tag.Pictures[0].Data.Data;
+                                Application.Current.Dispatcher.Invoke(() =>
+                                {
+                                    var image = new BitmapImage();
+                                    using (var mem = new MemoryStream(bin))
+                                    {
+                                        mem.Position = 0;
+                                        image.BeginInit();
+                                        image.DecodePixelWidth = 500;
+                                        image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                                        image.CacheOption = BitmapCacheOption.OnLoad;
+                                        image.UriSource = null;
+                                        image.StreamSource = mem;
+                                        image.EndInit();
+                                    }
+                                    image.Freeze();
+                                    NowPlayingImage = image;
+                                    SpectrumBackgroundImage = image; // Keep Color
+
+                                    // Phase 9: Update PlaylistBackgroundImage if NOT favorites view
+                                    if (!IsFavoritesView)
+                                    {
+                                        PlaylistBackgroundImage = image;
+                                    }
+
+                                    // Create Grayscale version for Spectrum Background Overlay
+                                    var grayImage = new FormatConvertedBitmap();
+                                    grayImage.BeginInit();
+                                    grayImage.Source = image;
+                                    grayImage.DestinationFormat = PixelFormats.Gray8;
+                                    grayImage.EndInit();
+                                    grayImage.Freeze();
+
+                                    SpectrumBackgroundImageGray = grayImage;
+                                    IsDefaultSpectrumImage = false;
+
+                                    // Update Spectrum Bar Color
+                                    UpdateSpectrumBrush(image);
+                                });
+                            }
+                            else
+                            {
+                                Application.Current.Dispatcher.Invoke(() =>
+                                {
+                                    NowPlayingImage = _defaultNowPlayingImage;
+                                    SpectrumBackgroundImage = _defaultSpectrumImage;
+                                    SpectrumBackgroundImageGray = null;
+
+                                    // Border: Brighter (Lower Saturation), 100% Opacity
+                                    var borderColor = Color.FromRgb(204, 249, 255);
+                                    borderColor.A = 255;
+                                    SpectrumBorderBrush = new SolidColorBrush(borderColor);
+                                });
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            // Default Gradient
+                            // Default Gradient: Right to Left
+                            var brush = new LinearGradientBrush();
+                            brush.StartPoint = new Point(1, 0.5);
+                            brush.EndPoint = new Point(0, 0.5);
+                            brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
+                            brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+                            SpectrumBarBrush = brush;
+                            SpectrumShadowColor = Color.FromRgb(0, 229, 255);
+
+                            // Border: Brighter (Lower Saturation), 100% Opacity
+                            // Reduced Saturation: S=0.2 (Very White)
+                            var borderColor = Color.FromRgb(204, 249, 255); // Approx for H186 S0.2 V1.0
+                            borderColor.A = 255;
+                            SpectrumBorderBrush = new SolidColorBrush(borderColor);
+                        });
+                    }
+                });
+            }
+
+            else
+            {
+                IsDefaultSpectrumImage = true;
+                // Default Gradient
+                // Default Gradient: Right to Left
+                var brush = new LinearGradientBrush();
+                brush.StartPoint = new Point(1, 0.5);
+                brush.EndPoint = new Point(0, 0.5);
+                brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
+                brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+                SpectrumBarBrush = brush;
+
+                // Border: Brighter (Lower Saturation), 100% Opacity
+                var borderColor = Color.FromRgb(204, 249, 255);
+                borderColor.A = 255;
+                SpectrumBorderBrush = new SolidColorBrush(borderColor);
+            }
+        }
+
+        // HSV Helpers
+        private void ColorToHsv(Color color, out double hue, out double saturation, out double value)
+        {
+            int max = Math.Max(color.R, Math.Max(color.G, color.B));
+            int min = Math.Min(color.R, Math.Min(color.G, color.B));
+
+            // Calculate Hue
+            if (max == min)
+            {
+                hue = 0;
+            }
+            else if (max == color.R)
+            {
+                hue = (60 * (color.G - color.B) / (double)(max - min) + 360) % 360;
+            }
+            else if (max == color.G)
+            {
+                hue = (60 * (color.B - color.R) / (double)(max - min) + 120);
+            }
+            else
+            {
+                hue = (60 * (color.R - color.G) / (double)(max - min) + 240);
+            }
+
+            saturation = (max == 0) ? 0 : 1d - (1d * min / max);
+            value = max / 255d;
+        }
+
+        private Color HsvToColor(double hue, double saturation, double value)
+        {
+            int hi = Convert.ToInt32(Math.Floor(hue / 60)) % 6;
+            double f = hue / 60 - Math.Floor(hue / 60);
+
+            value = value * 255;
+            int v = Convert.ToInt32(value);
+            int p = Convert.ToInt32(value * (1 - saturation));
+            int q = Convert.ToInt32(value * (1 - f * saturation));
+            int t = Convert.ToInt32(value * (1 - (1 - f) * saturation));
+
+            if (hi == 0)
+                return Color.FromRgb((byte)v, (byte)t, (byte)p);
+            else if (hi == 1)
+                return Color.FromRgb((byte)q, (byte)v, (byte)p);
+            else if (hi == 2)
+                return Color.FromRgb((byte)p, (byte)v, (byte)t);
+            else if (hi == 3)
+                return Color.FromRgb((byte)p, (byte)q, (byte)v);
+            else if (hi == 4)
+                return Color.FromRgb((byte)t, (byte)p, (byte)v);
+            else
+                return Color.FromRgb((byte)v, (byte)p, (byte)q);
+        }
+
+        private void OnPlaybackStateChanged(bool isPlaying)
+        {
+            IsPlaying = isPlaying;
+            if (isPlaying)
+            {
+                _timer.Start();
+            }
+            else
+            {
+                _timer.Stop();
+                // Do not reset images here to persist album art on stop
+            }
+        }
 
         private void OnTimerTick(object sender, EventArgs e)
         {
@@ -1185,6 +1718,7 @@ namespace AudioEffector.ViewModels
                     if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
                     {
                         selectedPlaylist.TrackPaths.Add(track.FilePath);
+                        UpdatePlaylistThumbnails(selectedPlaylist);
                         _playlistService.SavePlaylists(UserPlaylists.ToList());
 
                         // Immediate update if viewing this playlist
@@ -1264,6 +1798,7 @@ namespace AudioEffector.ViewModels
 
                 if (addedCount > 0)
                 {
+                    UpdatePlaylistThumbnails(selectedPlaylist);
                     _playlistService.SavePlaylists(UserPlaylists.ToList());
                     MessageBox.Show($"Added {addedCount} tracks to '{selectedPlaylist.Name}'", "Tracks Added");
 
@@ -1470,6 +2005,8 @@ namespace AudioEffector.ViewModels
 
 
 
+        public bool IsPlaylistSectionActive => IsPlaylistSelectorVisible || (IsPlaylistTracksVisible && !IsFavoritesView);
+
         private bool _isFavoritesView;
         public bool IsFavoritesView
         {
@@ -1480,6 +2017,7 @@ namespace AudioEffector.ViewModels
                 {
                     _isFavoritesView = value;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsPlaylistSectionActive));
                 }
             }
         }
@@ -1509,7 +2047,11 @@ namespace AudioEffector.ViewModels
                 IsPlaylistTracksVisible = true;
                 IsFavoritesView = false;
                 CurrentPlaylistName = playlist.Name;
-                _currentViewingPlaylist = playlist;
+                CurrentPlaylistName = playlist.Name;
+                CurrentViewingPlaylist = playlist; // Update Public Property
+
+                // Phase 9: When opening playlist, background should default to Now Playing (or default)
+                PlaylistBackgroundImage = NowPlayingImage ?? _defaultNowPlayingImage;
 
                 PlaylistTracks.Clear();
                 foreach (var path in playlist.TrackPaths)
@@ -1527,6 +2069,7 @@ namespace AudioEffector.ViewModels
                     }
                 }
                 System.Diagnostics.Debug.WriteLine($"Total tracks loaded: {PlaylistTracks.Count}");
+                OnPropertyChanged(nameof(IsPlaylistSectionActive));
             }
         }
 
@@ -1537,7 +2080,12 @@ namespace AudioEffector.ViewModels
             IsPlaylistTracksVisible = true;
             IsFavoritesView = true;
             CurrentPlaylistName = "Favorites";
-            _currentViewingPlaylist = null;
+            CurrentPlaylistName = "Favorites";
+            CurrentViewingPlaylist = null; // Important: Favorites has no UserPlaylist object
+
+            // Phase 9: When opening favorites, background is Galaxy
+            if (_favoritesImage != null)
+                PlaylistBackgroundImage = _favoritesImage;
 
             PlaylistTracks.Clear();
             foreach (var path in _favoritePaths)
@@ -1546,6 +2094,7 @@ namespace AudioEffector.ViewModels
                 if (track != null)
                     PlaylistTracks.Add(track);
             }
+            OnPropertyChanged(nameof(IsPlaylistSectionActive));
         }
 
         private void ShowLibrary()
@@ -1553,8 +2102,9 @@ namespace AudioEffector.ViewModels
             IsLibraryVisible = true;
             IsPlaylistSelectorVisible = false;
             IsPlaylistTracksVisible = false;
-            _currentViewingPlaylist = null;
+            CurrentViewingPlaylist = null;
             IsFavoritesView = false;
+            OnPropertyChanged(nameof(IsPlaylistSectionActive));
         }
 
         private void ShowPlaylistSelector()
@@ -1563,6 +2113,7 @@ namespace AudioEffector.ViewModels
             IsPlaylistSelectorVisible = true;
             IsPlaylistTracksVisible = false;
             IsFavoritesView = false;
+            OnPropertyChanged(nameof(IsPlaylistSectionActive));
         }
 
         private Track? LoadTrack(string filePath)
@@ -1640,23 +2191,34 @@ namespace AudioEffector.ViewModels
         {
             if (parameter is Track track)
             {
-                // Find the current playlist
-                // Since we are in the playlist view, we can assume we want to remove from the currently viewed playlist.
-                // However, we need to know WHICH playlist is currently being viewed.
-                // We don't have a direct reference to the "Current Playlist Object" in the ViewModel properties easily accessible here 
-                // except maybe by inferring from the tracks or adding a property.
-                // Let's look at how ShowPlaylist works.
+                // Special handling for Favorites View
+                if (IsFavoritesView)
+                {
+                    // ToggleFavorite handles removal from _favoritePaths and _playlistTracks
+                    ToggleFavorite(null); // Wait, ToggleFavorite assumes CurrentTrack. We need to handle the *passed* track.
+                                          // Refactoring logic to allow passing track to ToggleFavorite would be ideal, but for now let's reproduce logic safely.
 
-                // Wait, ShowPlaylist sets PlaylistTracks. 
-                // We need to know which playlist 'PlaylistTracks' belongs to.
-                // Let's add a _currentPlaylist field or property to track this.
+                    if (track.IsFavorite)
+                    {
+                        track.IsFavorite = false;
+                        _favoritePaths.Remove(track.FilePath);
 
-                if (_currentViewingPlaylist != null)
+                        // Immediate update
+                        PlaylistTracks.Remove(track);
+
+                        _favoriteService.SaveFavorites(_favoritePaths);
+                    }
+                    return;
+                }
+
+                // Normal Playlist Logic
+                if (CurrentViewingPlaylist != null)
                 {
                     if (MessageBox.Show($"Remove '{track.Title}' from playlist?", "Remove Song", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
                     {
                         PlaylistTracks.Remove(track);
-                        _currentViewingPlaylist.TrackPaths = PlaylistTracks.Select(t => t.FilePath).ToList();
+                        CurrentViewingPlaylist.TrackPaths = PlaylistTracks.Select(t => t.FilePath).ToList();
+                        UpdatePlaylistThumbnails(CurrentViewingPlaylist);
 
                         _playlistService.SavePlaylists(UserPlaylists.ToList());
                     }
@@ -1669,6 +2231,11 @@ namespace AudioEffector.ViewModels
             if (parameter is Album album && album.Tracks.Any())
             {
                 _audioService.SetPlaylist(album.Tracks);
+
+                PlaybackListName = album.Title;
+                PlaybackListSubtitle = album.Artist;
+                PlaybackListTracks = new ObservableCollection<Track>(album.Tracks);
+
                 _audioService.PlayTrack(album.Tracks.First());
             }
         }
@@ -1697,74 +2264,173 @@ namespace AudioEffector.ViewModels
 
         public ICommand SwitchToSpectrumCommand { get; }
 
-        public ObservableCollection<double> SpectrumValues { get; } = new ObservableCollection<double>();
+        public ObservableCollection<SpectrumBarItem> SpectrumValues { get; } = new ObservableCollection<SpectrumBarItem>();
 
         private void OnFftCalculated(object? sender, FftEventArgs e)
         {
             if (!IsSpectrumVisible) return;
 
-            // Process FFT data on UI thread
-            // Group into bars (e.g. 32 bars)
-            // Apply smoothing
+            // Capture current generation
+            int currentGen = _spectrumGeneration;
 
-            // For simplicity, let's just take magnitudes and group them.
-            // e.Result has 1024 complex numbers. We only need first 512.
-            // We want 32 bars. 512 / 32 = 16 samples per bar.
-
-            int barCount = 32;
-            int samplesPerBar = 16;
-
+            int barCount = SpectrumBarCount;
             var newValues = new double[barCount];
+
+            // FFT parameters
+            // Assuming 44.1kHz sample rate and 1024 FFT size (approx)
+            // Bin resolution ~43Hz.
+            // We want 40Hz to 20kHz to use low end better.
+            double minFreq = 40;
+            double maxFreq = 20000;
+            double logMin = Math.Log10(minFreq);
+            double logMax = Math.Log10(maxFreq);
+            double logStep = (logMax - logMin) / barCount;
 
             for (int i = 0; i < barCount; i++)
             {
+                // Calculate frequency range for this bar (Log scale)
+                double fStart = Math.Pow(10, logMin + i * logStep);
+                double fEnd = Math.Pow(10, logMin + (i + 1) * logStep);
+
+                // Convert to bin indices (approximate)
+                // Bin 0 = 0Hz, Bin 512 = 22050Hz (Nyquist)
+                // Index = Freq * 512 / 22050
+                int iStart = (int)(fStart * 512 / 22050);
+                int iEnd = (int)(fEnd * 512 / 22050);
+
+                if (iStart < 0) iStart = 0;
+                if (iEnd >= 512) iEnd = 511;
+                if (iEnd < iStart) iEnd = iStart;
+
                 double sum = 0;
-                for (int j = 0; j < samplesPerBar; j++)
+                int count = 0;
+
+                for (int index = iStart; index <= iEnd; index++)
                 {
-                    int index = i * samplesPerBar + j;
+                    // Skip DC offset (index 0)
+                    if (index < 1) continue;
+
                     if (index < e.Result.Length)
                     {
-                        // Magnitude = sqrt(X^2 + Y^2)
-                        double mag = Math.Sqrt(e.Result[index].X * e.Result[index].X + e.Result[index].Y * e.Result[index].Y);
+                        var c = e.Result[index];
+                        double mag = Math.Sqrt(c.X * c.X + c.Y * c.Y);
                         sum += mag;
+                        count++;
                     }
                 }
-                // Logarithmic scaling for better visualization
-                double avg = sum / samplesPerBar;
+
+                double avg = count > 0 ? sum / count : 0;
                 double db = 20 * Math.Log10(avg);
 
-                // Map dB to 0-600 range roughly (MaxHeight is 600)
-                // Noise floor around -60dB?
-                // -60dB -> 0, -10dB -> 600
-                double val = Math.Max(0, db + 60) * 12;
+                // Map dB to height
+                // Reduced scaling factor from 3 to 1.5 to halve the height as requested
+                double val = Math.Max(0, db + 60) * 1.5;
+
+                // Apply Mid-range Boost
+                // Simple quadratic curve: y = -a(x-h)^2 + k
+                // Center h=15.5. Max boost k=1.5. Ends=1.0.
+                double normalizedPos = (i - 15.5) / 15.5; // -1 to 1
+                double boost = 1.5 - 0.5 * (normalizedPos * normalizedPos); // 1.5 at center, 1.0 at ends
+
+                // Apply High Frequency Boost (Compensate for Pink Noise roll-off)
+                // Linear increase from 0.3 to 3.0 across the spectrum
+                double highBoost = 0.3 + (i / (double)barCount) * 2.7;
+                val *= boost * highBoost;
+
+                // User Requested Scaling: 0.5x (Low) -> 2.0x (High)
+                double userScale = 0.5 + (i / (double)(barCount - 1)) * 1.5;
+                val *= userScale;
+
+                // Final Global Scaling (Reduced to 0.75x)
+                val *= 0.75;
+
+                // Glitch Prevention: Handle NaN/Infinity
+                if (double.IsNaN(val) || double.IsInfinity(val)) val = 0;
 
                 newValues[i] = val;
             }
 
-            Application.Current.Dispatcher.Invoke(() =>
+            Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                // Initialize if empty
-                if (SpectrumValues.Count != barCount)
+                // Check if generation has changed (track changed)
+                if (currentGen != _spectrumGeneration) return;
+
+                // Enforce Bar Count (Fix for fluctuating bars)
+                int targetCount = SpectrumBarCount;
+                int currentCount = SpectrumValues.Count;
+
+                if (currentCount != targetCount)
                 {
-                    SpectrumValues.Clear();
-                    for (int i = 0; i < barCount; i++) SpectrumValues.Add(0);
+                    System.Diagnostics.Debug.WriteLine($"[Spectrum] Count Mismatch! Current: {currentCount}, Target: {targetCount}");
+                }
+
+                if (currentCount < targetCount)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Spectrum] Adding {targetCount - currentCount} bars.");
+                    for (int i = currentCount; i < targetCount; i++)
+                    {
+                        SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
+                    }
+                }
+                else if (currentCount > targetCount)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Spectrum] Removing {currentCount - targetCount} bars.");
+                    for (int i = currentCount; i > targetCount; i--)
+                    {
+                        SpectrumValues.RemoveAt(SpectrumValues.Count - 1);
+                    }
                 }
 
                 // Update with smoothing
-                for (int i = 0; i < barCount; i++)
+                for (int i = 0; i < targetCount; i++)
                 {
-                    double current = SpectrumValues[i];
+                    var item = SpectrumValues[i];
+                    double current = item.Value;
                     double target = newValues[i];
 
                     // Rise fast, fall slow
                     if (target > current)
                     {
-                        SpectrumValues[i] = current + (target - current) * 0.2;
+                        item.Value = current + (target - current) * 0.2;
                     }
                     else
                     {
-                        SpectrumValues[i] = current - (current - target) * 0.05;
+                        item.Value = current - (current - target) * 0.05;
                     }
+                }
+            });
+        }
+
+        private void UpdatePlaylistThumbnails(UserPlaylist playlist)
+        {
+            if (playlist == null) return;
+
+            var distinctAlbumPaths = new List<string>();
+            var processedAlbums = new HashSet<string>();
+
+            // Only take up to 4 distinct albums
+            foreach (var path in playlist.TrackPaths)
+            {
+                if (distinctAlbumPaths.Count >= 4) break;
+
+                try
+                {
+                    var directory = System.IO.Path.GetDirectoryName(path);
+                    if (!string.IsNullOrEmpty(directory) && !processedAlbums.Contains(directory))
+                    {
+                        processedAlbums.Add(directory);
+                        distinctAlbumPaths.Add(path);
+                    }
+                }
+                catch { }
+            }
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                playlist.ThumbnailTrackPaths.Clear();
+                foreach (var p in distinctAlbumPaths)
+                {
+                    playlist.ThumbnailTrackPaths.Add(p);
                 }
             });
         }

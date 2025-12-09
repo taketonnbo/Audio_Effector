@@ -36,6 +36,20 @@ namespace AudioEffector.Models
             }
         }
 
+        private bool _isOnDevice;
+        public bool IsOnDevice
+        {
+            get => _isOnDevice;
+            set
+            {
+                if (_isOnDevice != value)
+                {
+                    _isOnDevice = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         public event PropertyChangedEventHandler PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
         {

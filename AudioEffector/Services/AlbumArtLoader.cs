@@ -32,6 +32,28 @@ namespace AudioEffector.Services
             obj.SetValue(SourcePathProperty, value);
         }
 
+        private static BitmapImage? _defaultImage;
+
+        private static BitmapImage? GetDefaultImage()
+        {
+            if (_defaultImage == null)
+            {
+                try
+                {
+                    var uri = new Uri("pack://application:,,,/Assets/Images/default_now_playing_bg.png");
+                    var bitmap = new BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.UriSource = uri;
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.EndInit();
+                    bitmap.Freeze();
+                    _defaultImage = bitmap;
+                }
+                catch { }
+            }
+            return _defaultImage;
+        }
+
         private static async void OnSourcePathChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             if (d is Image image)
@@ -40,7 +62,7 @@ namespace AudioEffector.Services
 
                 if (string.IsNullOrEmpty(path))
                 {
-                    image.Source = null;
+                    image.Source = GetDefaultImage();
                     return;
                 }
 
@@ -53,7 +75,7 @@ namespace AudioEffector.Services
                 }
 
                 // Set placeholder or null while loading
-                image.Source = null; // Or a placeholder resource
+                image.Source = GetDefaultImage();
 
                 try
                 {
@@ -67,10 +89,20 @@ namespace AudioEffector.Services
                             image.Source = loadedImage;
                         }
                     }
+                    else
+                    {
+                        if (GetSourcePath(image) == path)
+                        {
+                            image.Source = GetDefaultImage();
+                        }
+                    }
                 }
                 catch
                 {
-                    // Ignore errors
+                    if (GetSourcePath(image) == path)
+                    {
+                        image.Source = GetDefaultImage();
+                    }
                 }
             }
         }
@@ -86,7 +118,7 @@ namespace AudioEffector.Services
                         if (tfile.Tag.Pictures.Length > 0)
                         {
                             var bin = tfile.Tag.Pictures[0].Data.Data;
-                            
+
                             var image = new BitmapImage();
                             using (var mem = new MemoryStream(bin))
                             {

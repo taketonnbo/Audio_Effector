@@ -6,3 +6,9 @@ publish/
 *.user
 .vs/
 *.pdb
+
+# Build output directories
+Release_*/
+
+# Exception: Keep the latest release version controlled
+!Release_v22.1/

@@ -3,6 +3,7 @@ C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\bin\Release\net8.0-windo
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\bin\Release\net8.0-windows\AudioEffector.runtimeconfig.json
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\bin\Release\net8.0-windows\AudioEffector.dll
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\bin\Release\net8.0-windows\AudioEffector.pdb
+C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\bin\Release\net8.0-windows\MediaDevices.dll
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\bin\Release\net8.0-windows\NAudio.dll
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\bin\Release\net8.0-windows\NAudio.Asio.dll
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\bin\Release\net8.0-windows\NAudio.Core.dll
@@ -35,4 +36,3 @@ C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windo
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\AudioEffector.pdb
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\AudioEffector.genruntimeconfig.cache
 C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\obj\Release\net8.0-windows\ref\AudioEffector.dll
-C:\Users\tnish\vs_code_git\Audio_Effector\AudioEffector\bin\Release\net8.0-windows\MediaDevices.dll

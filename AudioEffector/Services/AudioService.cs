@@ -164,6 +164,7 @@ namespace AudioEffector.Services
                 try
                 {
                     _audioFile = new AudioFileReader(track.FilePath);
+                    _audioFile.Volume = _volume;
 
                     // Setup EQ
                     _equalizer = new Equalizer(_audioFile, Frequencies);
@@ -406,6 +407,23 @@ namespace AudioEffector.Services
                 if (_wasPlayingBeforeSeek && _outputDevice != null)
                 {
                     _outputDevice.Play();
+                }
+            }
+        }
+
+        private float _volume = 1.0f;
+        public float Volume
+        {
+            get => _volume;
+            set
+            {
+                lock (_lock)
+                {
+                    _volume = Math.Min(1.0f, Math.Max(0.0f, value));
+                    if (_audioFile != null)
+                    {
+                        _audioFile.Volume = _volume;
+                    }
                 }
             }
         }

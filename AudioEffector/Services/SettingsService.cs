@@ -8,6 +8,7 @@ namespace AudioEffector.Services
     {
         public string? LastLibraryPath { get; set; }
         public double LeftColumnWidth { get; set; } = 300;
+        public float Volume { get; set; } = 1.0f;
     }
 
     public class SettingsService
