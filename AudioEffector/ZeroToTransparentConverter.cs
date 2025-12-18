@@ -4,6 +4,10 @@ using System.Windows.Data;
 
 namespace AudioEffector
 {
+    /// <summary>
+    /// 値が0（または非常に小さい値）の場合に透明度（Opacity）を0にするコンバーター。
+    /// それ以外の場合は1（不透明）を返します。
+    /// </summary>
     public class ZeroToTransparentConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

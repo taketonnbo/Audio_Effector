@@ -8,13 +8,21 @@ using System.Windows.Media.Imaging;
 
 namespace AudioEffector.Services
 {
+    /// <summary>
+    /// アルバムアートを非同期で読み込み、キャッシュするためのユーティリティクラス（添付プロパティ）。
+    /// </summary>
     public static class AlbumArtLoader
     {
         // LRU Cache
+        // LRU (Least Recently Used) キャッシュ
         private static readonly int MaxCacheSize = 100;
         private static readonly Dictionary<string, BitmapImage> Cache = new Dictionary<string, BitmapImage>();
         private static readonly LinkedList<string> LruList = new LinkedList<string>();
 
+        /// <summary>
+        /// 画像のソースパスを指定する添付プロパティ。
+        /// このプロパティにパスを設定すると、自動的に非同期読み込みが開始されます。
+        /// </summary>
         public static readonly DependencyProperty SourcePathProperty =
             DependencyProperty.RegisterAttached(
                 "SourcePath",

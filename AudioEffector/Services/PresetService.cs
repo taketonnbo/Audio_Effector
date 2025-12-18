@@ -6,11 +6,17 @@ using AudioEffector.Models;
 
 namespace AudioEffector.Services
 {
+    /// <summary>
+    /// イコライザープリセットを管理・永続化するサービス。
+    /// </summary>
     public class PresetService
     {
         private readonly string _filePath;
-        private const int MaxPresets = 30;
+        private const int MaxPresets = 30; // 最大プリセット数
 
+        /// <summary>
+        /// コンストラクタ。プリセットの保存先を設定します。
+        /// </summary>
         public PresetService()
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -50,7 +56,7 @@ namespace AudioEffector.Services
         private List<Preset> CreateDefaultPresets()
         {
             var defaults = new List<Preset>();
-            
+
             // Default Flat
             defaults.Add(new Preset { Name = "フラット (Flat)", Gains = new List<float>(new float[16]) });
 

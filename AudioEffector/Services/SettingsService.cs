@@ -4,13 +4,30 @@ using System.Text.Json;
 
 namespace AudioEffector.Services
 {
+    /// <summary>
+    /// アプリケーションの設定情報を保持するモデルクラス。
+    /// </summary>
     public class AppSettings
     {
+        /// <summary>
+        /// 最後に開いていたライブラリのパス。
+        /// </summary>
         public string? LastLibraryPath { get; set; }
+
+        /// <summary>
+        /// 左カラム（サイドバー）の幅。
+        /// </summary>
         public double LeftColumnWidth { get; set; } = 300;
+
+        /// <summary>
+        /// アプリケーションのボリューム設定（0.0 - 1.0）。
+        /// </summary>
         public float Volume { get; set; } = 1.0f;
     }
 
+    /// <summary>
+    /// アプリケーション設定の読み込み・保存を行うサービス。
+    /// </summary>
     public class SettingsService
     {
         private readonly string _settingsFilePath;

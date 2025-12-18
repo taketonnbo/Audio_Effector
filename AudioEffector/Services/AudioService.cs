@@ -8,6 +8,10 @@ using System.Threading.Tasks;
 
 namespace AudioEffector.Services
 {
+    /// <summary>
+    /// オーディオ再生、プレイリスト管理、イコライザー処理を統括するコアサービス。
+    /// NAudioを使用しています。
+    /// </summary>
     public class AudioService : IDisposable
     {
         private IWavePlayer _outputDevice;
@@ -23,17 +27,42 @@ namespace AudioEffector.Services
         private bool _stopRequested;
         private readonly object _lock = new object();
 
+        /// <summary>
+        /// トラックが変更された際に発生するイベント。
+        /// </summary>
         public event Action<Track> TrackChanged;
+
+        /// <summary>
+        /// 再生状態（再生中/停止）が変更された際に発生するイベント。
+        /// </summary>
         public event Action<bool> PlaybackStateChanged;
+
+        /// <summary>
+        /// 再生が停止した際に発生するイベント。
+        /// </summary>
         public event Action PlaybackStopped;
+
+        /// <summary>
+        /// プレイリストの最後（リピートなし）に到達した際に発生するイベント。
+        /// </summary>
         public event EventHandler PlaylistEnded;
+
+        /// <summary>
+        /// FFT計算結果が利用可能になった際に発生するイベント。
+        /// </summary>
         public event EventHandler<FftEventArgs>? FftCalculated;
 
         // 10-band EQ frequencies
+        /// <summary>
+        /// イコライザーの周波数帯域定義（10バンド）。
+        /// </summary>
         public readonly float[] Frequencies = { 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
 
         public bool IsPlaying => _outputDevice?.PlaybackState == PlaybackState.Playing;
 
+        /// <summary>
+        /// シャッフル再生が有効かどうかを取得または設定します。
+        /// </summary>
         public bool IsShuffleEnabled
         {
             get => _isShuffleEnabled;
@@ -59,11 +88,17 @@ namespace AudioEffector.Services
 
         public bool IsRepeatEnabled { get; set; }
 
+        /// <summary>
+        /// プレイリストを設定します。
+        /// シャッフルが有効な場合は即座にシャッフルされます。
+        /// </summary>
+        /// <param name="tracks">トラックリスト。</param>
         public void SetPlaylist(List<Track> tracks)
         {
             lock (_lock)
             {
                 // Capture current track before updating
+                // 現在再生中のトラックを保持
                 var currentTrack = _currentIndex >= 0 && _currentIndex < _playlist.Count ? _playlist[_currentIndex] : null;
 
                 _originalPlaylist = new List<Track>(tracks);
@@ -77,6 +112,7 @@ namespace AudioEffector.Services
                 }
 
                 // Restore index if current track still exists
+                // 現在のトラックが新しいプレイリストにも含まれていればインデックスを復元
                 if (currentTrack != null)
                 {
                     var newIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
@@ -86,7 +122,7 @@ namespace AudioEffector.Services
                     }
                     else
                     {
-                        _currentIndex = -1; // Track removed
+                        _currentIndex = -1; // Track removed / 削除された場合
                     }
                 }
                 else
@@ -133,6 +169,9 @@ namespace AudioEffector.Services
             }
         }
 
+        /// <summary>
+        /// 指定されたトラックを再生します。
+        /// </summary>
         public async void PlayTrack(Track track)
         {
             int index = _playlist.IndexOf(track);
@@ -141,12 +180,11 @@ namespace AudioEffector.Services
                 _currentIndex = index;
                 PlayCurrent();
                 // Wait for PlaybackState to update
+                // 再生状態の更新待機
                 await Task.Delay(100);
                 PlaybackStateChanged?.Invoke(IsPlaying);
             }
         }
-
-
 
         private void PlayCurrent()
         {
@@ -155,9 +193,11 @@ namespace AudioEffector.Services
                 if (_currentIndex < 0 || _currentIndex >= _playlist.Count) return;
 
                 // Stop explicitly without triggering Next
+                // 次の曲への自動遷移をトリガーせずに停止
                 Stop(true);
 
                 // Generate new session ID
+                // 新しいセッションIDを生成
                 _currentPlaybackId = Guid.NewGuid();
 
                 var track = _playlist[_currentIndex];
@@ -167,13 +207,16 @@ namespace AudioEffector.Services
                     _audioFile.Volume = _volume;
 
                     // Setup EQ
+                    // イコライザーの設定
                     _equalizer = new Equalizer(_audioFile, Frequencies);
 
                     // Setup SampleAggregator for FFT
+                    // FFT用のサンプル集計器を設定
                     var aggregator = new SampleAggregator(_equalizer);
                     aggregator.FftCalculated += (s, e) => FftCalculated?.Invoke(this, e);
 
                     // Wrap with EndOfStreamProvider to detect end of playback reliably
+                    // 再生終了を確実に検知するためにラップする
                     var endOfStreamProvider = new EndOfStreamProvider(aggregator);
                     endOfStreamProvider.EndOfStream += OnEndOfStream;
 
@@ -202,9 +245,11 @@ namespace AudioEffector.Services
 
             // Trigger Next() when the stream ends (0 bytes read)
             // Run asynchronously to avoid blocking the audio thread
+            // ストリーム終了時に非同期で次へ遷移
             Task.Run(() =>
             {
                 // Add a small delay to allow the last buffer to play out
+                // 最後のバッファが再生されるのを少し待つ
                 System.Threading.Thread.Sleep(500);
 
                 // Check if the session is still valid
@@ -230,10 +275,7 @@ namespace AudioEffector.Services
             if (e.Exception == null)
             {
                 // Natural end of track, play next asynchronously to avoid disposing active device in event handler
-                // Note: If OnEndOfStream triggered Next(), this might be redundant or race.
-                // But Next() handles re-entrancy by checking state or just starting next.
-                // If OnEndOfStream already called Next(), _stopRequested might be true (from Stop(true) in PlayCurrent),
-                // so the check at the top of this method would catch it.
+                // 正常終了の場合、非同期で次へ
                 Task.Run(() =>
                 {
                     Next();
@@ -247,6 +289,9 @@ namespace AudioEffector.Services
             }
         }
 
+        /// <summary>
+        /// 再生/一時停止を切り替えます。
+        /// </summary>
         public void TogglePlayPause()
         {
             lock (_lock)
@@ -284,6 +329,9 @@ namespace AudioEffector.Services
             }
         }
 
+        /// <summary>
+        /// 次の曲へ進みます。
+        /// </summary>
         public async void Next()
         {
             if (_playlist.Count == 0) return;
@@ -296,6 +344,7 @@ namespace AudioEffector.Services
             else
             {
                 // End of playlist
+                // プレイリスト終了
                 if (IsRepeatEnabled)
                 {
                     _currentIndex = 0;
@@ -313,6 +362,9 @@ namespace AudioEffector.Services
             PlaybackStateChanged?.Invoke(IsPlaying);
         }
 
+        /// <summary>
+        /// 前の曲に戻ります。
+        /// </summary>
         public async void Previous()
         {
             if (_playlist.Count == 0) return;
@@ -324,6 +376,10 @@ namespace AudioEffector.Services
             PlaybackStateChanged?.Invoke(IsPlaying);
         }
 
+        /// <summary>
+        /// 再生を停止します。
+        /// </summary>
+        /// <param name="internalStop">内部呼び出しによる停止かどうか。</param>
         public void Stop(bool internalStop = false)
         {
             lock (_lock)
@@ -349,6 +405,9 @@ namespace AudioEffector.Services
             }
         }
 
+        /// <summary>
+        /// 指定位置（パーセンテージ）へシークします。
+        /// </summary>
         public void SeekTo(double percentage)
         {
             lock (_lock)
@@ -361,6 +420,9 @@ namespace AudioEffector.Services
             }
         }
 
+        /// <summary>
+        /// 指定バンドのゲインを設定します。
+        /// </summary>
         public void SetGain(int bandIndex, float gain)
         {
             _equalizer?.UpdateGain(bandIndex, gain);
@@ -388,6 +450,10 @@ namespace AudioEffector.Services
             }
         }
 
+        /// <summary>
+        /// シーク操作のために一時停止します。
+        /// シーク開始時に呼び出してください。
+        /// </summary>
         public void PauseForSeek()
         {
             lock (_lock)
@@ -400,6 +466,9 @@ namespace AudioEffector.Services
             }
         }
 
+        /// <summary>
+        /// シーク後の再生再開を行います。
+        /// </summary>
         public void ResumeAfterSeek()
         {
             lock (_lock)

@@ -4,6 +4,10 @@ using System.Windows.Data;
 
 namespace AudioEffector
 {
+    /// <summary>
+    /// ブール値を反転させるコンバーター。
+    /// trueをfalseに、falseをtrueに変換します。
+    /// </summary>
     public class InvertBoolConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

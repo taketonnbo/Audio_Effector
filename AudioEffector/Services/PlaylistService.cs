@@ -6,10 +6,16 @@ using AudioEffector.Models;
 
 namespace AudioEffector.Services
 {
+    /// <summary>
+    /// ユーザープレイリストを管理・永続化するサービス。
+    /// </summary>
     public class PlaylistService
     {
         private readonly string _playlistsFilePath;
 
+        /// <summary>
+        /// コンストラクタ。プレイリストの保存先ファイルパスを設定します。
+        /// </summary>
         public PlaylistService()
         {
             var appDataPath = Path.Combine(

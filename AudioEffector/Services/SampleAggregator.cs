@@ -5,6 +5,10 @@ using System.Diagnostics;
 
 namespace AudioEffector.Services
 {
+    /// <summary>
+    /// 音声サンプルを集計し、FFT（高速フーリエ変換）を実行するためのクラス。
+    /// スペクトラムアナライザーのデータソースとして機能します。
+    /// </summary>
     public class SampleAggregator : ISampleProvider
     {
         private readonly ISampleProvider _source;
@@ -13,6 +17,9 @@ namespace AudioEffector.Services
         private readonly float[] _sampleBuffer;
         private int _sampleBufferIndex;
 
+        /// <summary>
+        /// FFT計算完了時に発生するイベント。
+        /// </summary>
         public event EventHandler<FftEventArgs>? FftCalculated;
 
         public SampleAggregator(ISampleProvider source, int fftLength = 1024)
@@ -43,6 +50,7 @@ namespace AudioEffector.Services
             if (_sampleBufferIndex >= _fftLength)
             {
                 // Buffer full, perform FFT
+                // バッファがいっぱいになったらFFTを実行
                 PerformFft();
                 _sampleBufferIndex = 0;
             }
@@ -53,6 +61,7 @@ namespace AudioEffector.Services
         private void PerformFft()
         {
             // Copy to complex buffer and apply Hann window
+            // 複素数バッファにコピーし、ハン窓関数を適用
             for (int i = 0; i < _fftLength; i++)
             {
                 float window = (float)(0.5 * (1.0 - Math.Cos(2.0 * Math.PI * i / (_fftLength - 1))));
@@ -61,6 +70,7 @@ namespace AudioEffector.Services
             }
 
             // Perform FFT
+            // FFTを実行
             FastFourierTransform.FFT(true, (int)Math.Log(_fftLength, 2.0), _fftBuffer);
 
             // Calculate magnitudes

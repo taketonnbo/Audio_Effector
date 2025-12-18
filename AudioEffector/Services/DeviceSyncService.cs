@@ -6,8 +6,16 @@ using System.Threading.Tasks;
 
 namespace AudioEffector.Services
 {
+    /// <summary>
+    /// デバイス（リムーバブルドライブ）との同期を行うサービス。
+    /// 楽曲ファイルを転送します。
+    /// </summary>
     public class DeviceSyncService
     {
+        /// <summary>
+        /// 利用可能なリムーバブルドライブの一覧を取得します。
+        /// </summary>
+        /// <returns>DriveInfoのリスト。</returns>
         public List<DriveInfo> GetRemovableDrives()
         {
             return DriveInfo.GetDrives()
@@ -15,6 +23,13 @@ namespace AudioEffector.Services
                 .ToList();
         }
 
+        /// <summary>
+        /// ファイルを指定されたフォルダに非同期で転送（コピー）します。
+        /// 転送先ではアーティスト/アルバム/タイトル.ext形式で保存されます。
+        /// </summary>
+        /// <param name="sourceFilePaths">転送元ファイルパスのリスト。</param>
+        /// <param name="destinationFolder">転送先フォルダパス。</param>
+        /// <param name="progress">進捗状況を報告するプロバイダ。</param>
         public async Task TransferFilesAsync(List<string> sourceFilePaths, string destinationFolder, IProgress<double> progress)
         {
             await Task.Run(() =>

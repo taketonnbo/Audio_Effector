@@ -6,10 +6,16 @@ using System.Text.Json;
 
 namespace AudioEffector.Services
 {
+    /// <summary>
+    /// お気に入りトラックのリストを管理・永続化するサービス。
+    /// </summary>
     public class FavoriteService
     {
         private readonly string _favoritesFilePath;
 
+        /// <summary>
+        /// コンストラクタ。保存先ファイルパスを設定します。
+        /// </summary>
         public FavoriteService()
         {
             var appDataPath = Path.Combine(
@@ -19,6 +25,10 @@ namespace AudioEffector.Services
             _favoritesFilePath = Path.Combine(appDataPath, "favorites.json");
         }
 
+        /// <summary>
+        /// お気に入りリストをJSONファイルから読み込みます。
+        /// </summary>
+        /// <returns>ファイルパスのリスト。</returns>
         public List<string> LoadFavorites()
         {
             if (File.Exists(_favoritesFilePath))

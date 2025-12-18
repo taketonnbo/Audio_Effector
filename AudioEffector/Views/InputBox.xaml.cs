@@ -4,10 +4,16 @@ using System.Windows;
 
 namespace AudioEffector.Views
 {
+    /// <summary>
+    /// 汎用的なテキスト入力ダイアログ。
+    /// </summary>
     public partial class InputBox : Window, INotifyPropertyChanged
     {
         private string _inputText;
 
+        /// <summary>
+        /// 入力されたテキスト。
+        /// </summary>
         public string InputText
         {
             get => _inputText;
@@ -21,6 +27,9 @@ namespace AudioEffector.Views
             }
         }
 
+        /// <summary>
+        /// ダイアログに表示するメッセージ。
+        /// </summary>
         public string Message { get; set; }
 
         public event PropertyChangedEventHandler PropertyChanged;
@@ -30,14 +39,19 @@ namespace AudioEffector.Views
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
+        /// <summary>
+        /// InputBoxのコンストラクタ。
+        /// </summary>
+        /// <param name="message">表示メッセージ。</param>
+        /// <param name="defaultText">テキストボックスの初期値。</param>
         public InputBox(string message, string defaultText = "")
         {
             InitializeComponent();
             DataContext = this;
             Message = message;
             InputText = defaultText;
-            
-            Loaded += (s, e) => 
+
+            Loaded += (s, e) =>
             {
                 InputTextBox.Focus();
                 InputTextBox.SelectAll();

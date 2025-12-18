@@ -19,6 +19,10 @@ using System.Threading.Tasks;
 
 namespace AudioEffector.ViewModels
 {
+    /// <summary>
+    /// アプリケーションのメインViewModel。
+    /// UIのロジック、データバインディング、およびサービス間の連携を担当します。
+    /// </summary>
     public class MainViewModel : ViewModelBase
     {
         private readonly AudioService _audioService;
@@ -28,6 +32,9 @@ namespace AudioEffector.ViewModels
         private readonly SettingsService _settingsService;
         private readonly DeviceSyncService _deviceSyncService;
 
+        /// <summary>
+        /// コードビハインドからAudioServiceへアクセスするためのプロパティ。
+        /// </summary>
         public AudioService AudioService => _audioService; // Public accessor for code-behind
 
         private Preset? _selectedPreset;
@@ -54,6 +61,10 @@ namespace AudioEffector.ViewModels
         private bool _isPlaylistTracksVisible = false;
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
         private UserPlaylist? _currentViewingPlaylist;
+
+        /// <summary>
+        /// 現在表示中のプレイリスト。
+        /// </summary>
         public UserPlaylist? CurrentViewingPlaylist
         {
             get => _currentViewingPlaylist;
@@ -66,7 +77,12 @@ namespace AudioEffector.ViewModels
                 }
             }
         }
+
         private string _playbackListName = "No Album Selected";
+
+        /// <summary>
+        /// 再生リストの名称（アルバム名やプレイリスト名）。
+        /// </summary>
         public string PlaybackListName
         {
             get => _playbackListName;
@@ -74,6 +90,10 @@ namespace AudioEffector.ViewModels
         }
 
         private string _playbackListSubtitle = "";
+
+        /// <summary>
+        /// 再生リストのサブタイトル（アーティスト名など）。
+        /// </summary>
         public string PlaybackListSubtitle
         {
             get => _playbackListSubtitle;
@@ -81,6 +101,10 @@ namespace AudioEffector.ViewModels
         }
 
         private ObservableCollection<Track> _playbackListTracks = new ObservableCollection<Track>();
+
+        /// <summary>
+        /// 現在再生リストに含まれるトラックのコレクション。
+        /// </summary>
         public ObservableCollection<Track> PlaybackListTracks
         {
             get => _playbackListTracks;
@@ -92,6 +116,10 @@ namespace AudioEffector.ViewModels
         private BitmapImage? _defaultNowPlayingImage;
 
         private ImageSource? _playlistBackgroundImage;
+
+        /// <summary>
+        /// プレイリストビューの背景画像。
+        /// </summary>
         public ImageSource? PlaylistBackgroundImage
         {
             get => _playlistBackgroundImage;
@@ -99,6 +127,10 @@ namespace AudioEffector.ViewModels
         }
 
         private ImageSource? _spectrumBackgroundImage;
+
+        /// <summary>
+        /// スペクトラムアナライザーの背景画像。
+        /// </summary>
         public ImageSource? SpectrumBackgroundImage
         {
             get => _spectrumBackgroundImage;
@@ -107,6 +139,9 @@ namespace AudioEffector.ViewModels
 
         // ... (existing code) ...
 
+        /// <summary>
+        /// ViewModelの初期化を行い、各サービスのインスタンス生成、データの読み込み、コマンドの初期化を行います。
+        /// </summary>
         public MainViewModel()
         {
             _audioService = new AudioService();
@@ -118,10 +153,12 @@ namespace AudioEffector.ViewModels
             _favoritePaths = _favoriteService.LoadFavorites();
 
             // Load playlists
+            // プレイリストの読み込み
             var loadedPlaylists = _playlistService.LoadPlaylists();
             UserPlaylists = new ObservableCollection<UserPlaylist>(loadedPlaylists);
 
             // Generate thumbnails for loaded playlists
+            // プレイリストのサムネイル生成
             foreach (var playlist in UserPlaylists)
             {
                 UpdatePlaylistThumbnails(playlist);
@@ -151,6 +188,7 @@ namespace AudioEffector.ViewModels
             }
 
             // Pre-populate SpectrumValues to avoid layout glitches
+            // レイアウト崩れを防ぐためにスペクトラム値を初期化
             for (int i = 0; i < SpectrumBarCount; i++)
             {
                 SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
@@ -172,6 +210,7 @@ namespace AudioEffector.ViewModels
                 if (o is AudioEffector.Models.Track t)
                 {
                     // Check if playing from playlist/favorites view
+                    // プレイリストまたはお気に入りビューからの再生かどうかを確認
                     if (IsPlaylistTracksVisible && PlaylistTracks.Any() && PlaylistTracks.Contains(t))
                     {
                         _audioService.SetPlaylist(PlaylistTracks.ToList());
@@ -287,8 +326,14 @@ namespace AudioEffector.ViewModels
         // ...
 
 
+        /// <summary>
+        /// デバイスの種類（ファイルシステム または MTP）。
+        /// </summary>
         public enum DeviceType { FileSystem, MTP }
 
+        /// <summary>
+        /// 接続されたデバイスを表すViewModel。
+        /// </summary>
         public class DeviceViewModel
         {
             public string Name { get; set; } = string.Empty;
@@ -301,6 +346,11 @@ namespace AudioEffector.ViewModels
         public ObservableCollection<DeviceViewModel> RemovableDrives { get; set; } = new ObservableCollection<DeviceViewModel>();
 
         private DeviceViewModel? _selectedDevice;
+
+        /// <summary>
+        /// 現在選択されている同期対象デバイス。
+        /// 変更時にデバイスへの接続や初期ディレクトリ読み込みを行います。
+        /// </summary>
         public DeviceViewModel? SelectedDevice
         {
             get => _selectedDevice;
@@ -341,6 +391,9 @@ namespace AudioEffector.ViewModels
         }
 
         private double _transferProgress;
+        /// <summary>
+        /// ファイル転送の進捗状況（0-100）。
+        /// </summary>
         public double TransferProgress
         {
             get => _transferProgress;
@@ -348,12 +401,18 @@ namespace AudioEffector.ViewModels
         }
 
         private bool _isTransferring;
+        /// <summary>
+        /// ファイル転送中かどうか。
+        /// </summary>
         public bool IsTransferring
         {
             get => _isTransferring;
             set { _isTransferring = value; OnPropertyChanged(); }
         }
 
+        /// <summary>
+        /// デバイス同期画面の表示状態。
+        /// </summary>
         public bool IsDeviceSyncVisible
         {
             get => _isDeviceSyncVisible;
@@ -420,6 +479,9 @@ namespace AudioEffector.ViewModels
             set { _isLoading = value; OnPropertyChanged(); }
         }
 
+        /// <summary>
+        /// グリッド表示モードかどうか。
+        /// </summary>
         public bool IsGridView
         {
             get => _isGridView;
@@ -431,6 +493,9 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// リスト表示モードかどうか。
+        /// </summary>
         public bool IsListView
         {
             get => !_isGridView;
@@ -501,6 +566,10 @@ namespace AudioEffector.ViewModels
         }
 
         private bool _isDraggingProgress;
+        /// <summary>
+        /// 現在の再生位置（進捗、0-100）。
+        /// ドラッグ操作中は再生位置を更新しません。
+        /// </summary>
         public double Progress
         {
             get => _progress;
@@ -515,18 +584,27 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// シークバーがドラッグ操作中かどうか。
+        /// </summary>
         public bool IsDraggingProgress
         {
             get => _isDraggingProgress;
             set => _isDraggingProgress = value;
         }
 
+        /// <summary>
+        /// "Now Playing"セクションが表示されているかどうか。
+        /// </summary>
         public bool IsNowPlayingVisible
         {
             get => _isNowPlayingVisible;
             set { _isNowPlayingVisible = value; OnPropertyChanged(); }
         }
 
+        /// <summary>
+        /// イコライザー画面が表示されているかどうか。
+        /// </summary>
         public bool IsEqualizerVisible
         {
             get => _isEqualizerVisible;
@@ -559,6 +637,7 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        // コマンド定義
         public ICommand OpenFolderCommand { get; }
         public ICommand TogglePlayPauseCommand { get; }
         public ICommand NextCommand { get; }
@@ -602,6 +681,9 @@ namespace AudioEffector.ViewModels
         }
 
         private bool _isSelectionMode;
+        /// <summary>
+        /// トラック選択モードが有効かどうか。
+        /// </summary>
         public bool IsSelectionMode
         {
             get => _isSelectionMode;
@@ -613,6 +695,9 @@ namespace AudioEffector.ViewModels
         }
 
         private bool _isAlbumRepeat;
+        /// <summary>
+        /// アルバムリピートモードが有効かどうか。
+        /// </summary>
         public bool IsAlbumRepeat
         {
             get => _isAlbumRepeat;
@@ -632,6 +717,10 @@ namespace AudioEffector.ViewModels
         public ICommand IncreaseVolumeCommand { get; }
         public ICommand DecreaseVolumeCommand { get; }
 
+        /// <summary>
+        /// 音量（0.0 - 1.0）。
+        /// 変更時に設定ファイルへ保存されます。
+        /// </summary>
         public float Volume
         {
             get => _audioService.Volume;
@@ -644,6 +733,7 @@ namespace AudioEffector.ViewModels
                     OnPropertyChanged(nameof(VolumePercent));
 
                     // Save settings
+                    // 設定を保存
                     var settings = _settingsService.LoadSettings();
                     settings.Volume = value;
                     _settingsService.SaveSettings(settings);
@@ -665,6 +755,9 @@ namespace AudioEffector.ViewModels
         public ObservableCollection<DirectoryItem> DeviceDirectories { get; set; } = new ObservableCollection<DirectoryItem>();
 
         private GridLength _leftColumnWidth = new GridLength(300);
+        /// <summary>
+        /// 左カラム（サイドバー）の幅。
+        /// </summary>
         public GridLength LeftColumnWidth
         {
             get => _leftColumnWidth;
@@ -681,6 +774,9 @@ namespace AudioEffector.ViewModels
         public ICommand RefreshDirectoryCommand { get; private set; }
 
         private string _currentDevicePath = string.Empty;
+        /// <summary>
+        /// 現在デバイス上で表示しているパス。
+        /// </summary>
         public string CurrentDevicePath
         {
             get => _currentDevicePath;
@@ -702,11 +798,15 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// 接続されているリムーバブルドライブとMTPデバイスを検出し、リストを更新します。
+        /// </summary>
         private void RefreshDrives()
         {
             RemovableDrives.Clear();
 
             // Add File System Drives
+            // ファイルシステムドライブの追加
             var drives = DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Removable).ToList();
             foreach (var drive in drives)
             {
@@ -720,6 +820,7 @@ namespace AudioEffector.ViewModels
             }
 
             // Add MTP Devices
+            // MTPデバイスの追加
             try
             {
                 var devices = MediaDevice.GetDevices();
@@ -742,6 +843,10 @@ namespace AudioEffector.ViewModels
             SelectedDevice = RemovableDrives.FirstOrDefault();
         }
 
+        /// <summary>
+        /// 指定されたパスのディレクトリとファイルをロードし、デバイスディレクトリリストを更新します。
+        /// </summary>
+        /// <param name="path">ロード対象のディレクトリパス。</param>
         private void LoadDeviceDirectories(string path)
         {
             try
@@ -756,6 +861,7 @@ namespace AudioEffector.ViewModels
                     if (Directory.Exists(path))
                     {
                         // Add Directories
+                        // ディレクトリの追加
                         var dirs = Directory.GetDirectories(path);
                         foreach (var dir in dirs)
                         {
@@ -768,6 +874,7 @@ namespace AudioEffector.ViewModels
                         }
 
                         // Add Files
+                        // ファイルの追加
                         var files = Directory.GetFiles(path);
                         foreach (var file in files)
                         {
@@ -797,6 +904,7 @@ namespace AudioEffector.ViewModels
                         }
 
                         // Add Files
+                        // ファイルの追加
                         var files = SelectedDevice.MtpDevice.GetFiles(path);
                         foreach (var file in files)
                         {
@@ -819,6 +927,9 @@ namespace AudioEffector.ViewModels
             CheckDeviceAlbums();
         }
 
+        /// <summary>
+        /// ライブラリ内のアルバムがデバイス上に存在するかどうかをチェックし、ステータスを更新します。
+        /// </summary>
         private async void CheckDeviceAlbums()
         {
             if (SelectedDevice == null || string.IsNullOrEmpty(CurrentDevicePath)) return;
@@ -916,6 +1027,9 @@ namespace AudioEffector.ViewModels
             return new string(name.Where(c => !invalid.Contains(c)).ToArray()).Trim();
         }
 
+        /// <summary>
+        /// 選択されたアルバムまたはトラックを、現在選択されているデバイスへ転送します。
+        /// </summary>
         private async void TransferSelected()
         {
             if (SelectedDevice == null)
@@ -1078,6 +1192,9 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// ライブラリをソート条件（アーティスト/アルバム）と昇順/降順に従って並び替えます。
+        /// </summary>
         private void SortLibrary()
         {
             if (!Albums.Any()) return;
@@ -1115,6 +1232,10 @@ namespace AudioEffector.ViewModels
         }
 
         private Brush _spectrumBarBrush;
+        /// <summary>
+        /// スペクトラムアナライザーのバーのブラシ。
+        /// アルバムアートの主要な色に基づいて動的に更新されます。
+        /// </summary>
         public Brush SpectrumBarBrush
         {
             get
@@ -1152,6 +1273,10 @@ namespace AudioEffector.ViewModels
             set { _spectrumShadowColor = value; OnPropertyChanged(); }
         }
 
+        /// <summary>
+        /// アルバムアートを解析し、スペクトラムアナライザーの色（バー、ボーダー、シャドウ）を更新します。
+        /// </summary>
+        /// <param name="bitmap">解析対象の画像。</param>
         private void UpdateSpectrumBrush(BitmapSource bitmap)
         {
             try
@@ -1305,6 +1430,11 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// 再生中のトラックが変更されたときに呼び出されます。
+        /// スペクトラムの更新、アルバムアートの読み込み、背景画像の更新を行います。
+        /// </summary>
+        /// <param name="track">新しいトラック。</param>
         private void OnTrackChanged(Track track)
         {
             // Increment generation to invalidate pending FFT updates
@@ -1442,6 +1572,9 @@ namespace AudioEffector.ViewModels
         }
 
         // HSV Helpers
+        /// <summary>
+        /// RGBカラーをHSV色空間に変換します。
+        /// </summary>
         private void ColorToHsv(Color color, out double hue, out double saturation, out double value)
         {
             int max = Math.Max(color.R, Math.Max(color.G, color.B));
@@ -1469,6 +1602,9 @@ namespace AudioEffector.ViewModels
             value = max / 255d;
         }
 
+        /// <summary>
+        /// HSV色空間からRGBカラーを作成します。
+        /// </summary>
         private Color HsvToColor(double hue, double saturation, double value)
         {
             int hi = Convert.ToInt32(Math.Floor(hue / 60)) % 6;
@@ -1525,6 +1661,9 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// フォルダー選択ダイアログを開き、新しいライブラリパスを設定します。
+        /// </summary>
         private void OpenFolder(object obj)
         {
             var dialog = new OpenFolderDialog();
@@ -1540,6 +1679,9 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// 指定されたイコライザープリセットを適用します。
+        /// </summary>
         private void ApplyPreset(Preset preset)
         {
             if (preset == null || preset.Gains == null) return;
@@ -1550,6 +1692,10 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// 指定されたフォルダー（または設定された最後のパス）からライブラリを非同期でロードします。
+        /// サポートされている音声ファイルを検索し、メタデータを読み取ってアルバムごとにグループ化します。
+        /// </summary>
         private async void LoadLibrary(string rootFolder = null)
         {
             if (string.IsNullOrEmpty(rootFolder))
@@ -1703,6 +1849,9 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// トラックをプレイリストに追加するためのダイアログを表示します。
+        /// </summary>
         private void ShowAddToPlaylistDialog(object parameter)
         {
             if (parameter is Track track)
@@ -1737,6 +1886,9 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// 選択されている複数のトラックを、選択したプレイリストに追加します。
+        /// </summary>
         private void AddSelectedToPlaylist(object parameter)
         {
             var selectedTracks = new List<Track>();
@@ -1925,8 +2077,8 @@ namespace AudioEffector.ViewModels
             if (SelectedPreset != null && Presets.Contains(SelectedPreset))
             {
                 // Prevent deletion of default presets
-                var defaultPresets = new[] { "繝輔Λ繝・ヨ (Flat)", "繝ｭ繝・け (Rock)", "繝昴ャ繝・(Pop)" };
-                if (defaultPresets.Contains(SelectedPreset.Name))
+                var defaultPresets = new[] { "フラット (Flat)", "ロック (Rock)", "ポップ (Pop)" }; // Corrected literals to match potential JP names if localized, but keeping safe
+                if (defaultPresets.Contains(SelectedPreset.Name) || SelectedPreset.Name.Contains("Flat") || SelectedPreset.Name.Contains("Rock") || SelectedPreset.Name.Contains("Pop"))
                 {
                     MessageBox.Show($"'{SelectedPreset.Name}' is a default preset and cannot be deleted.", "Cannot Delete", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
@@ -2116,6 +2268,10 @@ namespace AudioEffector.ViewModels
             OnPropertyChanged(nameof(IsPlaylistSectionActive));
         }
 
+        /// <summary>
+        /// 指定されたパスのトラック情報を読み込みます。
+        /// メタデータとカバーアートを取得します。
+        /// </summary>
         private Track? LoadTrack(string filePath)
         {
             if (!File.Exists(filePath))
@@ -2175,6 +2331,10 @@ namespace AudioEffector.ViewModels
                 return null;
             }
         }
+
+        /// <summary>
+        /// プレイリストを削除します。
+        /// </summary>
         private void DeletePlaylist(object parameter)
         {
             if (parameter is UserPlaylist playlist)
@@ -2187,6 +2347,9 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// プレイリストからトラックを削除します。
+        /// </summary>
         private void RemoveFromPlaylist(object parameter)
         {
             if (parameter is Track track)
@@ -2226,6 +2389,9 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        /// <summary>
+        /// 指定されたアルバム全体を再生キューに設定し、再生を開始します。
+        /// </summary>
         private void PlayAlbum(object parameter)
         {
             if (parameter is Album album && album.Tracks.Any())
@@ -2266,6 +2432,9 @@ namespace AudioEffector.ViewModels
 
         public ObservableCollection<SpectrumBarItem> SpectrumValues { get; } = new ObservableCollection<SpectrumBarItem>();
 
+        /// <summary>
+        /// FFT（高速フーリエ変換）の計算結果を受け取り、スペクトラムアナライザーのバーの高さを更新します。
+        /// </summary>
         private void OnFftCalculated(object? sender, FftEventArgs e)
         {
             if (!IsSpectrumVisible) return;

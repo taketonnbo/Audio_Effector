@@ -4,10 +4,24 @@ using AudioEffector.Models;
 
 namespace AudioEffector.Views
 {
+    /// <summary>
+    /// トラックをプレイリストに追加する際に使用する選択ダイアログ。
+    /// </summary>
     public partial class PlaylistSelectionDialog : Window
     {
+        /// <summary>
+        /// 選択可能なプレイリスト一覧。
+        /// </summary>
         public ObservableCollection<UserPlaylist> Playlists { get; set; }
+
+        /// <summary>
+        /// ユーザーによって選択されたプレイリスト。
+        /// </summary>
         public UserPlaylist? SelectedPlaylist { get; set; }
+
+        /// <summary>
+        /// 追加対象のトラック。
+        /// </summary>
         public Track Track { get; set; }
 
         public PlaylistSelectionDialog(ObservableCollection<UserPlaylist> playlists, Track track)
@@ -26,7 +40,7 @@ namespace AudioEffector.Views
             }
             else
             {
-                MessageBox.Show("Please select a playlist", "No Selection", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("プレイリストを選択してください", "No Selection", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
     }

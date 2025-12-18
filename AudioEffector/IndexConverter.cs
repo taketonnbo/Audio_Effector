@@ -4,6 +4,9 @@ using System.Windows.Data;
 
 namespace AudioEffector
 {
+    /// <summary>
+    /// 0始まりのインデックスを1始まりの表示用番号に変換するコンバーター。
+    /// </summary>
     public class IndexConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
