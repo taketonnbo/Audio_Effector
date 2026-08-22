@@ -1,4 +1,4 @@
-﻿using AudioEffector.Models;
+using AudioEffector.Models;
 using AudioEffector.Services;
 using AudioEffector.Views;
 using Microsoft.Win32;
@@ -1711,7 +1711,7 @@ namespace AudioEffector.ViewModels
 
             await Task.Run(() =>
             {
-                var extensions = new[] { ".mp3", ".wav", ".aiff", ".wma", ".m4a", ".flac" };
+                var extensions = new[] { ".mp3", ".wav", ".aiff", ".wma", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".alac" };
                 var files = Directory.GetFiles(rootFolder, "*.*", SearchOption.AllDirectories)
                                      .Where(f => extensions.Contains(Path.GetExtension(f).ToLower()))
                                      .ToList();
@@ -1721,7 +1721,13 @@ namespace AudioEffector.ViewModels
 
                 Parallel.ForEach(files, file =>
                 {
-                    var track = new Track { FilePath = file, Title = Path.GetFileNameWithoutExtension(file) };
+                    var track = new Track 
+                    { 
+                        FilePath = file, 
+                        Title = Path.GetFileNameWithoutExtension(file),
+                        Artist = "Unknown Artist",
+                        Album = "Unknown Album"
+                    };
                     uint year = 0;
 
                     try
