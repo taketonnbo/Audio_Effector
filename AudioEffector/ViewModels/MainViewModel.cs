@@ -810,6 +810,8 @@ namespace AudioEffector.ViewModels
         /// </summary>
         private void RefreshDrives()
         {
+            if (IsTransferring) return; // 転送中の切断を防止
+
             RemovableDrives.Clear();
 
             // Add File System Drives
@@ -1123,6 +1125,7 @@ namespace AudioEffector.ViewModels
                 }
                 else if (SelectedDevice.Type == DeviceType.MTP && SelectedDevice.MtpDevice != null)
                 {
+                    var mtpDevice = SelectedDevice.MtpDevice;
                     await Task.Run(() =>
                     {
                         int total = tracksToTransfer.Count;
@@ -1140,13 +1143,13 @@ namespace AudioEffector.ViewModels
                             try
                             {
                                 string artistDir = System.IO.Path.Combine(destinationFolder, artist);
-                                if (!SelectedDevice.MtpDevice.DirectoryExists(artistDir))
+                                if (!mtpDevice.DirectoryExists(artistDir))
                                 {
-                                    SelectedDevice.MtpDevice.CreateDirectory(artistDir);
+                                    mtpDevice.CreateDirectory(artistDir);
                                 }
-                                if (!SelectedDevice.MtpDevice.DirectoryExists(targetDir))
+                                if (!mtpDevice.DirectoryExists(targetDir))
                                 {
-                                    SelectedDevice.MtpDevice.CreateDirectory(targetDir);
+                                    mtpDevice.CreateDirectory(targetDir);
                                 }
                             }
                             catch (Exception ex)
@@ -1158,7 +1161,7 @@ namespace AudioEffector.ViewModels
 
                             // Skip if already exists
                             bool fileExists = false;
-                            try { fileExists = SelectedDevice.MtpDevice.FileExists(destPath); } catch { }
+                            try { fileExists = mtpDevice.FileExists(destPath); } catch { }
 
                             if (fileExists)
                             {
@@ -1167,7 +1170,7 @@ namespace AudioEffector.ViewModels
                                 continue;
                             }
 
-                            SelectedDevice.MtpDevice.UploadFile(track.FilePath, destPath);
+                            mtpDevice.UploadFile(track.FilePath, destPath);
 
                             current++;
                             ((IProgress<double>)progress).Report((double)current / total * 100);
