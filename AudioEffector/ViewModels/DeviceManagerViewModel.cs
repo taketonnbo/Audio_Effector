@@ -44,6 +44,8 @@ namespace AudioEffector.ViewModels
             LoadAlbumsAsync();
         }
 
+        private static readonly string[] AudioExtensions = { ".mp3", ".wav", ".aiff", ".wma", ".m4a", ".mp4", ".flac", ".aac", ".ogg", ".opus", ".alac" };
+
         private async void LoadAlbumsAsync()
         {
             if (_currentDevice == null) return;
@@ -59,68 +61,12 @@ namespace AudioEffector.ViewModels
                 {
                     if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem && _currentDevice.Drive != null)
                     {
-                        string targetPath = string.IsNullOrEmpty(_basePath) ? _currentDevice.Drive.RootDirectory.FullName : _basePath;
-                        if (Directory.Exists(targetPath))
-                        {
-                            var artists = Directory.GetDirectories(targetPath);
-                            foreach (var artistDir in artists)
-                            {
-                                string artistName = Path.GetFileName(artistDir);
-                                var albums = Directory.GetDirectories(artistDir);
-                                foreach (var albumDir in albums)
-                                {
-                                    string albumName = Path.GetFileName(albumDir);
-                                    var files = Directory.GetFiles(albumDir);
-                                    
-                                    if (files.Length > 0)
-                                    {
-                                        var deviceAlbum = new DeviceAlbum
-                                        {
-                                            Artist = artistName,
-                                            Title = albumName,
-                                            Path = albumDir,
-                                            CoverImage = FindCoverImage(albumName)
-                                        };
-                                        foreach (var file in files)
-                                        {
-                                            deviceAlbum.Tracks.Add(new DeviceTrack { Title = Path.GetFileName(file), Path = file });
-                                        }
-                                        loadedAlbums.Add(deviceAlbum);
-                                    }
-                                }
-                            }
-                        }
+                        string rootPath = _currentDevice.Drive.RootDirectory.FullName;
+                        ScanFileSystemDirectory(rootPath, loadedAlbums);
                     }
                     else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null && _currentDevice.MtpDevice.IsConnected)
                     {
-                        string targetPath = string.IsNullOrEmpty(_basePath) ? @"\" : _basePath;
-                        var artists = _currentDevice.MtpDevice.GetDirectories(targetPath);
-                        foreach (var artistDir in artists)
-                        {
-                            string artistName = Path.GetFileName(artistDir);
-                            var albums = _currentDevice.MtpDevice.GetDirectories(artistDir);
-                            foreach (var albumDir in albums)
-                            {
-                                string albumName = Path.GetFileName(albumDir);
-                                var files = _currentDevice.MtpDevice.GetFiles(albumDir);
-
-                                if (files.Any())
-                                {
-                                    var deviceAlbum = new DeviceAlbum
-                                    {
-                                        Artist = artistName,
-                                        Title = albumName,
-                                        Path = albumDir,
-                                        CoverImage = FindCoverImage(albumName)
-                                    };
-                                    foreach (var file in files)
-                                    {
-                                        deviceAlbum.Tracks.Add(new DeviceTrack { Title = Path.GetFileName(file), Path = file });
-                                    }
-                                    loadedAlbums.Add(deviceAlbum);
-                                }
-                            }
-                        }
+                        ScanMtpDirectory(@"\", loadedAlbums);
                     }
                 }
                 catch (Exception ex)
@@ -132,11 +78,94 @@ namespace AudioEffector.ViewModels
                 }
             });
 
-            foreach (var album in loadedAlbums)
+            // ソートして追加
+            foreach (var album in loadedAlbums.OrderBy(a => a.Artist).ThenBy(a => a.Title))
             {
                 DeviceAlbums.Add(album);
             }
             IsLoading = false;
+        }
+
+        private void ScanFileSystemDirectory(string path, List<DeviceAlbum> loadedAlbums)
+        {
+            try
+            {
+                var files = Directory.GetFiles(path);
+                var audioFiles = files.Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
+
+                if (audioFiles.Any())
+                {
+                    string albumName = Path.GetFileName(path);
+                    string artistName = Path.GetFileName(Path.GetDirectoryName(path));
+
+                    var deviceAlbum = new DeviceAlbum
+                    {
+                        Artist = artistName,
+                        Title = albumName,
+                        Path = path,
+                        CoverImage = FindCoverImage(albumName)
+                    };
+                    foreach (var file in audioFiles)
+                    {
+                        deviceAlbum.Tracks.Add(new DeviceTrack { Title = Path.GetFileName(file), Path = file });
+                    }
+                    loadedAlbums.Add(deviceAlbum);
+                }
+            }
+            catch { }
+
+            try
+            {
+                var dirs = Directory.GetDirectories(path);
+                foreach (var dir in dirs)
+                {
+                    string name = Path.GetFileName(dir);
+                    if (name.StartsWith(".") || name == "System Volume Information" || name == "$RECYCLE.BIN") continue;
+                    ScanFileSystemDirectory(dir, loadedAlbums);
+                }
+            }
+            catch { }
+        }
+
+        private void ScanMtpDirectory(string path, List<DeviceAlbum> loadedAlbums)
+        {
+            try
+            {
+                var files = _currentDevice.MtpDevice.GetFiles(path);
+                var audioFiles = files.Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
+
+                if (audioFiles.Any())
+                {
+                    string albumName = Path.GetFileName(path);
+                    string artistName = Path.GetFileName(GetParentDirectory(path));
+
+                    var deviceAlbum = new DeviceAlbum
+                    {
+                        Artist = artistName ?? "Unknown Artist",
+                        Title = albumName ?? "Unknown Album",
+                        Path = path,
+                        CoverImage = FindCoverImage(albumName)
+                    };
+                    foreach (var file in audioFiles)
+                    {
+                        deviceAlbum.Tracks.Add(new DeviceTrack { Title = Path.GetFileName(file), Path = file });
+                    }
+                    loadedAlbums.Add(deviceAlbum);
+                }
+            }
+            catch { }
+
+            try
+            {
+                var dirs = _currentDevice.MtpDevice.GetDirectories(path);
+                foreach (var dir in dirs)
+                {
+                    string name = Path.GetFileName(dir);
+                    if (name.StartsWith(".") || name == "Android" || name == "LOST.DIR" || name == "System Volume Information" || name == "Alarms" || name == "Notifications" || name == "Ringtones" || name == "Podcasts") continue;
+                    ScanMtpDirectory(dir, loadedAlbums);
+                }
+            }
+            catch { }
         }
 
         private System.Windows.Media.Imaging.BitmapImage FindCoverImage(string albumTitle)
