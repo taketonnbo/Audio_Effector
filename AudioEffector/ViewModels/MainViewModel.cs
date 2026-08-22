@@ -2666,7 +2666,8 @@ namespace AudioEffector.ViewModels
         {
             if (SelectedDevice == null) return;
 
-            var dialogViewModel = new DeviceManagerViewModel(SelectedDevice, Albums.ToList());
+            string basePath = !string.IsNullOrEmpty(CurrentDevicePath) ? CurrentDevicePath : SelectedDevice.RootPath;
+            var dialogViewModel = new DeviceManagerViewModel(SelectedDevice, basePath, Albums.ToList());
             var dialog = new Views.DeviceManagerDialog(dialogViewModel);
             dialog.ShowDialog();
 

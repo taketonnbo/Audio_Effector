@@ -13,6 +13,7 @@ namespace AudioEffector.ViewModels
     public class DeviceManagerViewModel : ViewModelBase
     {
         private MainViewModel.DeviceViewModel _currentDevice;
+        private string _basePath;
         private List<Album> _pcAlbums;
 
         public ObservableCollection<DeviceAlbum> DeviceAlbums { get; set; } = new ObservableCollection<DeviceAlbum>();
@@ -31,9 +32,10 @@ namespace AudioEffector.ViewModels
         public ICommand DeleteTrackCommand { get; }
         public ICommand DeleteAlbumCommand { get; }
 
-        public DeviceManagerViewModel(MainViewModel.DeviceViewModel device, List<Album> pcAlbums)
+        public DeviceManagerViewModel(MainViewModel.DeviceViewModel device, string basePath, List<Album> pcAlbums)
         {
             _currentDevice = device;
+            _basePath = basePath;
             _pcAlbums = pcAlbums;
             
             DeleteTrackCommand = new RelayCommand(ExecuteDeleteTrack);
@@ -57,10 +59,10 @@ namespace AudioEffector.ViewModels
                 {
                     if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem && _currentDevice.Drive != null)
                     {
-                        string rootPath = _currentDevice.Drive.RootDirectory.FullName;
-                        if (Directory.Exists(rootPath))
+                        string targetPath = string.IsNullOrEmpty(_basePath) ? _currentDevice.Drive.RootDirectory.FullName : _basePath;
+                        if (Directory.Exists(targetPath))
                         {
-                            var artists = Directory.GetDirectories(rootPath);
+                            var artists = Directory.GetDirectories(targetPath);
                             foreach (var artistDir in artists)
                             {
                                 string artistName = Path.GetFileName(artistDir);
@@ -91,7 +93,8 @@ namespace AudioEffector.ViewModels
                     }
                     else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null && _currentDevice.MtpDevice.IsConnected)
                     {
-                        var artists = _currentDevice.MtpDevice.GetDirectories(@"\");
+                        string targetPath = string.IsNullOrEmpty(_basePath) ? @"\" : _basePath;
+                        var artists = _currentDevice.MtpDevice.GetDirectories(targetPath);
                         foreach (var artistDir in artists)
                         {
                             string artistName = Path.GetFileName(artistDir);
