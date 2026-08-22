@@ -1,6 +1,8 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls.Primitives;
 using AudioEffector.ViewModels;
+
+using System.ComponentModel;
 
 namespace AudioEffector
 {
@@ -12,6 +14,17 @@ namespace AudioEffector
         public MainWindow()
         {
             InitializeComponent();
+        }
+
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            if (DataContext is MainViewModel vm && vm.IsTransferring)
+            {
+                MessageBox.Show("データ転送中はアプリを終了できません。転送が完了するまでお待ちください。", "警告", MessageBoxButton.OK, MessageBoxImage.Warning);
+                e.Cancel = true;
+                return;
+            }
+            base.OnClosing(e);
         }
 
         /// <summary>
