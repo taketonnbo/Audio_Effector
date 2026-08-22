@@ -72,5 +72,32 @@ namespace AudioEffector.Tests
                 Assert.Equal("", label);
             }
         }
+
+        /// <summary>
+        /// サンプリングレート、ビット深度、ビットレートの組み合わせに応じた音質情報フォーマット文字列が正しく生成されるかを検証します。
+        /// </summary>
+        [Theory]
+        [InlineData(16, 44100, 0, "FLAC", "16bit/44.1kHz FLAC")]
+        [InlineData(24, 96000, 0, "WAV", "24bit/96.0kHz WAV")]
+        [InlineData(0, 44100, 320, "MP3", "320kbps/44.1kHz MP3")]
+        [InlineData(0, 48000, 256, "AAC", "256kbps/48.0kHz AAC")]
+        [InlineData(0, 44100, 0, "MP4", "44.1kHz MP4")]
+        public void QualityInfo_各種音質情報の組み合わせ_期待されるフォーマット文字列を返す(int bits, int sampleRate, int bitrate, string format, string expected)
+        {
+            // Arrange
+            var sut = new Track
+            {
+                BitsPerSample = bits,
+                SampleRate = sampleRate,
+                Bitrate = bitrate,
+                Format = format
+            };
+
+            // Act
+            var actual = sut.QualityInfo;
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
     }
 }
