@@ -7,11 +7,10 @@ publish/
 .vs/
 *.pdb
 
-# Build output directories
+# Release binaries (GitHub Releasesで管理)
 Release_*/
-
-# Exception: Keep the latest release version controlled
-!Release_v22.1/
+Release/
+*.zip
 
 # DocFX generated files
 _site/
