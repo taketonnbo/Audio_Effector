@@ -34,9 +34,14 @@ namespace AudioEffector.Services
 
         public SettingsService()
         {
+#if DEBUG
+            var folderName = "AudioEffector_Debug";
+#else
+            var folderName = "AudioEffector";
+#endif
             var appDataPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "AudioEffector");
+                folderName);
             Directory.CreateDirectory(appDataPath);
             _settingsFilePath = Path.Combine(appDataPath, "settings.json");
         }
