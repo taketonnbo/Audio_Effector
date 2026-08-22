@@ -639,6 +639,13 @@ namespace AudioEffector.ViewModels
 
         // コマンド定義
         public ICommand OpenFolderCommand { get; }
+        
+        private bool _isDeviceConnected;
+        public bool IsDeviceConnected
+        {
+            get => _isDeviceConnected;
+            set { _isDeviceConnected = value; OnPropertyChanged(); }
+        }
         public ICommand TogglePlayPauseCommand { get; }
         public ICommand NextCommand { get; }
         public ICommand PreviousCommand { get; }
@@ -1644,8 +1651,24 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        private int _tickCount = 0;
+
         private void OnTimerTick(object sender, EventArgs e)
         {
+            // デバイス接続状態を2秒おき(4 ticks = 500ms * 4)にチェック
+            _tickCount++;
+            if (_tickCount >= 4)
+            {
+                _tickCount = 0;
+                IsDeviceConnected = _deviceSyncService.GetRemovableDrives().Any();
+                
+                // もしデバイスが取り外されて、かつデバイス同期ビューが開いていたら閉じる
+                if (!IsDeviceConnected && IsDeviceSyncVisible)
+                {
+                    IsDeviceSyncVisible = false;
+                }
+            }
+
             if (_audioService != null)
             {
                 var current = _audioService.CurrentTime;
