@@ -947,14 +947,14 @@ namespace AudioEffector.ViewModels
             {
                 foreach (var album in Albums)
                 {
-                    string artist = SanitizeFileName(album.Artist);
-                    string albumName = SanitizeFileName(album.Title);
                     bool allTracksExist = true;
 
-                    if (album.Tracks != null)
+                    if (album.Tracks != null && album.Tracks.Any())
                     {
                         foreach (var track in album.Tracks)
                         {
+                            string artist = SanitizeFileName(track.Artist);
+                            string albumName = SanitizeFileName(track.Album);
                             string fileName = System.IO.Path.GetFileName(track.FilePath);
                             bool trackExists = false;
 
