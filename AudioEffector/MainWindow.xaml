@@ -1043,7 +1043,7 @@
                             </Style>
                         </Button.Style>
                     </Button>
-                    <Button Content="DEVICE SYNC" Command="{Binding SwitchToDeviceSyncCommand}" Width="150" Height="30" Margin="0">
+                    <Button Content="DEVICE SYNC" Command="{Binding SwitchToDeviceSyncCommand}" IsEnabled="{Binding IsDeviceConnected}" Width="150" Height="30" Margin="0">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                 <Setter Property="Background" Value="Transparent"/>
