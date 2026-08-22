@@ -45,6 +45,7 @@ namespace AudioEffector.Tests
         [InlineData(".alac", true)]
         [InlineData(".mp3", false)]
         [InlineData(".m4a", false)]
+        [InlineData(".mp4", false)]
         [InlineData(".aac", false)]
         public void IsLossless判定_各種拡張子の指定_期待されるLossless判定結果とラベルを返す(string extension, bool expectedIsLossless)
         {

@@ -1711,7 +1711,7 @@ namespace AudioEffector.ViewModels
 
             await Task.Run(() =>
             {
-                var extensions = new[] { ".mp3", ".wav", ".aiff", ".wma", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".alac" };
+                var extensions = new[] { ".mp3", ".wav", ".aiff", ".wma", ".m4a", ".mp4", ".flac", ".aac", ".ogg", ".opus", ".alac" };
                 var files = Directory.GetFiles(rootFolder, "*.*", SearchOption.AllDirectories)
                                      .Where(f => extensions.Contains(Path.GetExtension(f).ToLower()))
                                      .ToList();
