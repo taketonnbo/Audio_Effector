@@ -47,7 +47,8 @@ git commit -m "feat: #12 エフェクト切替機能を追加する"
 
 ### Step 4: Pull Requestを作成する
 
-- マージ先は **`develop`** ブランチ
+- マージ先は **必ず `develop` ブランチ** に指定する（デフォルトが `main` になっている場合があるため要注意）
+- GitHub CLIを使用する場合は、`gh pr create --base develop` のように `--base` オプションで明示的に指定する
 - PRの説明にIssueへの参照を含める（例: `Closes #12`）
 
 ### Step 5: `develop` にマージする
@@ -111,8 +112,9 @@ git checkout -b feat/<Issue番号>-<説明>
 git add <ファイル>
 git commit -m "feat: #<Issue番号> 変更内容を記述する"
 
-# 4. リモートにプッシュしてPRを作成
+# 4. リモートにプッシュしてPRを作成（※マージ先をdevelopに指定）
 git push origin feat/<Issue番号>-<説明>
+gh pr create --base develop --title "..." --body "Closes #<Issue番号>"
 
 # 5. PR承認後、developにマージ（GitHub上で実施）
 
