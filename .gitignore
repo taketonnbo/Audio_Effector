@@ -12,3 +12,14 @@ Release_*/
 
 # Exception: Keep the latest release version controlled
 !Release_v22.1/
+
+# DocFX generated files
+_site/
+api/
+docs/
+docfx.json
+index.md
+toc.yml
+
+# Misc
+objects.txt
