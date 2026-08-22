@@ -1652,21 +1652,45 @@ namespace AudioEffector.ViewModels
         }
 
         private int _tickCount = 0;
+        private bool _isCheckingDevices = false;
 
         private void OnTimerTick(object sender, EventArgs e)
         {
-            // デバイス接続状態を2秒おき(4 ticks = 500ms * 4)にチェック
+            // デバイス接続状態を2秒おき(4 ticks = 500ms * 4)に非同期でチェック
             _tickCount++;
-            if (_tickCount >= 4)
+            if (_tickCount >= 4 && !_isCheckingDevices)
             {
                 _tickCount = 0;
-                IsDeviceConnected = _deviceSyncService.GetRemovableDrives().Any();
-                
-                // もしデバイスが取り外されて、かつデバイス同期ビューが開いていたら閉じる
-                if (!IsDeviceConnected && IsDeviceSyncVisible)
+                _isCheckingDevices = true;
+
+                Task.Run(() =>
                 {
-                    IsDeviceSyncVisible = false;
-                }
+                    bool hasRemovable = DriveInfo.GetDrives().Any(d => d.DriveType == DriveType.Removable && d.IsReady);
+                    bool hasMtp = false;
+                    try
+                    {
+                        hasMtp = MediaDevice.GetDevices().Any();
+                    }
+                    catch
+                    {
+                        // Ignore MTP exceptions
+                    }
+
+                    bool connected = hasRemovable || hasMtp;
+
+                    App.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        IsDeviceConnected = connected;
+                        
+                        // もしデバイスが取り外されて、かつデバイス同期ビューが開いていたら閉じる
+                        if (!IsDeviceConnected && IsDeviceSyncVisible)
+                        {
+                            IsDeviceSyncVisible = false;
+                        }
+
+                        _isCheckingDevices = false;
+                    });
+                });
             }
 
             if (_audioService != null)
