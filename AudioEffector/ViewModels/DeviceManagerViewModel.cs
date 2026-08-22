@@ -61,12 +61,13 @@ namespace AudioEffector.ViewModels
                 {
                     if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem && _currentDevice.Drive != null)
                     {
-                        string rootPath = _currentDevice.Drive.RootDirectory.FullName;
-                        ScanFileSystemDirectory(rootPath, loadedAlbums);
+                        string targetPath = string.IsNullOrEmpty(_basePath) ? _currentDevice.Drive.RootDirectory.FullName : _basePath;
+                        ScanFileSystemDirectory(targetPath, loadedAlbums);
                     }
                     else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null && _currentDevice.MtpDevice.IsConnected)
                     {
-                        ScanMtpDirectory(@"\", loadedAlbums);
+                        string targetPath = string.IsNullOrEmpty(_basePath) ? @"\" : _basePath;
+                        ScanMtpDirectory(targetPath, loadedAlbums);
                     }
                 }
                 catch (Exception ex)
@@ -124,7 +125,7 @@ namespace AudioEffector.ViewModels
                     ScanFileSystemDirectory(dir, loadedAlbums);
                 }
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Error scanning FS dirs in {path}: {ex.Message}"); }
         }
 
         private void ScanMtpDirectory(string path, List<DeviceAlbum> loadedAlbums)
@@ -165,13 +166,19 @@ namespace AudioEffector.ViewModels
                     ScanMtpDirectory(dir, loadedAlbums);
                 }
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Error scanning MTP dirs in {path}: {ex.Message}"); }
         }
 
         private System.Windows.Media.Imaging.BitmapImage FindCoverImage(string albumTitle)
         {
-            var match = _pcAlbums?.FirstOrDefault(a => a.Title.Equals(albumTitle, StringComparison.OrdinalIgnoreCase));
-            return match?.CoverImage;
+            if (string.IsNullOrEmpty(albumTitle)) return null;
+            
+            try 
+            {
+                var match = _pcAlbums?.FirstOrDefault(a => string.Equals(a.Title, albumTitle, StringComparison.OrdinalIgnoreCase));
+                return match?.CoverImage;
+            }
+            catch { return null; }
         }
 
         private void ExecuteDeleteTrack(object parameter)
