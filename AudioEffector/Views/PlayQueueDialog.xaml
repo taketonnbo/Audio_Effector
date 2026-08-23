@@ -17,21 +17,37 @@
             <ItemsControl ItemsSource="{Binding PlayQueue}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Background="#1a1a1a" CornerRadius="5" Margin="0,2,0,2" Padding="10">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding Artist}" FontSize="12" Foreground="#A0A0A0" TextTrimming="CharacterEllipsis"/>
-                                </StackPanel>
-                                
-                                <TextBlock Grid.Column="1" Text="{Binding Duration}" FontSize="12" Foreground="#808080" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                            </Grid>
-                        </Border>
+                        <Button Command="{Binding DataContext.PlayFromQueueCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}"
+                                Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch" Padding="0">
+                            <Border Background="#1a1a1a" CornerRadius="5" Margin="0,2,0,2" Padding="10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="40"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <Grid Grid.Column="0" Width="30" Height="30" Margin="0,0,10,0">
+                                        <Image Source="{Binding AlbumArt}" Stretch="UniformToFill">
+                                            <Image.Clip>
+                                                <RectangleGeometry Rect="0,0,30,30" RadiusX="3" RadiusY="3"/>
+                                            </Image.Clip>
+                                        </Image>
+                                        <Border Background="#80000000" CornerRadius="3" Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
+                                            <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{StaticResource NeonCyanBrush}" Width="15" Height="15" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </Grid>
+                                    
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" Foreground="White" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Artist}" FontSize="12" Foreground="#A0A0A0" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                    
+                                    <TextBlock Grid.Column="2" Text="{Binding Duration, StringFormat='{}{0:mm\\:ss}'}" FontSize="12" Foreground="#808080" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                </Grid>
+                            </Border>
+                        </Button>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>

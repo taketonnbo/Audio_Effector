@@ -30,6 +30,16 @@ namespace AudioEffector.Models
             set { _isFavorite = value; OnPropertyChanged(); }
         }
 
+        private bool _isPlaying;
+        /// <summary>
+        /// 現在再生中かどうか。
+        /// </summary>
+        public bool IsPlaying
+        {
+            get => _isPlaying;
+            set { _isPlaying = value; OnPropertyChanged(); }
+        }
+
         public uint Year { get; set; }
         public uint TrackNumber { get; set; }
         public int Bitrate { get; set; }

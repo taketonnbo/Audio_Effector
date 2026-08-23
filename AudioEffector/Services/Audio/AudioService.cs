@@ -52,6 +52,11 @@ namespace AudioEffector.Services
         /// </summary>
         public event EventHandler<FftEventArgs>? FftCalculated;
 
+        /// <summary>
+        /// プレイリスト（再生キュー）の順序や内容が変更された際に発生するイベント。
+        /// </summary>
+        public event Action<List<Track>> PlaylistChanged;
+
         // 10-band EQ frequencies
         /// <summary>
         /// イコライザーの周波数帯域定義（10バンド）。
@@ -130,6 +135,8 @@ namespace AudioEffector.Services
                     _currentIndex = -1;
                 }
             }
+            
+            PlaylistChanged?.Invoke(new List<Track>(_playlist));
         }
 
         private void ShufflePlaylist()
@@ -149,6 +156,8 @@ namespace AudioEffector.Services
             {
                 _currentIndex = -1;
             }
+
+            PlaylistChanged?.Invoke(new List<Track>(_playlist));
         }
 
         private void RestorePlaylist()
@@ -167,6 +176,8 @@ namespace AudioEffector.Services
             {
                 _currentIndex = -1;
             }
+
+            PlaylistChanged?.Invoke(new List<Track>(_playlist));
         }
 
         /// <summary>

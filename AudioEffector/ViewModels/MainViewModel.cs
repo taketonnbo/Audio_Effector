@@ -180,6 +180,7 @@ namespace AudioEffector.ViewModels
 
             _audioService.TrackChanged += OnTrackChanged;
             _audioService.PlaybackStateChanged += OnPlaybackStateChanged;
+            _audioService.PlaylistChanged += OnPlaylistChanged;
 
             _timer = new DispatcherTimer();
             _timer.Interval = TimeSpan.FromMilliseconds(500);
@@ -256,6 +257,20 @@ namespace AudioEffector.ViewModels
             OpenFileLocationCommand = new RelayCommand(OpenFileLocation);
             DeleteTrackCommand = new RelayCommand(DeleteTrack);
             ShowQueueDialogCommand = new RelayCommand(o => ShowQueueDialog());
+            PlayFromQueueCommand = new RelayCommand(o =>
+            {
+                if (o is AudioEffector.Models.Track t)
+                {
+                    if (t == CurrentTrack)
+                    {
+                        _audioService.TogglePlayPause();
+                    }
+                    else
+                    {
+                        _audioService.PlayTrack(t);
+                    }
+                }
+            });
             ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
             ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
 
@@ -709,6 +724,7 @@ namespace AudioEffector.ViewModels
         public ICommand OpenFileLocationCommand { get; }
         public ICommand DeleteTrackCommand { get; }
         public ICommand ShowQueueDialogCommand { get; }
+        public ICommand PlayFromQueueCommand { get; }
 
         // Device Sync Commands
         public ICommand SwitchToDeviceSyncCommand { get; }
@@ -1485,6 +1501,14 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        private void OnPlaylistChanged(List<Track> playlist)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track>(playlist);
+            });
+        }
+
         /// <summary>
         /// 再生中のトラックが変更されたときに呼び出されます。
         /// スペクトラムの更新、アルバムアートの読み込み、背景画像の更新を行います。
@@ -1504,8 +1528,31 @@ namespace AudioEffector.ViewModels
                 }
             });
 
+            if (CurrentTrack != null)
+            {
+                CurrentTrack.IsPlaying = false;
+            }
+
             CurrentTrack = track;
             Progress = 0;
+
+            if (track != null)
+            {
+                track.IsPlaying = true;
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    if (!IsPlaylistTracksVisible && PlaybackListTracks != null && !PlaybackListTracks.Contains(track))
+                    {
+                        var album = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
+                        if (album != null)
+                        {
+                            PlaybackListName = album.Title;
+                            PlaybackListSubtitle = album.Artist;
+                            PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(album.Tracks);
+                        }
+                    }
+                });
+            }
 
             // Phase 9: Logic Update
             // If viewing Favorites, FORCE Background to Galaxy.
