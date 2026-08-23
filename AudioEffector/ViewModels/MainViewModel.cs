@@ -2122,7 +2122,7 @@ namespace AudioEffector.ViewModels
             {
                 Title = "Add to Playlist",
                 Width = 300,
-                Height = 450,
+                Height = 500,
                 WindowStartupLocation = WindowStartupLocation.CenterScreen,
                 ResizeMode = ResizeMode.NoResize,
                 Background = new SolidColorBrush(Color.FromRgb(20, 20, 20))
