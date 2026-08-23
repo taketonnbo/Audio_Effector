@@ -9,7 +9,7 @@ namespace AudioEffector.Services
     /// <summary>
     /// イコライザープリセットを管理・永続化するサービス。
     /// </summary>
-    public class PresetService
+    public class PresetService : IPresetService
     {
         private readonly string _filePath;
         private const int MaxPresets = 30; // 最大プリセット数

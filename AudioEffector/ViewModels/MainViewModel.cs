@@ -29,10 +29,10 @@ namespace AudioEffector.ViewModels
         private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
         private readonly IAudioService _audioService;
-        private readonly PresetService _presetService;
-        private readonly FavoriteService _favoriteService;
-        private readonly PlaylistService _playlistService;
-        private readonly SettingsService _settingsService;
+        private readonly IPresetService _presetService;
+        private readonly IFavoriteService _favoriteService;
+        private readonly IPlaylistService _playlistService;
+        private readonly ISettingsService _settingsService;
         private readonly IDeviceSyncService _deviceSyncService;
 
         /// <summary>
@@ -148,10 +148,10 @@ namespace AudioEffector.ViewModels
         public MainViewModel()
         {
             _audioService = LoggingProxy<IAudioService>.Create(new AudioService());
-            _presetService = new PresetService();
-            _favoriteService = new FavoriteService();
-            _playlistService = new PlaylistService();
-            _settingsService = new SettingsService();
+            _presetService = LoggingProxy<IPresetService>.Create(new PresetService());
+            _favoriteService = LoggingProxy<IFavoriteService>.Create(new FavoriteService());
+            _playlistService = LoggingProxy<IPlaylistService>.Create(new PlaylistService());
+            _settingsService = LoggingProxy<ISettingsService>.Create(new SettingsService());
             _deviceSyncService = LoggingProxy<IDeviceSyncService>.Create(new DeviceSyncService());
             _favoritePaths = _favoriteService.LoadFavorites();
 

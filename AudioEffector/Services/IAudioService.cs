@@ -21,15 +21,25 @@ namespace AudioEffector.Services
 
         float[] Frequencies { get; }
 
+        [LogDescription("プレイリストを設定します")]
         void SetPlaylist(List<Track> tracks);
+        [LogDescription("指定された楽曲を再生します")]
         void PlayTrack(Track track);
+        [LogDescription("再生/一時停止を切り替えます")]
         void TogglePlayPause();
+        [LogDescription("次の曲へ進みます")]
         void Next();
+        [LogDescription("前の曲に戻ります")]
         void Previous();
+        [LogDescription("再生を停止します")]
         void Stop(bool internalStop = false);
+        [LogDescription("指定位置へシークします")]
         void SeekTo(double percentage);
+        [LogDescription("シークのために一時停止します")]
         void PauseForSeek();
+        [LogDescription("シーク後の再生を再開します")]
         void ResumeAfterSeek();
+        [LogDescription("イコライザーのゲインを設定します")]
         void SetGain(int bandIndex, float gain);
     }
 }

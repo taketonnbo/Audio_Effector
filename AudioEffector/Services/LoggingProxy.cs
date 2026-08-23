@@ -18,7 +18,11 @@ namespace AudioEffector.Services
             {
                 var className = typeof(T).Name;
                 var methodName = targetMethod.Name;
-                Logger.Info($"[{className}] {methodName} called.");
+                
+                var attr = targetMethod.GetCustomAttribute<LogDescriptionAttribute>();
+                var description = attr != null ? $" - 処理内容: {attr.Description}" : "";
+                
+                Logger.Info($"[{className}] {methodName} called.{description}");
 
                 var result = targetMethod.Invoke(_target, args);
 
