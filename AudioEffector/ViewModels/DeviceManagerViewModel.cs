@@ -12,6 +12,7 @@ namespace AudioEffector.ViewModels
 {
     public class DeviceManagerViewModel : ViewModelBase
     {
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
         private MainViewModel.DeviceViewModel _currentDevice;
         private string _basePath;
         private List<Album> _pcAlbums;
@@ -59,6 +60,7 @@ namespace AudioEffector.ViewModels
             {
                 try
                 {
+                    Logger.Info($"LoadAlbumsAsync started. DeviceType: {_currentDevice.Type}, BasePath: {_basePath}");
                     if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem && _currentDevice.Drive != null)
                     {
                         string targetPath = string.IsNullOrEmpty(_basePath) ? _currentDevice.Drive.RootDirectory.FullName : _basePath;
@@ -67,7 +69,12 @@ namespace AudioEffector.ViewModels
                     else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null && _currentDevice.MtpDevice.IsConnected)
                     {
                         string targetPath = string.IsNullOrEmpty(_basePath) ? @"\" : _basePath;
+                        Logger.Info($"Scanning MTP targetPath: {targetPath}");
                         ScanMtpDirectory(targetPath, loadedAlbums);
+                    }
+                    else
+                    {
+                        Logger.Warn($"Device not fully connected or recognized.");
                     }
                 }
                 catch (Exception ex)
@@ -103,8 +110,7 @@ namespace AudioEffector.ViewModels
                     {
                         Artist = artistName,
                         Title = albumName,
-                        Path = path,
-                        CoverImage = FindCoverImage(albumName)
+                        Path = path
                     };
                     foreach (var file in audioFiles)
                     {
@@ -113,7 +119,7 @@ namespace AudioEffector.ViewModels
                     loadedAlbums.Add(deviceAlbum);
                 }
             }
-            catch { }
+            catch (Exception ex) { Logger.Error(ex, "Error scanning directory"); }
 
             try
             {
@@ -144,8 +150,7 @@ namespace AudioEffector.ViewModels
                     {
                         Artist = artistName ?? "Unknown Artist",
                         Title = albumName ?? "Unknown Album",
-                        Path = path,
-                        CoverImage = FindCoverImage(albumName)
+                        Path = path
                     };
                     foreach (var file in audioFiles)
                     {
@@ -154,7 +159,7 @@ namespace AudioEffector.ViewModels
                     loadedAlbums.Add(deviceAlbum);
                 }
             }
-            catch { }
+            catch (Exception ex) { Logger.Error(ex, "Error scanning directory"); }
 
             try
             {
@@ -167,18 +172,6 @@ namespace AudioEffector.ViewModels
                 }
             }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Error scanning MTP dirs in {path}: {ex.Message}"); }
-        }
-
-        private System.Windows.Media.Imaging.BitmapImage FindCoverImage(string albumTitle)
-        {
-            if (string.IsNullOrEmpty(albumTitle)) return null;
-            
-            try 
-            {
-                var match = _pcAlbums?.FirstOrDefault(a => string.Equals(a.Title, albumTitle, StringComparison.OrdinalIgnoreCase));
-                return match?.CoverImage;
-            }
-            catch { return null; }
         }
 
         private void ExecuteDeleteTrack(object parameter)
