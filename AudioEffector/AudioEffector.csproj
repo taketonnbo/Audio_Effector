@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -16,6 +16,7 @@
   <ItemGroup>
     <PackageReference Include="MediaDevices" Version="1.10.0" />
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="NLog" Version="6.2.0" />
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
   </ItemGroup>
 
@@ -24,6 +25,12 @@
     <Resource Include="Assets\Images\default_spectrum_bg.png" />
     <Resource Include="Assets\Images\default_now_playing_bg.png" />
     <Resource Include="Assets\Images\favorites_bg.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="nlog.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

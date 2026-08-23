@@ -16,6 +16,7 @@ using System.Windows.Threading;
 using MediaDevices;
 using NAudio.Dsp;
 using System.Threading.Tasks;
+using NLog;
 
 namespace AudioEffector.ViewModels
 {
@@ -25,17 +26,19 @@ namespace AudioEffector.ViewModels
     /// </summary>
     public class MainViewModel : ViewModelBase
     {
-        private readonly AudioService _audioService;
-        private readonly PresetService _presetService;
-        private readonly FavoriteService _favoriteService;
-        private readonly PlaylistService _playlistService;
-        private readonly SettingsService _settingsService;
-        private readonly DeviceSyncService _deviceSyncService;
+        private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+
+        private readonly IAudioService _audioService;
+        private readonly IPresetService _presetService;
+        private readonly IFavoriteService _favoriteService;
+        private readonly IPlaylistService _playlistService;
+        private readonly ISettingsService _settingsService;
+        private readonly IDeviceSyncService _deviceSyncService;
 
         /// <summary>
         /// コードビハインドからAudioServiceへアクセスするためのプロパティ。
         /// </summary>
-        public AudioService AudioService => _audioService; // Public accessor for code-behind
+        public IAudioService AudioService => _audioService; // Public accessor for code-behind
 
         private Preset? _selectedPreset;
         private Track? _currentTrack;
@@ -144,12 +147,12 @@ namespace AudioEffector.ViewModels
         /// </summary>
         public MainViewModel()
         {
-            _audioService = new AudioService();
-            _presetService = new PresetService();
-            _favoriteService = new FavoriteService();
-            _playlistService = new PlaylistService();
-            _settingsService = new SettingsService();
-            _deviceSyncService = new DeviceSyncService();
+            _audioService = LoggingProxy<IAudioService>.Create(new AudioService());
+            _presetService = LoggingProxy<IPresetService>.Create(new PresetService());
+            _favoriteService = LoggingProxy<IFavoriteService>.Create(new FavoriteService());
+            _playlistService = LoggingProxy<IPlaylistService>.Create(new PlaylistService());
+            _settingsService = LoggingProxy<ISettingsService>.Create(new SettingsService());
+            _deviceSyncService = LoggingProxy<IDeviceSyncService>.Create(new DeviceSyncService());
             _favoritePaths = _favoriteService.LoadFavorites();
 
             // Load playlists
