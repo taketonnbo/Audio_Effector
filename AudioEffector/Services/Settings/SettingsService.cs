@@ -28,15 +28,20 @@ namespace AudioEffector.Services
     /// <summary>
     /// アプリケーション設定の読み込み・保存を行うサービス。
     /// </summary>
-    public class SettingsService
+    public class SettingsService : ISettingsService
     {
         private readonly string _settingsFilePath;
 
         public SettingsService()
         {
+#if DEBUG
+            var folderName = "AudioEffector_Debug";
+#else
+            var folderName = "AudioEffector";
+#endif
             var appDataPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "AudioEffector");
+                folderName);
             Directory.CreateDirectory(appDataPath);
             _settingsFilePath = Path.Combine(appDataPath, "settings.json");
         }

@@ -1,4 +1,4 @@
-﻿<Window x:Class="AudioEffector.MainWindow"
+<Window x:Class="AudioEffector.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -203,8 +203,7 @@
                         </Button.Template>
                     </Button>
 
-                    <Button Content="{Binding IsSelectionMode, Converter={StaticResource BoolToVis}, ConverterParameter=SELECT|CANCEL}" 
-                            Command="{Binding ToggleSelectionModeCommand}" 
+                    <Button Command="{Binding ToggleSelectionModeCommand}" 
                             HorizontalAlignment="Stretch" Margin="0,0,0,10"
                             Foreground="White" BorderBrush="#404040" BorderThickness="1" Padding="10,5">
                          <Button.Style>
@@ -327,6 +326,9 @@
                                                             <Setter Property="IsChecked" Value="False"/>
                                                             <Setter Property="Opacity" Value="0.5"/>
                                                         </DataTrigger>
+                                                        <DataTrigger Binding="{Binding DataContext.IsTransferring, ElementName=MainWindowRoot}" Value="True">
+                                                            <Setter Property="IsEnabled" Value="False"/>
+                                                        </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </CheckBox.Style>
@@ -379,6 +381,21 @@
                                         <DataTemplate>
                                             <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                     HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
+                                                <Button.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="再生" Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="次に再生" Command="{Binding DataContext.PlayNextCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="キューに追加" Command="{Binding DataContext.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="お気に入りに追加/解除" Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="プレイリストに追加..." Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="プロパティ" Command="{Binding DataContext.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="ファイルの場所を開く" Command="{Binding DataContext.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="削除" Command="{Binding DataContext.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    </ContextMenu>
+                                                </Button.ContextMenu>
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="Auto"/>
@@ -387,7 +404,8 @@
                                                         <ColumnDefinition Width="Auto"/>
                                                     </Grid.ColumnDefinitions>
                                                     <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
-                                                              Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
+                                                              Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"
+                                                              IsEnabled="{Binding DataContext.IsTransferring, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvertBool}}"/>
                                                     <TextBlock Grid.Column="1" Text="{Binding Title}" Foreground="#CCCCCC" FontSize="12"/>
                                                     <Path Grid.Column="2" Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
                                                           Fill="#FF4081" Width="10" Height="10" Stretch="Uniform" Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVis}}" Margin="0,0,5,0"/>
@@ -477,6 +495,9 @@
                                                                         <Setter Property="IsChecked" Value="False"/>
                                                                         <Setter Property="Opacity" Value="0.5"/>
                                                                     </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding DataContext.IsTransferring, ElementName=MainWindowRoot}" Value="True">
+                                                                        <Setter Property="IsEnabled" Value="False"/>
+                                                                    </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
                                                         </CheckBox.Style>
@@ -495,6 +516,21 @@
                                             <DataTemplate>
                                                 <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                         HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
+                                                    <Button.ContextMenu>
+                                                        <ContextMenu>
+                                                            <MenuItem Header="再生" Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="次に再生" Command="{Binding DataContext.PlayNextCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="キューに追加" Command="{Binding DataContext.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <Separator/>
+                                                            <MenuItem Header="お気に入りに追加/解除" Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="プレイリストに追加..." Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <Separator/>
+                                                            <MenuItem Header="プロパティ" Command="{Binding DataContext.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="ファイルの場所を開く" Command="{Binding DataContext.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <Separator/>
+                                                            <MenuItem Header="削除" Command="{Binding DataContext.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        </ContextMenu>
+                                                    </Button.ContextMenu>
                                                      <!-- Context menu removed -->
 
                                                     <Grid>
@@ -510,6 +546,9 @@
                                                                     <Style.Triggers>
                                                                         <DataTrigger Binding="{Binding DataContext.IsSelectionMode, ElementName=MainWindowRoot}" Value="True">
                                                                             <Setter Property="Visibility" Value="Visible"/>
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding DataContext.IsTransferring, ElementName=MainWindowRoot}" Value="True">
+                                                                            <Setter Property="IsEnabled" Value="False"/>
                                                                         </DataTrigger>
                                                                     </Style.Triggers>
                                                                 </Style>
@@ -700,6 +739,21 @@
                             <DataTemplate>
                                 <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                         HorizontalContentAlignment="Stretch" Margin="0,2" Background="Transparent" BorderThickness="0">
+                                    <Button.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="再生" Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="次に再生" Command="{Binding DataContext.PlayNextCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="キューに追加" Command="{Binding DataContext.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <Separator/>
+                                            <MenuItem Header="お気に入りに追加/解除" Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="プレイリストに追加..." Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <Separator/>
+                                            <MenuItem Header="プロパティ" Command="{Binding DataContext.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="ファイルの場所を開く" Command="{Binding DataContext.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <Separator/>
+                                            <MenuItem Header="削除" Command="{Binding DataContext.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
                                             <Border Background="{TemplateBinding Background}">
@@ -717,7 +771,8 @@
                                         </Grid.ColumnDefinitions>
                                         
                                         <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
-                                                  Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
+                                                  Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"
+                                                  IsEnabled="{Binding DataContext.IsTransferring, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvertBool}}"/>
 
                                         <!-- Album Art (Moved to Left, Rounded Corners) -->
                                         <Border Grid.Column="1" Width="40" Height="40" Margin="0,0,10,0" CornerRadius="4" ClipToBounds="True">
@@ -828,6 +883,21 @@
                                         <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
                                                 CommandParameter="{Binding}"
                                                 HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
+                                            <Button.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="再生" Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <MenuItem Header="次に再生" Command="{Binding DataContext.PlayNextCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <MenuItem Header="キューに追加" Command="{Binding DataContext.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <Separator/>
+                                                    <MenuItem Header="お気に入りに追加/解除" Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <MenuItem Header="プレイリストに追加..." Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <Separator/>
+                                                    <MenuItem Header="プロパティ" Command="{Binding DataContext.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <MenuItem Header="ファイルの場所を開く" Command="{Binding DataContext.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <Separator/>
+                                                    <MenuItem Header="削除" Command="{Binding DataContext.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                </ContextMenu>
+                                            </Button.ContextMenu>
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="30"/>
@@ -1044,7 +1114,7 @@
                             </Style>
                         </Button.Style>
                     </Button>
-                    <Button Content="DEVICE SYNC" Command="{Binding SwitchToDeviceSyncCommand}" Width="150" Height="30" Margin="0">
+                    <Button Content="DEVICE SYNC" Command="{Binding SwitchToDeviceSyncCommand}" IsEnabled="{Binding IsDeviceConnected}" Width="150" Height="30" Margin="0">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                 <Setter Property="Background" Value="Transparent"/>
@@ -1268,22 +1338,32 @@
                         <TextBlock Text="CONNECTED DEVICE:" Foreground="#808080" FontSize="12" Margin="0,0,0,5"/>
                         
                         <!-- Device ComboBox -->
-                        <ComboBox ItemsSource="{Binding RemovableDrives}" SelectedItem="{Binding SelectedDevice}" 
-                                  Height="30" Margin="0,0,0,10"
-                                  Background="#303030" Foreground="White" BorderThickness="0" VerticalContentAlignment="Center" Padding="5,0"
-                                  IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding Name}" Foreground="White"/>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                            <ComboBox.Resources>
-                                <Style TargetType="ComboBoxItem">
-                                    <Setter Property="Background" Value="#303030"/>
-                                    <Setter Property="Foreground" Value="White"/>
-                                </Style>
-                            </ComboBox.Resources>
-                        </ComboBox>
+                        <Grid Margin="0,0,0,10" IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ComboBox Grid.Column="0" ItemsSource="{Binding RemovableDrives}" SelectedItem="{Binding SelectedDevice}" 
+                                      Height="30"
+                                      Background="#303030" Foreground="White" BorderThickness="0" VerticalContentAlignment="Center" Padding="5,0">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" Foreground="White"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                                <ComboBox.Resources>
+                                    <Style TargetType="ComboBoxItem">
+                                        <Setter Property="Background" Value="#303030"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </Style>
+                                </ComboBox.Resources>
+                            </ComboBox>
+                            
+                            <!-- Manage Device Button -->
+                            <Button Grid.Column="1" Content="⚙ Manage" Command="{Binding ShowDeviceManagerCommand}"
+                                    ToolTip="Open Device Storage Manager"
+                                    Height="30" Margin="5,0,0,0" Background="#404040" Foreground="White" BorderThickness="0" Padding="10,0"/>
+                        </Grid>
 
                         <!-- Navigation Bar -->
                         <Grid Margin="0,0,0,5" IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}">

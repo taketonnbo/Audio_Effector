@@ -1,6 +1,8 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls.Primitives;
 using AudioEffector.ViewModels;
+
+using System.ComponentModel;
 
 namespace AudioEffector
 {
@@ -12,6 +14,39 @@ namespace AudioEffector
         public MainWindow()
         {
             InitializeComponent();
+        }
+
+        private Views.MiniPlayerWindow? _miniPlayer;
+
+        protected override void OnStateChanged(System.EventArgs e)
+        {
+            base.OnStateChanged(e);
+
+            if (this.WindowState == WindowState.Minimized)
+            {
+                this.Hide();
+                if (_miniPlayer == null)
+                {
+                    _miniPlayer = new Views.MiniPlayerWindow();
+                    _miniPlayer.DataContext = this.DataContext;
+                    _miniPlayer.Closed += (s, args) => _miniPlayer = null;
+                }
+                _miniPlayer.Show();
+            }
+        }
+
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            if (DataContext is MainViewModel vm && vm.IsTransferring)
+            {
+                var result = MessageBox.Show("現在データ転送中です。本当にアプリを終了してよろしいですか？\n（終了すると転送が中断されます）", "終了確認", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (result == MessageBoxResult.No)
+                {
+                    e.Cancel = true;
+                    return;
+                }
+            }
+            base.OnClosing(e);
         }
 
         /// <summary>

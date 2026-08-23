@@ -1,4 +1,4 @@
-﻿using AudioEffector.Models;
+using AudioEffector.Models;
 using AudioEffector.Services;
 using AudioEffector.Views;
 using Microsoft.Win32;
@@ -16,6 +16,7 @@ using System.Windows.Threading;
 using MediaDevices;
 using NAudio.Dsp;
 using System.Threading.Tasks;
+using NLog;
 
 namespace AudioEffector.ViewModels
 {
@@ -25,17 +26,19 @@ namespace AudioEffector.ViewModels
     /// </summary>
     public class MainViewModel : ViewModelBase
     {
-        private readonly AudioService _audioService;
-        private readonly PresetService _presetService;
-        private readonly FavoriteService _favoriteService;
-        private readonly PlaylistService _playlistService;
-        private readonly SettingsService _settingsService;
-        private readonly DeviceSyncService _deviceSyncService;
+        private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+
+        private readonly IAudioService _audioService;
+        private readonly IPresetService _presetService;
+        private readonly IFavoriteService _favoriteService;
+        private readonly IPlaylistService _playlistService;
+        private readonly ISettingsService _settingsService;
+        private readonly IDeviceSyncService _deviceSyncService;
 
         /// <summary>
         /// コードビハインドからAudioServiceへアクセスするためのプロパティ。
         /// </summary>
-        public AudioService AudioService => _audioService; // Public accessor for code-behind
+        public IAudioService AudioService => _audioService; // Public accessor for code-behind
 
         private Preset? _selectedPreset;
         private Track? _currentTrack;
@@ -144,12 +147,12 @@ namespace AudioEffector.ViewModels
         /// </summary>
         public MainViewModel()
         {
-            _audioService = new AudioService();
-            _presetService = new PresetService();
-            _favoriteService = new FavoriteService();
-            _playlistService = new PlaylistService();
-            _settingsService = new SettingsService();
-            _deviceSyncService = new DeviceSyncService();
+            _audioService = LoggingProxy<IAudioService>.Create(new AudioService());
+            _presetService = LoggingProxy<IPresetService>.Create(new PresetService());
+            _favoriteService = LoggingProxy<IFavoriteService>.Create(new FavoriteService());
+            _playlistService = LoggingProxy<IPlaylistService>.Create(new PlaylistService());
+            _settingsService = LoggingProxy<ISettingsService>.Create(new SettingsService());
+            _deviceSyncService = LoggingProxy<IDeviceSyncService>.Create(new DeviceSyncService());
             _favoritePaths = _favoriteService.LoadFavorites();
 
             // Load playlists
@@ -234,6 +237,11 @@ namespace AudioEffector.ViewModels
             });
 
             ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
+            PlayNextCommand = new RelayCommand(PlayNext);
+            EnqueueTrackCommand = new RelayCommand(EnqueueTrack);
+            ShowTrackPropertiesCommand = new RelayCommand(ShowTrackProperties);
+            OpenFileLocationCommand = new RelayCommand(OpenFileLocation);
+            DeleteTrackCommand = new RelayCommand(DeleteTrack);
             ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
             ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
 
@@ -266,6 +274,7 @@ namespace AudioEffector.ViewModels
             NavigateDirectoryCommand = new RelayCommand(o => NavigateDirectory(o as DirectoryItem));
             NavigateUpCommand = new RelayCommand(o => NavigateUp());
             RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
+            ShowDeviceManagerCommand = new RelayCommand(o => ShowDeviceManager());
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
             _audioService.FftCalculated += OnFftCalculated;
@@ -639,6 +648,13 @@ namespace AudioEffector.ViewModels
 
         // コマンド定義
         public ICommand OpenFolderCommand { get; }
+        
+        private bool _isDeviceConnected;
+        public bool IsDeviceConnected
+        {
+            get => _isDeviceConnected;
+            set { _isDeviceConnected = value; OnPropertyChanged(); }
+        }
         public ICommand TogglePlayPauseCommand { get; }
         public ICommand NextCommand { get; }
         public ICommand PreviousCommand { get; }
@@ -658,6 +674,12 @@ namespace AudioEffector.ViewModels
         public ICommand DeletePlaylistCommand { get; }
         public ICommand RemoveFromPlaylistCommand { get; }
         public ICommand PlayAlbumCommand { get; }
+        
+        public ICommand PlayNextCommand { get; }
+        public ICommand EnqueueTrackCommand { get; }
+        public ICommand ShowTrackPropertiesCommand { get; }
+        public ICommand OpenFileLocationCommand { get; }
+        public ICommand DeleteTrackCommand { get; }
 
         // Device Sync Commands
         public ICommand SwitchToDeviceSyncCommand { get; }
@@ -771,7 +793,8 @@ namespace AudioEffector.ViewModels
             }
         }
 
-        public ICommand RefreshDirectoryCommand { get; private set; }
+        public ICommand RefreshDirectoryCommand { get; }
+        public ICommand ShowDeviceManagerCommand { get; }
 
         private string _currentDevicePath = string.Empty;
         /// <summary>
@@ -803,6 +826,8 @@ namespace AudioEffector.ViewModels
         /// </summary>
         private void RefreshDrives()
         {
+            if (IsTransferring) return; // 転送中の切断を防止
+
             RemovableDrives.Clear();
 
             // Add File System Drives
@@ -938,14 +963,14 @@ namespace AudioEffector.ViewModels
             {
                 foreach (var album in Albums)
                 {
-                    string artist = SanitizeFileName(album.Artist);
-                    string albumName = SanitizeFileName(album.Title);
                     bool allTracksExist = true;
 
-                    if (album.Tracks != null)
+                    if (album.Tracks != null && album.Tracks.Any())
                     {
                         foreach (var track in album.Tracks)
                         {
+                            string artist = SanitizeFileName(track.Artist);
+                            string albumName = SanitizeFileName(track.Album);
                             string fileName = System.IO.Path.GetFileName(track.FilePath);
                             bool trackExists = false;
 
@@ -1116,6 +1141,7 @@ namespace AudioEffector.ViewModels
                 }
                 else if (SelectedDevice.Type == DeviceType.MTP && SelectedDevice.MtpDevice != null)
                 {
+                    var mtpDevice = SelectedDevice.MtpDevice;
                     await Task.Run(() =>
                     {
                         int total = tracksToTransfer.Count;
@@ -1133,13 +1159,13 @@ namespace AudioEffector.ViewModels
                             try
                             {
                                 string artistDir = System.IO.Path.Combine(destinationFolder, artist);
-                                if (!SelectedDevice.MtpDevice.DirectoryExists(artistDir))
+                                if (!mtpDevice.DirectoryExists(artistDir))
                                 {
-                                    SelectedDevice.MtpDevice.CreateDirectory(artistDir);
+                                    mtpDevice.CreateDirectory(artistDir);
                                 }
-                                if (!SelectedDevice.MtpDevice.DirectoryExists(targetDir))
+                                if (!mtpDevice.DirectoryExists(targetDir))
                                 {
-                                    SelectedDevice.MtpDevice.CreateDirectory(targetDir);
+                                    mtpDevice.CreateDirectory(targetDir);
                                 }
                             }
                             catch (Exception ex)
@@ -1151,7 +1177,7 @@ namespace AudioEffector.ViewModels
 
                             // Skip if already exists
                             bool fileExists = false;
-                            try { fileExists = SelectedDevice.MtpDevice.FileExists(destPath); } catch { }
+                            try { fileExists = mtpDevice.FileExists(destPath); } catch { }
 
                             if (fileExists)
                             {
@@ -1160,7 +1186,7 @@ namespace AudioEffector.ViewModels
                                 continue;
                             }
 
-                            SelectedDevice.MtpDevice.UploadFile(track.FilePath, destPath);
+                            mtpDevice.UploadFile(track.FilePath, destPath);
 
                             current++;
                             ((IProgress<double>)progress).Report((double)current / total * 100);
@@ -1644,8 +1670,48 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        private int _tickCount = 0;
+        private bool _isCheckingDevices = false;
+
         private void OnTimerTick(object sender, EventArgs e)
         {
+            // デバイス接続状態を2秒おき(4 ticks = 500ms * 4)に非同期でチェック
+            _tickCount++;
+            if (_tickCount >= 4 && !_isCheckingDevices)
+            {
+                _tickCount = 0;
+                _isCheckingDevices = true;
+
+                Task.Run(() =>
+                {
+                    bool hasRemovable = DriveInfo.GetDrives().Any(d => d.DriveType == DriveType.Removable && d.IsReady);
+                    bool hasMtp = false;
+                    try
+                    {
+                        hasMtp = MediaDevice.GetDevices().Any();
+                    }
+                    catch
+                    {
+                        // Ignore MTP exceptions
+                    }
+
+                    bool connected = hasRemovable || hasMtp;
+
+                    App.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        IsDeviceConnected = connected;
+                        
+                        // もしデバイスが取り外されて、かつデバイス同期ビューが開いていたら閉じる
+                        if (!IsDeviceConnected && IsDeviceSyncVisible)
+                        {
+                            IsDeviceSyncVisible = false;
+                        }
+
+                        _isCheckingDevices = false;
+                    });
+                });
+            }
+
             if (_audioService != null)
             {
                 var current = _audioService.CurrentTime;
@@ -1711,7 +1777,7 @@ namespace AudioEffector.ViewModels
 
             await Task.Run(() =>
             {
-                var extensions = new[] { ".mp3", ".wav", ".aiff", ".wma", ".m4a", ".flac" };
+                var extensions = new[] { ".mp3", ".wav", ".aiff", ".wma", ".m4a", ".mp4", ".flac", ".aac", ".ogg", ".opus", ".alac" };
                 var files = Directory.GetFiles(rootFolder, "*.*", SearchOption.AllDirectories)
                                      .Where(f => extensions.Contains(Path.GetExtension(f).ToLower()))
                                      .ToList();
@@ -1721,7 +1787,13 @@ namespace AudioEffector.ViewModels
 
                 Parallel.ForEach(files, file =>
                 {
-                    var track = new Track { FilePath = file, Title = Path.GetFileNameWithoutExtension(file) };
+                    var track = new Track 
+                    { 
+                        FilePath = file, 
+                        Title = Path.GetFileNameWithoutExtension(file),
+                        Artist = "Unknown Artist",
+                        Album = "Unknown Album"
+                    };
                     uint year = 0;
 
                     try
@@ -1785,30 +1857,34 @@ namespace AudioEffector.ViewModels
 
         private void ToggleFavorite(object obj)
         {
-            if (CurrentTrack != null)
+            var targetTrack = obj as Track ?? CurrentTrack;
+            if (targetTrack != null)
             {
-                CurrentTrack.IsFavorite = !CurrentTrack.IsFavorite;
-                OnPropertyChanged(nameof(CurrentTrack)); // Refresh UI
-
-                if (CurrentTrack.IsFavorite)
+                targetTrack.IsFavorite = !targetTrack.IsFavorite;
+                if (targetTrack == CurrentTrack)
                 {
-                    if (!_favoritePaths.Contains(CurrentTrack.FilePath))
+                    OnPropertyChanged(nameof(CurrentTrack)); // Refresh UI
+                }
+
+                if (targetTrack.IsFavorite)
+                {
+                    if (!_favoritePaths.Contains(targetTrack.FilePath))
                     {
-                        _favoritePaths.Add(CurrentTrack.FilePath);
+                        _favoritePaths.Add(targetTrack.FilePath);
                         // Immediate update if viewing favorites
                         if (IsFavoritesView)
                         {
-                            PlaylistTracks.Add(CurrentTrack);
+                            PlaylistTracks.Add(targetTrack);
                         }
                     }
                 }
                 else
                 {
-                    _favoritePaths.Remove(CurrentTrack.FilePath);
+                    _favoritePaths.Remove(targetTrack.FilePath);
                     // Immediate update if viewing favorites
                     if (IsFavoritesView)
                     {
-                        var trackToRemove = PlaylistTracks.FirstOrDefault(t => t.FilePath == CurrentTrack.FilePath);
+                        var trackToRemove = PlaylistTracks.FirstOrDefault(t => t.FilePath == targetTrack.FilePath);
                         if (trackToRemove != null)
                         {
                             PlaylistTracks.Remove(trackToRemove);
@@ -1816,6 +1892,79 @@ namespace AudioEffector.ViewModels
                     }
                 }
                 _favoriteService.SaveFavorites(_favoritePaths);
+            }
+        }
+
+        private void PlayNext(object? obj)
+        {
+            if (obj is Track track)
+            {
+                if (CurrentTrack != null && PlaybackListTracks.Contains(CurrentTrack))
+                {
+                    int currentIndex = PlaybackListTracks.IndexOf(CurrentTrack);
+                    PlaybackListTracks.Insert(currentIndex + 1, track);
+                }
+                else
+                {
+                    PlaybackListTracks.Insert(0, track);
+                }
+                _audioService.SetPlaylist(PlaybackListTracks.ToList());
+            }
+        }
+
+        private void EnqueueTrack(object? obj)
+        {
+            if (obj is Track track)
+            {
+                PlaybackListTracks.Add(track);
+                _audioService.SetPlaylist(PlaybackListTracks.ToList());
+            }
+        }
+
+        private void ShowTrackProperties(object? obj)
+        {
+            if (obj is Track track)
+            {
+                var info = $"Title: {track.Title}\n" +
+                           $"Artist: {track.Artist}\n" +
+                           $"Album: {track.Album}\n" +
+                           $"Duration: {track.Duration}\n" +
+                           $"File Size: {new System.IO.FileInfo(track.FilePath).Length / 1024 / 1024.0:F2} MB\n\n" +
+                           $"File Path:\n{track.FilePath}";
+                System.Windows.MessageBox.Show(info, "Track Properties", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            }
+        }
+
+        private void OpenFileLocation(object? obj)
+        {
+            if (obj is Track track && System.IO.File.Exists(track.FilePath))
+            {
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{track.FilePath}\"");
+            }
+        }
+
+        private void DeleteTrack(object? obj)
+        {
+            if (obj is Track track)
+            {
+                var result = System.Windows.MessageBox.Show($"Remove '{track.Title}' from Library?\n(File will NOT be deleted from disk)", "Confirm", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
+                if (result == System.Windows.MessageBoxResult.Yes)
+                {
+                    // Remove from Albums
+                    var album = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
+                    if (album != null)
+                    {
+                        album.Tracks.Remove(track);
+                        if (album.Tracks.Count == 0)
+                        {
+                            Albums.Remove(album);
+                        }
+                    }
+                    
+                    // Remove from Playlists and views
+                    PlaylistTracks.Remove(track);
+                    PlaybackListTracks.Remove(track);
+                }
             }
         }
 
@@ -2602,6 +2751,25 @@ namespace AudioEffector.ViewModels
                     playlist.ThumbnailTrackPaths.Add(p);
                 }
             });
+        }
+
+        private void ShowDeviceManager()
+        {
+            if (SelectedDevice == null) return;
+
+            string basePath = !string.IsNullOrEmpty(CurrentDevicePath) ? CurrentDevicePath : SelectedDevice.RootPath;
+            var dialogViewModel = new DeviceManagerViewModel(SelectedDevice, basePath, Albums.ToList());
+            var dialog = new Views.DeviceManagerDialog(dialogViewModel);
+            dialog.ShowDialog();
+
+            // デバイス管理ダイアログを閉じた後、デバイス上のアルバム状況が変更されている可能性があるためチェックを再実行
+            CheckDeviceAlbums();
+            
+            // 現在のディレクトリ表示も更新する
+            if (!string.IsNullOrEmpty(CurrentDevicePath))
+            {
+                LoadDeviceDirectories(CurrentDevicePath);
+            }
         }
     }
 }

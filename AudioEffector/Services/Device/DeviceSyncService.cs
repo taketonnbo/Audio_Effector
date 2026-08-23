@@ -10,8 +10,9 @@ namespace AudioEffector.Services
     /// デバイス（リムーバブルドライブ）との同期を行うサービス。
     /// 楽曲ファイルを転送します。
     /// </summary>
-    public class DeviceSyncService
+    public class DeviceSyncService : IDeviceSyncService
     {
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
         /// <summary>
         /// 利用可能なリムーバブルドライブの一覧を取得します。
         /// </summary>
@@ -60,7 +61,7 @@ namespace AudioEffector.Services
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Failed to copy {sourcePath}: {ex.Message}");
+                        Logger.Error(ex, $"Failed to copy {sourcePath}");
                     }
 
                     processedFiles++;

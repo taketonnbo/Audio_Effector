@@ -58,9 +58,26 @@ namespace AudioEffector.Models
         }
 
         /// <summary>
-        /// 音質情報のフォーマット済み文字列（例: 24bit/96.0kHz FLAC）。
+        /// 音質情報のフォーマット済み文字列（例: 24bit/96.0kHz FLAC や 320kbps/44.1kHz MP3）。
         /// </summary>
-        public string QualityInfo => $"{BitsPerSample}bit/{SampleRate / 1000.0:F1}kHz {Format}";
+        public string QualityInfo 
+        {
+            get
+            {
+                if (BitsPerSample > 0)
+                {
+                    return $"{BitsPerSample}bit/{SampleRate / 1000.0:F1}kHz {Format}";
+                }
+                else if (Bitrate > 0)
+                {
+                    return $"{Bitrate}kbps/{SampleRate / 1000.0:F1}kHz {Format}";
+                }
+                else
+                {
+                    return $"{SampleRate / 1000.0:F1}kHz {Format}";
+                }
+            }
+        }
 
         /// <summary>
         /// 音質ラベル（"Hi-Res" または "Lossless"、それ以外は空）。
