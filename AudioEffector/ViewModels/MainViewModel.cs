@@ -106,12 +106,23 @@ namespace AudioEffector.ViewModels
         private ObservableCollection<Track> _playbackListTracks = new ObservableCollection<Track>();
 
         /// <summary>
-        /// 現在再生リストに含まれるトラックのコレクション。
+        /// 現在画面の右ペインに表示されているトラックのコレクション（アルバム・プレイリスト）。
         /// </summary>
         public ObservableCollection<Track> PlaybackListTracks
         {
             get => _playbackListTracks;
             set { _playbackListTracks = value; OnPropertyChanged(); }
+        }
+
+        private ObservableCollection<Track> _playQueue = new ObservableCollection<Track>();
+
+        /// <summary>
+        /// 実際の再生予定キュー。
+        /// </summary>
+        public ObservableCollection<Track> PlayQueue
+        {
+            get => _playQueue;
+            set { _playQueue = value; OnPropertyChanged(); }
         }
 
         private BitmapImage? _defaultSpectrumImage;
@@ -216,7 +227,8 @@ namespace AudioEffector.ViewModels
                     // プレイリストまたはお気に入りビューからの再生かどうかを確認
                     if (IsPlaylistTracksVisible && PlaylistTracks.Any() && PlaylistTracks.Contains(t))
                     {
-                        _audioService.SetPlaylist(PlaylistTracks.ToList());
+                        PlayQueue = new ObservableCollection<Track>(PlaylistTracks);
+                        _audioService.SetPlaylist(PlayQueue.ToList());
                         PlaybackListName = CurrentPlaylistName;
                         PlaybackListSubtitle = IsFavoritesView ? "Selected You" : "Playlist"; // Phase 8: Selected You
                         PlaybackListTracks = new ObservableCollection<Track>(PlaylistTracks);
@@ -226,7 +238,8 @@ namespace AudioEffector.ViewModels
                         var album = Albums.FirstOrDefault(a => a.Tracks.Contains(t));
                         if (album != null)
                         {
-                            _audioService.SetPlaylist(album.Tracks);
+                            PlayQueue = new ObservableCollection<Track>(album.Tracks);
+                            _audioService.SetPlaylist(PlayQueue.ToList());
                             PlaybackListName = album.Title;
                             PlaybackListSubtitle = album.Artist;
                             PlaybackListTracks = new ObservableCollection<Track>(album.Tracks);
@@ -694,6 +707,7 @@ namespace AudioEffector.ViewModels
         public ICommand ShowTrackPropertiesCommand { get; }
         public ICommand OpenFileLocationCommand { get; }
         public ICommand DeleteTrackCommand { get; }
+        public ICommand ShowQueueDialogCommand { get; }
 
         // Device Sync Commands
         public ICommand SwitchToDeviceSyncCommand { get; }
@@ -1913,16 +1927,16 @@ namespace AudioEffector.ViewModels
         {
             if (obj is Track track)
             {
-                if (CurrentTrack != null && PlaybackListTracks.Contains(CurrentTrack))
+                if (CurrentTrack != null && PlayQueue.Contains(CurrentTrack))
                 {
-                    int currentIndex = PlaybackListTracks.IndexOf(CurrentTrack);
-                    PlaybackListTracks.Insert(currentIndex + 1, track);
+                    int currentIndex = PlayQueue.IndexOf(CurrentTrack);
+                    PlayQueue.Insert(currentIndex + 1, track);
                 }
                 else
                 {
-                    PlaybackListTracks.Insert(0, track);
+                    PlayQueue.Insert(0, track);
                 }
-                _audioService.SetPlaylist(PlaybackListTracks.ToList());
+                _audioService.SetPlaylist(PlayQueue.ToList());
             }
         }
 
@@ -1930,8 +1944,8 @@ namespace AudioEffector.ViewModels
         {
             if (obj is Track track)
             {
-                PlaybackListTracks.Add(track);
-                _audioService.SetPlaylist(PlaybackListTracks.ToList());
+                PlayQueue.Add(track);
+                _audioService.SetPlaylist(PlayQueue.ToList());
             }
         }
 
@@ -1947,6 +1961,14 @@ namespace AudioEffector.ViewModels
                            $"File Path:\n{track.FilePath}";
                 System.Windows.MessageBox.Show(info, "Track Properties", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             }
+        }
+
+        private void ShowQueueDialog()
+        {
+            var dialog = new AudioEffector.Views.PlayQueueDialog();
+            dialog.Owner = App.Current.MainWindow;
+            dialog.DataContext = this;
+            dialog.Show();
         }
 
         private void OpenFileLocation(object? obj)
@@ -2531,7 +2553,8 @@ namespace AudioEffector.ViewModels
 
                 if (tracks.Any())
                 {
-                    _audioService.SetPlaylist(tracks);
+                    PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track>(tracks);
+                    _audioService.SetPlaylist(PlayQueue.ToList());
                     PlaybackListName = playlist.Name;
                     PlaybackListSubtitle = "Playlist";
                     PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(tracks);
@@ -2560,7 +2583,8 @@ namespace AudioEffector.ViewModels
                 if (tracks.Any())
                 {
                     var shuffled = tracks.OrderBy(x => Guid.NewGuid()).ToList();
-                    _audioService.SetPlaylist(shuffled);
+                    PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track>(shuffled);
+                    _audioService.SetPlaylist(PlayQueue.ToList());
                     PlaybackListName = playlist.Name;
                     PlaybackListSubtitle = "Playlist (Shuffled)";
                     PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(shuffled);
@@ -2650,7 +2674,8 @@ namespace AudioEffector.ViewModels
         {
             if (parameter is Album album && album.Tracks.Any())
             {
-                _audioService.SetPlaylist(album.Tracks);
+                PlayQueue = new ObservableCollection<Track>(album.Tracks);
+                _audioService.SetPlaylist(PlayQueue.ToList());
 
                 PlaybackListName = album.Title;
                 PlaybackListSubtitle = album.Artist;
@@ -2664,22 +2689,22 @@ namespace AudioEffector.ViewModels
         {
             if (parameter is Album album && album.Tracks.Any())
             {
-                if (CurrentTrack != null && PlaybackListTracks.Contains(CurrentTrack))
+                if (CurrentTrack != null && PlayQueue.Contains(CurrentTrack))
                 {
-                    int currentIndex = PlaybackListTracks.IndexOf(CurrentTrack);
+                    int currentIndex = PlayQueue.IndexOf(CurrentTrack);
                     for (int i = 0; i < album.Tracks.Count; i++)
                     {
-                        PlaybackListTracks.Insert(currentIndex + 1 + i, album.Tracks[i]);
+                        PlayQueue.Insert(currentIndex + 1 + i, album.Tracks[i]);
                     }
                 }
                 else
                 {
                     for (int i = 0; i < album.Tracks.Count; i++)
                     {
-                        PlaybackListTracks.Insert(i, album.Tracks[i]);
+                        PlayQueue.Insert(i, album.Tracks[i]);
                     }
                 }
-                _audioService.SetPlaylist(PlaybackListTracks.ToList());
+                _audioService.SetPlaylist(PlayQueue.ToList());
             }
         }
 
@@ -2689,9 +2714,9 @@ namespace AudioEffector.ViewModels
             {
                 foreach (var track in album.Tracks)
                 {
-                    PlaybackListTracks.Add(track);
+                    PlayQueue.Add(track);
                 }
-                _audioService.SetPlaylist(PlaybackListTracks.ToList());
+                _audioService.SetPlaylist(PlayQueue.ToList());
             }
         }
 
