@@ -2011,12 +2011,6 @@ namespace AudioEffector.ViewModels
         {
             if (parameter is Track track)
             {
-                if (!UserPlaylists.Any())
-                {
-                    MessageBox.Show("Please create a playlist first", "No Playlists");
-                    return;
-                }
-
                 ShowPlaylistSelectionDialog(selectedPlaylist =>
                 {
                     if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
@@ -2142,10 +2136,33 @@ namespace AudioEffector.ViewModels
                 Text = "Select Playlist",
                 Foreground = Brushes.White,
                 FontSize = 18,
-                Margin = new Thickness(0, 0, 0, 20),
+                Margin = new Thickness(0, 0, 0, 15),
                 HorizontalAlignment = HorizontalAlignment.Center
             };
             stackPanel.Children.Add(title);
+
+            var newPlaylistButton = new Button
+            {
+                Content = "+ NEW PLAYLIST",
+                Width = 150,
+                Height = 30,
+                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                Foreground = Brushes.White,
+                Margin = new Thickness(0, 0, 0, 10),
+                BorderThickness = new Thickness(0),
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            newPlaylistButton.Click += (s, e) =>
+            {
+                int previousCount = UserPlaylists.Count;
+                CreatePlaylist(null);
+                if (UserPlaylists.Count > previousCount)
+                {
+                    onPlaylistSelected(UserPlaylists.Last());
+                    dialog.Close();
+                }
+            };
+            stackPanel.Children.Add(newPlaylistButton);
 
             var listBox = new ListBox
             {
