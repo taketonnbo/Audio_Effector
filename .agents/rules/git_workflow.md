@@ -16,6 +16,11 @@ When performing Git operations or interacting with GitHub (e.g., creating Pull R
    - All feature, fix, and chore branches MUST be branched off from `develop`.
    - Before creating a new branch, ensure your local `develop` branch is up to date (`git checkout develop && git pull`).
 
-3. **Adherence to Project Documentation**:
+3. **Commit Messages**:
+   - ALL commit messages MUST be written in **Japanese**.
+   - Use standard prefix conventions like `feat:`, `fix:`, `chore:`, etc., followed by a descriptive Japanese message.
+   - Example: `feat: プレイリストの右クリックメニューを実装 (#23)`
+
+4. **Adherence to Project Documentation**:
    - Respect and follow the project's documentation located in the `rule_docs/` directory.
    - Specifically, follow the guidelines in `rule_docs/issue_pr_rules.md` when structuring your PR body and titles.
