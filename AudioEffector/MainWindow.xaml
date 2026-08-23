@@ -1063,6 +1063,11 @@
                                 </ControlTemplate>
                             </ToggleButton.Template>
                         </ToggleButton>
+                        
+                        <!-- Play Queue -->
+                        <Button Command="{Binding ShowQueueDialogCommand}" Margin="15,0,0,0" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="16" Height="16">
+                            <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{StaticResource NeonCyanBrush}" Stretch="Uniform"/>
+                        </Button>
                     </StackPanel>
 
                     <!-- Center Group: Title & Seek -->
