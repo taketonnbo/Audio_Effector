@@ -237,6 +237,11 @@ namespace AudioEffector.ViewModels
             });
 
             ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
+            PlayNextCommand = new RelayCommand(PlayNext);
+            EnqueueTrackCommand = new RelayCommand(EnqueueTrack);
+            ShowTrackPropertiesCommand = new RelayCommand(ShowTrackProperties);
+            OpenFileLocationCommand = new RelayCommand(OpenFileLocation);
+            DeleteTrackCommand = new RelayCommand(DeleteTrack);
             ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
             ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
 
@@ -669,6 +674,12 @@ namespace AudioEffector.ViewModels
         public ICommand DeletePlaylistCommand { get; }
         public ICommand RemoveFromPlaylistCommand { get; }
         public ICommand PlayAlbumCommand { get; }
+        
+        public ICommand PlayNextCommand { get; }
+        public ICommand EnqueueTrackCommand { get; }
+        public ICommand ShowTrackPropertiesCommand { get; }
+        public ICommand OpenFileLocationCommand { get; }
+        public ICommand DeleteTrackCommand { get; }
 
         // Device Sync Commands
         public ICommand SwitchToDeviceSyncCommand { get; }
@@ -1846,30 +1857,34 @@ namespace AudioEffector.ViewModels
 
         private void ToggleFavorite(object obj)
         {
-            if (CurrentTrack != null)
+            var targetTrack = obj as Track ?? CurrentTrack;
+            if (targetTrack != null)
             {
-                CurrentTrack.IsFavorite = !CurrentTrack.IsFavorite;
-                OnPropertyChanged(nameof(CurrentTrack)); // Refresh UI
-
-                if (CurrentTrack.IsFavorite)
+                targetTrack.IsFavorite = !targetTrack.IsFavorite;
+                if (targetTrack == CurrentTrack)
                 {
-                    if (!_favoritePaths.Contains(CurrentTrack.FilePath))
+                    OnPropertyChanged(nameof(CurrentTrack)); // Refresh UI
+                }
+
+                if (targetTrack.IsFavorite)
+                {
+                    if (!_favoritePaths.Contains(targetTrack.FilePath))
                     {
-                        _favoritePaths.Add(CurrentTrack.FilePath);
+                        _favoritePaths.Add(targetTrack.FilePath);
                         // Immediate update if viewing favorites
                         if (IsFavoritesView)
                         {
-                            PlaylistTracks.Add(CurrentTrack);
+                            PlaylistTracks.Add(targetTrack);
                         }
                     }
                 }
                 else
                 {
-                    _favoritePaths.Remove(CurrentTrack.FilePath);
+                    _favoritePaths.Remove(targetTrack.FilePath);
                     // Immediate update if viewing favorites
                     if (IsFavoritesView)
                     {
-                        var trackToRemove = PlaylistTracks.FirstOrDefault(t => t.FilePath == CurrentTrack.FilePath);
+                        var trackToRemove = PlaylistTracks.FirstOrDefault(t => t.FilePath == targetTrack.FilePath);
                         if (trackToRemove != null)
                         {
                             PlaylistTracks.Remove(trackToRemove);
@@ -1877,6 +1892,79 @@ namespace AudioEffector.ViewModels
                     }
                 }
                 _favoriteService.SaveFavorites(_favoritePaths);
+            }
+        }
+
+        private void PlayNext(object? obj)
+        {
+            if (obj is Track track)
+            {
+                if (CurrentTrack != null && PlaybackListTracks.Contains(CurrentTrack))
+                {
+                    int currentIndex = PlaybackListTracks.IndexOf(CurrentTrack);
+                    PlaybackListTracks.Insert(currentIndex + 1, track);
+                }
+                else
+                {
+                    PlaybackListTracks.Insert(0, track);
+                }
+                _audioService.SetPlaylist(PlaybackListTracks.ToList());
+            }
+        }
+
+        private void EnqueueTrack(object? obj)
+        {
+            if (obj is Track track)
+            {
+                PlaybackListTracks.Add(track);
+                _audioService.SetPlaylist(PlaybackListTracks.ToList());
+            }
+        }
+
+        private void ShowTrackProperties(object? obj)
+        {
+            if (obj is Track track)
+            {
+                var info = $"Title: {track.Title}\n" +
+                           $"Artist: {track.Artist}\n" +
+                           $"Album: {track.Album}\n" +
+                           $"Duration: {track.Duration}\n" +
+                           $"File Size: {new System.IO.FileInfo(track.FilePath).Length / 1024 / 1024.0:F2} MB\n\n" +
+                           $"File Path:\n{track.FilePath}";
+                System.Windows.MessageBox.Show(info, "Track Properties", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            }
+        }
+
+        private void OpenFileLocation(object? obj)
+        {
+            if (obj is Track track && System.IO.File.Exists(track.FilePath))
+            {
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{track.FilePath}\"");
+            }
+        }
+
+        private void DeleteTrack(object? obj)
+        {
+            if (obj is Track track)
+            {
+                var result = System.Windows.MessageBox.Show($"Remove '{track.Title}' from Library?\n(File will NOT be deleted from disk)", "Confirm", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
+                if (result == System.Windows.MessageBoxResult.Yes)
+                {
+                    // Remove from Albums
+                    var album = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
+                    if (album != null)
+                    {
+                        album.Tracks.Remove(track);
+                        if (album.Tracks.Count == 0)
+                        {
+                            Albums.Remove(album);
+                        }
+                    }
+                    
+                    // Remove from Playlists and views
+                    PlaylistTracks.Remove(track);
+                    PlaybackListTracks.Remove(track);
+                }
             }
         }
 
