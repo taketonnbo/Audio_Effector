@@ -21,6 +21,14 @@ public partial class App : Application
         this.DispatcherUnhandledException += App_DispatcherUnhandledException;
     }
 
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        base.OnStartup(e);
+        var settingsService = new AudioEffector.Services.SettingsService();
+        var settings = settingsService.LoadSettings();
+        AudioEffector.Services.ThemeManager.ApplyTheme(settings.Theme);
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         Logger.Info("アプリケーションを終了します。");

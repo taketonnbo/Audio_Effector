@@ -1,0 +1,35 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <!-- Colors -->
+    <Color x:Key="WindowBackgroundColor">#F5F5F5</Color>
+    <Color x:Key="PanelBackgroundColor">#EAEAEA</Color>
+    <Color x:Key="ControlBackgroundColor">#FFFFFF</Color>
+    <Color x:Key="ControlBackgroundHighlightColor">#F0F0F0</Color>
+    
+    <Color x:Key="TextForegroundColor">#1E1E1E</Color>
+    <Color x:Key="SecondaryTextForegroundColor">#404040</Color>
+    <Color x:Key="MutedTextForegroundColor">#606060</Color>
+    
+    <Color x:Key="BorderColor">#CCCCCC</Color>
+    
+    <!-- Accent Colors -->
+    <Color x:Key="NeonCyanColor">#0078D7</Color>
+    <Color x:Key="DarkNeonCyanColor">#005A9E</Color>
+
+    <!-- Brushes -->
+    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{StaticResource WindowBackgroundColor}"/>
+    <SolidColorBrush x:Key="PanelBackgroundBrush" Color="{StaticResource PanelBackgroundColor}"/>
+    <SolidColorBrush x:Key="ControlBackgroundBrush" Color="{StaticResource ControlBackgroundColor}"/>
+    <SolidColorBrush x:Key="ControlBackgroundHighlightBrush" Color="{StaticResource ControlBackgroundHighlightColor}"/>
+    
+    <SolidColorBrush x:Key="TextForegroundBrush" Color="{StaticResource TextForegroundColor}"/>
+    <SolidColorBrush x:Key="SecondaryTextForegroundBrush" Color="{StaticResource SecondaryTextForegroundColor}"/>
+    <SolidColorBrush x:Key="MutedTextForegroundBrush" Color="{StaticResource MutedTextForegroundColor}"/>
+    
+    <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}"/>
+    
+    <SolidColorBrush x:Key="NeonCyanBrush" Color="{StaticResource NeonCyanColor}"/>
+    <SolidColorBrush x:Key="DarkNeonCyanBrush" Color="{StaticResource DarkNeonCyanColor}"/>
+
+</ResourceDictionary>

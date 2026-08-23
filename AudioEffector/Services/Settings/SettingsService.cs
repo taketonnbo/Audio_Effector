@@ -4,11 +4,23 @@ using System.Text.Json;
 
 namespace AudioEffector.Services
 {
+    public enum ThemeType
+    {
+        Dark,
+        Light,
+        System
+    }
+
     /// <summary>
     /// アプリケーションの設定情報を保持するモデルクラス。
     /// </summary>
     public class AppSettings
     {
+        /// <summary>
+        /// アプリケーションのUIテーマ。
+        /// </summary>
+        public ThemeType Theme { get; set; } = ThemeType.System;
+
         /// <summary>
         /// 最後に開いていたライブラリのパス。
         /// </summary>
