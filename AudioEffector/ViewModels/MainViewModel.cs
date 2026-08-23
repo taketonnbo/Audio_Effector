@@ -16,6 +16,7 @@ using System.Windows.Threading;
 using MediaDevices;
 using NAudio.Dsp;
 using System.Threading.Tasks;
+using NLog;
 
 namespace AudioEffector.ViewModels
 {
@@ -25,6 +26,8 @@ namespace AudioEffector.ViewModels
     /// </summary>
     public class MainViewModel : ViewModelBase
     {
+        private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+
         private readonly AudioService _audioService;
         private readonly PresetService _presetService;
         private readonly FavoriteService _favoriteService;
