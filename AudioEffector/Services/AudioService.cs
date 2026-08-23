@@ -14,6 +14,8 @@ namespace AudioEffector.Services
     /// </summary>
     public class AudioService : IDisposable
     {
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
         private IWavePlayer _outputDevice;
         private AudioFileReader _audioFile;
         private Equalizer _equalizer;
@@ -95,6 +97,7 @@ namespace AudioEffector.Services
         /// <param name="tracks">トラックリスト。</param>
         public void SetPlaylist(List<Track> tracks)
         {
+            Logger.Info($"SetPlaylist called. Track count: {tracks?.Count ?? 0}");
             lock (_lock)
             {
                 // Capture current track before updating
@@ -174,6 +177,7 @@ namespace AudioEffector.Services
         /// </summary>
         public async void PlayTrack(Track track)
         {
+            Logger.Info($"PlayTrack called. FilePath: {track?.FilePath}");
             int index = _playlist.IndexOf(track);
             if (index >= 0)
             {
@@ -188,6 +192,7 @@ namespace AudioEffector.Services
 
         private void PlayCurrent()
         {
+            Logger.Info($"PlayCurrent called. CurrentIndex: {_currentIndex}");
             lock (_lock)
             {
                 if (_currentIndex < 0 || _currentIndex >= _playlist.Count) return;
@@ -231,6 +236,7 @@ namespace AudioEffector.Services
                 catch (Exception ex)
                 {
                     // Handle error (e.g. file not found)
+                    Logger.Error(ex, $"Error playing file (Index: {_currentIndex}).");
                     System.Diagnostics.Debug.WriteLine($"Error playing file: {ex.Message}");
                     // Ensure cleanup if initialization fails
                     Stop(true);
@@ -294,6 +300,7 @@ namespace AudioEffector.Services
         /// </summary>
         public void TogglePlayPause()
         {
+            Logger.Info("TogglePlayPause called.");
             lock (_lock)
             {
                 if (_outputDevice == null)
@@ -321,6 +328,7 @@ namespace AudioEffector.Services
                 }
                 catch (Exception ex)
                 {
+                    Logger.Error(ex, "Error in TogglePlayPause.");
                     System.Diagnostics.Debug.WriteLine($"Error in TogglePlayPause: {ex.Message}");
                     // If device is in bad state, stop and cleanup
                     Stop(true);
@@ -334,6 +342,7 @@ namespace AudioEffector.Services
         /// </summary>
         public async void Next()
         {
+            Logger.Info("Next called.");
             if (_playlist.Count == 0) return;
 
             if (_currentIndex < _playlist.Count - 1)
@@ -367,6 +376,7 @@ namespace AudioEffector.Services
         /// </summary>
         public async void Previous()
         {
+            Logger.Info("Previous called.");
             if (_playlist.Count == 0) return;
             _currentIndex--;
             if (_currentIndex < 0) _currentIndex = _playlist.Count - 1; // Loop
@@ -382,6 +392,7 @@ namespace AudioEffector.Services
         /// <param name="internalStop">内部呼び出しによる停止かどうか。</param>
         public void Stop(bool internalStop = false)
         {
+            Logger.Info($"Stop called. InternalStop: {internalStop}");
             lock (_lock)
             {
                 if (internalStop) _stopRequested = true;
@@ -410,6 +421,7 @@ namespace AudioEffector.Services
         /// </summary>
         public void SeekTo(double percentage)
         {
+            Logger.Info($"SeekTo called. Percentage: {percentage}%");
             lock (_lock)
             {
                 if (_audioFile != null)

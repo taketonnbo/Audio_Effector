@@ -12,6 +12,8 @@ namespace AudioEffector.Services
     /// </summary>
     public class DeviceSyncService
     {
+        private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
         /// <summary>
         /// 利用可能なリムーバブルドライブの一覧を取得します。
         /// </summary>
@@ -32,6 +34,7 @@ namespace AudioEffector.Services
         /// <param name="progress">進捗状況を報告するプロバイダ。</param>
         public async Task TransferFilesAsync(List<string> sourceFilePaths, string destinationFolder, IProgress<double> progress)
         {
+            Logger.Info($"TransferFilesAsync called. Source files count: {sourceFilePaths?.Count ?? 0}, Destination: {destinationFolder}");
             await Task.Run(() =>
             {
                 if (string.IsNullOrEmpty(destinationFolder) || !Directory.Exists(destinationFolder))
@@ -60,6 +63,7 @@ namespace AudioEffector.Services
                     }
                     catch (Exception ex)
                     {
+                        Logger.Error(ex, $"Failed to copy {sourcePath}");
                         System.Diagnostics.Debug.WriteLine($"Failed to copy {sourcePath}: {ex.Message}");
                     }
 
