@@ -254,6 +254,9 @@ namespace AudioEffector.ViewModels
             ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
             ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
             DeletePlaylistCommand = new RelayCommand(DeletePlaylist);
+            PlayPlaylistCommand = new RelayCommand(PlayPlaylist);
+            ShufflePlayPlaylistCommand = new RelayCommand(ShufflePlayPlaylist);
+            RenamePlaylistCommand = new RelayCommand(RenamePlaylist);
             RemoveFromPlaylistCommand = new RelayCommand(RemoveFromPlaylist);
 
             ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
@@ -672,6 +675,9 @@ namespace AudioEffector.ViewModels
         public ICommand ShowPlaylistSelectorCommand { get; }
         public ICommand ShowAddToPlaylistDialogCommand { get; }
         public ICommand DeletePlaylistCommand { get; }
+        public ICommand PlayPlaylistCommand { get; }
+        public ICommand ShufflePlayPlaylistCommand { get; }
+        public ICommand RenamePlaylistCommand { get; }
         public ICommand RemoveFromPlaylistCommand { get; }
         public ICommand PlayAlbumCommand { get; }
         
@@ -2478,6 +2484,80 @@ namespace AudioEffector.ViewModels
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// プレイリストを再生キューにセットして再生を開始します。
+        /// </summary>
+        private void PlayPlaylist(object parameter)
+        {
+            if (parameter is UserPlaylist playlist && playlist.TrackPaths != null && playlist.TrackPaths.Any())
+            {
+                var tracks = new List<Track>();
+                foreach (var path in playlist.TrackPaths)
+                {
+                    var track = LoadTrack(path);
+                    if (track != null)
+                    {
+                        tracks.Add(track);
+                    }
+                }
+
+                if (tracks.Any())
+                {
+                    _audioService.SetPlaylist(tracks);
+                    PlaybackListName = playlist.Name;
+                    PlaybackListSubtitle = "Playlist";
+                    PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(tracks);
+                    _audioService.PlayTrack(tracks.First());
+                }
+            }
+        }
+
+        /// <summary>
+        /// プレイリストをシャッフルして再生キューにセットし、再生を開始します。
+        /// </summary>
+        private void ShufflePlayPlaylist(object parameter)
+        {
+            if (parameter is UserPlaylist playlist && playlist.TrackPaths != null && playlist.TrackPaths.Any())
+            {
+                var tracks = new List<Track>();
+                foreach (var path in playlist.TrackPaths)
+                {
+                    var track = LoadTrack(path);
+                    if (track != null)
+                    {
+                        tracks.Add(track);
+                    }
+                }
+
+                if (tracks.Any())
+                {
+                    var shuffled = tracks.OrderBy(x => Guid.NewGuid()).ToList();
+                    _audioService.SetPlaylist(shuffled);
+                    PlaybackListName = playlist.Name;
+                    PlaybackListSubtitle = "Playlist (Shuffled)";
+                    PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(shuffled);
+                    _audioService.PlayTrack(shuffled.First());
+                }
+            }
+        }
+
+        /// <summary>
+        /// プレイリストの名前を変更します。
+        /// </summary>
+        private void RenamePlaylist(object parameter)
+        {
+            if (parameter is UserPlaylist playlist)
+            {
+                var inputBox = new Views.InputBox("新しい名前を入力してください:", playlist.Name);
+                if (inputBox.ShowDialog() == true && !string.IsNullOrWhiteSpace(inputBox.InputText))
+                {
+                    playlist.Name = inputBox.InputText.Trim();
+                    _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    OnPropertyChanged(nameof(UserPlaylists));
+                }
             }
         }
 

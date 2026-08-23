@@ -583,6 +583,11 @@
                          HorizontalAlignment="Stretch" Margin="10,0,10,10" Background="#202020" Height="30"/>
                  <ListBox Grid.Row="1" ItemsSource="{Binding UserPlaylists}" Background="Transparent" BorderThickness="0" Margin="10,0"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                     <ListBox.ContextMenu>
+                         <ContextMenu>
+                             <MenuItem Header="新規プレイリスト作成" Command="{Binding DataContext.CreatePlaylistCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                         </ContextMenu>
+                     </ListBox.ContextMenu>
                      <ListBox.ItemsPanel>
                          <ItemsPanelTemplate>
                              <WrapPanel Orientation="Horizontal" HorizontalAlignment="Center"/>
@@ -607,6 +612,16 @@
                              <Button Command="{Binding DataContext.ShowPlaylistCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
                                      CommandParameter="{Binding}"
                                      Width="160" Height="200" Background="#202020" BorderThickness="0" Margin="0">
+                                 <Button.ContextMenu>
+                                     <ContextMenu>
+                                         <MenuItem Header="再生" Command="{Binding DataContext.PlayPlaylistCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                         <MenuItem Header="シャッフル再生" Command="{Binding DataContext.ShufflePlayPlaylistCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                         <Separator/>
+                                         <MenuItem Header="名前の変更" Command="{Binding DataContext.RenamePlaylistCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                         <Separator/>
+                                         <MenuItem Header="削除" Command="{Binding DataContext.DeletePlaylistCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                     </ContextMenu>
+                                 </Button.ContextMenu>
                                  <Button.Template>
                                      <ControlTemplate TargetType="Button">
                                          <Border Background="{TemplateBinding Background}" CornerRadius="8" ClipToBounds="True">
