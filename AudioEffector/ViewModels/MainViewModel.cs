@@ -263,6 +263,10 @@ namespace AudioEffector.ViewModels
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
             AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
             PlayAlbumCommand = new RelayCommand(PlayAlbum);
+            PlayNextAlbumCommand = new RelayCommand(PlayNextAlbum);
+            EnqueueAlbumCommand = new RelayCommand(EnqueueAlbum);
+            ShowAddAlbumToPlaylistDialogCommand = new RelayCommand(ShowAddAlbumToPlaylistDialog);
+            DeleteAlbumCommand = new RelayCommand(DeleteAlbum);
 
             IncreaseVolumeCommand = new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
             DecreaseVolumeCommand = new RelayCommand(o => Volume = Math.Max(0.0f, Volume - 0.05f));
@@ -680,6 +684,10 @@ namespace AudioEffector.ViewModels
         public ICommand RenamePlaylistCommand { get; }
         public ICommand RemoveFromPlaylistCommand { get; }
         public ICommand PlayAlbumCommand { get; }
+        public ICommand PlayNextAlbumCommand { get; }
+        public ICommand EnqueueAlbumCommand { get; }
+        public ICommand ShowAddAlbumToPlaylistDialogCommand { get; }
+        public ICommand DeleteAlbumCommand { get; }
         
         public ICommand PlayNextCommand { get; }
         public ICommand EnqueueTrackCommand { get; }
@@ -2649,6 +2657,92 @@ namespace AudioEffector.ViewModels
                 PlaybackListTracks = new ObservableCollection<Track>(album.Tracks);
 
                 _audioService.PlayTrack(album.Tracks.First());
+            }
+        }
+
+        private void PlayNextAlbum(object parameter)
+        {
+            if (parameter is Album album && album.Tracks.Any())
+            {
+                if (CurrentTrack != null && PlaybackListTracks.Contains(CurrentTrack))
+                {
+                    int currentIndex = PlaybackListTracks.IndexOf(CurrentTrack);
+                    for (int i = 0; i < album.Tracks.Count; i++)
+                    {
+                        PlaybackListTracks.Insert(currentIndex + 1 + i, album.Tracks[i]);
+                    }
+                }
+                else
+                {
+                    for (int i = 0; i < album.Tracks.Count; i++)
+                    {
+                        PlaybackListTracks.Insert(i, album.Tracks[i]);
+                    }
+                }
+                _audioService.SetPlaylist(PlaybackListTracks.ToList());
+            }
+        }
+
+        private void EnqueueAlbum(object parameter)
+        {
+            if (parameter is Album album && album.Tracks.Any())
+            {
+                foreach (var track in album.Tracks)
+                {
+                    PlaybackListTracks.Add(track);
+                }
+                _audioService.SetPlaylist(PlaybackListTracks.ToList());
+            }
+        }
+
+        private void ShowAddAlbumToPlaylistDialog(object parameter)
+        {
+            if (parameter is Album album && album.Tracks.Any())
+            {
+                ShowPlaylistSelectionDialog(selectedPlaylist =>
+                {
+                    bool added = false;
+                    foreach (var track in album.Tracks)
+                    {
+                        if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
+                        {
+                            selectedPlaylist.TrackPaths.Add(track.FilePath);
+                            added = true;
+                        }
+                    }
+                    if (added)
+                    {
+                        UpdatePlaylistThumbnails(selectedPlaylist);
+                        _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    }
+                });
+            }
+        }
+
+        private void DeleteAlbum(object parameter)
+        {
+            if (parameter is Album album)
+            {
+                var result = System.Windows.MessageBox.Show($"Remove album '{album.Title}' from Library?\n(Files will NOT be deleted from disk)", "Confirm", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
+                if (result == System.Windows.MessageBoxResult.Yes)
+                {
+                    var tracksToRemove = album.Tracks.ToList();
+                    
+                    Albums.Remove(album);
+                    
+                    foreach (var track in tracksToRemove)
+                    {
+                        PlaylistTracks.Remove(track);
+                        PlaybackListTracks.Remove(track);
+                        
+                        if (_favoritePaths.Contains(track.FilePath))
+                        {
+                            _favoritePaths.Remove(track.FilePath);
+                        }
+                    }
+                    
+                    _favoriteService.SaveFavorites(_favoritePaths);
+                }
             }
         }
 
