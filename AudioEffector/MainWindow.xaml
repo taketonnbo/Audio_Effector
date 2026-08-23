@@ -381,6 +381,21 @@
                                         <DataTemplate>
                                             <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                     HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
+                                                <Button.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Header="再生" Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="次に再生" Command="{Binding DataContext.PlayNextCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="キューに追加" Command="{Binding DataContext.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="お気に入りに追加/解除" Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="プレイリストに追加..." Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="プロパティ" Command="{Binding DataContext.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="ファイルの場所を開く" Command="{Binding DataContext.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="削除" Command="{Binding DataContext.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    </ContextMenu>
+                                                </Button.ContextMenu>
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="Auto"/>
@@ -501,6 +516,21 @@
                                             <DataTemplate>
                                                 <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                         HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
+                                                    <Button.ContextMenu>
+                                                        <ContextMenu>
+                                                            <MenuItem Header="再生" Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="次に再生" Command="{Binding DataContext.PlayNextCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="キューに追加" Command="{Binding DataContext.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <Separator/>
+                                                            <MenuItem Header="お気に入りに追加/解除" Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="プレイリストに追加..." Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <Separator/>
+                                                            <MenuItem Header="プロパティ" Command="{Binding DataContext.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="ファイルの場所を開く" Command="{Binding DataContext.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                            <Separator/>
+                                                            <MenuItem Header="削除" Command="{Binding DataContext.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                        </ContextMenu>
+                                                    </Button.ContextMenu>
                                                      <!-- Context menu removed -->
 
                                                     <Grid>
@@ -709,6 +739,21 @@
                             <DataTemplate>
                                 <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                         HorizontalContentAlignment="Stretch" Margin="0,2" Background="Transparent" BorderThickness="0">
+                                    <Button.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="再生" Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="次に再生" Command="{Binding DataContext.PlayNextCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="キューに追加" Command="{Binding DataContext.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <Separator/>
+                                            <MenuItem Header="お気に入りに追加/解除" Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="プレイリストに追加..." Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <Separator/>
+                                            <MenuItem Header="プロパティ" Command="{Binding DataContext.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="ファイルの場所を開く" Command="{Binding DataContext.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                            <Separator/>
+                                            <MenuItem Header="削除" Command="{Binding DataContext.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                        </ContextMenu>
+                                    </Button.ContextMenu>
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
                                             <Border Background="{TemplateBinding Background}">
@@ -838,6 +883,21 @@
                                         <Button Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
                                                 CommandParameter="{Binding}"
                                                 HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
+                                            <Button.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="再生" Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <MenuItem Header="次に再生" Command="{Binding DataContext.PlayNextCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <MenuItem Header="キューに追加" Command="{Binding DataContext.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <Separator/>
+                                                    <MenuItem Header="お気に入りに追加/解除" Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <MenuItem Header="プレイリストに追加..." Command="{Binding DataContext.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <Separator/>
+                                                    <MenuItem Header="プロパティ" Command="{Binding DataContext.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <MenuItem Header="ファイルの場所を開く" Command="{Binding DataContext.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                    <Separator/>
+                                                    <MenuItem Header="削除" Command="{Binding DataContext.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"/>
+                                                </ContextMenu>
+                                            </Button.ContextMenu>
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="30"/>
