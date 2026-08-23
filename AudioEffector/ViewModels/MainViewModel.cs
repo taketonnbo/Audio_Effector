@@ -255,6 +255,7 @@ namespace AudioEffector.ViewModels
             ShowTrackPropertiesCommand = new RelayCommand(ShowTrackProperties);
             OpenFileLocationCommand = new RelayCommand(OpenFileLocation);
             DeleteTrackCommand = new RelayCommand(DeleteTrack);
+            ShowQueueDialogCommand = new RelayCommand(o => ShowQueueDialog());
             ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
             ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
 
