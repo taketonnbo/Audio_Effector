@@ -6,7 +6,7 @@
         mc:Ignorable="d" 
         Title="Mini Player" Height="100" Width="350"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        Topmost="True" MouseLeftButtonDown="Window_MouseLeftButtonDown">
+        ResizeMode="NoResize" MouseLeftButtonDown="Window_MouseLeftButtonDown">
 
     <Window.Resources>
         <Style TargetType="Button" x:Key="IconButtonStyle">
