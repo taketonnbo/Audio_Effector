@@ -5,10 +5,10 @@ namespace AudioEffector.Views
 {
     public partial class SettingsDialog : Window
     {
-        public SettingsDialog()
+        public SettingsDialog(SettingsViewModel viewModel)
         {
             InitializeComponent();
-            DataContext = new SettingsViewModel();
+            DataContext = viewModel;
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)

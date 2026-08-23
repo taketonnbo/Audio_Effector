@@ -3040,7 +3040,8 @@ namespace AudioEffector.ViewModels
 
         private void ShowSettings()
         {
-            var settingsDialog = new Views.SettingsDialog();
+            var settingsViewModel = new SettingsViewModel(_settingsService);
+            var settingsDialog = new Views.SettingsDialog(settingsViewModel);
             if (System.Windows.Application.Current.MainWindow != null)
             {
                 settingsDialog.Owner = System.Windows.Application.Current.MainWindow;

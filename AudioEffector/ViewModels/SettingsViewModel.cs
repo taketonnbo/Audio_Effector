@@ -1,10 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
+using AudioEffector.Services;
 
 namespace AudioEffector.ViewModels
 {
     public class SettingsViewModel : ViewModelBase
     {
+        private readonly ISettingsService _settingsService;
+        private AppSettings _appSettings;
+
         public ObservableCollection<string> Categories { get; }
 
         private string _selectedCategory;
@@ -21,8 +27,33 @@ namespace AudioEffector.ViewModels
             }
         }
 
-        public SettingsViewModel()
+        public IReadOnlyList<ThemeType> AvailableThemes { get; } = new[]
         {
+            ThemeType.Light,
+            ThemeType.Dark,
+            ThemeType.System
+        };
+
+        public ThemeType SelectedTheme
+        {
+            get => _appSettings.Theme;
+            set
+            {
+                if (_appSettings.Theme != value)
+                {
+                    _appSettings.Theme = value;
+                    OnPropertyChanged();
+                    _settingsService.SaveSettings(_appSettings);
+                    ThemeManager.ApplyTheme(value);
+                }
+            }
+        }
+
+        public SettingsViewModel(ISettingsService settingsService)
+        {
+            _settingsService = settingsService;
+            _appSettings = _settingsService.LoadSettings();
+
             Categories = new ObservableCollection<string>
             {
                 "一般",

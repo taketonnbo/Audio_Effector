@@ -1,13 +1,16 @@
-﻿<Application x:Class="AudioEffector.App"
+<Application x:Class="AudioEffector.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:AudioEffector"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <local:BoolToVisConverter x:Key="BoolToVis"/>
-        <SolidColorBrush x:Key="NeonCyanBrush" Color="#00FFFF"/>
-        <SolidColorBrush x:Key="DarkNeonCyanBrush" Color="#00E5FF"/>
-        
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/DarkTheme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <local:BoolToVisConverter x:Key="BoolToVis"/>
+            
         <!-- Vertical Slider Style for EQ -->
         <Style x:Key="NeonVerticalSliderStyle" TargetType="Slider">
             <Setter Property="Orientation" Value="Vertical"/>
@@ -118,5 +121,6 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

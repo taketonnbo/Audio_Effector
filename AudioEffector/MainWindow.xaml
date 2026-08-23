@@ -9,7 +9,7 @@
         mc:Ignorable="d"
         Title="Audio Effector" Height="650" Width="1000"
         Icon="pack://application:,,,/Audio_Effector_icon_1.0.1.ico"
-        Background="#1E1E1E"
+        Background="{DynamicResource WindowBackgroundBrush}"
         WindowStartupLocation="CenterScreen"
         x:Name="MainWindowRoot">
     <Window.DataContext>
@@ -173,7 +173,7 @@
         </Grid.ColumnDefinitions>
 
         <!-- Left Column: Library -->
-        <Grid Grid.Column="0" Background="#0A0A15">
+        <Grid Grid.Column="0" Background="{DynamicResource PanelBackgroundBrush}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
