@@ -106,17 +106,34 @@ namespace AudioEffector.ViewModels
                     string albumName = Path.GetFileName(path);
                     string artistName = Path.GetFileName(Path.GetDirectoryName(path));
 
-                    var deviceAlbum = new DeviceAlbum
+                    var existingAlbum = loadedAlbums.FirstOrDefault(a => string.Equals(a.Title, albumName, StringComparison.OrdinalIgnoreCase));
+                    if (existingAlbum != null)
                     {
-                        Artist = artistName,
-                        Title = albumName,
-                        Path = path
-                    };
-                    foreach (var file in audioFiles)
-                    {
-                        deviceAlbum.Tracks.Add(new DeviceTrack { Title = Path.GetFileName(file), Path = file });
+                        if (existingAlbum.Artist != artistName && !existingAlbum.Artist.Contains("Various Artists"))
+                        {
+                            existingAlbum.Artist = "Various Artists";
+                        }
+                        foreach (var file in audioFiles)
+                        {
+                            existingAlbum.Tracks.Add(new DeviceTrack { Title = Path.GetFileName(file), Path = file });
+                        }
+                        Logger.Info($"[FS] Appended {audioFiles.Count} tracks to existing album: {albumName}");
                     }
-                    loadedAlbums.Add(deviceAlbum);
+                    else
+                    {
+                        var deviceAlbum = new DeviceAlbum
+                        {
+                            Artist = artistName,
+                            Title = albumName,
+                            Path = path
+                        };
+                        foreach (var file in audioFiles)
+                        {
+                            deviceAlbum.Tracks.Add(new DeviceTrack { Title = Path.GetFileName(file), Path = file });
+                        }
+                        loadedAlbums.Add(deviceAlbum);
+                        Logger.Info($"[FS] Added new FS album: {albumName} with {audioFiles.Count} tracks.");
+                    }
                 }
             }
             catch (Exception ex) { Logger.Error(ex, "Error scanning directory"); }
@@ -146,17 +163,34 @@ namespace AudioEffector.ViewModels
                     string albumName = Path.GetFileName(path);
                     string artistName = Path.GetFileName(GetParentDirectory(path));
 
-                    var deviceAlbum = new DeviceAlbum
+                    var existingAlbum = loadedAlbums.FirstOrDefault(a => string.Equals(a.Title, albumName, StringComparison.OrdinalIgnoreCase));
+                    if (existingAlbum != null)
                     {
-                        Artist = artistName ?? "Unknown Artist",
-                        Title = albumName ?? "Unknown Album",
-                        Path = path
-                    };
-                    foreach (var file in audioFiles)
-                    {
-                        deviceAlbum.Tracks.Add(new DeviceTrack { Title = Path.GetFileName(file), Path = file });
+                        if (existingAlbum.Artist != artistName && !existingAlbum.Artist.Contains("Various Artists"))
+                        {
+                            existingAlbum.Artist = "Various Artists";
+                        }
+                        foreach (var file in audioFiles)
+                        {
+                            existingAlbum.Tracks.Add(new DeviceTrack { Title = Path.GetFileName(file), Path = file });
+                        }
+                        Logger.Info($"[MTP] Appended {audioFiles.Count} tracks to existing album: {albumName}");
                     }
-                    loadedAlbums.Add(deviceAlbum);
+                    else
+                    {
+                        var deviceAlbum = new DeviceAlbum
+                        {
+                            Artist = artistName,
+                            Title = albumName ?? "Unknown Album",
+                            Path = path
+                        };
+                        foreach (var file in audioFiles)
+                        {
+                            deviceAlbum.Tracks.Add(new DeviceTrack { Title = Path.GetFileName(file), Path = file });
+                        }
+                        loadedAlbums.Add(deviceAlbum);
+                        Logger.Info($"[MTP] Added new MTP album: {albumName} with {audioFiles.Count} tracks.");
+                    }
                 }
             }
             catch (Exception ex) { Logger.Error(ex, "Error scanning directory"); }
