@@ -311,6 +311,7 @@ namespace AudioEffector.ViewModels
             NavigateUpCommand = new RelayCommand(o => NavigateUp());
             RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
             ShowDeviceManagerCommand = new RelayCommand(o => ShowDeviceManager());
+            ShowSettingsCommand = new RelayCommand(o => ShowSettings());
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
             _audioService.FftCalculated += OnFftCalculated;
@@ -840,6 +841,7 @@ namespace AudioEffector.ViewModels
 
         public ICommand RefreshDirectoryCommand { get; }
         public ICommand ShowDeviceManagerCommand { get; }
+        public ICommand ShowSettingsCommand { get; }
 
         private string _currentDevicePath = string.Empty;
         /// <summary>
@@ -3034,6 +3036,16 @@ namespace AudioEffector.ViewModels
             {
                 LoadDeviceDirectories(CurrentDevicePath);
             }
+        }
+
+        private void ShowSettings()
+        {
+            var settingsDialog = new Views.SettingsDialog();
+            if (System.Windows.Application.Current.MainWindow != null)
+            {
+                settingsDialog.Owner = System.Windows.Application.Current.MainWindow;
+            }
+            settingsDialog.ShowDialog();
         }
     }
 }
