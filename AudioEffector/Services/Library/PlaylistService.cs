@@ -9,7 +9,7 @@ namespace AudioEffector.Services
     /// <summary>
     /// ユーザープレイリストを管理・永続化するサービス。
     /// </summary>
-    public class PlaylistService
+    public class PlaylistService : IPlaylistService
     {
         private readonly string _playlistsFilePath;
 

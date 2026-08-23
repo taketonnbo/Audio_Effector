@@ -9,7 +9,7 @@ namespace AudioEffector.Services
     /// <summary>
     /// お気に入りトラックのリストを管理・永続化するサービス。
     /// </summary>
-    public class FavoriteService
+    public class FavoriteService : IFavoriteService
     {
         private readonly string _favoritesFilePath;
 

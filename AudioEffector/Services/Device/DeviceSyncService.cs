@@ -10,7 +10,7 @@ namespace AudioEffector.Services
     /// デバイス（リムーバブルドライブ）との同期を行うサービス。
     /// 楽曲ファイルを転送します。
     /// </summary>
-    public class DeviceSyncService
+    public class DeviceSyncService : IDeviceSyncService
     {
         /// <summary>
         /// 利用可能なリムーバブルドライブの一覧を取得します。

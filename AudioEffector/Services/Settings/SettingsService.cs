@@ -28,7 +28,7 @@ namespace AudioEffector.Services
     /// <summary>
     /// アプリケーション設定の読み込み・保存を行うサービス。
     /// </summary>
-    public class SettingsService
+    public class SettingsService : ISettingsService
     {
         private readonly string _settingsFilePath;
 

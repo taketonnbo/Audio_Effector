@@ -1,6 +1,7 @@
-﻿using System.Configuration;
+using System.Configuration;
 using System.Data;
 using System.Windows;
+using NLog;
 
 namespace AudioEffector;
 
@@ -9,12 +10,22 @@ namespace AudioEffector;
 /// </summary>
 public partial class App : Application
 {
+    private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+
     /// <summary>
     /// コンストラクタ。未処理の例外イベントハンドラを登録します。
     /// </summary>
     public App()
     {
+        Logger.Info("アプリケーションを起動しています...");
         this.DispatcherUnhandledException += App_DispatcherUnhandledException;
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        Logger.Info("アプリケーションを終了します。");
+        LogManager.Shutdown();
+        base.OnExit(e);
     }
 
     /// <summary>
@@ -24,6 +35,7 @@ public partial class App : Application
     /// <param name="e">例外イベントのデータ。</param>
     private void App_DispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
     {
+        Logger.Fatal(e.Exception, "未処理の例外が発生しました。");
         MessageBox.Show($"An unhandled exception occurred: {e.Exception.Message}\n\nStack Trace:\n{e.Exception.StackTrace}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
     }

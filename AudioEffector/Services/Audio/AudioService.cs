@@ -12,7 +12,7 @@ namespace AudioEffector.Services
     /// オーディオ再生、プレイリスト管理、イコライザー処理を統括するコアサービス。
     /// NAudioを使用しています。
     /// </summary>
-    public class AudioService : IDisposable
+    public class AudioService : IAudioService
     {
         private IWavePlayer _outputDevice;
         private AudioFileReader _audioFile;
@@ -56,7 +56,7 @@ namespace AudioEffector.Services
         /// <summary>
         /// イコライザーの周波数帯域定義（10バンド）。
         /// </summary>
-        public readonly float[] Frequencies = { 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
+        public float[] Frequencies { get; } = { 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
 
         public bool IsPlaying => _outputDevice?.PlaybackState == PlaybackState.Playing;
 
