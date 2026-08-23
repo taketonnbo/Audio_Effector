@@ -28,17 +28,17 @@ namespace AudioEffector.ViewModels
     {
         private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
-        private readonly AudioService _audioService;
+        private readonly IAudioService _audioService;
         private readonly PresetService _presetService;
         private readonly FavoriteService _favoriteService;
         private readonly PlaylistService _playlistService;
         private readonly SettingsService _settingsService;
-        private readonly DeviceSyncService _deviceSyncService;
+        private readonly IDeviceSyncService _deviceSyncService;
 
         /// <summary>
         /// コードビハインドからAudioServiceへアクセスするためのプロパティ。
         /// </summary>
-        public AudioService AudioService => _audioService; // Public accessor for code-behind
+        public IAudioService AudioService => _audioService; // Public accessor for code-behind
 
         private Preset? _selectedPreset;
         private Track? _currentTrack;
@@ -147,12 +147,12 @@ namespace AudioEffector.ViewModels
         /// </summary>
         public MainViewModel()
         {
-            _audioService = new AudioService();
+            _audioService = LoggingProxy<IAudioService>.Create(new AudioService());
             _presetService = new PresetService();
             _favoriteService = new FavoriteService();
             _playlistService = new PlaylistService();
             _settingsService = new SettingsService();
-            _deviceSyncService = new DeviceSyncService();
+            _deviceSyncService = LoggingProxy<IDeviceSyncService>.Create(new DeviceSyncService());
             _favoritePaths = _favoriteService.LoadFavorites();
 
             // Load playlists
