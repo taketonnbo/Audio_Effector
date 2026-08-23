@@ -269,6 +269,7 @@ namespace AudioEffector.ViewModels
             NavigateDirectoryCommand = new RelayCommand(o => NavigateDirectory(o as DirectoryItem));
             NavigateUpCommand = new RelayCommand(o => NavigateUp());
             RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
+            ShowDeviceManagerCommand = new RelayCommand(o => ShowDeviceManager());
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
             _audioService.FftCalculated += OnFftCalculated;
@@ -781,7 +782,8 @@ namespace AudioEffector.ViewModels
             }
         }
 
-        public ICommand RefreshDirectoryCommand { get; private set; }
+        public ICommand RefreshDirectoryCommand { get; }
+        public ICommand ShowDeviceManagerCommand { get; }
 
         private string _currentDevicePath = string.Empty;
         /// <summary>
@@ -2661,6 +2663,25 @@ namespace AudioEffector.ViewModels
                     playlist.ThumbnailTrackPaths.Add(p);
                 }
             });
+        }
+
+        private void ShowDeviceManager()
+        {
+            if (SelectedDevice == null) return;
+
+            string basePath = !string.IsNullOrEmpty(CurrentDevicePath) ? CurrentDevicePath : SelectedDevice.RootPath;
+            var dialogViewModel = new DeviceManagerViewModel(SelectedDevice, basePath, Albums.ToList());
+            var dialog = new Views.DeviceManagerDialog(dialogViewModel);
+            dialog.ShowDialog();
+
+            // デバイス管理ダイアログを閉じた後、デバイス上のアルバム状況が変更されている可能性があるためチェックを再実行
+            CheckDeviceAlbums();
+            
+            // 現在のディレクトリ表示も更新する
+            if (!string.IsNullOrEmpty(CurrentDevicePath))
+            {
+                LoadDeviceDirectories(CurrentDevicePath);
+            }
         }
     }
 }
