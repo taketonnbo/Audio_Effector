@@ -208,25 +208,38 @@ namespace AudioEffector.ViewModels
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Error scanning MTP dirs in {path}: {ex.Message}"); }
         }
 
-        private void ExecuteDeleteTrack(object parameter)
+        private async void ExecuteDeleteTrack(object parameter)
         {
             if (parameter is DeviceTrack track)
             {
                 var result = MessageBox.Show($"Are you sure you want to delete '{track.Title}'?", "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (result == MessageBoxResult.Yes)
                 {
-                    try
+                    IsLoading = true;
+                    bool deleteSuccess = false;
+                    await Task.Run(() =>
                     {
-                        if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem)
+                        try
                         {
-                            if (File.Exists(track.Path))
-                                File.Delete(track.Path);
+                            if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem)
+                            {
+                                if (File.Exists(track.Path))
+                                    File.Delete(track.Path);
+                            }
+                            else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null)
+                            {
+                                _currentDevice.MtpDevice.DeleteFile(track.Path);
+                            }
+                            deleteSuccess = true;
                         }
-                        else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null)
+                        catch (Exception ex)
                         {
-                            _currentDevice.MtpDevice.DeleteFile(track.Path);
+                            Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Error deleting file: {ex.Message}"));
                         }
+                    });
 
+                    if (deleteSuccess)
+                    {
                         // Remove from UI
                         foreach (var album in DeviceAlbums)
                         {
@@ -235,26 +248,23 @@ namespace AudioEffector.ViewModels
                                 album.Tracks.Remove(track);
                                 if (album.Tracks.Count == 0)
                                 {
-                                    ExecuteDeleteAlbum(album, skipConfirm: true);
+                                    await ExecuteDeleteAlbum(album, skipConfirm: true);
                                 }
                                 break;
                             }
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show($"Error deleting file: {ex.Message}");
-                    }
+                    IsLoading = false;
                 }
             }
         }
 
-        private void ExecuteDeleteAlbum(object parameter)
+        private async void ExecuteDeleteAlbum(object parameter)
         {
-            ExecuteDeleteAlbum(parameter, false);
+            await ExecuteDeleteAlbum(parameter, false);
         }
 
-        private void ExecuteDeleteAlbum(object parameter, bool skipConfirm)
+        private async Task ExecuteDeleteAlbum(object parameter, bool skipConfirm)
         {
             if (parameter is DeviceAlbum album)
             {
@@ -264,44 +274,62 @@ namespace AudioEffector.ViewModels
                     if (result != MessageBoxResult.Yes) return;
                 }
 
-                try
+                IsLoading = true;
+                bool deleteSuccess = false;
+                await Task.Run(() =>
                 {
-                    if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem)
+                    try
                     {
-                        if (Directory.Exists(album.Path))
-                            Directory.Delete(album.Path, true);
-                        
-                        // Check if artist folder is empty
-                        string artistPath = Path.GetDirectoryName(album.Path);
-                        if (Directory.Exists(artistPath) && !Directory.EnumerateFileSystemEntries(artistPath).Any())
+                        if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem)
                         {
-                            Directory.Delete(artistPath);
-                        }
-                    }
-                    else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null)
-                    {
-                        _currentDevice.MtpDevice.DeleteDirectory(album.Path, true);
-                        
-                        // Check if artist folder is empty (MTP doesn't have Path.GetDirectoryName easily, but we can do a hack)
-                        string artistPath = GetParentDirectory(album.Path);
-                        if (!string.IsNullOrEmpty(artistPath))
-                        {
-                            var remainingItems = _currentDevice.MtpDevice.GetDirectories(artistPath);
-                            var remainingFiles = _currentDevice.MtpDevice.GetFiles(artistPath);
-                            if (!remainingItems.Any() && !remainingFiles.Any())
+                            var artistPaths = album.Tracks.Select(t => Path.GetDirectoryName(t.Path)).Distinct().ToList();
+                            foreach (var path in artistPaths)
                             {
-                                _currentDevice.MtpDevice.DeleteDirectory(artistPath, true);
+                                if (Directory.Exists(path))
+                                    Directory.Delete(path, true);
+                                
+                                string pArtistPath = Path.GetDirectoryName(path);
+                                if (Directory.Exists(pArtistPath) && !Directory.EnumerateFileSystemEntries(pArtistPath).Any())
+                                {
+                                    Directory.Delete(pArtistPath);
+                                }
                             }
                         }
+                        else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null)
+                        {
+                            var artistPaths = album.Tracks.Select(t => GetParentDirectory(t.Path)).Distinct().ToList();
+                            foreach (var path in artistPaths)
+                            {
+                                if (path != null)
+                                {
+                                    _currentDevice.MtpDevice.DeleteDirectory(path, true);
+                                    
+                                    string pArtistPath = GetParentDirectory(path);
+                                    if (pArtistPath != null)
+                                    {
+                                        var remainingItems = _currentDevice.MtpDevice.GetDirectories(pArtistPath);
+                                        var remainingFiles = _currentDevice.MtpDevice.GetFiles(pArtistPath);
+                                        if (!remainingItems.Any() && !remainingFiles.Any())
+                                        {
+                                            _currentDevice.MtpDevice.DeleteDirectory(pArtistPath, true);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        deleteSuccess = true;
                     }
+                    catch (Exception ex)
+                    {
+                        Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Error deleting album: {ex.Message}"));
+                    }
+                });
 
-                    // Remove from UI
+                if (deleteSuccess)
+                {
                     DeviceAlbums.Remove(album);
                 }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error deleting album: {ex.Message}");
-                }
+                IsLoading = false;
             }
         }
 
