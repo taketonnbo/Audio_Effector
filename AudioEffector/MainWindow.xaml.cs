@@ -16,6 +16,25 @@ namespace AudioEffector
             InitializeComponent();
         }
 
+        private Views.MiniPlayerWindow? _miniPlayer;
+
+        protected override void OnStateChanged(System.EventArgs e)
+        {
+            base.OnStateChanged(e);
+
+            if (this.WindowState == WindowState.Minimized)
+            {
+                this.Hide();
+                if (_miniPlayer == null)
+                {
+                    _miniPlayer = new Views.MiniPlayerWindow();
+                    _miniPlayer.DataContext = this.DataContext;
+                    _miniPlayer.Closed += (s, args) => _miniPlayer = null;
+                }
+                _miniPlayer.Show();
+            }
+        }
+
         protected override void OnClosing(CancelEventArgs e)
         {
             if (DataContext is MainViewModel vm && vm.IsTransferring)
