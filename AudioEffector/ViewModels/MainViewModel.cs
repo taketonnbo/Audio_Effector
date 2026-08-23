@@ -254,6 +254,9 @@ namespace AudioEffector.ViewModels
             ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
             ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
             DeletePlaylistCommand = new RelayCommand(DeletePlaylist);
+            PlayPlaylistCommand = new RelayCommand(PlayPlaylist);
+            ShufflePlayPlaylistCommand = new RelayCommand(ShufflePlayPlaylist);
+            RenamePlaylistCommand = new RelayCommand(RenamePlaylist);
             RemoveFromPlaylistCommand = new RelayCommand(RemoveFromPlaylist);
 
             ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
@@ -672,6 +675,9 @@ namespace AudioEffector.ViewModels
         public ICommand ShowPlaylistSelectorCommand { get; }
         public ICommand ShowAddToPlaylistDialogCommand { get; }
         public ICommand DeletePlaylistCommand { get; }
+        public ICommand PlayPlaylistCommand { get; }
+        public ICommand ShufflePlayPlaylistCommand { get; }
+        public ICommand RenamePlaylistCommand { get; }
         public ICommand RemoveFromPlaylistCommand { get; }
         public ICommand PlayAlbumCommand { get; }
         
@@ -2005,12 +2011,6 @@ namespace AudioEffector.ViewModels
         {
             if (parameter is Track track)
             {
-                if (!UserPlaylists.Any())
-                {
-                    MessageBox.Show("Please create a playlist first", "No Playlists");
-                    return;
-                }
-
                 ShowPlaylistSelectionDialog(selectedPlaylist =>
                 {
                     if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
@@ -2122,7 +2122,7 @@ namespace AudioEffector.ViewModels
             {
                 Title = "Add to Playlist",
                 Width = 300,
-                Height = 450,
+                Height = 500,
                 WindowStartupLocation = WindowStartupLocation.CenterScreen,
                 ResizeMode = ResizeMode.NoResize,
                 Background = new SolidColorBrush(Color.FromRgb(20, 20, 20))
@@ -2136,10 +2136,33 @@ namespace AudioEffector.ViewModels
                 Text = "Select Playlist",
                 Foreground = Brushes.White,
                 FontSize = 18,
-                Margin = new Thickness(0, 0, 0, 20),
+                Margin = new Thickness(0, 0, 0, 15),
                 HorizontalAlignment = HorizontalAlignment.Center
             };
             stackPanel.Children.Add(title);
+
+            var newPlaylistButton = new Button
+            {
+                Content = "+ NEW PLAYLIST",
+                Width = 150,
+                Height = 30,
+                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                Foreground = Brushes.White,
+                Margin = new Thickness(0, 0, 0, 10),
+                BorderThickness = new Thickness(0),
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            newPlaylistButton.Click += (s, e) =>
+            {
+                int previousCount = UserPlaylists.Count;
+                CreatePlaylist(null);
+                if (UserPlaylists.Count > previousCount)
+                {
+                    onPlaylistSelected(UserPlaylists.Last());
+                    dialog.Close();
+                }
+            };
+            stackPanel.Children.Add(newPlaylistButton);
 
             var listBox = new ListBox
             {
@@ -2478,6 +2501,80 @@ namespace AudioEffector.ViewModels
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// プレイリストを再生キューにセットして再生を開始します。
+        /// </summary>
+        private void PlayPlaylist(object parameter)
+        {
+            if (parameter is UserPlaylist playlist && playlist.TrackPaths != null && playlist.TrackPaths.Any())
+            {
+                var tracks = new List<Track>();
+                foreach (var path in playlist.TrackPaths)
+                {
+                    var track = LoadTrack(path);
+                    if (track != null)
+                    {
+                        tracks.Add(track);
+                    }
+                }
+
+                if (tracks.Any())
+                {
+                    _audioService.SetPlaylist(tracks);
+                    PlaybackListName = playlist.Name;
+                    PlaybackListSubtitle = "Playlist";
+                    PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(tracks);
+                    _audioService.PlayTrack(tracks.First());
+                }
+            }
+        }
+
+        /// <summary>
+        /// プレイリストをシャッフルして再生キューにセットし、再生を開始します。
+        /// </summary>
+        private void ShufflePlayPlaylist(object parameter)
+        {
+            if (parameter is UserPlaylist playlist && playlist.TrackPaths != null && playlist.TrackPaths.Any())
+            {
+                var tracks = new List<Track>();
+                foreach (var path in playlist.TrackPaths)
+                {
+                    var track = LoadTrack(path);
+                    if (track != null)
+                    {
+                        tracks.Add(track);
+                    }
+                }
+
+                if (tracks.Any())
+                {
+                    var shuffled = tracks.OrderBy(x => Guid.NewGuid()).ToList();
+                    _audioService.SetPlaylist(shuffled);
+                    PlaybackListName = playlist.Name;
+                    PlaybackListSubtitle = "Playlist (Shuffled)";
+                    PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(shuffled);
+                    _audioService.PlayTrack(shuffled.First());
+                }
+            }
+        }
+
+        /// <summary>
+        /// プレイリストの名前を変更します。
+        /// </summary>
+        private void RenamePlaylist(object parameter)
+        {
+            if (parameter is UserPlaylist playlist)
+            {
+                var inputBox = new Views.InputBox("新しい名前を入力してください:", playlist.Name);
+                if (inputBox.ShowDialog() == true && !string.IsNullOrWhiteSpace(inputBox.InputText))
+                {
+                    playlist.Name = inputBox.InputText.Trim();
+                    _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    OnPropertyChanged(nameof(UserPlaylists));
+                }
             }
         }
 
