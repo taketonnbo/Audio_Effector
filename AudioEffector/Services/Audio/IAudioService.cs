@@ -42,5 +42,7 @@ namespace AudioEffector.Services
         void ResumeAfterSeek();
         [LogDescription("イコライザーのゲインを設定します")]
         void SetGain(int bandIndex, float gain);
+        [LogDescription("オーディオプロパティを更新します")]
+        void UpdateAudioProperties(int sampleRate, int bufferSizeMs);
     }
 }

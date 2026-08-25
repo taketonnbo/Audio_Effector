@@ -45,6 +45,16 @@ namespace AudioEffector.Services
         /// アプリ起動時に最小化状態で開始するかどうか。
         /// </summary>
         public bool StartMinimized { get; set; } = false;
+
+        /// <summary>
+        /// オーディオのサンプリングレート（Hz）。
+        /// </summary>
+        public int SampleRate { get; set; } = 44100;
+
+        /// <summary>
+        /// オーディオ再生のバッファサイズ（ミリ秒）。
+        /// </summary>
+        public int AudioBufferSizeMs { get; set; } = 100;
     }
 
     /// <summary>
