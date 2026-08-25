@@ -166,6 +166,9 @@ namespace AudioEffector.ViewModels
             _deviceSyncService = LoggingProxy<IDeviceSyncService>.Create(new DeviceSyncService());
             _favoritePaths = _favoriteService.LoadFavorites();
 
+            var appSettings = _settingsService.LoadSettings();
+            _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
+
             // Load playlists
             // プレイリストの読み込み
             var loadedPlaylists = _playlistService.LoadPlaylists();
@@ -3040,7 +3043,7 @@ namespace AudioEffector.ViewModels
 
         private void ShowSettings()
         {
-            var settingsViewModel = new SettingsViewModel(_settingsService);
+            var settingsViewModel = new SettingsViewModel(_settingsService, _audioService);
             var settingsDialog = new Views.SettingsDialog(settingsViewModel);
             if (System.Windows.Application.Current.MainWindow != null)
             {

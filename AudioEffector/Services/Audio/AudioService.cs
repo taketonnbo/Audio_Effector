@@ -24,6 +24,10 @@ namespace AudioEffector.Services
         private bool _wasPlayingBeforeSeek = false;
         private Guid _currentPlaybackId;
 
+        private int _sampleRate = 44100;
+        private int _bufferSizeMs = 100;
+        private MediaFoundationResampler? _resampler;
+
         private bool _stopRequested;
         private readonly object _lock = new object();
 
@@ -217,9 +221,19 @@ namespace AudioEffector.Services
                     _audioFile = new AudioFileReader(track.FilePath);
                     _audioFile.Volume = _volume;
 
+                    ISampleProvider sourceProvider = _audioFile;
+
+                    if (_audioFile.WaveFormat.SampleRate != _sampleRate)
+                    {
+                        var outFormat = new WaveFormat(_sampleRate, _audioFile.WaveFormat.Channels);
+                        _resampler = new MediaFoundationResampler(_audioFile, outFormat);
+                        _resampler.ResamplerQuality = 60; // Max Quality
+                        sourceProvider = _resampler.ToSampleProvider();
+                    }
+
                     // Setup EQ
                     // イコライザーの設定
-                    _equalizer = new Equalizer(_audioFile, Frequencies);
+                    _equalizer = new Equalizer(sourceProvider, Frequencies);
 
                     // Setup SampleAggregator for FFT
                     // FFT用のサンプル集計器を設定
@@ -231,7 +245,7 @@ namespace AudioEffector.Services
                     var endOfStreamProvider = new EndOfStreamProvider(aggregator);
                     endOfStreamProvider.EndOfStream += OnEndOfStream;
 
-                    _outputDevice = new WaveOutEvent();
+                    _outputDevice = new WaveOutEvent() { DesiredLatency = _bufferSizeMs };
                     _outputDevice.Init(endOfStreamProvider);
                     _outputDevice.PlaybackStopped += OnPlaybackStopped;
 
@@ -403,6 +417,11 @@ namespace AudioEffector.Services
                     _outputDevice.Dispose();
                     _outputDevice = null;
                 }
+                if (_resampler != null)
+                {
+                    _resampler.Dispose();
+                    _resampler = null;
+                }
                 if (_audioFile != null)
                 {
                     _audioFile.Dispose();
@@ -504,6 +523,39 @@ namespace AudioEffector.Services
                     {
                         _audioFile.Volume = _volume;
                     }
+                }
+            }
+        }
+
+        public void UpdateAudioProperties(int sampleRate, int bufferSizeMs)
+        {
+            bool needRestart = false;
+            double currentPercentage = 0;
+
+            lock (_lock)
+            {
+                if (_sampleRate != sampleRate || _bufferSizeMs != bufferSizeMs)
+                {
+                    _sampleRate = sampleRate;
+                    _bufferSizeMs = bufferSizeMs;
+
+                    if (IsPlaying)
+                    {
+                        needRestart = true;
+                        if (TotalTime.TotalSeconds > 0)
+                        {
+                            currentPercentage = (CurrentTime.TotalSeconds / TotalTime.TotalSeconds) * 100.0;
+                        }
+                    }
+                }
+            }
+
+            if (needRestart)
+            {
+                PlayCurrent();
+                if (currentPercentage > 0)
+                {
+                    SeekTo(currentPercentage);
                 }
             }
         }

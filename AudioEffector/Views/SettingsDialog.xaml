@@ -91,6 +91,39 @@
                     <CheckBox Content="起動時に最小化状態で開始する" IsChecked="{Binding StartMinimized, Mode=TwoWay}" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}" VerticalContentAlignment="Center"/>
                 </StackPanel>
 
+                <!-- Audio Devices Settings Panel -->
+                <StackPanel Margin="10">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedCategory}" Value="オーディオデバイス">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="オーディオデバイス設定" FontSize="20" FontWeight="Bold" Margin="0,0,0,20"/>
+                    
+                    <TextBlock Text="サンプリングレート" Margin="0,0,0,5" Foreground="{DynamicResource SecondaryTextForegroundBrush}"/>
+                    <ComboBox ItemsSource="{Binding AvailableSampleRates}" SelectedItem="{Binding SelectedSampleRate, Mode=TwoWay}" Width="200" HorizontalAlignment="Left" Padding="5" Margin="0,0,0,15">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding StringFormat='{}{0} Hz'}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+
+                    <TextBlock Text="バッファサイズ (レイテンシ)" Margin="0,0,0,5" Foreground="{DynamicResource SecondaryTextForegroundBrush}"/>
+                    <ComboBox ItemsSource="{Binding AvailableBufferSizes}" SelectedItem="{Binding SelectedBufferSize, Mode=TwoWay}" Width="200" HorizontalAlignment="Left" Padding="5" Margin="0,0,0,15">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding StringFormat='{}{0} ms'}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+
                 <!-- Placeholder for other categories -->
                 <TextBlock Text="{Binding SelectedCategory, StringFormat='{}「{0}」の設定項目がここに入ります。'}" 
                            FontSize="18" Foreground="{DynamicResource SecondaryTextForegroundBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"
@@ -100,6 +133,9 @@
                             <Setter Property="Visibility" Value="Visible"/>
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding SelectedCategory}" Value="一般">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding SelectedCategory}" Value="オーディオデバイス">
                                     <Setter Property="Visibility" Value="Collapsed"/>
                                 </DataTrigger>
                             </Style.Triggers>

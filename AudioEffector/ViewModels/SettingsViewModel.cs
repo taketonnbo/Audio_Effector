@@ -9,6 +9,7 @@ namespace AudioEffector.ViewModels
     public class SettingsViewModel : ViewModelBase
     {
         private readonly ISettingsService _settingsService;
+        private readonly IAudioService _audioService;
         private AppSettings _appSettings;
 
         public ObservableCollection<string> Categories { get; }
@@ -78,9 +79,43 @@ namespace AudioEffector.ViewModels
             }
         }
 
-        public SettingsViewModel(ISettingsService settingsService)
+        public IReadOnlyList<int> AvailableSampleRates { get; } = new[] { 44100, 48000, 88200, 96000, 192000 };
+        public IReadOnlyList<int> AvailableBufferSizes { get; } = new[] { 50, 100, 200, 300, 500 };
+
+        public int SelectedSampleRate
+        {
+            get => _appSettings.SampleRate;
+            set
+            {
+                if (_appSettings.SampleRate != value)
+                {
+                    _appSettings.SampleRate = value;
+                    OnPropertyChanged();
+                    _settingsService.SaveSettings(_appSettings);
+                    _audioService?.UpdateAudioProperties(_appSettings.SampleRate, _appSettings.AudioBufferSizeMs);
+                }
+            }
+        }
+
+        public int SelectedBufferSize
+        {
+            get => _appSettings.AudioBufferSizeMs;
+            set
+            {
+                if (_appSettings.AudioBufferSizeMs != value)
+                {
+                    _appSettings.AudioBufferSizeMs = value;
+                    OnPropertyChanged();
+                    _settingsService.SaveSettings(_appSettings);
+                    _audioService?.UpdateAudioProperties(_appSettings.SampleRate, _appSettings.AudioBufferSizeMs);
+                }
+            }
+        }
+
+        public SettingsViewModel(ISettingsService settingsService, IAudioService audioService)
         {
             _settingsService = settingsService;
+            _audioService = audioService;
             _appSettings = _settingsService.LoadSettings();
 
             Categories = new ObservableCollection<string>
