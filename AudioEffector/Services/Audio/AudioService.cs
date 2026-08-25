@@ -1,5 +1,6 @@
 using NAudio.Wave;
 using NAudio.Dsp;
+using NAudio.Wave.SampleProviders;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,7 +27,7 @@ namespace AudioEffector.Services
 
         private int _sampleRate = 44100;
         private int _bufferSizeMs = 100;
-        private MediaFoundationResampler? _resampler;
+        private WdlResamplingSampleProvider? _resampler;
 
         private bool _stopRequested;
         private readonly object _lock = new object();
@@ -225,10 +226,8 @@ namespace AudioEffector.Services
 
                     if (_audioFile.WaveFormat.SampleRate != _sampleRate)
                     {
-                        var outFormat = new WaveFormat(_sampleRate, _audioFile.WaveFormat.Channels);
-                        _resampler = new MediaFoundationResampler(_audioFile, outFormat);
-                        _resampler.ResamplerQuality = 60; // Max Quality
-                        sourceProvider = _resampler.ToSampleProvider();
+                        _resampler = new WdlResamplingSampleProvider(_audioFile, _sampleRate);
+                        sourceProvider = _resampler;
                     }
 
                     // Setup EQ
@@ -419,7 +418,6 @@ namespace AudioEffector.Services
                 }
                 if (_resampler != null)
                 {
-                    _resampler.Dispose();
                     _resampler = null;
                 }
                 if (_audioFile != null)
