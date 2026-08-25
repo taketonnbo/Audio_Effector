@@ -49,6 +49,35 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        public bool AutoStart
+        {
+            get => _appSettings.AutoStart;
+            set
+            {
+                if (_appSettings.AutoStart != value)
+                {
+                    _appSettings.AutoStart = value;
+                    OnPropertyChanged();
+                    _settingsService.SaveSettings(_appSettings);
+                    StartupManager.SetAutoStart(value);
+                }
+            }
+        }
+
+        public bool StartMinimized
+        {
+            get => _appSettings.StartMinimized;
+            set
+            {
+                if (_appSettings.StartMinimized != value)
+                {
+                    _appSettings.StartMinimized = value;
+                    OnPropertyChanged();
+                    _settingsService.SaveSettings(_appSettings);
+                }
+            }
+        }
+
         public SettingsViewModel(ISettingsService settingsService)
         {
             _settingsService = settingsService;
