@@ -179,7 +179,6 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <TextBlock Text="BROWSER" Foreground="{DynamicResource TextForegroundBrush}" FontSize="18" HorizontalAlignment="Center" Margin="0,20,0,10" Opacity="0.7" FontFamily="Segoe UI Light"/>
             
             
             <StackPanel Grid.Row="1" Margin="10,0,10,10">
