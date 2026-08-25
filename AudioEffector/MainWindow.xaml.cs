@@ -14,6 +14,16 @@ namespace AudioEffector
         public MainWindow()
         {
             InitializeComponent();
+            this.Loaded += MainWindow_Loaded;
+        }
+
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            var settingsService = new AudioEffector.Services.SettingsService();
+            if (settingsService.LoadSettings().StartMinimized)
+            {
+                this.WindowState = WindowState.Minimized;
+            }
         }
 
         private Views.MiniPlayerWindow? _miniPlayer;

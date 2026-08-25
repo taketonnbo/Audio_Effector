@@ -35,6 +35,16 @@ namespace AudioEffector.Services
         /// アプリケーションのボリューム設定（0.0 - 1.0）。
         /// </summary>
         public float Volume { get; set; } = 1.0f;
+
+        /// <summary>
+        /// OS起動時の自動起動状態。
+        /// </summary>
+        public bool AutoStart { get; set; } = false;
+
+        /// <summary>
+        /// アプリ起動時に最小化状態で開始するかどうか。
+        /// </summary>
+        public bool StartMinimized { get; set; } = false;
     }
 
     /// <summary>
