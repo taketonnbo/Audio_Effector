@@ -527,34 +527,10 @@ namespace AudioEffector.Services
 
         public void UpdateAudioProperties(int sampleRate, int bufferSizeMs)
         {
-            bool needRestart = false;
-            double currentPercentage = 0;
-
             lock (_lock)
             {
-                if (_sampleRate != sampleRate || _bufferSizeMs != bufferSizeMs)
-                {
-                    _sampleRate = sampleRate;
-                    _bufferSizeMs = bufferSizeMs;
-
-                    if (IsPlaying)
-                    {
-                        needRestart = true;
-                        if (TotalTime.TotalSeconds > 0)
-                        {
-                            currentPercentage = (CurrentTime.TotalSeconds / TotalTime.TotalSeconds) * 100.0;
-                        }
-                    }
-                }
-            }
-
-            if (needRestart)
-            {
-                PlayCurrent();
-                if (currentPercentage > 0)
-                {
-                    SeekTo(currentPercentage);
-                }
+                _sampleRate = sampleRate;
+                _bufferSizeMs = bufferSizeMs;
             }
         }
 
