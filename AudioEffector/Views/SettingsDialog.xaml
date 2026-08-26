@@ -89,6 +89,10 @@
                     
                     <CheckBox Content="OS起動時に自動起動する" IsChecked="{Binding AutoStart, Mode=TwoWay}" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}" VerticalContentAlignment="Center"/>
                     <CheckBox Content="起動時に最小化状態で開始する" IsChecked="{Binding StartMinimized, Mode=TwoWay}" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}" VerticalContentAlignment="Center"/>
+
+                    <TextBlock Text="ミニプレイヤー設定" FontSize="18" FontWeight="Bold" Margin="0,20,0,10" Foreground="{DynamicResource TextForegroundBrush}"/>
+                    
+                    <CheckBox Content="ミニプレイヤーを常に最前面に表示する" IsChecked="{Binding MiniPlayerAlwaysOnTop, Mode=TwoWay}" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}" VerticalContentAlignment="Center"/>
                 </StackPanel>
 
                 <!-- Audio Devices Settings Panel -->

@@ -60,6 +60,21 @@ namespace AudioEffector.Services
         /// 前回終了時に適用されていたエフェクトプリセットの名前。
         /// </summary>
         public string? LastUsedEffectPreset { get; set; }
+
+        /// <summary>
+        /// ミニプレイヤーを常に最前面に表示するかどうか。
+        /// </summary>
+        public bool MiniPlayerAlwaysOnTop { get; set; } = false;
+
+        /// <summary>
+        /// ミニプレイヤーの前回の表示位置（Y座標）。
+        /// </summary>
+        public double? MiniPlayerTop { get; set; }
+
+        /// <summary>
+        /// ミニプレイヤーの前回の表示位置（X座標）。
+        /// </summary>
+        public double? MiniPlayerLeft { get; set; }
     }
 
     /// <summary>

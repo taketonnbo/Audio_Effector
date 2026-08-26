@@ -79,6 +79,27 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        public bool MiniPlayerAlwaysOnTop
+        {
+            get => _appSettings.MiniPlayerAlwaysOnTop;
+            set
+            {
+                if (_appSettings.MiniPlayerAlwaysOnTop != value)
+                {
+                    _appSettings.MiniPlayerAlwaysOnTop = value;
+                    OnPropertyChanged();
+                    _settingsService.SaveSettings(_appSettings);
+                    
+                    // Update current mini player if it is open
+                    var miniPlayer = System.Windows.Application.Current.Windows.OfType<Views.MiniPlayerWindow>().FirstOrDefault();
+                    if (miniPlayer != null)
+                    {
+                        miniPlayer.Topmost = value;
+                    }
+                }
+            }
+        }
+
         public IReadOnlyList<int> AvailableSampleRates { get; } = new[] { 44100, 48000, 88200, 96000, 192000 };
         public IReadOnlyList<int> AvailableBufferSizes { get; } = new[] { 50, 100, 200, 300, 500 };
 
