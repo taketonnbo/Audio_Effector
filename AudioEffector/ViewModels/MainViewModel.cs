@@ -213,7 +213,14 @@ namespace AudioEffector.ViewModels
             }
 
             Presets = new ObservableCollection<Preset>(_presetService.LoadPresets());
-            SelectedPreset = Presets.FirstOrDefault();
+            if (!string.IsNullOrEmpty(appSettings.LastUsedEffectPreset))
+            {
+                SelectedPreset = Presets.FirstOrDefault(p => p.Name == appSettings.LastUsedEffectPreset) ?? Presets.FirstOrDefault();
+            }
+            else
+            {
+                SelectedPreset = Presets.FirstOrDefault();
+            }
 
             OpenFolderCommand = new RelayCommand(OpenFolder);
             TogglePlayPauseCommand = new RelayCommand(o => _audioService.TogglePlayPause());
@@ -681,7 +688,13 @@ namespace AudioEffector.ViewModels
                 {
                     _selectedPreset = value;
                     OnPropertyChanged();
-                    if (_selectedPreset != null) ApplyPreset(_selectedPreset);
+                    if (_selectedPreset != null)
+                    {
+                        ApplyPreset(_selectedPreset);
+                        var settings = _settingsService.LoadSettings();
+                        settings.LastUsedEffectPreset = _selectedPreset.Name;
+                        _settingsService.SaveSettings(settings);
+                    }
                 }
             }
         }

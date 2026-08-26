@@ -55,6 +55,11 @@ namespace AudioEffector.Services
         /// オーディオ再生のバッファサイズ（ミリ秒）。
         /// </summary>
         public int AudioBufferSizeMs { get; set; } = 100;
+
+        /// <summary>
+        /// 前回終了時に適用されていたエフェクトプリセットの名前。
+        /// </summary>
+        public string? LastUsedEffectPreset { get; set; }
     }
 
     /// <summary>
