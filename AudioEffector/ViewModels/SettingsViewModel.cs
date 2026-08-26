@@ -120,6 +120,38 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        public float MasterVolume
+        {
+            get => _appSettings.Volume;
+            set
+            {
+                if (Math.Abs(_appSettings.Volume - value) > 0.001f)
+                {
+                    _appSettings.Volume = value;
+                    OnPropertyChanged();
+                    _settingsService.SaveSettings(_appSettings);
+                    if (_audioService != null)
+                    {
+                        _audioService.Volume = value;
+                    }
+                }
+            }
+        }
+
+        public bool EnableNormalize
+        {
+            get => _appSettings.EnableNormalize;
+            set
+            {
+                if (_appSettings.EnableNormalize != value)
+                {
+                    _appSettings.EnableNormalize = value;
+                    OnPropertyChanged();
+                    _settingsService.SaveSettings(_appSettings);
+                }
+            }
+        }
+
         public IReadOnlyList<int> AvailableSampleRates { get; } = new[] { 44100, 48000, 88200, 96000, 192000 };
         public IReadOnlyList<int> AvailableBufferSizes { get; } = new[] { 50, 100, 200, 300, 500 };
 

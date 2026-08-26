@@ -12,6 +12,7 @@ namespace AudioEffector.Services
         event EventHandler PlaylistEnded;
         event EventHandler<FftEventArgs>? FftCalculated;
         event Action<List<Track>> PlaylistChanged;
+        event Action<float> VolumeChanged;
 
         bool IsPlaying { get; }
         bool IsShuffleEnabled { get; set; }

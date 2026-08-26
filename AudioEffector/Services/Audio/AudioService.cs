@@ -62,6 +62,11 @@ namespace AudioEffector.Services
         /// </summary>
         public event Action<List<Track>> PlaylistChanged;
 
+        /// <summary>
+        /// 音量が変更された際に発生するイベント。
+        /// </summary>
+        public event Action<float> VolumeChanged;
+
         // 10-band EQ frequencies
         /// <summary>
         /// イコライザーの周波数帯域定義（10バンド）。
@@ -224,9 +229,39 @@ namespace AudioEffector.Services
 
                     ISampleProvider sourceProvider = _audioFile;
 
+                    // Apply Peak Normalization if enabled
+                    var settings = new SettingsService().LoadSettings();
+                    if (settings.EnableNormalize)
+                    {
+                        float maxPeak = 0;
+                        using (var tempReader = new AudioFileReader(track.FilePath))
+                        {
+                            float[] buffer = new float[tempReader.WaveFormat.SampleRate * tempReader.WaveFormat.Channels];
+                            int read;
+                            while ((read = tempReader.Read(buffer, 0, buffer.Length)) > 0)
+                            {
+                                for (int i = 0; i < read; i++)
+                                {
+                                    var abs = Math.Abs(buffer[i]);
+                                    if (abs > maxPeak) maxPeak = abs;
+                                }
+                            }
+                        }
+
+                        float normalizeGain = 1.0f;
+                        if (maxPeak > 0)
+                        {
+                            // Target 0dBFS (1.0f). Reduce slightly to avoid clipping on resampling.
+                            normalizeGain = 0.98f / maxPeak;
+                        }
+
+                        var volumeProvider = new VolumeSampleProvider(sourceProvider) { Volume = normalizeGain };
+                        sourceProvider = volumeProvider;
+                    }
+
                     if (_audioFile.WaveFormat.SampleRate != _sampleRate)
                     {
-                        _resampler = new WdlResamplingSampleProvider(_audioFile, _sampleRate);
+                        _resampler = new WdlResamplingSampleProvider(sourceProvider, _sampleRate);
                         sourceProvider = _resampler;
                     }
 
@@ -521,6 +556,7 @@ namespace AudioEffector.Services
                     {
                         _audioFile.Volume = _volume;
                     }
+                    VolumeChanged?.Invoke(_volume);
                 }
             }
         }

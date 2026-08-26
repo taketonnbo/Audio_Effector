@@ -45,12 +45,17 @@ namespace AudioEffector.Services
         public double LeftColumnWidth { get; set; } = 300;
 
         /// <summary>
-        /// アプリケーションのボリューム設定（0.0 - 1.0）。
+        /// マスター音量（0.0〜1.0）
         /// </summary>
         public float Volume { get; set; } = 1.0f;
 
         /// <summary>
-        /// OS起動時の自動起動状態。
+        /// ノーマライズ（音量正規化）を有効にするかどうか
+        /// </summary>
+        public bool EnableNormalize { get; set; } = false;
+
+        /// <summary>
+        /// OS起動時に自動起動するかどうか。
         /// </summary>
         public bool AutoStart { get; set; } = false;
 
