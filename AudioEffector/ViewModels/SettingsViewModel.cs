@@ -79,14 +79,34 @@ namespace AudioEffector.ViewModels
             }
         }
 
-        public bool MiniPlayerAlwaysOnTop
+        public IReadOnlyList<string> AvailableTopmostBehaviors { get; } = new[]
         {
-            get => _appSettings.MiniPlayerAlwaysOnTop;
+            "常に最前面に表示",
+            "表示時のみ最前面に表示",
+            "最前面に表示しない"
+        };
+
+        public string SelectedTopmostBehavior
+        {
+            get
+            {
+                switch (_appSettings.MiniPlayerTopmostBehavior)
+                {
+                    case MiniPlayerTopmostBehavior.AlwaysOnTop: return AvailableTopmostBehaviors[0];
+                    case MiniPlayerTopmostBehavior.OnDisplayOnly: return AvailableTopmostBehaviors[1];
+                    case MiniPlayerTopmostBehavior.None: return AvailableTopmostBehaviors[2];
+                    default: return AvailableTopmostBehaviors[2];
+                }
+            }
             set
             {
-                if (_appSettings.MiniPlayerAlwaysOnTop != value)
+                MiniPlayerTopmostBehavior newValue = MiniPlayerTopmostBehavior.None;
+                if (value == AvailableTopmostBehaviors[0]) newValue = MiniPlayerTopmostBehavior.AlwaysOnTop;
+                else if (value == AvailableTopmostBehaviors[1]) newValue = MiniPlayerTopmostBehavior.OnDisplayOnly;
+                
+                if (_appSettings.MiniPlayerTopmostBehavior != newValue)
                 {
-                    _appSettings.MiniPlayerAlwaysOnTop = value;
+                    _appSettings.MiniPlayerTopmostBehavior = newValue;
                     OnPropertyChanged();
                     _settingsService.SaveSettings(_appSettings);
                     
@@ -94,7 +114,7 @@ namespace AudioEffector.ViewModels
                     var miniPlayer = System.Windows.Application.Current.Windows.OfType<Views.MiniPlayerWindow>().FirstOrDefault();
                     if (miniPlayer != null)
                     {
-                        miniPlayer.Topmost = value;
+                        miniPlayer.UpdateTopmostBehavior(newValue);
                     }
                 }
             }

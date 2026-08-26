@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 using System.Windows.Input;
 using AudioEffector.Services;
@@ -7,18 +8,21 @@ namespace AudioEffector.Views
     public partial class MiniPlayerWindow : Window
     {
         private readonly ISettingsService _settingsService;
+        private MiniPlayerTopmostBehavior _currentBehavior;
 
         public MiniPlayerWindow()
         {
             InitializeComponent();
             _settingsService = new SettingsService();
             this.Loaded += MiniPlayerWindow_Loaded;
+            this.Deactivated += MiniPlayerWindow_Deactivated;
         }
 
         private void MiniPlayerWindow_Loaded(object sender, RoutedEventArgs e)
         {
             var settings = _settingsService.LoadSettings();
-            this.Topmost = settings.MiniPlayerAlwaysOnTop;
+            _currentBehavior = settings.MiniPlayerTopmostBehavior;
+            ApplyTopmostBehavior();
 
             if (settings.MiniPlayerTop.HasValue && settings.MiniPlayerLeft.HasValue)
             {
@@ -34,6 +38,32 @@ namespace AudioEffector.Views
                     this.Top = top;
                     this.Left = left;
                 }
+            }
+        }
+
+        public void UpdateTopmostBehavior(MiniPlayerTopmostBehavior behavior)
+        {
+            _currentBehavior = behavior;
+            ApplyTopmostBehavior();
+        }
+
+        private void ApplyTopmostBehavior()
+        {
+            if (_currentBehavior == MiniPlayerTopmostBehavior.AlwaysOnTop || _currentBehavior == MiniPlayerTopmostBehavior.OnDisplayOnly)
+            {
+                this.Topmost = true;
+            }
+            else
+            {
+                this.Topmost = false;
+            }
+        }
+
+        private void MiniPlayerWindow_Deactivated(object sender, EventArgs e)
+        {
+            if (_currentBehavior == MiniPlayerTopmostBehavior.OnDisplayOnly)
+            {
+                this.Topmost = false;
             }
         }
 
