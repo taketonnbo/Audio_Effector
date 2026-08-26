@@ -28,9 +28,13 @@
                                             <Style TargetType="MenuItem">
                                                 <Setter Property="Header" Value="再生" />
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding IsPlaying}" Value="True" />
+                                                            <Condition Binding="{Binding PlacementTarget.Tag.IsPlaying, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Value="True" />
+                                                        </MultiDataTrigger.Conditions>
                                                         <Setter Property="Header" Value="停止" />
-                                                    </DataTrigger>
+                                                    </MultiDataTrigger>
                                                 </Style.Triggers>
                                             </Style>
                                         </MenuItem.Style>
