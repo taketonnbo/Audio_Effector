@@ -23,7 +23,18 @@
                                 Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch" Padding="0">
                             <Button.ContextMenu>
                                 <ContextMenu>
-                                    <MenuItem Header="再生" Command="{Binding PlacementTarget.Tag.PlayFromQueueCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                    <MenuItem Command="{Binding PlacementTarget.Tag.PlayFromQueueCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}">
+                                        <MenuItem.Style>
+                                            <Style TargetType="MenuItem">
+                                                <Setter Property="Header" Value="再生" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                        <Setter Property="Header" Value="停止" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </MenuItem.Style>
+                                    </MenuItem>
                                     <Separator/>
                                     <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}">
                                         <MenuItem.Style>

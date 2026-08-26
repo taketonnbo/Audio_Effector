@@ -395,7 +395,18 @@
                                                     HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
                                                 <Button.ContextMenu>
                                                     <ContextMenu>
-                                                        <MenuItem Header="再生" Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}">
+                                                            <MenuItem.Style>
+                                                                <Style TargetType="MenuItem">
+                                                                    <Setter Property="Header" Value="再生" />
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                            <Setter Property="Header" Value="停止" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </MenuItem.Style>
+                                                        </MenuItem>
                                                         <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                                         <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                                         <Separator/>
@@ -553,7 +564,18 @@
                                                         HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
                                                     <Button.ContextMenu>
                                                         <ContextMenu>
-                                                            <MenuItem Header="再生" Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}">
+                                                                <MenuItem.Style>
+                                                                    <Style TargetType="MenuItem">
+                                                                        <Setter Property="Header" Value="再生" />
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                                <Setter Property="Header" Value="停止" />
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </MenuItem.Style>
+                                                            </MenuItem>
                                                             <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                                             <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                                             <Separator/>
@@ -794,7 +816,18 @@
                                         HorizontalContentAlignment="Stretch" Margin="0,2" Background="Transparent" BorderThickness="0">
                                     <Button.ContextMenu>
                                         <ContextMenu>
-                                            <MenuItem Header="再生" Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}">
+                                                <MenuItem.Style>
+                                                    <Style TargetType="MenuItem">
+                                                        <Setter Property="Header" Value="再生" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                <Setter Property="Header" Value="停止" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </MenuItem.Style>
+                                            </MenuItem>
                                             <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                             <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                             <Separator/>
@@ -950,7 +983,18 @@
                                                 HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
                                             <Button.ContextMenu>
                                                 <ContextMenu>
-                                                    <MenuItem Header="再生" Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                    <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}">
+                                                        <MenuItem.Style>
+                                                            <Style TargetType="MenuItem">
+                                                                <Setter Property="Header" Value="再生" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                        <Setter Property="Header" Value="停止" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </MenuItem.Style>
+                                                    </MenuItem>
                                                     <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                                     <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                                     <Separator/>
