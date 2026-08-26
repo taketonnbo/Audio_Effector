@@ -184,6 +184,7 @@ namespace AudioEffector.ViewModels
             _audioService.TrackChanged += OnTrackChanged;
             _audioService.PlaybackStateChanged += OnPlaybackStateChanged;
             _audioService.PlaylistChanged += OnPlaylistChanged;
+            _audioService.VolumeChanged += OnVolumeChanged;
 
             _timer = new DispatcherTimer();
             _timer.Interval = TimeSpan.FromMilliseconds(500);
@@ -337,6 +338,12 @@ namespace AudioEffector.ViewModels
             Volume = settings.Volume;
 
             LoadLibrary();
+        }
+
+        private void OnVolumeChanged(float newVolume)
+        {
+            OnPropertyChanged(nameof(Volume));
+            OnPropertyChanged(nameof(VolumePercent));
         }
 
         private void LoadDefaultImages()

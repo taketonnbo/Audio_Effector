@@ -135,6 +135,36 @@
                     </ComboBox>
                 </StackPanel>
 
+                <!-- Effect & Playback Settings Panel -->
+                <StackPanel Margin="10">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding SelectedCategory}" Value="エフェクト・再生">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="エフェクト・再生設定" FontSize="20" FontWeight="Bold" Margin="0,0,0,20"/>
+                    
+                    <TextBlock Text="再生設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}"/>
+                    
+                    <TextBlock Text="基準音量 (マスター音量)" Margin="0,0,0,5" Foreground="{DynamicResource SecondaryTextForegroundBrush}"/>
+                    <Grid Width="300" HorizontalAlignment="Left" Margin="0,0,0,15">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="60"/>
+                        </Grid.ColumnDefinitions>
+                        <Slider Grid.Column="0" Minimum="0" Maximum="1" Value="{Binding MasterVolume, Mode=TwoWay}" LargeChange="0.1" SmallChange="0.01" IsMoveToPointEnabled="True" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="{Binding MasterVolume, StringFormat='{}{0:P0}'}" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{DynamicResource TextForegroundBrush}"/>
+                    </Grid>
+
+                    <CheckBox Content="音量を正規化する（ピーク・ノーマライズ）" IsChecked="{Binding EnableNormalize, Mode=TwoWay}" Margin="0,0,0,5" Foreground="{DynamicResource TextForegroundBrush}" VerticalContentAlignment="Center"/>
+                    <TextBlock Text="※曲の再生開始時に音量スキャンを行うため、再生が始まるまでにわずかな時間（ラグ）が発生する場合があります。" FontSize="12" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="20,0,0,15" TextWrapping="Wrap"/>
+                </StackPanel>
+
                 <!-- Placeholder for other categories -->
                 <TextBlock Text="{Binding SelectedCategory, StringFormat='{}「{0}」の設定項目がここに入ります。'}" 
                            FontSize="18" Foreground="{DynamicResource SecondaryTextForegroundBrush}" VerticalAlignment="Center" HorizontalAlignment="Center"
@@ -147,6 +177,9 @@
                                     <Setter Property="Visibility" Value="Collapsed"/>
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding SelectedCategory}" Value="オーディオデバイス">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding SelectedCategory}" Value="エフェクト・再生">
                                     <Setter Property="Visibility" Value="Collapsed"/>
                                 </DataTrigger>
                             </Style.Triggers>
