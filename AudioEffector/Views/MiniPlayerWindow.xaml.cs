@@ -1,13 +1,70 @@
+using System;
 using System.Windows;
 using System.Windows.Input;
+using AudioEffector.Services;
 
 namespace AudioEffector.Views
 {
     public partial class MiniPlayerWindow : Window
     {
+        private readonly ISettingsService _settingsService;
+        private MiniPlayerTopmostBehavior _currentBehavior;
+
         public MiniPlayerWindow()
         {
             InitializeComponent();
+            _settingsService = new SettingsService();
+            this.Loaded += MiniPlayerWindow_Loaded;
+            this.Deactivated += MiniPlayerWindow_Deactivated;
+        }
+
+        private void MiniPlayerWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            var settings = _settingsService.LoadSettings();
+            _currentBehavior = settings.MiniPlayerTopmostBehavior;
+            ApplyTopmostBehavior();
+
+            if (settings.MiniPlayerTop.HasValue && settings.MiniPlayerLeft.HasValue)
+            {
+                double top = settings.MiniPlayerTop.Value;
+                double left = settings.MiniPlayerLeft.Value;
+
+                // Ensure the window is within the virtual screen bounds
+                if (left < SystemParameters.VirtualScreenWidth - 50 &&
+                    top < SystemParameters.VirtualScreenHeight - 50 &&
+                    left + this.Width > SystemParameters.VirtualScreenLeft &&
+                    top + this.Height > SystemParameters.VirtualScreenTop)
+                {
+                    this.Top = top;
+                    this.Left = left;
+                }
+            }
+        }
+
+        public void UpdateTopmostBehavior(MiniPlayerTopmostBehavior behavior)
+        {
+            _currentBehavior = behavior;
+            ApplyTopmostBehavior();
+        }
+
+        private void ApplyTopmostBehavior()
+        {
+            if (_currentBehavior == MiniPlayerTopmostBehavior.AlwaysOnTop || _currentBehavior == MiniPlayerTopmostBehavior.OnDisplayOnly)
+            {
+                this.Topmost = true;
+            }
+            else
+            {
+                this.Topmost = false;
+            }
+        }
+
+        private void MiniPlayerWindow_Deactivated(object sender, EventArgs e)
+        {
+            if (_currentBehavior == MiniPlayerTopmostBehavior.OnDisplayOnly)
+            {
+                this.Topmost = false;
+            }
         }
 
         private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -25,6 +82,12 @@ namespace AudioEffector.Views
 
         protected override void OnClosed(System.EventArgs e)
         {
+            // Save window position
+            var settings = _settingsService.LoadSettings();
+            settings.MiniPlayerTop = this.Top;
+            settings.MiniPlayerLeft = this.Left;
+            _settingsService.SaveSettings(settings);
+
             base.OnClosed(e);
             var mainWindow = Application.Current.MainWindow;
             if (mainWindow != null && mainWindow.Visibility != Visibility.Visible)

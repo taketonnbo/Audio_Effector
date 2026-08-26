@@ -79,6 +79,47 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        public IReadOnlyList<string> AvailableTopmostBehaviors { get; } = new[]
+        {
+            "常に最前面に表示",
+            "表示時のみ最前面に表示",
+            "最前面に表示しない"
+        };
+
+        public string SelectedTopmostBehavior
+        {
+            get
+            {
+                switch (_appSettings.MiniPlayerTopmostBehavior)
+                {
+                    case MiniPlayerTopmostBehavior.AlwaysOnTop: return AvailableTopmostBehaviors[0];
+                    case MiniPlayerTopmostBehavior.OnDisplayOnly: return AvailableTopmostBehaviors[1];
+                    case MiniPlayerTopmostBehavior.None: return AvailableTopmostBehaviors[2];
+                    default: return AvailableTopmostBehaviors[2];
+                }
+            }
+            set
+            {
+                MiniPlayerTopmostBehavior newValue = MiniPlayerTopmostBehavior.None;
+                if (value == AvailableTopmostBehaviors[0]) newValue = MiniPlayerTopmostBehavior.AlwaysOnTop;
+                else if (value == AvailableTopmostBehaviors[1]) newValue = MiniPlayerTopmostBehavior.OnDisplayOnly;
+                
+                if (_appSettings.MiniPlayerTopmostBehavior != newValue)
+                {
+                    _appSettings.MiniPlayerTopmostBehavior = newValue;
+                    OnPropertyChanged();
+                    _settingsService.SaveSettings(_appSettings);
+                    
+                    // Update current mini player if it is open
+                    var miniPlayer = System.Windows.Application.Current.Windows.OfType<Views.MiniPlayerWindow>().FirstOrDefault();
+                    if (miniPlayer != null)
+                    {
+                        miniPlayer.UpdateTopmostBehavior(newValue);
+                    }
+                }
+            }
+        }
+
         public IReadOnlyList<int> AvailableSampleRates { get; } = new[] { 44100, 48000, 88200, 96000, 192000 };
         public IReadOnlyList<int> AvailableBufferSizes { get; } = new[] { 50, 100, 200, 300, 500 };
 

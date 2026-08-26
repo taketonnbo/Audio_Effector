@@ -89,6 +89,17 @@
                     
                     <CheckBox Content="OS起動時に自動起動する" IsChecked="{Binding AutoStart, Mode=TwoWay}" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}" VerticalContentAlignment="Center"/>
                     <CheckBox Content="起動時に最小化状態で開始する" IsChecked="{Binding StartMinimized, Mode=TwoWay}" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}" VerticalContentAlignment="Center"/>
+
+                    <TextBlock Text="ミニプレイヤー設定" FontSize="18" FontWeight="Bold" Margin="0,20,0,10" Foreground="{DynamicResource TextForegroundBrush}"/>
+                    
+                    <TextBlock Text="最前面表示の挙動" Margin="0,0,0,5" Foreground="{DynamicResource SecondaryTextForegroundBrush}"/>
+                    <ComboBox ItemsSource="{Binding AvailableTopmostBehaviors}" SelectedItem="{Binding SelectedTopmostBehavior, Mode=TwoWay}" Width="250" HorizontalAlignment="Left" Padding="5" Margin="0,0,0,10">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                 </StackPanel>
 
                 <!-- Audio Devices Settings Panel -->

@@ -12,6 +12,19 @@ namespace AudioEffector.Services
     }
 
     /// <summary>
+    /// ミニプレイヤーの最前面表示の挙動。
+    /// </summary>
+    public enum MiniPlayerTopmostBehavior
+    {
+        /// <summary>常に最前面に表示する</summary>
+        AlwaysOnTop,
+        /// <summary>表示された時のみ最前面とし、他選択で解除</summary>
+        OnDisplayOnly,
+        /// <summary>最前面に表示しない（通常のウィンドウ）</summary>
+        None
+    }
+
+    /// <summary>
     /// アプリケーションの設定情報を保持するモデルクラス。
     /// </summary>
     public class AppSettings
@@ -60,6 +73,21 @@ namespace AudioEffector.Services
         /// 前回終了時に適用されていたエフェクトプリセットの名前。
         /// </summary>
         public string? LastUsedEffectPreset { get; set; }
+
+        /// <summary>
+        /// ミニプレイヤーの最前面表示の挙動。
+        /// </summary>
+        public MiniPlayerTopmostBehavior MiniPlayerTopmostBehavior { get; set; } = MiniPlayerTopmostBehavior.None;
+
+        /// <summary>
+        /// ミニプレイヤーの前回の表示位置（Y座標）。
+        /// </summary>
+        public double? MiniPlayerTop { get; set; }
+
+        /// <summary>
+        /// ミニプレイヤーの前回の表示位置（X座標）。
+        /// </summary>
+        public double? MiniPlayerLeft { get; set; }
     }
 
     /// <summary>
