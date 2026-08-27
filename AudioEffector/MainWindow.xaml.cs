@@ -20,9 +20,39 @@ namespace AudioEffector
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             var settingsService = new AudioEffector.Services.SettingsService();
-            if (settingsService.LoadSettings().StartMinimized)
+            var appSettings = settingsService.LoadSettings();
+            if (appSettings.StartMinimized)
             {
                 this.WindowState = WindowState.Minimized;
+            }
+
+            if (this.DataContext is MainViewModel vm)
+            {
+                vm.SettingsUpdated += () => UpdateShortcuts(settingsService.LoadSettings());
+            }
+            UpdateShortcuts(appSettings);
+        }
+
+        private void UpdateShortcuts(AudioEffector.Services.AppSettings settings)
+        {
+            this.InputBindings.Clear();
+            if (this.DataContext is MainViewModel vm)
+            {
+                AddShortcut(settings.PlayPauseShortcut, vm.TogglePlayPauseCommand);
+                AddShortcut(settings.StopShortcut, vm.StopCommand);
+                AddShortcut(settings.NextShortcut, vm.NextCommand);
+                AddShortcut(settings.PreviousShortcut, vm.PreviousCommand);
+                AddShortcut(settings.MuteShortcut, vm.ToggleMuteCommand);
+                AddShortcut(settings.VolumeUpShortcut, vm.IncreaseVolumeCommand);
+                AddShortcut(settings.VolumeDownShortcut, vm.DecreaseVolumeCommand);
+            }
+        }
+
+        private void AddShortcut(AudioEffector.Services.ShortcutKeyConfig config, System.Windows.Input.ICommand command)
+        {
+            if (config != null && config.Key != System.Windows.Input.Key.None)
+            {
+                this.InputBindings.Add(new System.Windows.Input.KeyBinding(command, config.Key, config.Modifiers));
             }
         }
 

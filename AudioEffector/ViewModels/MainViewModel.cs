@@ -35,6 +35,8 @@ namespace AudioEffector.ViewModels
         private readonly ISettingsService _settingsService;
         private readonly IDeviceSyncService _deviceSyncService;
 
+        public event Action? SettingsUpdated;
+
         /// <summary>
         /// コードビハインドからAudioServiceへアクセスするためのプロパティ。
         /// </summary>
@@ -225,6 +227,7 @@ namespace AudioEffector.ViewModels
 
             OpenFolderCommand = new RelayCommand(OpenFolder);
             TogglePlayPauseCommand = new RelayCommand(o => _audioService.TogglePlayPause());
+            StopCommand = new RelayCommand(o => _audioService.Stop(false));
             NextCommand = new RelayCommand(o => _audioService.Next());
             PreviousCommand = new RelayCommand(o => _audioService.Previous());
             SavePresetCommand = new RelayCommand(SavePreset);
@@ -310,6 +313,7 @@ namespace AudioEffector.ViewModels
 
             IncreaseVolumeCommand = new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
             DecreaseVolumeCommand = new RelayCommand(o => Volume = Math.Max(0.0f, Volume - 0.05f));
+            ToggleMuteCommand = new RelayCommand(o => ToggleMute());
 
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => IsDeviceSyncVisible = true);
@@ -807,6 +811,26 @@ namespace AudioEffector.ViewModels
 
         public ICommand IncreaseVolumeCommand { get; }
         public ICommand DecreaseVolumeCommand { get; }
+        public ICommand StopCommand { get; }
+        public ICommand ToggleMuteCommand { get; }
+
+        private bool _isMuted = false;
+        private float _preMuteVolume = 1.0f;
+
+        private void ToggleMute()
+        {
+            if (_isMuted)
+            {
+                Volume = _preMuteVolume;
+                _isMuted = false;
+            }
+            else
+            {
+                _preMuteVolume = Volume > 0 ? Volume : 1.0f; // Save reasonable previous volume
+                Volume = 0;
+                _isMuted = true;
+            }
+        }
 
         /// <summary>
         /// 音量（0.0 - 1.0）。
@@ -3070,6 +3094,7 @@ namespace AudioEffector.ViewModels
                 settingsDialog.Owner = System.Windows.Application.Current.MainWindow;
             }
             settingsDialog.ShowDialog();
+            SettingsUpdated?.Invoke();
         }
     }
 }
