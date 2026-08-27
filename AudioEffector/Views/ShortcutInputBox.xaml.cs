@@ -104,12 +104,18 @@ namespace AudioEffector.Views
                 // Try register to check if it's already in use
                 if (IsShortcutInUse(key, modifiers))
                 {
-                    WarningTextBlock.Text = "⚠️ このショートカットは他のアプリで既に使われているため、正しく動作しない可能性があります。別のキーの組み合わせをお試しください。";
-                    WarningTextBlock.Visibility = Visibility.Visible;
+                    System.Windows.MessageBox.Show(
+                        "このショートカットは他のアプリまたはシステムで既に使われているため、正しく動作しない可能性があります。\n別のキーの組み合わせをお試しください。", 
+                        "ショートカットの重複警告", 
+                        System.Windows.MessageBoxButton.OK, 
+                        System.Windows.MessageBoxImage.Warning);
+
+                    WarningTextBlock.Text = "⚠️ このショートカットは他のアプリで既に使われています。";
+                    WarningTextBlock.Visibility = System.Windows.Visibility.Visible;
                 }
                 else
                 {
-                    WarningTextBlock.Visibility = Visibility.Collapsed;
+                    WarningTextBlock.Visibility = System.Windows.Visibility.Collapsed;
                 }
             }
             catch
