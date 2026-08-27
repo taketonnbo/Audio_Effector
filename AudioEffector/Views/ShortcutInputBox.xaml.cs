@@ -99,6 +99,37 @@ namespace AudioEffector.Views
 
             var modifiers = Keyboard.Modifiers;
             
+            // Check for internal duplicates (within the app's settings)
+            bool isInternalDuplicate = false;
+            if (this.DataContext != null)
+            {
+                var properties = this.DataContext.GetType().GetProperties()
+                    .Where(p => p.PropertyType == typeof(AudioEffector.Services.ShortcutKeyConfig));
+                foreach (var prop in properties)
+                {
+                    var sc = prop.GetValue(this.DataContext) as AudioEffector.Services.ShortcutKeyConfig;
+                    if (sc != null && sc.Key == key && sc.Modifiers == modifiers)
+                    {
+                        if (!ReferenceEquals(sc, Shortcut))
+                        {
+                            isInternalDuplicate = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (isInternalDuplicate)
+            {
+                System.Windows.MessageBox.Show(
+                    "このショートカットは既に別の機能に割り当てられています。\n重複するショートカットは設定できません。", 
+                    "ショートカットの重複エラー", 
+                    System.Windows.MessageBoxButton.OK, 
+                    System.Windows.MessageBoxImage.Warning);
+                e.Handled = true;
+                return; // Prevent setting the shortcut
+            }
+
             try
             {
                 // Try register to check if it's already in use
@@ -106,12 +137,15 @@ namespace AudioEffector.Views
                 {
                     System.Windows.MessageBox.Show(
                         "このショートカットは他のアプリまたはシステムで既に使われているため、正しく動作しない可能性があります。\n別のキーの組み合わせをお試しください。", 
-                        "ショートカットの重複警告", 
+                        "ショートカットの競合警告", 
                         System.Windows.MessageBoxButton.OK, 
                         System.Windows.MessageBoxImage.Warning);
 
                     WarningTextBlock.Text = "⚠️ このショートカットは他のアプリで既に使われています。";
                     WarningTextBlock.Visibility = System.Windows.Visibility.Visible;
+                    
+                    e.Handled = true;
+                    return; // Prevent setting the shortcut
                 }
                 else
                 {
