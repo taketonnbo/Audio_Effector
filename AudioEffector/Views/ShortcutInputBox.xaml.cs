@@ -104,7 +104,7 @@ namespace AudioEffector.Views
                 // Try register to check if it's already in use
                 if (IsShortcutInUse(key, modifiers))
                 {
-                    WarningTextBlock.Text = "⚠️ 警告: このショートカットは他のアプリ等ですでに利用されている可能性があります。";
+                    WarningTextBlock.Text = "⚠️ このショートカットは他のアプリで既に使われているため、正しく動作しない可能性があります。別のキーの組み合わせをお試しください。";
                     WarningTextBlock.Visibility = Visibility.Visible;
                 }
                 else

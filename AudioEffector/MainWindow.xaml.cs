@@ -52,7 +52,14 @@ namespace AudioEffector
         {
             if (config != null && config.Key != System.Windows.Input.Key.None)
             {
-                this.InputBindings.Add(new System.Windows.Input.KeyBinding(command, config.Key, config.Modifiers));
+                try
+                {
+                    this.InputBindings.Add(new System.Windows.Input.KeyBinding(command, config.Key, config.Modifiers));
+                }
+                catch (System.NotSupportedException)
+                {
+                    // WPF's KeyGesture doesn't support some combinations (e.g. Shift+P). Ignore them safely.
+                }
             }
         }
 
