@@ -25,6 +25,15 @@ namespace AudioEffector.Services
     }
 
     /// <summary>
+    /// キーボードショートカットの設定を保持するクラス
+    /// </summary>
+    public class ShortcutKeyConfig
+    {
+        public System.Windows.Input.Key Key { get; set; } = System.Windows.Input.Key.None;
+        public System.Windows.Input.ModifierKeys Modifiers { get; set; } = System.Windows.Input.ModifierKeys.None;
+    }
+
+    /// <summary>
     /// アプリケーションの設定情報を保持するモデルクラス。
     /// </summary>
     public class AppSettings
@@ -93,6 +102,15 @@ namespace AudioEffector.Services
         /// ミニプレイヤーの前回の表示位置（X座標）。
         /// </summary>
         public double? MiniPlayerLeft { get; set; }
+
+        // --- ショートカット設定 ---
+        public ShortcutKeyConfig PlayPauseShortcut { get; set; } = new ShortcutKeyConfig();
+        public ShortcutKeyConfig StopShortcut { get; set; } = new ShortcutKeyConfig();
+        public ShortcutKeyConfig NextShortcut { get; set; } = new ShortcutKeyConfig();
+        public ShortcutKeyConfig PreviousShortcut { get; set; } = new ShortcutKeyConfig();
+        public ShortcutKeyConfig MuteShortcut { get; set; } = new ShortcutKeyConfig();
+        public ShortcutKeyConfig VolumeUpShortcut { get; set; } = new ShortcutKeyConfig();
+        public ShortcutKeyConfig VolumeDownShortcut { get; set; } = new ShortcutKeyConfig();
     }
 
     /// <summary>

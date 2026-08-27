@@ -185,6 +185,43 @@ namespace AudioEffector.ViewModels
             }
         }
 
+        // --- Shortcuts ---
+        public ShortcutKeyConfig PlayPauseShortcut
+        {
+            get => _appSettings.PlayPauseShortcut;
+            set { _appSettings.PlayPauseShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        }
+        public ShortcutKeyConfig StopShortcut
+        {
+            get => _appSettings.StopShortcut;
+            set { _appSettings.StopShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        }
+        public ShortcutKeyConfig NextShortcut
+        {
+            get => _appSettings.NextShortcut;
+            set { _appSettings.NextShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        }
+        public ShortcutKeyConfig PreviousShortcut
+        {
+            get => _appSettings.PreviousShortcut;
+            set { _appSettings.PreviousShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        }
+        public ShortcutKeyConfig MuteShortcut
+        {
+            get => _appSettings.MuteShortcut;
+            set { _appSettings.MuteShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        }
+        public ShortcutKeyConfig VolumeUpShortcut
+        {
+            get => _appSettings.VolumeUpShortcut;
+            set { _appSettings.VolumeUpShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        }
+        public ShortcutKeyConfig VolumeDownShortcut
+        {
+            get => _appSettings.VolumeDownShortcut;
+            set { _appSettings.VolumeDownShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        }
+
         public SettingsViewModel(ISettingsService settingsService, IAudioService audioService)
         {
             _settingsService = settingsService;
