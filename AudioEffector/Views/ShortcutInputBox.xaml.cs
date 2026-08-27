@@ -99,6 +99,22 @@ namespace AudioEffector.Views
 
             var modifiers = Keyboard.Modifiers;
             
+            // Check if WPF KeyGesture supports this combination
+            try
+            {
+                var gesture = new System.Windows.Input.KeyGesture(key, modifiers);
+            }
+            catch (System.NotSupportedException)
+            {
+                System.Windows.MessageBox.Show(
+                    "このキーの組み合わせはシステム（WPF）の制約によりショートカットとして設定できません。\nCtrl や Alt などの修飾キーを組み合わせるか、別のキーをお試しください。", 
+                    "無効なショートカット", 
+                    System.Windows.MessageBoxButton.OK, 
+                    System.Windows.MessageBoxImage.Error);
+                e.Handled = true;
+                return; // Prevent setting the shortcut
+            }
+            
             // Check for internal duplicates (within the app's settings)
             bool isInternalDuplicate = false;
             if (this.DataContext != null)
