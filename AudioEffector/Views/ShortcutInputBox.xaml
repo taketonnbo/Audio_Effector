@@ -11,9 +11,13 @@
         <TextBox x:Name="InputTextBox" 
                  Width="250" HorizontalAlignment="Left" Padding="5" 
                  IsReadOnly="True" 
-                 PreviewKeyDown="InputTextBox_PreviewKeyDown"
+                 Focusable="True"
                  Cursor="Hand"
-                 ToolTip="ここでキーボードを入力してショートカットを割り当てます。Delete/BackSpaceでクリア。"/>
+                 PreviewKeyDown="InputTextBox_PreviewKeyDown"
+                 PreviewMouseDown="InputTextBox_PreviewMouseDown"
+                 GotKeyboardFocus="InputTextBox_GotKeyboardFocus"
+                 LostKeyboardFocus="InputTextBox_LostKeyboardFocus"
+                 ToolTip="ここをクリックしてキーボードを入力するとショートカットを割り当てます。Delete/BackSpaceでクリア。"/>
         <TextBlock x:Name="WarningTextBlock" 
                    Foreground="#FFAA00" 
                    FontSize="12" 

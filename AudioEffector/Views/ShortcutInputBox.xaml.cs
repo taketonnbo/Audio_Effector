@@ -38,6 +38,24 @@ namespace AudioEffector.Views
             control.UpdateDisplayText();
         }
 
+        private void InputTextBox_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            InputTextBox.Focus();
+            e.Handled = true;
+        }
+
+        private void InputTextBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            InputTextBox.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(30, 0, 120, 215));
+            InputTextBox.Text = "キーを入力してください...";
+        }
+
+        private void InputTextBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            InputTextBox.Background = System.Windows.Media.Brushes.Transparent;
+            UpdateDisplayText();
+        }
+
         private void UpdateDisplayText()
         {
             if (Shortcut == null || Shortcut.Key == Key.None)
@@ -81,19 +99,31 @@ namespace AudioEffector.Views
 
             var modifiers = Keyboard.Modifiers;
             
-            // Try register to check if it's already in use
-            if (IsShortcutInUse(key, modifiers))
+            try
             {
-                WarningTextBlock.Text = "⚠️ 警告: このショートカットは他のアプリ等ですでに利用されている可能性があります。";
-                WarningTextBlock.Visibility = Visibility.Visible;
+                // Try register to check if it's already in use
+                if (IsShortcutInUse(key, modifiers))
+                {
+                    WarningTextBlock.Text = "⚠️ 警告: このショートカットは他のアプリ等ですでに利用されている可能性があります。";
+                    WarningTextBlock.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    WarningTextBlock.Visibility = Visibility.Collapsed;
+                }
             }
-            else
+            catch
             {
+                // Ignore PInvoke exceptions
                 WarningTextBlock.Visibility = Visibility.Collapsed;
             }
 
             // Always create a new object to trigger ViewModel setter
-            Shortcut = new ShortcutKeyConfig { Key = key, Modifiers = modifiers };
+            var newConfig = new ShortcutKeyConfig { Key = key, Modifiers = modifiers };
+            Shortcut = newConfig;
+            
+            // Force text update in case binding doesn't trigger property changed
+            UpdateDisplayText();
             
             e.Handled = true;
         }
