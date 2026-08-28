@@ -123,7 +123,7 @@
             <!-- Navigation Items -->
             <StackPanel Grid.Row="0">
                 <!-- All Songs (Music Note) -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" IsChecked="True" Command="{Binding ShowLibraryCommand}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M12 3V13.55C11.41 13.21 10.73 13 10 13C7.79 13 6 14.79 6 17C6 19.21 7.79 21 10 21C12.21 21 14 19.21 14 17V7H18V3H12Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="すべての曲" />
@@ -131,7 +131,7 @@
                 </RadioButton>
                 
                 <!-- Albums (Disc) -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" IsChecked="True" Command="{Binding ShowLibraryCommand}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8M12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="アルバム" />
