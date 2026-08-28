@@ -232,43 +232,6 @@
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
-
-                    <Button Command="{Binding ToggleSelectionModeCommand}" 
-                            HorizontalAlignment="Stretch" Margin="0,0,0,10"
-                            Foreground="{DynamicResource TextForegroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="10,5">
-                         <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Content" Value="SELECT"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsSelectionMode}" Value="True">
-                                        <Setter Property="Content" Value="CANCEL"/>
-                                        <Setter Property="Foreground" Value="#FF4040"/>
-                                        <Setter Property="BorderBrush" Value="#FF4040"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                        <Button.Template>
-                             <ControlTemplate TargetType="Button">
-                                <Border Background="Transparent" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-
-                    <Button Content="ADD SELECTED" Command="{Binding AddSelectedToPlaylistCommand}" 
-                            HorizontalAlignment="Stretch" Margin="0,0,0,10"
-                            Foreground="{StaticResource NeonCyanBrush}" BorderBrush="#00FFFF" BorderThickness="1" Padding="10,5"
-                            Visibility="{Binding IsSelectionMode, Converter={StaticResource BoolToVis}}">
-                        <Button.Template>
-                             <ControlTemplate TargetType="Button">
-                                <Border Background="Transparent" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
             </StackPanel>
 
             <Grid Grid.Row="2" Visibility="{Binding IsLibraryVisible, Converter={StaticResource BoolToVis}}">
