@@ -183,19 +183,45 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <TextBlock Text="BROWSER" Foreground="{DynamicResource TextForegroundBrush}" FontSize="18" HorizontalAlignment="Center" Margin="0,20,0,10" Opacity="0.7" FontFamily="Segoe UI Light"/>
-            
-            
             <StackPanel Grid.Row="1" Margin="10,0,10,10">
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
-                     <RadioButton Content="LIB" Command="{Binding ShowLibraryCommand}" IsChecked="{Binding IsLibraryVisible, Mode=OneWay}" Width="40" Height="25" Margin="0,0,5,0" Style="{StaticResource {x:Type ToggleButton}}" Background="{DynamicResource ControlBackgroundBrush}" ToolTip="Library"/>
-                     <RadioButton Content="FAV" Command="{Binding ShowFavoritesCommand}" IsChecked="{Binding IsFavoritesView, Mode=OneWay}" Width="40" Height="25" Margin="0,0,5,0" Style="{StaticResource {x:Type ToggleButton}}" Background="{DynamicResource ControlBackgroundBrush}" ToolTip="Favorites"/>
-                     <RadioButton Content="PL" Command="{Binding ShowPlaylistSelectorCommand}" IsChecked="{Binding IsPlaylistSectionActive, Mode=OneWay}" Width="40" Height="25" Style="{StaticResource {x:Type ToggleButton}}" Background="{DynamicResource ControlBackgroundBrush}" ToolTip="Playlists"/>
-                </StackPanel>
+                    <Grid Visibility="{Binding IsLibraryVisible, Converter={StaticResource BoolToVis}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ComboBox Grid.Column="0" ItemsSource="{Binding SortOptions}" SelectedItem="{Binding SelectedSortOption}" 
+                                  Height="25" VerticalContentAlignment="Center" Margin="0,0,5,0"/>
+                        
+                        <Button Grid.Column="1" Command="{Binding ToggleSortDirectionCommand}" Width="30" Height="25" ToolTip="Toggle Sort Direction" Margin="0,0,5,0">
+                            <Path Fill="White" Stretch="Uniform" Width="10" Height="10">
+                                <Path.Style>
+                                    <Style TargetType="Path">
+                                        <Setter Property="Data" Value="M7,10L12,15L17,10H7Z"/> 
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsAscending}" Value="True">
+                                                <Setter Property="Data" Value="M7,14L12,9L17,14H7Z"/> 
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Path.Style>
+                            </Path>
+                        </Button>
 
+                        <Button Grid.Column="2" Command="{Binding ToggleViewCommand}" Width="30" Height="25" ToolTip="Toggle View">
+                            <Path Data="M4,4H8V8H4V4M10,4H14V8H10V4M16,4H20V8H16V4M4,10H8V14H4V10M10,10H14V14H10V10M16,10H20V14H16V10M4,16H8V20H4V16M10,16H14V20H10V16M16,16H20V20H16V16" 
+                                  Fill="White" Stretch="Uniform" Margin="5" Visibility="{Binding IsGridView, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
+                        </Button>
+                        <Button Grid.Column="2" Command="{Binding ToggleViewCommand}" Width="30" Height="25" ToolTip="Toggle View" Visibility="{Binding IsGridView, Converter={StaticResource BoolToVis}}">
+                             <Path Data="M4,5H20V19H4V5M4,5H20V7H4V5M4,9H20V11H4V9M4,13H20V15H4V13M4,17H20V19H4V17" 
+                                   Fill="White" Stretch="Uniform" Margin="5"/>
+                        </Button>
+                    </Grid>
+            </StackPanel>
 
+            <!-- Folder Tab Content -->
+            <StackPanel Grid.Row="2" Visibility="{Binding IsFolderViewVisible, Converter={StaticResource BoolToVis}}" Margin="10,10,10,10">
                  <Button Content="SCAN FOLDER" Command="{Binding OpenFolderCommand}"
- 
                             HorizontalAlignment="Stretch" Margin="0,0,0,10"
                             Foreground="{StaticResource NeonCyanBrush}" BorderBrush="{StaticResource NeonCyanBrush}" BorderThickness="1" Padding="10,5">
                         <Button.Template>
@@ -243,40 +269,6 @@
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
-                    
-                    <Grid Visibility="{Binding IsLibraryVisible, Converter={StaticResource BoolToVis}}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <ComboBox Grid.Column="0" ItemsSource="{Binding SortOptions}" SelectedItem="{Binding SelectedSortOption}" 
-                                  Height="25" VerticalContentAlignment="Center" Margin="0,0,5,0"/>
-                        
-                        <Button Grid.Column="1" Command="{Binding ToggleSortDirectionCommand}" Width="30" Height="25" ToolTip="Toggle Sort Direction" Margin="0,0,5,0">
-                            <Path Fill="White" Stretch="Uniform" Width="10" Height="10">
-                                <Path.Style>
-                                    <Style TargetType="Path">
-                                        <Setter Property="Data" Value="M7,10L12,15L17,10H7Z"/> 
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsAscending}" Value="True">
-                                                <Setter Property="Data" Value="M7,14L12,9L17,14H7Z"/> 
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Path.Style>
-                            </Path>
-                        </Button>
-
-                        <Button Grid.Column="2" Command="{Binding ToggleViewCommand}" Width="30" Height="25" ToolTip="Toggle View">
-                            <Path Data="M4,4H8V8H4V4M10,4H14V8H10V4M16,4H20V8H16V4M4,10H8V14H4V10M10,10H14V14H10V10M16,10H20V14H16V10M4,16H8V20H4V16M10,16H14V20H10V16M16,16H20V20H16V16" 
-                                  Fill="White" Stretch="Uniform" Margin="5" Visibility="{Binding IsGridView, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
-                        </Button>
-                        <Button Grid.Column="2" Command="{Binding ToggleViewCommand}" Width="30" Height="25" ToolTip="Toggle View" Visibility="{Binding IsGridView, Converter={StaticResource BoolToVis}}">
-                             <Path Data="M4,5H20V19H4V5M4,5H20V7H4V5M4,9H20V11H4V9M4,13H20V15H4V13M4,17H20V19H4V17" 
-                                   Fill="White" Stretch="Uniform" Margin="5"/>
-                        </Button>
-                    </Grid>
             </StackPanel>
 
             <Grid Grid.Row="2" Visibility="{Binding IsLibraryVisible, Converter={StaticResource BoolToVis}}">

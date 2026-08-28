@@ -62,6 +62,7 @@ namespace AudioEffector.ViewModels
         private const int SpectrumBarCount = 32;
         private int _spectrumGeneration = 0;
         private bool _isLibraryVisible = true;
+        private bool _isFolderViewVisible = false;
         private bool _isPlaylistSelectorVisible = false;
         private bool _isPlaylistTracksVisible = false;
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
@@ -294,6 +295,7 @@ namespace AudioEffector.ViewModels
             ShowPlaylistCommand = new RelayCommand(ShowPlaylist);
             ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
+            ShowFolderCommand = new RelayCommand(o => ShowFolder());
             ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
             ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
             DeletePlaylistCommand = new RelayCommand(DeletePlaylist);
@@ -528,6 +530,12 @@ namespace AudioEffector.ViewModels
             set { _isLibraryVisible = value; OnPropertyChanged(); }
         }
 
+        public bool IsFolderViewVisible
+        {
+            get => _isFolderViewVisible;
+            set { _isFolderViewVisible = value; OnPropertyChanged(); }
+        }
+
         public bool IsPlaylistSelectorVisible
         {
             get => _isPlaylistSelectorVisible;
@@ -733,6 +741,7 @@ namespace AudioEffector.ViewModels
         public ICommand ShowPlaylistCommand { get; }
         public ICommand ShowFavoritesCommand { get; }
         public ICommand ShowLibraryCommand { get; }
+        public ICommand ShowFolderCommand { get; }
         public ICommand ShowPlaylistSelectorCommand { get; }
         public ICommand ShowAddToPlaylistDialogCommand { get; }
         public ICommand DeletePlaylistCommand { get; }
@@ -2494,6 +2503,7 @@ namespace AudioEffector.ViewModels
                 System.Diagnostics.Debug.WriteLine($"ShowPlaylist: {playlist.Name}, Tracks: {playlist.TrackPaths.Count}");
 
                 IsLibraryVisible = false;
+                IsFolderViewVisible = false;
                 IsPlaylistSelectorVisible = false;
                 IsPlaylistTracksVisible = true;
                 IsFavoritesView = false;
@@ -2527,6 +2537,7 @@ namespace AudioEffector.ViewModels
         private void ShowFavorites()
         {
             IsLibraryVisible = false;
+            IsFolderViewVisible = false;
             IsPlaylistSelectorVisible = false;
             IsPlaylistTracksVisible = true;
             IsFavoritesView = true;
@@ -2551,6 +2562,18 @@ namespace AudioEffector.ViewModels
         private void ShowLibrary()
         {
             IsLibraryVisible = true;
+            IsFolderViewVisible = false;
+            IsPlaylistSelectorVisible = false;
+            IsPlaylistTracksVisible = false;
+            CurrentViewingPlaylist = null;
+            IsFavoritesView = false;
+            OnPropertyChanged(nameof(IsPlaylistSectionActive));
+        }
+
+        private void ShowFolder()
+        {
+            IsLibraryVisible = false;
+            IsFolderViewVisible = true;
             IsPlaylistSelectorVisible = false;
             IsPlaylistTracksVisible = false;
             CurrentViewingPlaylist = null;
@@ -2561,6 +2584,7 @@ namespace AudioEffector.ViewModels
         private void ShowPlaylistSelector()
         {
             IsLibraryVisible = false;
+            IsFolderViewVisible = false;
             IsPlaylistSelectorVisible = true;
             IsPlaylistTracksVisible = false;
             IsFavoritesView = false;
