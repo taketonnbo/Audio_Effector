@@ -11,3 +11,7 @@ Release_vXX.zipファイルをダウンロードしてください。
 - NAudio (MIT License)
 - MediaDevices (MIT License)
 - TagLibSharp (LGPL-2.1)
+
+## ドキュメント
+
+- [左サイドバーUI仕様書](設計/画面設計/左サイドバー/左サイドバーUI仕様書.md)
