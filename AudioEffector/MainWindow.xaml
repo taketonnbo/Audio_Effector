@@ -6,6 +6,7 @@
         xmlns:local="clr-namespace:AudioEffector"
         xmlns:vm="clr-namespace:AudioEffector.ViewModels"
         xmlns:services="clr-namespace:AudioEffector.Services"
+        xmlns:views="clr-namespace:AudioEffector.Views"
         mc:Ignorable="d"
         Title="Audio Effector" Height="650" Width="1000"
         Icon="pack://application:,,,/Audio_Effector_icon_1.0.1.ico"
@@ -165,7 +166,10 @@
 
     </Window.Resources>
 
-    <Grid>
+    <DockPanel>
+        <views:SidebarControl DockPanel.Dock="Left"/>
+
+        <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="{Binding LeftColumnWidth, Mode=TwoWay}" MinWidth="200"/>
             <ColumnDefinition Width="Auto"/>
@@ -1561,5 +1565,6 @@
                 </Grid>
             </Grid>
         </Grid>
-    </Grid>
+        </Grid>
+    </DockPanel>
 </Window>
