@@ -1,4 +1,4 @@
-﻿<Application x:Class="AudioEffector.App"
+<Application x:Class="AudioEffector.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:AudioEffector"
@@ -8,8 +8,13 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/AudioEffector;component/Themes/DarkTheme.xaml" />
             </ResourceDictionary.MergedDictionaries>
-
+            
+            <!-- Global Converters -->
             <local:BoolToVisConverter x:Key="BoolToVis"/>
+            <local:InvertBoolConverter x:Key="InvertBool"/>
+            <local:IndexConverter x:Key="IndexConverter"/>
+            <local:ZeroToTransparentConverter x:Key="ZeroToTransparent"/>
+            <local:HeightToBorderThicknessConverter x:Key="HeightToBorderThickness"/>
             
         <!-- Vertical Slider Style for EQ -->
         <Style x:Key="NeonVerticalSliderStyle" TargetType="Slider">

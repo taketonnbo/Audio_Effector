@@ -17,11 +17,6 @@
         <vm:MainViewModel/>
     </Window.DataContext>
     <Window.Resources>
-        <local:BoolToVisConverter x:Key="BoolToVis"/>
-        <local:InvertBoolConverter x:Key="InvertBool"/>
-        <local:IndexConverter x:Key="IndexConverter"/>
-        <local:ZeroToTransparentConverter x:Key="ZeroToTransparent"/>
-        <local:HeightToBorderThicknessConverter x:Key="HeightToBorderThickness"/>
         
         <Color x:Key="NeonCyanColor">#00FFFF</Color>
         <SolidColorBrush x:Key="NeonCyanBrush" Color="{StaticResource NeonCyanColor}"/>
