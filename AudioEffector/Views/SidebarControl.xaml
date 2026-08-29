@@ -124,7 +124,9 @@
             <!-- Navigation Items -->
             <StackPanel Grid.Row="0">
                 <!-- All Songs (Music Note) -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.AllSongs}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" 
+                             IsChecked="{Binding CurrentViewType, Converter={StaticResource EnumToBool}, ConverterParameter={x:Static vm:ViewType.AllSongs}}"
+                             Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.AllSongs}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M12 3V13.55C11.41 13.21 10.73 13 10 13C7.79 13 6 14.79 6 17C6 19.21 7.79 21 10 21C12.21 21 14 19.21 14 17V7H18V3H12Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="すべての曲" />
@@ -132,7 +134,9 @@
                 </RadioButton>
                 
                 <!-- Albums (Disc) -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" IsChecked="True" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Albums}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" 
+                             IsChecked="{Binding CurrentViewType, Converter={StaticResource EnumToBool}, ConverterParameter={x:Static vm:ViewType.Albums}}"
+                             Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Albums}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8M12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="アルバム" />
@@ -140,7 +144,9 @@
                 </RadioButton>
 
                 <!-- Artists (Microphone) -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Artists}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" 
+                             IsChecked="{Binding CurrentViewType, Converter={StaticResource EnumToBool}, ConverterParameter={x:Static vm:ViewType.Artists}}"
+                             Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Artists}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="アーティスト" />
@@ -148,7 +154,9 @@
                 </RadioButton>
 
                 <!-- Folders -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Folders}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" 
+                             IsChecked="{Binding CurrentViewType, Converter={StaticResource EnumToBool}, ConverterParameter={x:Static vm:ViewType.Folders}}"
+                             Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Folders}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M10 4H4C2.9 4 2.01 4.9 2.01 6L2 18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6H12L10 4Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="フォルダ" />
@@ -156,7 +164,9 @@
                 </RadioButton>
 
                 <!-- Favorites -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Favorites}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" 
+                             IsChecked="{Binding CurrentViewType, Converter={StaticResource EnumToBool}, ConverterParameter={x:Static vm:ViewType.Favorites}}"
+                             Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Favorites}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="お気に入り" />
@@ -164,7 +174,9 @@
                 </RadioButton>
 
                 <!-- Playlists -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Playlists}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" 
+                             IsChecked="{Binding CurrentViewType, Converter={StaticResource EnumToBool}, ConverterParameter={x:Static vm:ViewType.Playlists}}"
+                             Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Playlists}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M15,6H3V8H15V6M15,10H3V12H15V10M3,16H11V14H3V16M17,6V14.18C16.69,14.07 16.35,14 16,14A3,3 0 0,0 13,17A3,3 0 0,0 16,20A3,3 0 0,0 19,17V8H22V6H17Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="プレイリスト" />
@@ -172,7 +184,9 @@
                 </RadioButton>
 
                 <!-- Recent -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Recent}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" 
+                             IsChecked="{Binding CurrentViewType, Converter={StaticResource EnumToBool}, ConverterParameter={x:Static vm:ViewType.Recent}}"
+                             Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Recent}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M16.2,16.2L11,11V5H12.5V10.4L17.3,15.2L16.2,16.2Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="最近再生した曲" />
@@ -180,7 +194,9 @@
                 </RadioButton>
 
                 <!-- Equalizer -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Equalizer}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" 
+                             IsChecked="{Binding CurrentViewType, Converter={StaticResource EnumToBool}, ConverterParameter={x:Static vm:ViewType.Equalizer}}"
+                             Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Equalizer}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M14,19H18V5H14M6,19H10V5H6M12,5V19H12V5Z" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Control}}" StrokeThickness="2" Fill="Transparent"/>
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="イコライザー" />
@@ -188,7 +204,9 @@
                 </RadioButton>
                 
                 <!-- Device Sync -->
-                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.DeviceSync}" Visibility="{Binding IsDeviceConnected, Converter={StaticResource BoolToVis}}">
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" 
+                             IsChecked="{Binding CurrentViewType, Converter={StaticResource EnumToBool}, ConverterParameter={x:Static vm:ViewType.DeviceSync}}"
+                             Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.DeviceSync}" Visibility="{Binding IsDeviceConnected, Converter={StaticResource BoolToVis}}">
                     <StackPanel Orientation="Horizontal" Width="180">
                         <Path Style="{StaticResource SidebarIconStyle}" Data="M16 0H8C6.9 0 6 .9 6 2V22C6 23.1 6.9 24 8 24H16C17.1 24 18 23.1 18 22V2C18 .9 17.1 0 16 0ZM16 20H8V4H16V20Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="機器転送" />
