@@ -361,6 +361,7 @@ namespace AudioEffector.ViewModels
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => CurrentViewType = ViewType.DeviceSync);
             SwitchToSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = true);
+            ToggleSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = !IsSpectrumVisible);
 
             RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
             TransferSelectedCommand = new RelayCommand(o => TransferSelected());
@@ -2935,6 +2936,7 @@ namespace AudioEffector.ViewModels
 
 
         public ICommand SwitchToSpectrumCommand { get; }
+        public ICommand ToggleSpectrumCommand { get; }
 
         public ObservableCollection<SpectrumBarItem> SpectrumValues { get; } = new ObservableCollection<SpectrumBarItem>();
 
@@ -3056,21 +3058,40 @@ namespace AudioEffector.ViewModels
                     }
                 }
 
-                // Update with smoothing
+                // Update with smoothing & Peak Hold
                 for (int i = 0; i < targetCount; i++)
                 {
                     var item = SpectrumValues[i];
                     double current = item.Value;
-                    double target = newValues[i];
+                    double target = Math.Min(65, newValues[i]);
 
-                    // Rise fast, fall slow
+                    // Smooth response: Rise quickly (0.35), fall smoothly (0.08)
                     if (target > current)
                     {
-                        item.Value = current + (target - current) * 0.2;
+                        item.Value = current + (target - current) * 0.35;
                     }
                     else
                     {
-                        item.Value = current - (current - target) * 0.05;
+                        item.Value = current - (current - target) * 0.08;
+                    }
+
+                    // Peak Hold Logic
+                    if (item.Value >= item.PeakValue)
+                    {
+                        item.PeakValue = item.Value;
+                        item.PeakHoldCount = 12; // Hold at top for ~12 frames
+                    }
+                    else
+                    {
+                        if (item.PeakHoldCount > 0)
+                        {
+                            item.PeakHoldCount--;
+                        }
+                        else
+                        {
+                            // Gravity fall
+                            item.PeakValue = Math.Max(item.Value, item.PeakValue - 1.2);
+                        }
                     }
                 }
             });

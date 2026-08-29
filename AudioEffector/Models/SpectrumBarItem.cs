@@ -25,6 +25,28 @@ namespace AudioEffector.Models
             }
         }
 
+        private double _peakValue;
+        /// <summary>
+        /// ピークホールドの高さ（値）。
+        /// </summary>
+        public double PeakValue
+        {
+            get => _peakValue;
+            set
+            {
+                if (_peakValue != value)
+                {
+                    _peakValue = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// ピークホールドの滞空カウント。
+        /// </summary>
+        public int PeakHoldCount { get; set; }
+
         /// <summary>
         /// プロパティ変更イベント。
         /// </summary>

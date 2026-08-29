@@ -165,11 +165,18 @@
         <views:SidebarControl HorizontalAlignment="Left" Panel.ZIndex="10"/>
 
         <Grid Margin="50,0,0,0">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="{Binding LeftColumnWidth, Mode=TwoWay}" MinWidth="200"/>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="*" MinWidth="400"/>
-        </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Main Content Area -->
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="{Binding LeftColumnWidth, Mode=TwoWay}" MinWidth="200"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*" MinWidth="400"/>
+                </Grid.ColumnDefinitions>
 
         <!-- Left Column: Library -->
         <Grid Grid.Column="0" Background="{DynamicResource PanelBackgroundBrush}">
@@ -289,12 +296,11 @@
         <!-- GridSplitter (Vertical) -->
         <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{DynamicResource ControlBackgroundBrush}"/>
 
-        <!-- Right Column: Player & EQ -->
+        <!-- Right Column: Player -->
         <Grid Grid.Column="2" Background="{DynamicResource PanelBackgroundBrush}">
             <Grid.RowDefinitions>
-                <RowDefinition Height="*"/> <!-- Top Section (Now Playing + Controls) -->
-                <RowDefinition Height="Auto"/> <!-- Splitter -->
-                <RowDefinition Height="*"/> <!-- Bottom Section (EQ + Presets) -->
+                <RowDefinition Height="*"/> <!-- Album Art & Info -->
+                <RowDefinition Height="Auto"/> <!-- Controls -->
             </Grid.RowDefinitions>
 
             <!-- Top Section: Now Playing + Controls -->
@@ -569,148 +575,149 @@
                     </StackPanel>
                 </Grid>
             </Grid>
+        </Grid>
+        </Grid>
 
-            <!-- Splitter -->
-            <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" Background="{DynamicResource ControlBackgroundBrush}"/>
+        <!-- Full-Width Bottom Spectrum Analyzer Strip -->
+        <Grid Grid.Row="1" Background="{DynamicResource PanelBackgroundBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> <!-- Toggle Handle Bar -->
+                <RowDefinition Height="Auto"/> <!-- Animated Spectrum Panel -->
+            </Grid.RowDefinitions>
 
-            <!-- Bottom Section: EQ + Presets + Device Sync -->
-            <Grid Grid.Row="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/> <!-- Tabs -->
-                    <RowDefinition Height="*"/> <!-- Content -->
-                </Grid.RowDefinitions>
+            <!-- Toggle Handle Bar -->
+            <Border Grid.Row="0" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Height="22">
+                <Button Command="{Binding ToggleSpectrumCommand}" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="12,2" HorizontalAlignment="Center">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Path x:Name="ArrowIcon" Width="9" Height="9" Stretch="Uniform" Fill="{DynamicResource MutedTextForegroundBrush}" Margin="0,0,6,0"
+                                          Data="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/>
+                                    <TextBlock Text="SPECTRUM ANALYZER" FontSize="9" FontWeight="Bold" Foreground="{DynamicResource MutedTextForegroundBrush}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                                </Trigger>
+                                <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                                    <Setter TargetName="ArrowIcon" Property="Data" Value="M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z"/>
+                                </DataTrigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Border>
 
-                <!-- Tabs -->
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Background="{DynamicResource PanelBackgroundBrush}">
-                    <StackPanel.Resources>
-                        <Style TargetType="Button">
-                            <Setter Property="Background" Value="Transparent"/>
-                            <Setter Property="Foreground" Value="#808080"/>
-                            <Setter Property="BorderThickness" Value="0"/>
-                            <Setter Property="Padding" Value="10,5"/>
-                            <Setter Property="Margin" Value="2,0"/>
-                            <Setter Property="FontWeight" Value="SemiBold"/>
-                        </Style>
-                    </StackPanel.Resources>
-                    <Button Content="NOW PLAYING" Command="{Binding SwitchToNowPlayingCommand}" Width="150" Height="30" Margin="0,0,10,0">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                <Setter Property="Background" Value="Transparent"/>
+            <!-- Animated Spectrum Panel -->
+            <Grid Grid.Row="1" x:Name="SpectrumSlidePanel" ClipToBounds="True">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Height" Value="90"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                                <DataTrigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Height" To="0" Duration="0:0:0.25">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <QuadraticEase EasingMode="EaseIn"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.EnterActions>
+                                <DataTrigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Height" To="90" Duration="0:0:0.3">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <QuadraticEase EasingMode="EaseOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.ExitActions>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+
+                <!-- Background Album Art & Dark Glow Overlay -->
+                <Grid>
+                    <!-- Blurred Album Art -->
+                    <Image Source="{Binding SpectrumBackgroundImage}" Stretch="UniformToFill" VerticalAlignment="Center">
+                        <Image.Effect>
+                            <BlurEffect Radius="25"/>
+                        </Image.Effect>
+                    </Image>
+
+                    <!-- Grayscale Overlay -->
+                    <Image Source="{Binding SpectrumBackgroundImageGray}" Stretch="UniformToFill" VerticalAlignment="Center" Opacity="0.6">
+                        <Image.Effect>
+                            <BlurEffect Radius="25"/>
+                        </Image.Effect>
+                        <Image.Style>
+                            <Style TargetType="Image">
+                                <Setter Property="Visibility" Value="Visible"/>
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsNowPlayingVisible}" Value="True">
-                                        <Setter Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
-                                        <Setter Property="Foreground" Value="#00FFFF"/>
+                                    <DataTrigger Binding="{Binding IsDefaultSpectrumImage}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </Button.Style>
-                    </Button>
-                    <Button Content="SPECTRUM" Command="{Binding SwitchToSpectrumCommand}" Width="150" Height="30" Margin="0">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                <Setter Property="Background" Value="Transparent"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="True">
-                                        <Setter Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
-                                        <Setter Property="Foreground" Value="#00FFFF"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                </StackPanel>
+                        </Image.Style>
+                    </Image>
 
-                <!-- Spectrum Analyzer View -->
-                <Grid Grid.Row="1" Visibility="{Binding IsSpectrumVisible, Converter={StaticResource BoolToVis}}" ClipToBounds="True">
-                    <!-- 1. The Mask Source (Must be opaque and visible for VisualBrush to work) -->
-                    <!-- Placed BEHIND the Background Image (first child) so it's hidden from view but still rendered -->
-                    <ItemsControl x:Name="SpectrumMaskItemsControl" ItemsSource="{Binding SpectrumValues}" Margin="20,10" RenderOptions.EdgeMode="Aliased">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <UniformGrid Rows="1"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Grid VerticalAlignment="Center" Margin="2,0">
-                                    <Border Background="{Binding DataContext.SpectrumBarBrush, RelativeSource={RelativeSource AncestorType=Window}}" 
-                                            Height="{Binding Value}" MaxHeight="600" MinHeight="2" CornerRadius="2"
-                                            BorderBrush="{Binding DataContext.SpectrumBorderBrush, RelativeSource={RelativeSource AncestorType=Window}}"
-                                            BorderThickness="{Binding Value, Converter={StaticResource HeightToBorderThickness}}"
-                                            Opacity="{Binding Value, Converter={StaticResource ZeroToTransparent}}">
-                                        <Border.Effect>
-                                            <DropShadowEffect Color="{Binding DataContext.SpectrumShadowColor, RelativeSource={RelativeSource AncestorType=Window}}" BlurRadius="10" ShadowDepth="0" Opacity="0.9"/>
-                                        </Border.Effect>
-                                    </Border>
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <!-- Background Album Art -->
-                    <Grid>
-                        <Grid.Style>
-                            <Style TargetType="Grid">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsDefaultSpectrumImage}" Value="False">
-                                        <Setter Property="Effect">
-                                            <Setter.Value>
-                                                <BlurEffect Radius="10"/>
-                                            </Setter.Value>
-                                        </Setter>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Grid.Style>
-                        <!-- Color Image (Base) -->
-                        <Image Source="{Binding SpectrumBackgroundImage}" Stretch="UniformToFill" VerticalAlignment="Center"/>
-                        
-                        <!-- Grayscale Overlay (Partial Desaturation) -->
-                        <Image Source="{Binding SpectrumBackgroundImageGray}" Stretch="UniformToFill" VerticalAlignment="Center" Opacity="0.8">
-                            <Image.Style>
-                                <Style TargetType="Image">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsDefaultSpectrumImage}" Value="True">
-                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Image.Style>
-                        </Image>
-
-                        <!-- Darkening Overlay -->
-                        <Rectangle Fill="Black" Opacity="0.75">
-                            <Rectangle.Style>
-                                <Style TargetType="Rectangle">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsDefaultSpectrumImage}" Value="True">
-                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Rectangle.Style>
-                        </Rectangle>
-                    </Grid>
-
-                    <!-- Global Gradient Spectrum Bars using OpacityMask -->
-                    <Grid Margin="20,10" Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
-                        <!-- 2. The Gradient Layer (Visible only where Mask allows) -->
-                        <Rectangle Fill="{Binding SpectrumBarBrush}" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
-                            <Rectangle.OpacityMask>
-                                <VisualBrush Visual="{Binding ElementName=SpectrumMaskItemsControl}" />
-                            </Rectangle.OpacityMask>
-                            <Rectangle.Effect>
-                                <DropShadowEffect Color="{Binding SpectrumShadowColor}" BlurRadius="40" ShadowDepth="0" Opacity="1.0"/>
-                            </Rectangle.Effect>
-                        </Rectangle>
-                    </Grid>
+                    <!-- Dark Gradient Backdrop -->
+                    <Rectangle Fill="#E00B0E14" Opacity="0.85"/>
+                    <Rectangle>
+                        <Rectangle.Fill>
+                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                <GradientStop Color="#40000000" Offset="0.0"/>
+                                <GradientStop Color="#B0000000" Offset="1.0"/>
+                            </LinearGradientBrush>
+                        </Rectangle.Fill>
+                    </Rectangle>
                 </Grid>
 
+                <!-- Spectrum Bars & Peak Hold Layer -->
+                <ItemsControl ItemsSource="{Binding SpectrumValues}" Margin="30,8,30,8" RenderOptions.EdgeMode="Aliased"
+                              Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid Rows="1"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Height="74" VerticalAlignment="Bottom" Margin="2.5,0">
+                                <!-- 1. Capsule / Pill Bar -->
+                                <Border VerticalAlignment="Bottom" Height="{Binding Value}" MaxHeight="72" MinHeight="3" CornerRadius="3"
+                                        Background="{Binding DataContext.SpectrumBarBrush, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        BorderBrush="{Binding DataContext.SpectrumBorderBrush, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        BorderThickness="{Binding Value, Converter={StaticResource HeightToBorderThickness}}"
+                                        Opacity="{Binding Value, Converter={StaticResource ZeroToTransparent}}">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="{Binding DataContext.SpectrumShadowColor, RelativeSource={RelativeSource AncestorType=Window}}" BlurRadius="12" ShadowDepth="0" Opacity="0.95"/>
+                                    </Border.Effect>
+                                </Border>
 
-
-
+                                <!-- 2. Peak Hold Line / Dot -->
+                                <Border VerticalAlignment="Bottom" Height="{Binding PeakValue}" MaxHeight="74" Background="Transparent">
+                                    <Border VerticalAlignment="Top" Height="3" CornerRadius="1.5"
+                                            Background="White"
+                                            Opacity="{Binding PeakValue, Converter={StaticResource ZeroToTransparent}}">
+                                        <Border.Effect>
+                                            <DropShadowEffect Color="{Binding DataContext.SpectrumShadowColor, RelativeSource={RelativeSource AncestorType=Window}}" BlurRadius="8" ShadowDepth="0" Opacity="1.0"/>
+                                        </Border.Effect>
+                                    </Border>
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </Grid>
         </Grid>
         </Grid>
