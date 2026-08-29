@@ -28,6 +28,7 @@ namespace AudioEffector.Services
         private int _sampleRate = 44100;
         private int _bufferSizeMs = 100;
         private WdlResamplingSampleProvider? _resampler;
+        private VolumeSampleProvider? _masterVolumeProvider;
 
         private bool _stopRequested;
         private readonly object _lock = new object();
@@ -225,7 +226,7 @@ namespace AudioEffector.Services
                 try
                 {
                     _audioFile = new AudioFileReader(track.FilePath);
-                    _audioFile.Volume = _volume;
+                    // Do not set _audioFile.Volume here so FFT receives unattenuated track signal
 
                     ISampleProvider sourceProvider = _audioFile;
 
@@ -269,14 +270,17 @@ namespace AudioEffector.Services
                     // イコライザーの設定
                     _equalizer = new Equalizer(sourceProvider, Frequencies);
 
-                    // Setup SampleAggregator for FFT
+                    // Setup SampleAggregator for FFT (unaffected by Master Volume)
                     // FFT用のサンプル集計器を設定
                     var aggregator = new SampleAggregator(_equalizer);
                     aggregator.FftCalculated += (s, e) => FftCalculated?.Invoke(this, e);
 
+                    // Setup Master Volume Provider after FFT so that volume adjustments do not distort the visualizer
+                    _masterVolumeProvider = new VolumeSampleProvider(aggregator) { Volume = _volume };
+
                     // Wrap with EndOfStreamProvider to detect end of playback reliably
                     // 再生終了を確実に検知するためにラップする
-                    var endOfStreamProvider = new EndOfStreamProvider(aggregator);
+                    var endOfStreamProvider = new EndOfStreamProvider(_masterVolumeProvider);
                     endOfStreamProvider.EndOfStream += OnEndOfStream;
 
                     _outputDevice = new WaveOutEvent() { DesiredLatency = _bufferSizeMs };
@@ -460,6 +464,7 @@ namespace AudioEffector.Services
                     _audioFile.Dispose();
                     _audioFile = null;
                 }
+                _masterVolumeProvider = null;
 
                 if (!internalStop)
                 {
@@ -552,9 +557,9 @@ namespace AudioEffector.Services
                 lock (_lock)
                 {
                     _volume = Math.Min(1.0f, Math.Max(0.0f, value));
-                    if (_audioFile != null)
+                    if (_masterVolumeProvider != null)
                     {
-                        _audioFile.Volume = _volume;
+                        _masterVolumeProvider.Volume = _volume;
                     }
                     VolumeChanged?.Invoke(_volume);
                 }
