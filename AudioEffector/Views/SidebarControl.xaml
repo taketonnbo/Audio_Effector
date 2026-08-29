@@ -190,7 +190,7 @@
                 <!-- Device Sync -->
                 <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.DeviceSync}" Visibility="{Binding IsDeviceConnected, Converter={StaticResource BoolToVis}}">
                     <StackPanel Orientation="Horizontal" Width="180">
-                        <Path Style="{StaticResource SidebarIconStyle}" Data="M16 0H8C6.9 0 6 .9 6 2V22C6 23.1 6.9 24 8 24H16C17.1 24 18 23.1 18 22V2C18 .9 17.1 0 16 0ZM16 20H8V4H16V20Z" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Control}}" Stretch="Uniform" Width="16" Height="16"/>
+                        <Path Style="{StaticResource SidebarIconStyle}" Data="M16 0H8C6.9 0 6 .9 6 2V22C6 23.1 6.9 24 8 24H16C17.1 24 18 23.1 18 22V2C18 .9 17.1 0 16 0ZM16 20H8V4H16V20Z" />
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="機器転送" />
                     </StackPanel>
                 </RadioButton>
