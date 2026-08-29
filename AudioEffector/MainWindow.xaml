@@ -618,11 +618,11 @@
                 </Button>
             </Border>
 
-            <!-- Animated Spectrum Panel -->
+            <!-- Animated Spectrum Panel (1.5x Height: 140px) -->
             <Grid Grid.Row="1" x:Name="SpectrumSlidePanel" ClipToBounds="True">
                 <Grid.Style>
                     <Style TargetType="Grid">
-                        <Setter Property="Height" Value="90"/>
+                        <Setter Property="Height" Value="140"/>
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
                                 <DataTrigger.EnterActions>
@@ -639,7 +639,7 @@
                                 <DataTrigger.ExitActions>
                                     <BeginStoryboard>
                                         <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="Height" To="90" Duration="0:0:0.3">
+                                            <DoubleAnimation Storyboard.TargetProperty="Height" To="140" Duration="0:0:0.3">
                                                 <DoubleAnimation.EasingFunction>
                                                     <QuadraticEase EasingMode="EaseOut"/>
                                                 </DoubleAnimation.EasingFunction>
@@ -657,14 +657,14 @@
                     <!-- Blurred Album Art -->
                     <Image Source="{Binding SpectrumBackgroundImage}" Stretch="UniformToFill" VerticalAlignment="Center">
                         <Image.Effect>
-                            <BlurEffect Radius="25"/>
+                            <BlurEffect Radius="30"/>
                         </Image.Effect>
                     </Image>
 
                     <!-- Grayscale Overlay -->
                     <Image Source="{Binding SpectrumBackgroundImageGray}" Stretch="UniformToFill" VerticalAlignment="Center" Opacity="0.6">
                         <Image.Effect>
-                            <BlurEffect Radius="25"/>
+                            <BlurEffect Radius="30"/>
                         </Image.Effect>
                         <Image.Style>
                             <Style TargetType="Image">
@@ -679,53 +679,76 @@
                     </Image>
 
                     <!-- Dark Gradient Backdrop -->
-                    <Rectangle Fill="#E00B0E14" Opacity="0.85"/>
+                    <Rectangle Fill="#E60A0D14" Opacity="0.88"/>
                     <Rectangle>
                         <Rectangle.Fill>
                             <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
                                 <GradientStop Color="#40000000" Offset="0.0"/>
-                                <GradientStop Color="#B0000000" Offset="1.0"/>
+                                <GradientStop Color="#B8000000" Offset="1.0"/>
                             </LinearGradientBrush>
                         </Rectangle.Fill>
                     </Rectangle>
                 </Grid>
 
-                <!-- Spectrum Bars & Peak Hold Layer -->
-                <ItemsControl ItemsSource="{Binding SpectrumValues}" Margin="30,8,30,8" RenderOptions.EdgeMode="Aliased"
-                              Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <UniformGrid Rows="1"/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Height="74" VerticalAlignment="Bottom" Margin="2.5,0">
-                                <!-- 1. Capsule / Pill Bar -->
-                                <Border VerticalAlignment="Bottom" Height="{Binding Value}" MaxHeight="72" MinHeight="3" CornerRadius="3"
-                                        Background="{Binding DataContext.SpectrumBarBrush, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        BorderBrush="{Binding DataContext.SpectrumBorderBrush, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        BorderThickness="{Binding Value, Converter={StaticResource HeightToBorderThickness}}"
-                                        Opacity="{Binding Value, Converter={StaticResource ZeroToTransparent}}">
-                                    <Border.Effect>
-                                        <DropShadowEffect Color="{Binding DataContext.SpectrumShadowColor, RelativeSource={RelativeSource AncestorType=Window}}" BlurRadius="12" ShadowDepth="0" Opacity="0.95"/>
-                                    </Border.Effect>
-                                </Border>
+                <!-- Content Area: Frequency Indicators + Spectrum Bars -->
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="22"/> <!-- Frequency Indicator Header -->
+                        <RowDefinition Height="*"/>  <!-- Visualizer Bars -->
+                    </Grid.RowDefinitions>
 
-                                <!-- 2. Peak Hold Line / Dot -->
-                                <Border VerticalAlignment="Bottom" Height="{Binding PeakValue}" MaxHeight="74" Background="Transparent">
-                                    <Border VerticalAlignment="Top" Height="3" CornerRadius="1.5"
-                                            Background="White"
-                                            Opacity="{Binding PeakValue, Converter={StaticResource ZeroToTransparent}}">
+                    <!-- 6-Band Frequency Indicator Labels -->
+                    <UniformGrid Grid.Row="0" Columns="6" Margin="30,4,30,0" VerticalAlignment="Center"
+                                 Opacity="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
+                        <TextBlock Text="60Hz" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Opacity="0.75"/>
+                        <TextBlock Text="250Hz" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Opacity="0.75"/>
+                        <TextBlock Text="500Hz" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Opacity="0.75"/>
+                        <TextBlock Text="1kHz" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Opacity="0.75"/>
+                        <TextBlock Text="4kHz" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Opacity="0.75"/>
+                        <TextBlock Text="16kHz" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Opacity="0.75"/>
+                    </UniformGrid>
+
+                    <!-- Baseline Glow Strip -->
+                    <Border Grid.Row="1" Height="1" VerticalAlignment="Bottom" Margin="30,0,30,6" Background="{Binding SpectrumBorderBrush}" Opacity="0.25"/>
+
+                    <!-- Spectrum Bars & Floating Neon Peak Dots Layer (64 High-Density Bars) -->
+                    <ItemsControl Grid.Row="1" ItemsSource="{Binding SpectrumValues}" Margin="30,0,30,8" RenderOptions.EdgeMode="Aliased"
+                                  VerticalAlignment="Bottom" Height="108"
+                                  Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="1"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Height="106" VerticalAlignment="Bottom" Margin="1.5,0">
+                                    <!-- 1. Capsule / Pill Slender Bar -->
+                                    <Border VerticalAlignment="Bottom" Height="{Binding Value}" MaxHeight="96" MinHeight="3" CornerRadius="2.5"
+                                            Background="{Binding DataContext.SpectrumBarBrush, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            BorderBrush="{Binding DataContext.SpectrumBorderBrush, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            BorderThickness="1"
+                                            Opacity="{Binding Value, Converter={StaticResource ZeroToTransparent}}">
                                         <Border.Effect>
-                                            <DropShadowEffect Color="{Binding DataContext.SpectrumShadowColor, RelativeSource={RelativeSource AncestorType=Window}}" BlurRadius="8" ShadowDepth="0" Opacity="1.0"/>
+                                            <DropShadowEffect Color="{Binding DataContext.SpectrumShadowColor, RelativeSource={RelativeSource AncestorType=Window}}" BlurRadius="10" ShadowDepth="0" Opacity="0.95"/>
                                         </Border.Effect>
                                     </Border>
-                                </Border>
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+
+                                    <!-- 2. Floating Neon Dot (Peak Hold) -->
+                                    <Border VerticalAlignment="Bottom" Height="{Binding PeakValue}" MaxHeight="104" Background="Transparent" HorizontalAlignment="Center">
+                                        <Border VerticalAlignment="Top" Width="5" Height="5" CornerRadius="2.5" Margin="0,-4,0,0"
+                                                Background="#FFFFFFFF"
+                                                Opacity="{Binding PeakValue, Converter={StaticResource ZeroToTransparent}}">
+                                            <Border.Effect>
+                                                <DropShadowEffect Color="{Binding DataContext.SpectrumShadowColor, RelativeSource={RelativeSource AncestorType=Window}}" BlurRadius="8" ShadowDepth="0" Opacity="1.0"/>
+                                            </Border.Effect>
+                                        </Border>
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Grid>
             </Grid>
         </Grid>
         </Grid>

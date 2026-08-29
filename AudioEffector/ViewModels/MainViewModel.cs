@@ -57,7 +57,7 @@ namespace AudioEffector.ViewModels
         private List<string> _favoritePaths;
         private ObservableCollection<UserPlaylist> _userPlaylists = new ObservableCollection<UserPlaylist>();
         private ObservableCollection<Track> _playlistTracks = new ObservableCollection<Track>();
-        private const int SpectrumBarCount = 32;
+        private const int SpectrumBarCount = 64;
         private int _spectrumGeneration = 0;
         
         private ViewType _currentViewType = ViewType.Albums;
@@ -1517,60 +1517,50 @@ namespace AudioEffector.ViewModels
                 // 4. Boost Saturation/Value
                 ColorToHsv(finalColor, out double fh, out double fs, out double fv);
 
-                // Boost Saturation
-                // Saturation Gradient: Right (Low) -> Left (High)
-                // Right (Start): Low Saturation
-                double satRight = 0.3;
-                // Left (End): High Saturation
-                double satLeft = 1.0;
-
-                // Value/Brightness: Max
-                double val = 1.0;
-
-                // Color 1 (Right/High Freq)
-                Color colorRight = HsvToColor(fh, satRight, val);
-                colorRight.A = 242; // ~95% Opacity (Bright)
-
-                // Color 2 (Left/Low Freq)
-                Color colorLeft = HsvToColor(fh, satLeft, val);
-                colorLeft.A = 153; // ~60% Opacity
-
-                // Border Color: Brighter (Lower Saturation), 100% Opacity
-                // Use 20% saturation to make it whiter/brighter
-                Color borderColor = HsvToColor(fh, 0.2, 1.0);
-                borderColor.A = 255; // 100%
-                SpectrumBorderBrush = new SolidColorBrush(borderColor);
-
-                // Shadow Color
-                SpectrumShadowColor = HsvToColor(fh, 1.0, 1.0);
-
+                // Vertical Neon Gradient (Bottom -> Top)
                 var brush = new LinearGradientBrush();
-                brush.StartPoint = new Point(1, 0.5); // Right
-                brush.EndPoint = new Point(0, 0.5);   // Left
-                brush.GradientStops.Add(new GradientStop(colorRight, 0.0));
-                brush.GradientStops.Add(new GradientStop(colorLeft, 1.0));
+                brush.StartPoint = new Point(0.5, 1.0); // Bottom
+                brush.EndPoint = new Point(0.5, 0.0);   // Top
+
+                // Bottom: Deep Vibrant Purple/Magenta (Offset 0.0)
+                Color colorBottom = HsvToColor((fh + 40) % 360, 0.85, 0.85);
+                colorBottom.A = 220;
+
+                // Middle: Bright Vibrant Neon Accent (Offset 0.5)
+                Color colorMid = HsvToColor(fh, 0.95, 1.0);
+                colorMid.A = 255;
+
+                // Top: Luminous White-tinted Neon (Offset 1.0)
+                Color colorTop = HsvToColor(fh, 0.15, 1.0);
+                colorTop.A = 255;
+
+                brush.GradientStops.Add(new GradientStop(colorBottom, 0.0));
+                brush.GradientStops.Add(new GradientStop(colorMid, 0.5));
+                brush.GradientStops.Add(new GradientStop(colorTop, 1.0));
 
                 SpectrumBarBrush = brush;
+                SpectrumShadowColor = HsvToColor(fh, 1.0, 1.0);
+
+                Color borderColor = HsvToColor(fh, 0.2, 1.0);
+                borderColor.A = 240;
+                SpectrumBorderBrush = new SolidColorBrush(borderColor);
             }
             catch
             {
                 Application.Current.Dispatcher.Invoke(() =>
                 {
-                    // Default Gradient
-                    // Default Gradient: Right (Low Sat) -> Left (High Sat)
                     var brush = new LinearGradientBrush();
-                    brush.StartPoint = new Point(1, 0.5);
-                    brush.EndPoint = new Point(0, 0.5);
+                    brush.StartPoint = new Point(0.5, 1.0);
+                    brush.EndPoint = new Point(0.5, 0.0);
 
-                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
-                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(220, 139, 92, 246), 0.0)); // Deep Purple
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(255, 0, 229, 255), 0.5));   // Electric Cyan
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(255, 255, 255, 255), 1.0)); // White Neon Tip
 
                     SpectrumBarBrush = brush;
                     SpectrumShadowColor = Color.FromRgb(0, 229, 255);
 
-                    // Border: Brighter (Lower Saturation), 100% Opacity
-                    var borderColor = Color.FromRgb(204, 249, 255);
-                    borderColor.A = 255;
+                    var borderColor = Color.FromArgb(240, 204, 249, 255);
                     SpectrumBorderBrush = new SolidColorBrush(borderColor);
                 });
             }
@@ -2953,12 +2943,9 @@ namespace AudioEffector.ViewModels
             int barCount = SpectrumBarCount;
             var newValues = new double[barCount];
 
-            // FFT parameters
-            // Assuming 44.1kHz sample rate and 1024 FFT size (approx)
-            // Bin resolution ~43Hz.
-            // We want 40Hz to 20kHz to use low end better.
-            double minFreq = 40;
-            double maxFreq = 20000;
+            // FFT parameters (40Hz to 18kHz for rich musical responsiveness)
+            double minFreq = 30;
+            double maxFreq = 18000;
             double logMin = Math.Log10(minFreq);
             double logMax = Math.Log10(maxFreq);
             double logStep = (logMax - logMin) / barCount;
@@ -2969,9 +2956,6 @@ namespace AudioEffector.ViewModels
                 double fStart = Math.Pow(10, logMin + i * logStep);
                 double fEnd = Math.Pow(10, logMin + (i + 1) * logStep);
 
-                // Convert to bin indices (approximate)
-                // Bin 0 = 0Hz, Bin 512 = 22050Hz (Nyquist)
-                // Index = Freq * 512 / 22050
                 int iStart = (int)(fStart * 512 / 22050);
                 int iEnd = (int)(fEnd * 512 / 22050);
 
@@ -2999,27 +2983,13 @@ namespace AudioEffector.ViewModels
                 double avg = count > 0 ? sum / count : 0;
                 double db = 20 * Math.Log10(avg);
 
-                // Map dB to height
-                // Reduced scaling factor from 3 to 1.5 to halve the height as requested
-                double val = Math.Max(0, db + 60) * 1.5;
+                // Map dB to height with balanced dynamic range for 140px height visualizer
+                double val = Math.Max(0, db + 60) * 2.1;
 
-                // Apply Mid-range Boost
-                // Simple quadratic curve: y = -a(x-h)^2 + k
-                // Center h=15.5. Max boost k=1.5. Ends=1.0.
-                double normalizedPos = (i - 15.5) / 15.5; // -1 to 1
-                double boost = 1.5 - 0.5 * (normalizedPos * normalizedPos); // 1.5 at center, 1.0 at ends
-
-                // Apply High Frequency Boost (Compensate for Pink Noise roll-off)
-                // Linear increase from 0.3 to 3.0 across the spectrum
-                double highBoost = 0.3 + (i / (double)barCount) * 2.7;
-                val *= boost * highBoost;
-
-                // User Requested Scaling: 0.5x (Low) -> 2.0x (High)
-                double userScale = 0.5 + (i / (double)(barCount - 1)) * 1.5;
-                val *= userScale;
-
-                // Final Global Scaling (Reduced to 0.75x)
-                val *= 0.75;
+                // Subtle low-end boost for kick punch and high-frequency compensation for crisp hi-hats
+                double lowBoost = (i < 16) ? (1.35 - (i / 16.0) * 0.35) : 1.0;
+                double highBoost = 0.7 + (i / (double)barCount) * 2.3;
+                val *= lowBoost * highBoost;
 
                 // Glitch Prevention: Handle NaN/Infinity
                 if (double.IsNaN(val) || double.IsInfinity(val)) val = 0;
@@ -3032,18 +3002,12 @@ namespace AudioEffector.ViewModels
                 // Check if generation has changed (track changed)
                 if (currentGen != _spectrumGeneration) return;
 
-                // Enforce Bar Count (Fix for fluctuating bars)
+                // Enforce Bar Count
                 int targetCount = SpectrumBarCount;
                 int currentCount = SpectrumValues.Count;
 
-                if (currentCount != targetCount)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[Spectrum] Count Mismatch! Current: {currentCount}, Target: {targetCount}");
-                }
-
                 if (currentCount < targetCount)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[Spectrum] Adding {targetCount - currentCount} bars.");
                     for (int i = currentCount; i < targetCount; i++)
                     {
                         SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
@@ -3051,35 +3015,34 @@ namespace AudioEffector.ViewModels
                 }
                 else if (currentCount > targetCount)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[Spectrum] Removing {currentCount - targetCount} bars.");
                     for (int i = currentCount; i > targetCount; i--)
                     {
                         SpectrumValues.RemoveAt(SpectrumValues.Count - 1);
                     }
                 }
 
-                // Update with smoothing & Peak Hold
+                // Update with high-speed attack & liquid decay smoothing + floating neon peak dots
                 for (int i = 0; i < targetCount; i++)
                 {
                     var item = SpectrumValues[i];
                     double current = item.Value;
-                    double target = Math.Min(65, newValues[i]);
+                    double target = Math.Min(95, newValues[i]);
 
-                    // Smooth response: Rise quickly (0.35), fall smoothly (0.08)
+                    // Fast attack (0.45) and smooth decay (0.075)
                     if (target > current)
                     {
-                        item.Value = current + (target - current) * 0.35;
+                        item.Value = current + (target - current) * 0.45;
                     }
                     else
                     {
-                        item.Value = current - (current - target) * 0.08;
+                        item.Value = current - (current - target) * 0.075;
                     }
 
-                    // Peak Hold Logic
+                    // Floating Peak Hold Logic
                     if (item.Value >= item.PeakValue)
                     {
                         item.PeakValue = item.Value;
-                        item.PeakHoldCount = 12; // Hold at top for ~12 frames
+                        item.PeakHoldCount = 14; // Hold at top for ~14 frames
                     }
                     else
                     {
@@ -3090,7 +3053,7 @@ namespace AudioEffector.ViewModels
                         else
                         {
                             // Gravity fall
-                            item.PeakValue = Math.Max(item.Value, item.PeakValue - 1.2);
+                            item.PeakValue = Math.Max(item.Value, item.PeakValue - 1.3);
                         }
                     }
                 }
