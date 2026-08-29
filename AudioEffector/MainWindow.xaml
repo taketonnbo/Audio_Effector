@@ -708,33 +708,6 @@
                         <TextBlock Text="16kHz" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Opacity="0.75"/>
                     </UniformGrid>
 
-                    <!-- Measurement Grid Lines (Crisp reference grid) -->
-                    <Grid Grid.Row="1" Height="84" VerticalAlignment="Bottom" Margin="0,0,0,22" IsHitTestVisible="False">
-                        <!-- Horizontal Grid Lines (Reference Levels) -->
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <Border Grid.Row="0" BorderThickness="0,1,0,0" BorderBrush="#38FFFFFF"/>
-                            <Border Grid.Row="1" BorderThickness="0,1,0,0" BorderBrush="#30FFFFFF"/>
-                            <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="#28FFFFFF"/>
-                            <Border Grid.Row="3" BorderThickness="0,1,0,0" BorderBrush="#20FFFFFF"/>
-                        </Grid>
-
-                        <!-- Vertical Frequency Band Dividers (aligned with 6 bands) -->
-                        <UniformGrid Columns="6">
-                            <Border BorderThickness="1,0,1,0" BorderBrush="#30FFFFFF"/>
-                            <Border BorderThickness="0,0,1,0" BorderBrush="#30FFFFFF"/>
-                            <Border BorderThickness="0,0,1,0" BorderBrush="#30FFFFFF"/>
-                            <Border BorderThickness="0,0,1,0" BorderBrush="#30FFFFFF"/>
-                            <Border BorderThickness="0,0,1,0" BorderBrush="#30FFFFFF"/>
-                            <Border BorderThickness="0,0,1,0" BorderBrush="#30FFFFFF"/>
-                        </UniformGrid>
-                    </Grid>
-
                     <!-- Glowing Baseline -->
                     <Border Grid.Row="1" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,21" Background="{Binding SpectrumBorderBrush}" Opacity="0.4">
                         <Border.Effect>
