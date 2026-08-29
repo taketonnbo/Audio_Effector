@@ -59,6 +59,23 @@ namespace AudioEffector.ViewModels
         private ObservableCollection<Track> _playlistTracks = new ObservableCollection<Track>();
         private const int SpectrumBarCount = 64;
         private int _spectrumGeneration = 0;
+
+        #region Spectrum Analyzer Tuning Coefficients
+        /// <summary>スペクトラムアナライザ: 低音域（〜250Hz）のスケーリング係数</summary>
+        public const double SpectrumBassScale = 0.90;
+
+        /// <summary>スペクトラムアナライザ: 中音域（250Hz〜4kHz）のスケーリング係数</summary>
+        public const double SpectrumMidScale = 1.05;
+
+        /// <summary>スペクトラムアナライザ: 高音域（4kHz〜18kHz）のスケーリング係数</summary>
+        public const double SpectrumTrebleScale = 1.60;
+
+        /// <summary>スペクトラムアナライザ: 高音域のオクターブあたりdB補正（チルト）係数</summary>
+        public const double SpectrumTrebleTiltDb = 4.5;
+
+        /// <summary>スペクトラムアナライザ: 全体感度（ゲイン）係数</summary>
+        public const double SpectrumSensitivity = 1.65;
+        #endregion
         
         private ViewType _currentViewType = ViewType.Albums;
         public ViewType CurrentViewType
@@ -2981,15 +2998,35 @@ namespace AudioEffector.ViewModels
                 }
 
                 double avg = count > 0 ? sum / count : 0;
-                double db = 20 * Math.Log10(avg);
+                double db = (avg > 1e-6) ? 20 * Math.Log10(avg) : -120;
 
-                // Map dB to height with balanced dynamic range
-                double val = Math.Max(0, db + 60) * 1.85;
+                // Center frequency of this bar (Hz)
+                double centerFreq = Math.Sqrt(fStart * fEnd);
 
-                // Subtle low-end boost for kick punch and high-frequency compensation for crisp hi-hats
-                double lowBoost = (i < 16) ? (1.35 - (i / 16.0) * 0.35) : 1.0;
-                double highBoost = 0.7 + (i / (double)barCount) * 2.3;
-                val *= lowBoost * highBoost;
+                // High frequency tilt (dB boost per octave for highs above 400Hz)
+                // 高音域（400Hz以上）の周波数減衰をオクターブ単位で補正
+                double trebleTilt = (centerFreq > 400) ? Math.Log2(centerFreq / 400.0) * SpectrumTrebleTiltDb : 0.0;
+
+                // Dynamic range mapping (-68dB floor threshold)
+                double adjustedDb = db + 68 + trebleTilt;
+                double val = Math.Max(0, adjustedDb) * SpectrumSensitivity;
+
+                // Apply frequency band scaling coefficients (Bass / Mid / Treble)
+                if (centerFreq < 250)
+                {
+                    val *= SpectrumBassScale;
+                }
+                else if (centerFreq < 4000)
+                {
+                    val *= SpectrumMidScale;
+                }
+                else
+                {
+                    // 4kHz〜18kHzへ向けたプログレッシブ高域ブースト
+                    double trebleRatio = Math.Min(1.0, (centerFreq - 4000.0) / 10000.0);
+                    double trebleMultiplier = SpectrumMidScale + (SpectrumTrebleScale - SpectrumMidScale) * trebleRatio;
+                    val *= trebleMultiplier;
+                }
 
                 // Glitch Prevention: Handle NaN/Infinity
                 if (double.IsNaN(val) || double.IsInfinity(val)) val = 0;
