@@ -57,8 +57,25 @@ namespace AudioEffector.ViewModels
         private List<string> _favoritePaths;
         private ObservableCollection<UserPlaylist> _userPlaylists = new ObservableCollection<UserPlaylist>();
         private ObservableCollection<Track> _playlistTracks = new ObservableCollection<Track>();
-        private const int SpectrumBarCount = 32;
+        private const int SpectrumBarCount = 64;
         private int _spectrumGeneration = 0;
+
+        #region Spectrum Analyzer Tuning Coefficients
+        /// <summary>スペクトラムアナライザ: 低音域（〜250Hz）のスケーリング係数（低音の過度な頭打ちを抑制）</summary>
+        public const double SpectrumBassScale = 0.55;
+
+        /// <summary>スペクトラムアナライザ: 中音域（250Hz〜2.5kHz）のスケーリング係数</summary>
+        public const double SpectrumMidScale = 0.90;
+
+        /// <summary>スペクトラムアナライザ: 高音域（2.5kHz〜18kHz）のスケーリング係数（高音の躍動感を大幅強化）</summary>
+        public const double SpectrumTrebleScale = 2.90;
+
+        /// <summary>スペクトラムアナライザ: 高音域のオクターブあたりdB補正（チルト）係数</summary>
+        public const double SpectrumTrebleTiltDb = 8.5;
+
+        /// <summary>スペクトラムアナライザ: 全体感度（ゲイン）係数</summary>
+        public const double SpectrumSensitivity = 1.65;
+        #endregion
         
         private ViewType _currentViewType = ViewType.Albums;
         public ViewType CurrentViewType
@@ -361,6 +378,7 @@ namespace AudioEffector.ViewModels
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => CurrentViewType = ViewType.DeviceSync);
             SwitchToSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = true);
+            ToggleSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = !IsSpectrumVisible);
 
             RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
             TransferSelectedCommand = new RelayCommand(o => TransferSelected());
@@ -1516,60 +1534,50 @@ namespace AudioEffector.ViewModels
                 // 4. Boost Saturation/Value
                 ColorToHsv(finalColor, out double fh, out double fs, out double fv);
 
-                // Boost Saturation
-                // Saturation Gradient: Right (Low) -> Left (High)
-                // Right (Start): Low Saturation
-                double satRight = 0.3;
-                // Left (End): High Saturation
-                double satLeft = 1.0;
-
-                // Value/Brightness: Max
-                double val = 1.0;
-
-                // Color 1 (Right/High Freq)
-                Color colorRight = HsvToColor(fh, satRight, val);
-                colorRight.A = 242; // ~95% Opacity (Bright)
-
-                // Color 2 (Left/Low Freq)
-                Color colorLeft = HsvToColor(fh, satLeft, val);
-                colorLeft.A = 153; // ~60% Opacity
-
-                // Border Color: Brighter (Lower Saturation), 100% Opacity
-                // Use 20% saturation to make it whiter/brighter
-                Color borderColor = HsvToColor(fh, 0.2, 1.0);
-                borderColor.A = 255; // 100%
-                SpectrumBorderBrush = new SolidColorBrush(borderColor);
-
-                // Shadow Color
-                SpectrumShadowColor = HsvToColor(fh, 1.0, 1.0);
-
+                // Vertical Neon Gradient (Bottom -> Top)
                 var brush = new LinearGradientBrush();
-                brush.StartPoint = new Point(1, 0.5); // Right
-                brush.EndPoint = new Point(0, 0.5);   // Left
-                brush.GradientStops.Add(new GradientStop(colorRight, 0.0));
-                brush.GradientStops.Add(new GradientStop(colorLeft, 1.0));
+                brush.StartPoint = new Point(0.5, 1.0); // Bottom
+                brush.EndPoint = new Point(0.5, 0.0);   // Top
+
+                // Bottom: Deep Vibrant Purple/Magenta (Offset 0.0)
+                Color colorBottom = HsvToColor((fh + 40) % 360, 0.85, 0.85);
+                colorBottom.A = 220;
+
+                // Middle: Bright Vibrant Neon Accent (Offset 0.5)
+                Color colorMid = HsvToColor(fh, 0.95, 1.0);
+                colorMid.A = 255;
+
+                // Top: Luminous White-tinted Neon (Offset 1.0)
+                Color colorTop = HsvToColor(fh, 0.15, 1.0);
+                colorTop.A = 255;
+
+                brush.GradientStops.Add(new GradientStop(colorBottom, 0.0));
+                brush.GradientStops.Add(new GradientStop(colorMid, 0.5));
+                brush.GradientStops.Add(new GradientStop(colorTop, 1.0));
 
                 SpectrumBarBrush = brush;
+                SpectrumShadowColor = HsvToColor(fh, 1.0, 1.0);
+
+                Color borderColor = HsvToColor(fh, 0.2, 1.0);
+                borderColor.A = 240;
+                SpectrumBorderBrush = new SolidColorBrush(borderColor);
             }
             catch
             {
                 Application.Current.Dispatcher.Invoke(() =>
                 {
-                    // Default Gradient
-                    // Default Gradient: Right (Low Sat) -> Left (High Sat)
                     var brush = new LinearGradientBrush();
-                    brush.StartPoint = new Point(1, 0.5);
-                    brush.EndPoint = new Point(0, 0.5);
+                    brush.StartPoint = new Point(0.5, 1.0);
+                    brush.EndPoint = new Point(0.5, 0.0);
 
-                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
-                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(220, 139, 92, 246), 0.0)); // Deep Purple
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(255, 0, 229, 255), 0.5));   // Electric Cyan
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(255, 255, 255, 255), 1.0)); // White Neon Tip
 
                     SpectrumBarBrush = brush;
                     SpectrumShadowColor = Color.FromRgb(0, 229, 255);
 
-                    // Border: Brighter (Lower Saturation), 100% Opacity
-                    var borderColor = Color.FromRgb(204, 249, 255);
-                    borderColor.A = 255;
+                    var borderColor = Color.FromArgb(240, 204, 249, 255);
                     SpectrumBorderBrush = new SolidColorBrush(borderColor);
                 });
             }
@@ -2935,6 +2943,7 @@ namespace AudioEffector.ViewModels
 
 
         public ICommand SwitchToSpectrumCommand { get; }
+        public ICommand ToggleSpectrumCommand { get; }
 
         public ObservableCollection<SpectrumBarItem> SpectrumValues { get; } = new ObservableCollection<SpectrumBarItem>();
 
@@ -2951,12 +2960,9 @@ namespace AudioEffector.ViewModels
             int barCount = SpectrumBarCount;
             var newValues = new double[barCount];
 
-            // FFT parameters
-            // Assuming 44.1kHz sample rate and 1024 FFT size (approx)
-            // Bin resolution ~43Hz.
-            // We want 40Hz to 20kHz to use low end better.
-            double minFreq = 40;
-            double maxFreq = 20000;
+            // FFT parameters (40Hz to 18kHz for rich musical responsiveness)
+            double minFreq = 30;
+            double maxFreq = 18000;
             double logMin = Math.Log10(minFreq);
             double logMax = Math.Log10(maxFreq);
             double logStep = (logMax - logMin) / barCount;
@@ -2967,9 +2973,6 @@ namespace AudioEffector.ViewModels
                 double fStart = Math.Pow(10, logMin + i * logStep);
                 double fEnd = Math.Pow(10, logMin + (i + 1) * logStep);
 
-                // Convert to bin indices (approximate)
-                // Bin 0 = 0Hz, Bin 512 = 22050Hz (Nyquist)
-                // Index = Freq * 512 / 22050
                 int iStart = (int)(fStart * 512 / 22050);
                 int iEnd = (int)(fEnd * 512 / 22050);
 
@@ -2995,29 +2998,38 @@ namespace AudioEffector.ViewModels
                 }
 
                 double avg = count > 0 ? sum / count : 0;
-                double db = 20 * Math.Log10(avg);
+                double db = (avg > 1e-6) ? 20 * Math.Log10(avg) : -120;
 
-                // Map dB to height
-                // Reduced scaling factor from 3 to 1.5 to halve the height as requested
-                double val = Math.Max(0, db + 60) * 1.5;
+                // Center frequency of this bar (Hz)
+                double centerFreq = Math.Sqrt(fStart * fEnd);
 
-                // Apply Mid-range Boost
-                // Simple quadratic curve: y = -a(x-h)^2 + k
-                // Center h=15.5. Max boost k=1.5. Ends=1.0.
-                double normalizedPos = (i - 15.5) / 15.5; // -1 to 1
-                double boost = 1.5 - 0.5 * (normalizedPos * normalizedPos); // 1.5 at center, 1.0 at ends
+                // High frequency tilt: compensate physical sound rolloff (+8.5dB per octave above 250Hz)
+                // 高音域（250Hz以上）の周波数減衰をオクターブ単位で大幅補正
+                double trebleTilt = (centerFreq > 250) ? Math.Log2(centerFreq / 250.0) * SpectrumTrebleTiltDb : 0.0;
 
-                // Apply High Frequency Boost (Compensate for Pink Noise roll-off)
-                // Linear increase from 0.3 to 3.0 across the spectrum
-                double highBoost = 0.3 + (i / (double)barCount) * 2.7;
-                val *= boost * highBoost;
+                // Dynamic range mapping (-65dB floor threshold)
+                double adjustedDb = db + 65 + trebleTilt;
+                double val = Math.Max(0, adjustedDb) * SpectrumSensitivity;
 
-                // User Requested Scaling: 0.5x (Low) -> 2.0x (High)
-                double userScale = 0.5 + (i / (double)(barCount - 1)) * 1.5;
-                val *= userScale;
-
-                // Final Global Scaling (Reduced to 0.75x)
-                val *= 0.75;
+                // Apply frequency band scaling coefficients (Bass / Mid / Treble)
+                if (centerFreq < 250)
+                {
+                    // Smooth transition from sub-bass to upper bass
+                    double bassRatio = Math.Min(1.0, centerFreq / 250.0);
+                    double bassMultiplier = 0.45 + (SpectrumBassScale - 0.45) * bassRatio;
+                    val *= bassMultiplier;
+                }
+                else if (centerFreq < 2500)
+                {
+                    val *= SpectrumMidScale;
+                }
+                else
+                {
+                    // Smooth progressive treble boost for >2.5kHz up to 18kHz
+                    double trebleRatio = Math.Min(1.0, (centerFreq - 2500.0) / 12000.0);
+                    double trebleMultiplier = SpectrumMidScale + (SpectrumTrebleScale - SpectrumMidScale) * Math.Pow(trebleRatio, 0.85);
+                    val *= trebleMultiplier;
+                }
 
                 // Glitch Prevention: Handle NaN/Infinity
                 if (double.IsNaN(val) || double.IsInfinity(val)) val = 0;
@@ -3030,18 +3042,12 @@ namespace AudioEffector.ViewModels
                 // Check if generation has changed (track changed)
                 if (currentGen != _spectrumGeneration) return;
 
-                // Enforce Bar Count (Fix for fluctuating bars)
+                // Enforce Bar Count
                 int targetCount = SpectrumBarCount;
                 int currentCount = SpectrumValues.Count;
 
-                if (currentCount != targetCount)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[Spectrum] Count Mismatch! Current: {currentCount}, Target: {targetCount}");
-                }
-
                 if (currentCount < targetCount)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[Spectrum] Adding {targetCount - currentCount} bars.");
                     for (int i = currentCount; i < targetCount; i++)
                     {
                         SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
@@ -3049,28 +3055,46 @@ namespace AudioEffector.ViewModels
                 }
                 else if (currentCount > targetCount)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[Spectrum] Removing {currentCount - targetCount} bars.");
                     for (int i = currentCount; i > targetCount; i--)
                     {
                         SpectrumValues.RemoveAt(SpectrumValues.Count - 1);
                     }
                 }
 
-                // Update with smoothing
+                // Update with high-speed attack & liquid decay smoothing + floating neon peak dots
                 for (int i = 0; i < targetCount; i++)
                 {
                     var item = SpectrumValues[i];
                     double current = item.Value;
-                    double target = newValues[i];
+                    double target = Math.Min(78, newValues[i]);
 
-                    // Rise fast, fall slow
+                    // Fast attack (0.45) and smooth decay (0.075)
                     if (target > current)
                     {
-                        item.Value = current + (target - current) * 0.2;
+                        item.Value = current + (target - current) * 0.45;
                     }
                     else
                     {
-                        item.Value = current - (current - target) * 0.05;
+                        item.Value = current - (current - target) * 0.075;
+                    }
+
+                    // Floating Peak Hold Logic
+                    if (item.Value >= item.PeakValue)
+                    {
+                        item.PeakValue = item.Value;
+                        item.PeakHoldCount = 14; // Hold at top for ~14 frames
+                    }
+                    else
+                    {
+                        if (item.PeakHoldCount > 0)
+                        {
+                            item.PeakHoldCount--;
+                        }
+                        else
+                        {
+                            // Gravity fall
+                            item.PeakValue = Math.Max(item.Value, item.PeakValue - 1.3);
+                        }
                     }
                 }
             });
