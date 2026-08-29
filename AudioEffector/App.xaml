@@ -15,6 +15,7 @@
             <local:IndexConverter x:Key="IndexConverter"/>
             <local:ZeroToTransparentConverter x:Key="ZeroToTransparent"/>
             <local:HeightToBorderThicknessConverter x:Key="HeightToBorderThickness"/>
+            <local:EnumToBoolConverter x:Key="EnumToBool"/>
             
         <!-- Vertical Slider Style for EQ -->
         <Style x:Key="NeonVerticalSliderStyle" TargetType="Slider">

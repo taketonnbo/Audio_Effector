@@ -263,6 +263,15 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.DeviceSync}">
+                                <Setter Property="ContentTemplate">
+                                    <Setter.Value>
+                                        <DataTemplate>
+                                            <views:DeviceSyncView />
+                                        </DataTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </ContentControl.Style>
@@ -573,29 +582,37 @@
 
                 <!-- Tabs -->
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Background="{DynamicResource PanelBackgroundBrush}">
-                    <Button Content="SPECTRUM" Command="{Binding SwitchToSpectrumCommand}" Width="150" Height="30" Margin="0">
+                    <StackPanel.Resources>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Foreground" Value="#808080"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Padding" Value="10,5"/>
+                            <Setter Property="Margin" Value="2,0"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                        </Style>
+                    </StackPanel.Resources>
+                    <Button Content="NOW PLAYING" Command="{Binding SwitchToNowPlayingCommand}" Width="150" Height="30" Margin="0,0,10,0">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                 <Setter Property="Background" Value="Transparent"/>
-                                <Setter Property="Foreground" Value="#808080"/>
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="True">
-                                        <Setter Property="Background" Value="#303030"/>
-                                        <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                    <DataTrigger Binding="{Binding IsNowPlayingVisible}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                                        <Setter Property="Foreground" Value="#00FFFF"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Button.Style>
                     </Button>
-                    <Button Content="DEVICE SYNC" Command="{Binding SwitchToDeviceSyncCommand}" IsEnabled="{Binding IsDeviceConnected}" Width="150" Height="30" Margin="0">
+                    <Button Content="SPECTRUM" Command="{Binding SwitchToSpectrumCommand}" Width="150" Height="30" Margin="0">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                 <Setter Property="Background" Value="Transparent"/>
-                                <Setter Property="Foreground" Value="#808080"/>
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsDeviceSyncVisible}" Value="True">
-                                        <Setter Property="Background" Value="#303030"/>
-                                        <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                    <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                                        <Setter Property="Foreground" Value="#00FFFF"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
@@ -693,107 +710,7 @@
 
 
 
-                <!-- Device Sync View -->
-                <Grid Grid.Row="1" Visibility="{Binding IsDeviceSyncVisible, Converter={StaticResource BoolToVis}}" Margin="20">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
 
-                    <!-- Device Selection -->
-                    <StackPanel Grid.Row="0">
-                        <TextBlock Text="CONNECTED DEVICE:" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" Margin="0,0,0,5"/>
-                        
-                        <!-- Device ComboBox -->
-                        <Grid Margin="0,0,0,10" IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <ComboBox Grid.Column="0" ItemsSource="{Binding RemovableDrives}" SelectedItem="{Binding SelectedDevice}" 
-                                      Height="30"
-                                      Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" BorderThickness="0" VerticalContentAlignment="Center" Padding="5,0">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextForegroundBrush}"/>
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                                <ComboBox.Resources>
-                                    <Style TargetType="ComboBoxItem">
-                                        <Setter Property="Background" Value="#303030"/>
-                                        <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
-                                    </Style>
-                                </ComboBox.Resources>
-                            </ComboBox>
-                            
-                            <!-- Manage Device Button -->
-                            <Button Grid.Column="1" Content="⚙ Manage" Command="{Binding ShowDeviceManagerCommand}"
-                                    ToolTip="Open Device Storage Manager"
-                                    Height="30" Margin="5,0,0,0" Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" BorderThickness="0" Padding="10,0"/>
-                        </Grid>
-
-                        <!-- Navigation Bar -->
-                        <Grid Margin="0,0,0,5" IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <Button Content=".." Command="{Binding NavigateUpCommand}" Width="30" Height="25" Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" Margin="0,0,5,0"/>
-                            <TextBlock Text="{Binding CurrentDevicePath}" Grid.Column="1" Foreground="{DynamicResource SecondaryTextForegroundBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                            <Button Grid.Column="2" Content="↻" Command="{Binding RefreshDirectoryCommand}" Width="30" Height="25" Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" ToolTip="Refresh"/>
-                        </Grid>
-
-                        <!-- Folder List -->
-                        <ListBox ItemsSource="{Binding DeviceDirectories}" Height="150" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" Margin="0,0,0,10"
-                                 IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}">
-                            <ListBox.ItemContainerStyle>
-                                <Style TargetType="ListBoxItem">
-                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                    <Setter Property="Padding" Value="2"/>
-                                </Style>
-                            </ListBox.ItemContainerStyle>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid Background="Transparent">
-                                        <Grid.InputBindings>
-                                            <MouseBinding Gesture="LeftDoubleClick" Command="{Binding DataContext.NavigateDirectoryCommand, ElementName=MainWindowRoot}" CommandParameter="{Binding}"/>
-                                        </Grid.InputBindings>
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="📁" Foreground="#FFD700" Margin="0,0,5,0" 
-                                                       Visibility="{Binding IsFolder, Converter={StaticResource BoolToVis}}"/>
-                                            <TextBlock Text="📄" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,0,5,0" 
-                                                       Visibility="{Binding IsFolder, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
-                                            <TextBlock Text="{Binding Name}" Foreground="{DynamicResource TextForegroundBrush}" Padding="2"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-
-                        <Grid>
-                            <TextBlock Text="{Binding TransferProgress, StringFormat='Transferring: {0:0}%'}" Foreground="{DynamicResource TextForegroundBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,6" FontSize="10"/>
-                        </Grid>
-                        
-                        <Button Command="{Binding TransferSelectedCommand}" Height="50" Background="{StaticResource NeonCyanBrush}" IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}">
-                            <Button.Style>
-                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsTransferring}" Value="True">
-                                            <Setter Property="Background" Value="#404040"/>
-                                            <Setter Property="Foreground" Value="#AAAAAA"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Button.Style>
-                            <Grid>
-                                <TextBlock Text="TRANSFER SELECTED" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding IsTransferring, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
-                                <TextBlock Text="TRANSFERRING..." FontWeight="Bold" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding IsTransferring, Converter={StaticResource BoolToVis}}"/>
-                            </Grid>
-                        </Button>
-                    </StackPanel>
-                </Grid>
             </Grid>
         </Grid>
         </Grid>

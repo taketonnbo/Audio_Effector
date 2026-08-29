@@ -10,6 +10,7 @@ namespace AudioEffector.ViewModels
         Playlists,
         PlaylistTracks,
         Recent,
-        Equalizer
+        Equalizer,
+        DeviceSync
     }
 }

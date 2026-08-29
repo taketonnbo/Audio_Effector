@@ -737,7 +737,18 @@ namespace AudioEffector.ViewModels
         public bool IsDeviceConnected
         {
             get => _isDeviceConnected;
-            set { _isDeviceConnected = value; OnPropertyChanged(); }
+            set
+            {
+                if (_isDeviceConnected != value)
+                {
+                    _isDeviceConnected = value;
+                    OnPropertyChanged();
+                    if (!_isDeviceConnected && CurrentViewType == ViewType.DeviceSync)
+                    {
+                        CurrentViewType = ViewType.Albums;
+                    }
+                }
+            }
         }
         public ICommand TogglePlayPauseCommand { get; }
         public ICommand NextCommand { get; }
@@ -1847,9 +1858,9 @@ namespace AudioEffector.ViewModels
                         IsDeviceConnected = connected;
                         
                         // もしデバイスが取り外されて、かつデバイス同期ビューが開いていたら閉じる
-                        if (!IsDeviceConnected && IsDeviceSyncVisible)
+                        if (!IsDeviceConnected && CurrentViewType == ViewType.DeviceSync)
                         {
-                            IsDeviceSyncVisible = false;
+                            CurrentViewType = ViewType.Albums;
                         }
 
                         _isCheckingDevices = false;
