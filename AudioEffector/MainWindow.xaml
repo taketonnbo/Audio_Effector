@@ -690,15 +690,15 @@
                     </Rectangle>
                 </Grid>
 
-                <!-- Content Area: Frequency Indicators + Spectrum Bars -->
-                <Grid>
+                <!-- Content Area: Centered Fixed Aspect Ratio Visualizer (768px Width) -->
+                <Grid Width="768" HorizontalAlignment="Center">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="22"/> <!-- Frequency Indicator Header -->
                         <RowDefinition Height="*"/>  <!-- Visualizer Bars -->
                     </Grid.RowDefinitions>
 
                     <!-- 6-Band Frequency Indicator Labels -->
-                    <UniformGrid Grid.Row="0" Columns="6" Margin="30,4,30,0" VerticalAlignment="Center"
+                    <UniformGrid Grid.Row="0" Columns="6" Margin="0,4,0,0" VerticalAlignment="Center"
                                  Opacity="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
                         <TextBlock Text="60Hz" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Opacity="0.75"/>
                         <TextBlock Text="250Hz" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Opacity="0.75"/>
@@ -709,15 +709,15 @@
                     </UniformGrid>
 
                     <!-- Glowing Baseline -->
-                    <Border Grid.Row="1" Height="1" VerticalAlignment="Bottom" Margin="30,0,30,21" Background="{Binding SpectrumBorderBrush}" Opacity="0.4">
+                    <Border Grid.Row="1" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,21" Background="{Binding SpectrumBorderBrush}" Opacity="0.4">
                         <Border.Effect>
                             <DropShadowEffect Color="{Binding SpectrumShadowColor}" BlurRadius="6" ShadowDepth="0" Opacity="0.8"/>
                         </Border.Effect>
                     </Border>
 
-                    <!-- Spectrum Bars & Floating Neon Peak Dots Layer (64 High-Density Bars) -->
-                    <ItemsControl x:Name="SpectrumBarsControl" Grid.Row="1" ItemsSource="{Binding SpectrumValues}" Margin="30,0,30,22" RenderOptions.EdgeMode="Aliased"
-                                  VerticalAlignment="Bottom" Height="90"
+                    <!-- Spectrum Bars (64 High-Density Bars with Fixed 6px Width) -->
+                    <ItemsControl x:Name="SpectrumBarsControl" Grid.Row="1" ItemsSource="{Binding SpectrumValues}" Margin="0,0,0,22" RenderOptions.EdgeMode="Aliased"
+                                  VerticalAlignment="Bottom" Height="90" Width="768" HorizontalAlignment="Center"
                                   Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -726,9 +726,10 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid Height="88" VerticalAlignment="Bottom" Margin="1.5,0">
-                                    <!-- 1. Capsule / Pill Slender Bar -->
-                                    <Border VerticalAlignment="Bottom" Height="{Binding Value}" MaxHeight="80" MinHeight="3" CornerRadius="2.5"
+                                <Grid Height="88" VerticalAlignment="Bottom">
+                                    <!-- Capsule / Pill Slender Bar (Fixed 6px Width) -->
+                                    <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Width="6"
+                                            Height="{Binding Value}" MaxHeight="80" MinHeight="3" CornerRadius="3"
                                             Background="{Binding DataContext.SpectrumBarBrush, RelativeSource={RelativeSource AncestorType=Window}}"
                                             BorderBrush="{Binding DataContext.SpectrumBorderBrush, RelativeSource={RelativeSource AncestorType=Window}}"
                                             BorderThickness="1"
@@ -737,24 +738,13 @@
                                             <DropShadowEffect Color="{Binding DataContext.SpectrumShadowColor, RelativeSource={RelativeSource AncestorType=Window}}" BlurRadius="10" ShadowDepth="0" Opacity="0.95"/>
                                         </Border.Effect>
                                     </Border>
-
-                                    <!-- 2. Floating Neon Dot (Peak Hold) -->
-                                    <Border VerticalAlignment="Bottom" Height="{Binding PeakValue}" MaxHeight="86" Background="Transparent" HorizontalAlignment="Center">
-                                        <Border VerticalAlignment="Top" Width="5" Height="5" CornerRadius="2.5" Margin="0,-4,0,0"
-                                                Background="#FFFFFFFF"
-                                                Opacity="{Binding PeakValue, Converter={StaticResource ZeroToTransparent}}">
-                                            <Border.Effect>
-                                                <DropShadowEffect Color="{Binding DataContext.SpectrumShadowColor, RelativeSource={RelativeSource AncestorType=Window}}" BlurRadius="8" ShadowDepth="0" Opacity="1.0"/>
-                                            </Border.Effect>
-                                        </Border>
-                                    </Border>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
                     <!-- Water Surface Mirror Reflection (Flipped VisualBrush with Ripple Blur) -->
-                    <Rectangle Grid.Row="1" Height="20" VerticalAlignment="Bottom" Margin="30,0,30,1" IsHitTestVisible="False"
+                    <Rectangle Grid.Row="1" Height="20" VerticalAlignment="Bottom" Margin="0,0,0,1" Width="768" HorizontalAlignment="Center" IsHitTestVisible="False"
                                Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
                         <Rectangle.Fill>
                             <VisualBrush Visual="{Binding ElementName=SpectrumBarsControl}" Stretch="Fill">
