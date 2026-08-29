@@ -2983,8 +2983,8 @@ namespace AudioEffector.ViewModels
                 double avg = count > 0 ? sum / count : 0;
                 double db = 20 * Math.Log10(avg);
 
-                // Map dB to height with balanced dynamic range for 140px height visualizer
-                double val = Math.Max(0, db + 60) * 2.1;
+                // Map dB to height with balanced dynamic range
+                double val = Math.Max(0, db + 60) * 1.85;
 
                 // Subtle low-end boost for kick punch and high-frequency compensation for crisp hi-hats
                 double lowBoost = (i < 16) ? (1.35 - (i / 16.0) * 0.35) : 1.0;
@@ -3026,7 +3026,7 @@ namespace AudioEffector.ViewModels
                 {
                     var item = SpectrumValues[i];
                     double current = item.Value;
-                    double target = Math.Min(95, newValues[i]);
+                    double target = Math.Min(78, newValues[i]);
 
                     // Fast attack (0.45) and smooth decay (0.075)
                     if (target > current)
