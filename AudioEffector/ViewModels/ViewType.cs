@@ -9,6 +9,7 @@ namespace AudioEffector.ViewModels
         Favorites,
         Playlists,
         PlaylistTracks,
-        Recent
+        Recent,
+        Equalizer
     }
 }

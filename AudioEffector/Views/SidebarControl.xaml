@@ -178,6 +178,14 @@
                         <TextBlock Style="{StaticResource SidebarTextStyle}" Text="最近再生した曲" />
                     </StackPanel>
                 </RadioButton>
+
+                <!-- Equalizer -->
+                <RadioButton Style="{StaticResource SidebarRadioButtonStyle}" Command="{Binding SwitchViewCommand}" CommandParameter="{x:Static vm:ViewType.Equalizer}">
+                    <StackPanel Orientation="Horizontal" Width="180">
+                        <Path Style="{StaticResource SidebarIconStyle}" Data="M14,19H18V5H14M6,19H10V5H6M12,5V19H12V5Z" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Control}}" StrokeThickness="2" Fill="Transparent"/>
+                        <TextBlock Style="{StaticResource SidebarTextStyle}" Text="イコライザー" />
+                    </StackPanel>
+                </RadioButton>
             </StackPanel>
 
             <!-- Settings (Bottom) -->
