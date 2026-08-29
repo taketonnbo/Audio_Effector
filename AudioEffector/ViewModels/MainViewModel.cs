@@ -51,7 +51,6 @@ namespace AudioEffector.ViewModels
         private double _progress;
         private DispatcherTimer _timer;
         private bool _isNowPlayingVisible = true;
-        private bool _isEqualizerVisible = false;
         private bool _isDeviceSyncVisible = false;
         private bool _isLoading;
         private bool _isGridView = true;
@@ -355,7 +354,6 @@ namespace AudioEffector.ViewModels
 
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => IsDeviceSyncVisible = true);
-            SwitchToEqualizerCommand = new RelayCommand(o => IsEqualizerVisible = true);
             SwitchToSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = true);
 
             RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
@@ -529,7 +527,6 @@ namespace AudioEffector.ViewModels
                     OnPropertyChanged();
                     if (value)
                     {
-                        IsEqualizerVisible = false;
                         IsSpectrumVisible = false;
                         RefreshDrives();
                     }
@@ -713,27 +710,6 @@ namespace AudioEffector.ViewModels
             set { _isNowPlayingVisible = value; OnPropertyChanged(); }
         }
 
-        /// <summary>
-        /// イコライザー画面が表示されているかどうか。
-        /// </summary>
-        public bool IsEqualizerVisible
-        {
-            get => _isEqualizerVisible;
-            set
-            {
-                if (_isEqualizerVisible != value)
-                {
-                    _isEqualizerVisible = value;
-                    OnPropertyChanged();
-                    if (value)
-                    {
-                        IsDeviceSyncVisible = false;
-                        IsSpectrumVisible = false;
-                    }
-                }
-            }
-        }
-
         public Preset? SelectedPreset
         {
             get => _selectedPreset;
@@ -801,7 +777,6 @@ namespace AudioEffector.ViewModels
 
         // Device Sync Commands
         public ICommand SwitchToDeviceSyncCommand { get; }
-        public ICommand SwitchToEqualizerCommand { get; }
         public ICommand TransferSelectedCommand { get; }
         public ICommand RefreshDrivesCommand { get; }
         public ICommand NavigateDirectoryCommand { get; }
@@ -2946,7 +2921,6 @@ namespace AudioEffector.ViewModels
                     OnPropertyChanged();
                     if (value)
                     {
-                        IsEqualizerVisible = false;
                         IsDeviceSyncVisible = false;
                     }
                 }
