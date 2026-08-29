@@ -161,10 +161,10 @@
 
     </Window.Resources>
 
-    <DockPanel>
-        <views:SidebarControl DockPanel.Dock="Left"/>
+    <Grid>
+        <views:SidebarControl HorizontalAlignment="Left" Panel.ZIndex="10"/>
 
-        <Grid>
+        <Grid Margin="50,0,0,0">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="{Binding LeftColumnWidth, Mode=TwoWay}" MinWidth="200"/>
             <ColumnDefinition Width="Auto"/>
@@ -910,5 +910,5 @@
             </Grid>
         </Grid>
         </Grid>
-    </DockPanel>
+    </Grid>
 </Window>
