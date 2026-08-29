@@ -51,7 +51,6 @@ namespace AudioEffector.ViewModels
         private double _progress;
         private DispatcherTimer _timer;
         private bool _isNowPlayingVisible = true;
-        private bool _isDeviceSyncVisible = false;
         private bool _isLoading;
         private bool _isGridView = true;
         private string _selectedSortOption = "Artist";
@@ -76,6 +75,13 @@ namespace AudioEffector.ViewModels
                     OnPropertyChanged(nameof(IsPlaylistSelectorVisible));
                     OnPropertyChanged(nameof(IsPlaylistTracksVisible));
                     OnPropertyChanged(nameof(IsPlaylistSectionActive));
+                    OnPropertyChanged(nameof(IsDeviceSyncVisible));
+
+                    if (_currentViewType == ViewType.DeviceSync)
+                    {
+                        IsSpectrumVisible = false;
+                        RefreshDrives();
+                    }
                 }
             }
         }
@@ -353,7 +359,7 @@ namespace AudioEffector.ViewModels
             ToggleMuteCommand = new RelayCommand(o => ToggleMute());
 
             // Device Sync Command Initialization
-            SwitchToDeviceSyncCommand = new RelayCommand(o => IsDeviceSyncVisible = true);
+            SwitchToDeviceSyncCommand = new RelayCommand(o => CurrentViewType = ViewType.DeviceSync);
             SwitchToSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = true);
 
             RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
@@ -516,23 +522,7 @@ namespace AudioEffector.ViewModels
         /// <summary>
         /// デバイス同期画面の表示状態。
         /// </summary>
-        public bool IsDeviceSyncVisible
-        {
-            get => _isDeviceSyncVisible;
-            set
-            {
-                if (_isDeviceSyncVisible != value)
-                {
-                    _isDeviceSyncVisible = value;
-                    OnPropertyChanged();
-                    if (value)
-                    {
-                        IsSpectrumVisible = false;
-                        RefreshDrives();
-                    }
-                }
-            }
-        }
+        public bool IsDeviceSyncVisible => CurrentViewType == ViewType.DeviceSync;
 
 
         public BitmapImage? NowPlayingImage
@@ -743,7 +733,11 @@ namespace AudioEffector.ViewModels
                 {
                     _isDeviceConnected = value;
                     OnPropertyChanged();
-                    if (!_isDeviceConnected && CurrentViewType == ViewType.DeviceSync)
+                    if (_isDeviceConnected)
+                    {
+                        RefreshDrives();
+                    }
+                    else if (CurrentViewType == ViewType.DeviceSync)
                     {
                         CurrentViewType = ViewType.Albums;
                     }
@@ -2930,9 +2924,9 @@ namespace AudioEffector.ViewModels
                 {
                     _isSpectrumVisible = value;
                     OnPropertyChanged();
-                    if (value)
+                    if (value && CurrentViewType == ViewType.DeviceSync)
                     {
-                        IsDeviceSyncVisible = false;
+                        CurrentViewType = ViewType.Albums;
                     }
                 }
             }
