@@ -96,9 +96,7 @@
                                                 <Style TargetType="CheckBox">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
                                                     <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding DataContext.IsDeviceSyncVisible, ElementName=MainWindowRoot}" Value="True">
-                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                        </DataTrigger>
+
                                                         <DataTrigger Binding="{Binding DataContext.IsSelectionMode, ElementName=MainWindowRoot}" Value="True">
                                                             <Setter Property="Visibility" Value="Visible"/>
                                                         </DataTrigger>
@@ -306,9 +304,7 @@
                                                             <Style TargetType="CheckBox">
                                                                 <Setter Property="Visibility" Value="Collapsed"/>
                                                                 <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding DataContext.IsDeviceSyncVisible, ElementName=MainWindowRoot}" Value="True">
-                                                                        <Setter Property="Visibility" Value="Visible"/>
-                                                                    </DataTrigger>
+
                                                                     <DataTrigger Binding="{Binding IsOnDevice}" Value="True">
                                                                         <Setter Property="IsEnabled" Value="False"/>
                                                                         <Setter Property="IsChecked" Value="False"/>
