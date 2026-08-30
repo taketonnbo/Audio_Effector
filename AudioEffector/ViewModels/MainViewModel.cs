@@ -332,6 +332,13 @@ namespace AudioEffector.ViewModels
             {
                 if (o is AudioEffector.Models.Track t)
                 {
+                    // If clicking the currently playing track, toggle play/pause instead of restarting
+                    if (CurrentTrack != null && CurrentTrack.Equals(t))
+                    {
+                        _audioService.TogglePlayPause();
+                        return;
+                    }
+
                     // Check if playing from playlist/favorites view
                     // プレイリストまたはお気に入りビューからの再生かどうかを確認
                     if (IsPlaylistTracksVisible && PlaylistTracks.Any() && PlaylistTracks.Contains(t))
