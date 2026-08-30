@@ -710,9 +710,6 @@
 
                     <!-- Glowing Baseline -->
                     <Border Grid.Row="1" Height="1" VerticalAlignment="Bottom" Margin="0,0,0,21" Background="{Binding SpectrumBorderBrush}" Opacity="0.4">
-                        <Border.Effect>
-                            <DropShadowEffect Color="{Binding SpectrumShadowColor}" BlurRadius="6" ShadowDepth="0" Opacity="0.8"/>
-                        </Border.Effect>
                     </Border>
 
                     <!-- Spectrum Bars (64 High-Density Bars with Fixed 6px Width) -->
@@ -734,36 +731,11 @@
                                             BorderBrush="{Binding DataContext.SpectrumBorderBrush, RelativeSource={RelativeSource AncestorType=Window}}"
                                             BorderThickness="1"
                                             Opacity="{Binding Value, Converter={StaticResource ZeroToTransparent}}">
-                                        <Border.Effect>
-                                            <DropShadowEffect Color="{Binding DataContext.SpectrumShadowColor, RelativeSource={RelativeSource AncestorType=Window}}" BlurRadius="10" ShadowDepth="0" Opacity="0.95"/>
-                                        </Border.Effect>
                                     </Border>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-
-                    <!-- Water Surface Mirror Reflection (Flipped VisualBrush with Ripple Blur) -->
-                    <Rectangle Grid.Row="1" Height="20" VerticalAlignment="Bottom" Margin="0,0,0,1" Width="768" HorizontalAlignment="Center" IsHitTestVisible="False"
-                               Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
-                        <Rectangle.Fill>
-                            <VisualBrush Visual="{Binding ElementName=SpectrumBarsControl}" Stretch="Fill">
-                                <VisualBrush.RelativeTransform>
-                                    <ScaleTransform ScaleY="-1" CenterY="0.5"/>
-                                </VisualBrush.RelativeTransform>
-                            </VisualBrush>
-                        </Rectangle.Fill>
-                        <Rectangle.OpacityMask>
-                            <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
-                                <GradientStop Color="#65FFFFFF" Offset="0.0"/>
-                                <GradientStop Color="#25FFFFFF" Offset="0.4"/>
-                                <GradientStop Color="#00FFFFFF" Offset="1.0"/>
-                            </LinearGradientBrush>
-                        </Rectangle.OpacityMask>
-                        <Rectangle.Effect>
-                            <BlurEffect Radius="3"/>
-                        </Rectangle.Effect>
-                    </Rectangle>
                 </Grid>
             </Grid>
         </Grid>
