@@ -17,7 +17,7 @@ namespace AudioEffector.Models
             get => _value;
             set
             {
-                if (_value != value)
+                if (System.Math.Abs(_value - value) > 0.5)
                 {
                     _value = value;
                     OnPropertyChanged();
@@ -34,7 +34,7 @@ namespace AudioEffector.Models
             get => _peakValue;
             set
             {
-                if (_peakValue != value)
+                if (System.Math.Abs(_peakValue - value) > 0.5)
                 {
                     _peakValue = value;
                     OnPropertyChanged();
