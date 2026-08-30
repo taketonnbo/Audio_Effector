@@ -210,13 +210,13 @@
                 </Grid.Style>
 
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1*" MinWidth="180" MaxWidth="350"/> <!-- Track Info -->
-                    <ColumnDefinition Width="Auto"/>   <!-- Controls & Progress -->
-                    <ColumnDefinition Width="1*"/> <!-- Volume & Toggle -->
+                    <ColumnDefinition Width="1*"/> <!-- Track Info (Left) -->
+                    <ColumnDefinition Width="Auto"/> <!-- Controls & Progress (Center) -->
+                    <ColumnDefinition Width="1*"/> <!-- Volume & Toggle (Right) -->
                 </Grid.ColumnDefinitions>
 
                 <!-- Track Info -->
-                <Grid Grid.Column="0" Margin="10,0" VerticalAlignment="Center" HorizontalAlignment="Left">
+                <Grid Grid.Column="0" Margin="10,0,10,0" VerticalAlignment="Center" HorizontalAlignment="Left">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
