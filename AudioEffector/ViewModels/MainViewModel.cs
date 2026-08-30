@@ -121,7 +121,6 @@ namespace AudioEffector.ViewModels
         private bool _isLibraryVisible = true;
         private bool _isFolderViewVisible = false;
         private bool _isPlaylistSelectorVisible = false;
-        private bool _isPlaylistTracksVisible = false;
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
         private UserPlaylist? _currentViewingPlaylist;
 
@@ -405,8 +404,6 @@ namespace AudioEffector.ViewModels
             _audioService.PlaylistEnded += OnPlaylistEnded;
             _audioService.FftCalculated += OnFftCalculated;
 
-            PlaylistTracks.CollectionChanged += OnPlaylistTracksChanged;
-
             var settings = _settingsService.LoadSettings();
             if (settings.LeftColumnWidth > 0)
             {
@@ -597,11 +594,7 @@ namespace AudioEffector.ViewModels
             set { _isPlaylistSelectorVisible = value; OnPropertyChanged(); }
         }
 
-        public bool IsPlaylistTracksVisible
-        {
-            get => _isPlaylistTracksVisible;
-            set { _isPlaylistTracksVisible = value; OnPropertyChanged(); }
-        }
+        public bool IsPlaylistTracksVisible => CurrentViewType == ViewType.PlaylistTracks || CurrentViewType == ViewType.Favorites;
 
         public bool IsLoading
         {
@@ -1361,14 +1354,6 @@ namespace AudioEffector.ViewModels
             }
         }
 
-        private void OnPlaylistTracksChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
-        {
-            if (IsPlaylistTracksVisible)
-            {
-                _audioService.SetPlaylist(PlaylistTracks.ToList());
-            }
-        }
-
         /// <summary>
         /// ライブラリをソート条件（アーティスト/アルバム）と昇順/降順に従って並び替えます。
         /// </summary>
@@ -1582,7 +1567,7 @@ namespace AudioEffector.ViewModels
             }
             catch
             {
-                Application.Current.Dispatcher.Invoke(() =>
+                Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     var brush = new LinearGradientBrush();
                     brush.StartPoint = new Point(0.5, 1.0);
@@ -1606,7 +1591,7 @@ namespace AudioEffector.ViewModels
 
         private void OnPlaylistChanged(List<Track> playlist)
         {
-            Application.Current.Dispatcher.Invoke(() =>
+            Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track>(playlist);
             });
@@ -1623,7 +1608,7 @@ namespace AudioEffector.ViewModels
             System.Threading.Interlocked.Increment(ref _spectrumGeneration);
 
             // Reset Spectrum immediately to prevent glitches
-            Application.Current.Dispatcher.Invoke(() =>
+            Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 foreach (var item in SpectrumValues)
                 {
@@ -1642,7 +1627,7 @@ namespace AudioEffector.ViewModels
             if (track != null)
             {
                 track.IsPlaying = true;
-                Application.Current.Dispatcher.Invoke(() =>
+                Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     if (!IsPlaylistTracksVisible && PlaybackListTracks != null && !PlaybackListTracks.Contains(track))
                     {
@@ -1678,7 +1663,7 @@ namespace AudioEffector.ViewModels
                             if (tfile.Tag.Pictures.Length > 0)
                             {
                                 var bin = tfile.Tag.Pictures[0].Data.Data;
-                                Application.Current.Dispatcher.Invoke(() =>
+                                Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
                                     var image = new BitmapImage();
                                     using (var mem = new MemoryStream(bin))
@@ -1719,7 +1704,7 @@ namespace AudioEffector.ViewModels
                             }
                             else
                             {
-                                Application.Current.Dispatcher.Invoke(() =>
+                                Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
                                     NowPlayingImage = _defaultNowPlayingImage;
                                     SpectrumBackgroundImage = _defaultSpectrumImage;
@@ -1737,7 +1722,7 @@ namespace AudioEffector.ViewModels
                     }
                     catch
                     {
-                        Application.Current.Dispatcher.Invoke(() =>
+                        Application.Current.Dispatcher.InvokeAsync(() =>
                         {
                             // Default Gradient
                             // Default Gradient: Right to Left
@@ -1764,23 +1749,26 @@ namespace AudioEffector.ViewModels
 
             else
             {
-                IsDefaultSpectrumImage = true;
-                // Default Gradient
-                // Default Gradient: Right to Left
-                var brush = new LinearGradientBrush();
-                brush.StartPoint = new Point(1, 0.5);
-                brush.EndPoint = new Point(0, 0.5);
-                brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
-                brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
-                brush.Freeze();
-                SpectrumBarBrush = brush;
+                Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    IsDefaultSpectrumImage = true;
+                    // Default Gradient
+                    // Default Gradient: Right to Left
+                    var brush = new LinearGradientBrush();
+                    brush.StartPoint = new Point(1, 0.5);
+                    brush.EndPoint = new Point(0, 0.5);
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
+                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+                    brush.Freeze();
+                    SpectrumBarBrush = brush;
 
-                // Border: Brighter (Lower Saturation), 100% Opacity
-                var borderColor = Color.FromRgb(204, 249, 255);
-                borderColor.A = 255;
-                var solidBorderBrush = new SolidColorBrush(borderColor);
-                solidBorderBrush.Freeze();
-                SpectrumBorderBrush = solidBorderBrush;
+                    // Border: Brighter (Lower Saturation), 100% Opacity
+                    var borderColor = Color.FromRgb(204, 249, 255);
+                    borderColor.A = 255;
+                    var solidBorderBrush = new SolidColorBrush(borderColor);
+                    solidBorderBrush.Freeze();
+                    SpectrumBorderBrush = solidBorderBrush;
+                });
             }
         }
 
@@ -1845,16 +1833,19 @@ namespace AudioEffector.ViewModels
 
         private void OnPlaybackStateChanged(bool isPlaying)
         {
-            IsPlaying = isPlaying;
-            if (isPlaying)
+            Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                _timer.Start();
-            }
-            else
-            {
-                _timer.Stop();
-                // Do not reset images here to persist album art on stop
-            }
+                IsPlaying = isPlaying;
+                if (isPlaying)
+                {
+                    _timer.Start();
+                }
+                else
+                {
+                    _timer.Stop();
+                    // Do not reset images here to persist album art on stop
+                }
+            });
         }
 
         private int _tickCount = 0;

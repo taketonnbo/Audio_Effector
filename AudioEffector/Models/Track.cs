@@ -8,7 +8,7 @@ namespace AudioEffector.Models
     /// <summary>
     /// 音楽トラックを表すクラス。
     /// </summary>
-    public class Track : INotifyPropertyChanged
+    public class Track : INotifyPropertyChanged, IEquatable<Track>
     {
         /// <summary>
         /// トラックのファイルパス。
@@ -169,5 +169,41 @@ namespace AudioEffector.Models
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+
+        #region Equality Members
+        /// <summary>
+        /// 同一のファイルパスを持つトラックかどうかを判定します。
+        /// </summary>
+        public bool Equals(Track? other)
+        {
+            if (ReferenceEquals(null, other)) return false;
+            if (ReferenceEquals(this, other)) return true;
+            if (string.IsNullOrEmpty(FilePath) || string.IsNullOrEmpty(other.FilePath))
+                return false;
+            return string.Equals(FilePath, other.FilePath, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public override bool Equals(object? obj)
+        {
+            return Equals(obj as Track);
+        }
+
+        public override int GetHashCode()
+        {
+            return string.IsNullOrEmpty(FilePath) ? base.GetHashCode() : StringComparer.OrdinalIgnoreCase.GetHashCode(FilePath);
+        }
+
+        public static bool operator ==(Track? left, Track? right)
+        {
+            if (ReferenceEquals(left, right)) return true;
+            if (left is null || right is null) return false;
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(Track? left, Track? right)
+        {
+            return !(left == right);
+        }
+        #endregion
     }
 }

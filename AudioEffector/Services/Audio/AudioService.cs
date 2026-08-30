@@ -210,6 +210,7 @@ namespace AudioEffector.Services
 
         private void PlayCurrent()
         {
+            Track? trackToNotify = null;
             lock (_lock)
             {
                 if (_currentIndex < 0 || _currentIndex >= _playlist.Count) return;
@@ -223,6 +224,7 @@ namespace AudioEffector.Services
                 _currentPlaybackId = Guid.NewGuid();
 
                 var track = _playlist[_currentIndex];
+                trackToNotify = track;
                 try
                 {
                     _audioFile = new AudioFileReader(track.FilePath);
@@ -287,9 +289,7 @@ namespace AudioEffector.Services
                     _outputDevice.Init(endOfStreamProvider);
                     _outputDevice.PlaybackStopped += OnPlaybackStopped;
 
-                    TrackChanged?.Invoke(track);
                     _outputDevice.Play();
-                    PlaybackStateChanged?.Invoke(true);
                 }
                 catch (Exception ex)
                 {
@@ -297,7 +297,14 @@ namespace AudioEffector.Services
                     System.Diagnostics.Debug.WriteLine($"Error playing file: {ex.Message}");
                     // Ensure cleanup if initialization fails
                     Stop(true);
+                    trackToNotify = null;
                 }
+            }
+
+            if (trackToNotify != null)
+            {
+                TrackChanged?.Invoke(trackToNotify);
+                PlaybackStateChanged?.Invoke(true);
             }
         }
 
@@ -357,6 +364,8 @@ namespace AudioEffector.Services
         /// </summary>
         public void TogglePlayPause()
         {
+            bool? notifyState = null;
+            bool shouldPlayFirst = false;
             lock (_lock)
             {
                 if (_outputDevice == null)
@@ -364,31 +373,41 @@ namespace AudioEffector.Services
                     if (_playlist.Any() && _currentIndex == -1)
                     {
                         _currentIndex = 0;
-                        PlayCurrent();
+                        shouldPlayFirst = true;
                     }
-                    return;
                 }
+                else
+                {
+                    try
+                    {
+                        if (_outputDevice.PlaybackState == PlaybackState.Playing)
+                        {
+                            _outputDevice.Pause();
+                            notifyState = false;
+                        }
+                        else
+                        {
+                            _outputDevice.Play();
+                            notifyState = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error in TogglePlayPause: {ex.Message}");
+                        // If device is in bad state, stop and cleanup
+                        Stop(true);
+                        notifyState = false;
+                    }
+                }
+            }
 
-                try
-                {
-                    if (_outputDevice.PlaybackState == PlaybackState.Playing)
-                    {
-                        _outputDevice.Pause();
-                        PlaybackStateChanged?.Invoke(false);
-                    }
-                    else
-                    {
-                        _outputDevice.Play();
-                        PlaybackStateChanged?.Invoke(true);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Error in TogglePlayPause: {ex.Message}");
-                    // If device is in bad state, stop and cleanup
-                    Stop(true);
-                    PlaybackStateChanged?.Invoke(false);
-                }
+            if (shouldPlayFirst)
+            {
+                PlayCurrent();
+            }
+            else if (notifyState.HasValue)
+            {
+                PlaybackStateChanged?.Invoke(notifyState.Value);
             }
         }
 
@@ -465,11 +484,11 @@ namespace AudioEffector.Services
                     _audioFile = null;
                 }
                 _masterVolumeProvider = null;
+            }
 
-                if (!internalStop)
-                {
-                    PlaybackStateChanged?.Invoke(false);
-                }
+            if (!internalStop)
+            {
+                PlaybackStateChanged?.Invoke(false);
             }
         }
 
@@ -554,6 +573,7 @@ namespace AudioEffector.Services
             get => _volume;
             set
             {
+                float newVol;
                 lock (_lock)
                 {
                     _volume = Math.Min(1.0f, Math.Max(0.0f, value));
@@ -561,8 +581,9 @@ namespace AudioEffector.Services
                     {
                         _masterVolumeProvider.Volume = _volume;
                     }
-                    VolumeChanged?.Invoke(_volume);
+                    newVol = _volume;
                 }
+                VolumeChanged?.Invoke(newVol);
             }
         }
 
