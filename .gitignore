@@ -16,6 +16,7 @@ Release/
 _site/
 api/
 docs/
+scratch/
 docfx.json
 index.md
 toc.yml
