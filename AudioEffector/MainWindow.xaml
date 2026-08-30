@@ -208,7 +208,8 @@
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
                                     <Grid Background="Transparent">
-                                        <Path Data="M14.83,13.41l-1.06,1.06l3.17,3.17H21v-1.5h-2.94L14.83,13.41z M10.5,15.25l-1.06,1.06l-4.19-4.19L1,16.31v1.5l5.31-5.31l4.19,4.19L10.5,15.25z M14.83,10.59l3.23-3.23H21V5.86h-4.06l-4.29,4.29L14.83,10.59z M10.5,8.75L15.31,3.94l-1.06-1.06L9.44,7.69L10.5,8.75z" Stretch="Uniform" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Path Data="M10.59,9.17L5.41,4L4,5.41L9.17,10.58L10.59,9.17M14.5,4L16.54,6.04L4,18.59L5.41,20L17.96,7.46L20,9.5V4M14.83,13.41L13.42,14.83L16.55,17.96L14.5,20H20V14.5L17.96,16.54" 
+                                              Stretch="Uniform" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center">
                                             <Path.Style>
                                                 <Style TargetType="Path">
                                                     <Setter Property="Fill" Value="#606060"/>
@@ -323,9 +324,10 @@
             <!-- Main Content Area -->
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition MinWidth="200">
+                    <ColumnDefinition>
                         <ColumnDefinition.Style>
                             <Style TargetType="ColumnDefinition">
+                                <Setter Property="MinWidth" Value="200"/>
                                 <Setter Property="Width" Value="{Binding LeftColumnWidth, Mode=TwoWay}"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
@@ -339,17 +341,14 @@
                         <ColumnDefinition.Style>
                             <Style TargetType="ColumnDefinition">
                                 <Setter Property="Width" Value="Auto"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
-                                        <Setter Property="Width" Value="0"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
+                                <!-- Do not hide this column entirely because it contains the toggle button -->
                             </Style>
                         </ColumnDefinition.Style>
                     </ColumnDefinition>
-                    <ColumnDefinition MinWidth="400">
+                    <ColumnDefinition>
                         <ColumnDefinition.Style>
                             <Style TargetType="ColumnDefinition">
+                                <Setter Property="MinWidth" Value="400"/>
                                 <Setter Property="Width" Value="*"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
@@ -697,7 +696,7 @@
                                 <ControlTemplate TargetType="ToggleButton">
                                     <Grid Background="Transparent">
                                         <Path Data="M10.59,9.17L5.41,4L4,5.41L9.17,10.58L10.59,9.17M14.5,4L16.54,6.04L4,18.59L5.41,20L17.96,7.46L20,9.5V4M14.83,13.41L13.42,14.83L16.55,17.96L14.5,20H20V14.5L17.96,16.54" 
-                                              Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                              Width="18" Height="18" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
                                             <Path.Style>
                                                 <Style TargetType="Path">
                                                     <Setter Property="Fill" Value="#606060"/>
