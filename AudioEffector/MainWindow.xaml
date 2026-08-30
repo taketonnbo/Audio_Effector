@@ -204,21 +204,23 @@
                 <!-- Controls -->
                 <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,5">
-                        <ToggleButton Command="{Binding ToggleShuffleCommand}" IsChecked="{Binding IsShuffle, Mode=OneWay}" Width="16" Height="16" Background="Transparent" BorderThickness="0" Margin="0,0,15,0">
-                             <ToggleButton.Template>
+                        <ToggleButton Command="{Binding ToggleShuffleCommand}" IsChecked="{Binding IsShuffleEnabled}" Width="24" Height="24" Background="Transparent" BorderThickness="0" Margin="0,0,15,0" ToolTip="Shuffle">
+                            <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
-                                    <Path Data="M14.83,13.41l-1.06,1.06l3.17,3.17H21v-1.5h-2.94L14.83,13.41z M10.5,15.25l-1.06,1.06l-4.19-4.19L1,16.31v1.5l5.31-5.31l4.19,4.19L10.5,15.25z M14.83,10.59l3.23-3.23H21V5.86h-4.06l-4.29,4.29L14.83,10.59z M10.5,8.75L15.31,3.94l-1.06-1.06L9.44,7.69L10.5,8.75z" Stretch="Uniform" Width="16" Height="16">
-                                        <Path.Style>
-                                            <Style TargetType="Path">
-                                                <Setter Property="Fill" Value="#606060"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsShuffle}" Value="True">
-                                                        <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Path.Style>
-                                    </Path>
+                                    <Grid Background="Transparent">
+                                        <Path Data="M14.83,13.41l-1.06,1.06l3.17,3.17H21v-1.5h-2.94L14.83,13.41z M10.5,15.25l-1.06,1.06l-4.19-4.19L1,16.31v1.5l5.31-5.31l4.19,4.19L10.5,15.25z M14.83,10.59l3.23-3.23H21V5.86h-4.06l-4.29,4.29L14.83,10.59z M10.5,8.75L15.31,3.94l-1.06-1.06L9.44,7.69L10.5,8.75z" Stretch="Uniform" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Path.Style>
+                                                <Style TargetType="Path">
+                                                    <Setter Property="Fill" Value="#606060"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsShuffleEnabled}" Value="True">
+                                                            <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Path.Style>
+                                        </Path>
+                                    </Grid>
                                 </ControlTemplate>
                             </ToggleButton.Template>
                         </ToggleButton>
@@ -251,21 +253,24 @@
                         <Button Command="{Binding NextCommand}" Width="24" Height="24" Margin="0,0,15,0">
                             <Path Data="M6,18l8.5-6L6,6V18z M16,6v12h2V6H16z" Fill="{DynamicResource TextForegroundBrush}" Stretch="Uniform"/>
                         </Button>
-                        <ToggleButton Command="{Binding ToggleRepeatCommand}" IsChecked="{Binding IsAlbumRepeat, Mode=OneWay}" Width="16" Height="16" Background="Transparent" BorderThickness="0" Margin="0,0,15,0">
+                        <!-- Repeat Button (Top Bar) -->
+                        <ToggleButton Command="{Binding ToggleRepeatCommand}" IsChecked="{Binding IsAlbumRepeat, Mode=OneWay}" Width="24" Height="24" Background="Transparent" BorderThickness="0" Margin="0,0,15,0" ToolTip="Repeat">
                              <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
-                                    <Path Data="M7,7h10v3l4-4l-4-4v3H5v6h2V7z M17,17H7v-3l-4,4l4,4v-3h12v-6h-2V17z" Stretch="Uniform" Width="16" Height="16">
-                                        <Path.Style>
-                                            <Style TargetType="Path">
-                                                <Setter Property="Fill" Value="#606060"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsAlbumRepeat}" Value="True">
-                                                        <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Path.Style>
-                                    </Path>
+                                    <Grid Background="Transparent">
+                                        <Path Data="M7,7h10v3l4-4l-4-4v3H5v6h2V7z M17,17H7v-3l-4,4l4,4v-3h12v-6h-2V17z" Stretch="Uniform" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Path.Style>
+                                                <Style TargetType="Path">
+                                                    <Setter Property="Fill" Value="#606060"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsAlbumRepeat}" Value="True">
+                                                            <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Path.Style>
+                                        </Path>
+                                    </Grid>
                                 </ControlTemplate>
                             </ToggleButton.Template>
                         </ToggleButton>
@@ -312,33 +317,49 @@
                             </ContentControl.Style>
                         </ContentControl>
                     </Button>
-                    <Slider Value="{Binding Volume, Mode=TwoWay}" Minimum="0" Maximum="1" Width="80" VerticalAlignment="Center" Margin="0,0,20,0" Style="{StaticResource NeonVolumeSliderStyle}"/>
-
-                    <Button Command="{Binding ToggleRightPanelCommand}" Background="{StaticResource NeonCyanBrush}" Foreground="White" Width="28" Height="28" ToolTip="Open Right Panel">
-                        <Border CornerRadius="14">
-                            <Path Data="M10,6L4,12L10,18V14H20V10H10V6Z" Fill="White" Stretch="Uniform" Width="14" Height="14">
-                                <Path.RenderTransform>
-                                    <ScaleTransform ScaleX="-1" CenterX="7" />
-                                </Path.RenderTransform>
-                            </Path>
-                        </Border>
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="14">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
                 </StackPanel>
             </Grid>
 
             <!-- Main Content Area -->
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="{Binding LeftColumnWidth, Mode=TwoWay}" MinWidth="200"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*" MinWidth="400"/>
+                    <ColumnDefinition MinWidth="200">
+                        <ColumnDefinition.Style>
+                            <Style TargetType="ColumnDefinition">
+                                <Setter Property="Width" Value="{Binding LeftColumnWidth, Mode=TwoWay}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
+                                        <Setter Property="Width" Value="*"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ColumnDefinition.Style>
+                    </ColumnDefinition>
+                    <ColumnDefinition>
+                        <ColumnDefinition.Style>
+                            <Style TargetType="ColumnDefinition">
+                                <Setter Property="Width" Value="Auto"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
+                                        <Setter Property="Width" Value="0"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ColumnDefinition.Style>
+                    </ColumnDefinition>
+                    <ColumnDefinition MinWidth="400">
+                        <ColumnDefinition.Style>
+                            <Style TargetType="ColumnDefinition">
+                                <Setter Property="Width" Value="*"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
+                                        <Setter Property="Width" Value="0"/>
+                                        <Setter Property="MinWidth" Value="0"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ColumnDefinition.Style>
+                    </ColumnDefinition>
                 </Grid.ColumnDefinitions>
 
         <!-- Left Column: Library -->
@@ -456,8 +477,45 @@
         </Grid>
 
 
-        <!-- GridSplitter (Vertical) -->
-        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{DynamicResource ControlBackgroundBrush}"/>
+        <!-- GridSplitter (Vertical) and Toggle Overlay -->
+        <Grid Grid.Column="1" Panel.ZIndex="10">
+            <GridSplitter Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{DynamicResource ControlBackgroundBrush}">
+                <GridSplitter.Style>
+                    <Style TargetType="GridSplitter">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </GridSplitter.Style>
+            </GridSplitter>
+            
+            <ToggleButton IsChecked="{Binding IsRightPanelOpen}" Command="{Binding ToggleRightPanelCommand}" HorizontalAlignment="Center" VerticalAlignment="Center" Width="16" Height="48" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1,1,1,1" ToolTip="Toggle Right Panel">
+                <ToggleButton.Style>
+                    <Style TargetType="ToggleButton">
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8">
+                                        <Path x:Name="IconPath" Data="M10,6l-4,4l4,4" Stroke="{StaticResource NeonCyanBrush}" StrokeThickness="2" Stretch="None" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="IconPath" Property="Data" Value="M6,6l4,4l-4,4"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="#404040"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ToggleButton.Style>
+            </ToggleButton>
+        </Grid>
 
         <!-- Right Column: Player & Tab Area -->
         <Grid Grid.Column="2" Background="{DynamicResource PanelBackgroundBrush}">
@@ -534,20 +592,6 @@
                                     <TextBlock Text="{Binding CurrentTrack.QualityInfo}" FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" VerticalAlignment="Center" FontFamily="Consolas"/>
                                 </StackPanel>
                             </StackPanel>
-                            
-                            <!-- Right Panel Toggle Button -->
-                            <Button Grid.Column="1" Command="{Binding ToggleRightPanelCommand}" Background="{StaticResource NeonCyanBrush}" Foreground="White" Width="28" Height="28" VerticalAlignment="Top" ToolTip="Close Right Panel">
-                                <Border CornerRadius="14">
-                                    <Path Data="M10,6L4,12L10,18V14H20V10H10V6Z" Fill="White" Stretch="Uniform" Width="14" Height="14" />
-                                </Border>
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}" CornerRadius="14">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Button.Template>
-                            </Button>
                         </Grid>
 
                         <!-- Tracklist -->
@@ -647,12 +691,13 @@
                     <!-- Left Group: Shuffle, Prev, Play, Repeat, Next -->
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                         <!-- Shuffle -->
-                        <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Margin="0,0,15,0" Background="Transparent" BorderThickness="0" ToolTip="Shuffle">
+                        <!-- Shuffle -->
+                        <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Width="24" Height="24" Margin="0,0,15,0" Background="Transparent" BorderThickness="0" ToolTip="Shuffle">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
                                     <Grid Background="Transparent">
                                         <Path Data="M10.59,9.17L5.41,4L4,5.41L9.17,10.58L10.59,9.17M14.5,4L16.54,6.04L4,18.59L5.41,20L17.96,7.46L20,9.5V4M14.83,13.41L13.42,14.83L16.55,17.96L14.5,20H20V14.5L17.96,16.54" 
-                                              Width="16" Height="16" Stretch="Uniform">
+                                              Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
                                             <Path.Style>
                                                 <Style TargetType="Path">
                                                     <Setter Property="Fill" Value="#606060"/>
