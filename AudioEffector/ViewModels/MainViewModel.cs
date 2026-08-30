@@ -1454,6 +1454,7 @@ namespace AudioEffector.ViewModels
 
                 // 2. Resize to small size for performance
                 var resized = new TransformedBitmap(converted, new ScaleTransform(100.0 / converted.PixelWidth, 100.0 / converted.PixelHeight));
+                resized.Freeze();
                 int width = resized.PixelWidth;
                 int height = resized.PixelHeight;
                 int stride = width * 4;
@@ -1554,13 +1555,16 @@ namespace AudioEffector.ViewModels
                 brush.GradientStops.Add(new GradientStop(colorBottom, 0.0));
                 brush.GradientStops.Add(new GradientStop(colorMid, 0.5));
                 brush.GradientStops.Add(new GradientStop(colorTop, 1.0));
+                brush.Freeze();
 
                 SpectrumBarBrush = brush;
                 SpectrumShadowColor = HsvToColor(fh, 1.0, 1.0);
 
                 Color borderColor = HsvToColor(fh, 0.2, 1.0);
                 borderColor.A = 240;
-                SpectrumBorderBrush = new SolidColorBrush(borderColor);
+                var solidBorderBrush = new SolidColorBrush(borderColor);
+                solidBorderBrush.Freeze();
+                SpectrumBorderBrush = solidBorderBrush;
             }
             catch
             {
@@ -1573,12 +1577,15 @@ namespace AudioEffector.ViewModels
                     brush.GradientStops.Add(new GradientStop(Color.FromArgb(220, 139, 92, 246), 0.0)); // Deep Purple
                     brush.GradientStops.Add(new GradientStop(Color.FromArgb(255, 0, 229, 255), 0.5));   // Electric Cyan
                     brush.GradientStops.Add(new GradientStop(Color.FromArgb(255, 255, 255, 255), 1.0)); // White Neon Tip
+                    brush.Freeze();
 
                     SpectrumBarBrush = brush;
                     SpectrumShadowColor = Color.FromRgb(0, 229, 255);
 
                     var borderColor = Color.FromArgb(240, 204, 249, 255);
-                    SpectrumBorderBrush = new SolidColorBrush(borderColor);
+                    var solidBorderBrush = new SolidColorBrush(borderColor);
+                    solidBorderBrush.Freeze();
+                    SpectrumBorderBrush = solidBorderBrush;
                 });
             }
         }
@@ -1707,7 +1714,9 @@ namespace AudioEffector.ViewModels
                                     // Border: Brighter (Lower Saturation), 100% Opacity
                                     var borderColor = Color.FromRgb(204, 249, 255);
                                     borderColor.A = 255;
-                                    SpectrumBorderBrush = new SolidColorBrush(borderColor);
+                                    var solidBorderBrush = new SolidColorBrush(borderColor);
+                                    solidBorderBrush.Freeze();
+                                    SpectrumBorderBrush = solidBorderBrush;
                                 });
                             }
                         }
@@ -1723,6 +1732,7 @@ namespace AudioEffector.ViewModels
                             brush.EndPoint = new Point(0, 0.5);
                             brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
                             brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+                            brush.Freeze();
                             SpectrumBarBrush = brush;
                             SpectrumShadowColor = Color.FromRgb(0, 229, 255);
 
@@ -1730,7 +1740,9 @@ namespace AudioEffector.ViewModels
                             // Reduced Saturation: S=0.2 (Very White)
                             var borderColor = Color.FromRgb(204, 249, 255); // Approx for H186 S0.2 V1.0
                             borderColor.A = 255;
-                            SpectrumBorderBrush = new SolidColorBrush(borderColor);
+                            var solidBorderBrush = new SolidColorBrush(borderColor);
+                            solidBorderBrush.Freeze();
+                            SpectrumBorderBrush = solidBorderBrush;
                         });
                     }
                 });
@@ -1746,12 +1758,15 @@ namespace AudioEffector.ViewModels
                 brush.EndPoint = new Point(0, 0.5);
                 brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
                 brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+                brush.Freeze();
                 SpectrumBarBrush = brush;
 
                 // Border: Brighter (Lower Saturation), 100% Opacity
                 var borderColor = Color.FromRgb(204, 249, 255);
                 borderColor.A = 255;
-                SpectrumBorderBrush = new SolidColorBrush(borderColor);
+                var solidBorderBrush = new SolidColorBrush(borderColor);
+                solidBorderBrush.Freeze();
+                SpectrumBorderBrush = solidBorderBrush;
             }
         }
 
