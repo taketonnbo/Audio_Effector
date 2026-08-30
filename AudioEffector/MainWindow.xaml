@@ -210,21 +210,29 @@
                 </Grid.Style>
 
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="200"/> <!-- Track Info -->
-                    <ColumnDefinition Width="*"/>   <!-- Controls & Progress -->
-                    <ColumnDefinition Width="Auto"/> <!-- Volume & Toggle -->
+                    <ColumnDefinition Width="1*" MinWidth="180" MaxWidth="350"/> <!-- Track Info -->
+                    <ColumnDefinition Width="Auto"/>   <!-- Controls & Progress -->
+                    <ColumnDefinition Width="1*"/> <!-- Volume & Toggle -->
                 </Grid.ColumnDefinitions>
 
                 <!-- Track Info -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="10,0">
-                    <Border Width="40" Height="40" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundBrush}">
+                <Grid Grid.Column="0" Margin="10,0" VerticalAlignment="Center" HorizontalAlignment="Left">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Width="40" Height="40" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundBrush}">
                         <Image Source="{Binding NowPlayingImage}" Stretch="UniformToFill"/>
                     </Border>
-                    <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
-                        <TextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" Foreground="{DynamicResource TextForegroundBrush}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" TextTrimming="CharacterEllipsis"/>
-                    </StackPanel>
-                </StackPanel>
+                    <Grid Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" Foreground="{DynamicResource TextForegroundBrush}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Grid.Row="1" Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                    </Grid>
+                </Grid>
 
                 <!-- Controls -->
                 <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -320,7 +328,7 @@
                 </StackPanel>
 
                 <!-- Volume & Toggle -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,20,0">
                     <Button Command="{Binding ToggleMuteCommand}" Background="Transparent" BorderThickness="0" Width="20" Height="20" Margin="0,0,5,0">
                         <ContentControl>
                             <ContentControl.Style>
