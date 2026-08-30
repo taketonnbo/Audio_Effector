@@ -121,7 +121,6 @@ namespace AudioEffector.ViewModels
         private bool _isLibraryVisible = true;
         private bool _isFolderViewVisible = false;
         private bool _isPlaylistSelectorVisible = false;
-        private bool _isPlaylistTracksVisible = false;
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
         private UserPlaylist? _currentViewingPlaylist;
 
@@ -597,11 +596,7 @@ namespace AudioEffector.ViewModels
             set { _isPlaylistSelectorVisible = value; OnPropertyChanged(); }
         }
 
-        public bool IsPlaylistTracksVisible
-        {
-            get => _isPlaylistTracksVisible;
-            set { _isPlaylistTracksVisible = value; OnPropertyChanged(); }
-        }
+        public bool IsPlaylistTracksVisible => CurrentViewType == ViewType.PlaylistTracks || CurrentViewType == ViewType.Favorites;
 
         public bool IsLoading
         {

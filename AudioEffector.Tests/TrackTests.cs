@@ -99,5 +99,38 @@ namespace AudioEffector.Tests
             // Assert
             Assert.Equal(expected, actual);
         }
+
+        /// <summary>
+        /// 同一のFilePathを持つTrack同士が等価と判定されるかを検証します。
+        /// </summary>
+        [Fact]
+        public void Track_同一FilePath_等価と判定される()
+        {
+            // Arrange
+            var track1 = new Track { FilePath = @"C:\Music\song.mp3", Title = "Song 1" };
+            var track2 = new Track { FilePath = @"C:\Music\song.mp3", Title = "Song 1 (Copy)" };
+
+            // Act & Assert
+            Assert.True(track1.Equals(track2));
+            Assert.True(track1 == track2);
+            Assert.False(track1 != track2);
+            Assert.Equal(track1.GetHashCode(), track2.GetHashCode());
+        }
+
+        /// <summary>
+        /// 異なるFilePathを持つTrack同士が不等価と判定されるかを検証します。
+        /// </summary>
+        [Fact]
+        public void Track_異なるFilePath_不等価と判定される()
+        {
+            // Arrange
+            var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+            var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" };
+
+            // Act & Assert
+            Assert.False(track1.Equals(track2));
+            Assert.False(track1 == track2);
+            Assert.True(track1 != track2);
+        }
     }
 }
