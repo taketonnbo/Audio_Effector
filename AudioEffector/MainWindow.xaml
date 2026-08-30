@@ -356,14 +356,22 @@
                                         <DataTrigger.EnterActions>
                                             <BeginStoryboard>
                                                 <Storyboard>
-                                                    <controls:GridLengthAnimation Storyboard.TargetProperty="Width" From="1*" To="0*" Duration="0:0:0.3" />
+                                                    <controls:GridLengthAnimation Storyboard.TargetProperty="Width" From="1*" To="0*" Duration="0:0:0.6">
+                                                        <controls:GridLengthAnimation.EasingFunction>
+                                                            <CubicEase EasingMode="EaseOut"/>
+                                                        </controls:GridLengthAnimation.EasingFunction>
+                                                    </controls:GridLengthAnimation>
                                                 </Storyboard>
                                             </BeginStoryboard>
                                         </DataTrigger.EnterActions>
                                         <DataTrigger.ExitActions>
                                             <BeginStoryboard>
                                                 <Storyboard>
-                                                    <controls:GridLengthAnimation Storyboard.TargetProperty="Width" From="0*" To="1*" Duration="0:0:0.3" />
+                                                    <controls:GridLengthAnimation Storyboard.TargetProperty="Width" From="0*" To="1*" Duration="0:0:0.6">
+                                                        <controls:GridLengthAnimation.EasingFunction>
+                                                            <CubicEase EasingMode="EaseOut"/>
+                                                        </controls:GridLengthAnimation.EasingFunction>
+                                                    </controls:GridLengthAnimation>
                                                 </Storyboard>
                                             </BeginStoryboard>
                                         </DataTrigger.ExitActions>

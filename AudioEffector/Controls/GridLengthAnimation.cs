@@ -20,6 +20,13 @@ namespace AudioEffector.Controls
             set { SetValue(ToProperty, value); }
         }
 
+        public static readonly DependencyProperty EasingFunctionProperty = DependencyProperty.Register("EasingFunction", typeof(IEasingFunction), typeof(GridLengthAnimation));
+        public IEasingFunction EasingFunction
+        {
+            get { return (IEasingFunction)GetValue(EasingFunctionProperty); }
+            set { SetValue(EasingFunctionProperty, value); }
+        }
+
         public override Type TargetPropertyType => typeof(GridLength);
 
         protected override Freezable CreateInstanceCore() => new GridLengthAnimation();
@@ -29,19 +36,25 @@ namespace AudioEffector.Controls
             if (!animationClock.CurrentProgress.HasValue)
                 return To;
 
+            double progress = animationClock.CurrentProgress.Value;
+            if (EasingFunction != null)
+            {
+                progress = EasingFunction.Ease(progress);
+            }
+
             double fromVal = From.Value;
             double toVal = To.Value;
 
             if (fromVal > toVal)
             {
                 // 閉じる時
-                double newVal = fromVal - ((fromVal - toVal) * animationClock.CurrentProgress.Value);
+                double newVal = fromVal - ((fromVal - toVal) * progress);
                 return new GridLength(newVal, GridUnitType.Star);
             }
             else
             {
                 // 開く時
-                double newVal = fromVal + ((toVal - fromVal) * animationClock.CurrentProgress.Value);
+                double newVal = fromVal + ((toVal - fromVal) * progress);
                 return new GridLength(newVal, GridUnitType.Star);
             }
         }
