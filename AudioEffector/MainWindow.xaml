@@ -7,6 +7,7 @@
         xmlns:vm="clr-namespace:AudioEffector.ViewModels"
         xmlns:services="clr-namespace:AudioEffector.Services"
         xmlns:views="clr-namespace:AudioEffector.Views"
+        xmlns:controls="clr-namespace:AudioEffector.Controls"
         mc:Ignorable="d"
         Title="Audio Effector" Height="650" Width="1000"
         Icon="pack://application:,,,/Audio_Effector_icon_1.0.1.ico"
@@ -348,7 +349,27 @@
                     <ColumnDefinition>
                         <ColumnDefinition.Style>
                             <Style TargetType="ColumnDefinition">
-                                <Setter Property="Width" Value="Auto"/>
+                                <Setter Property="Width" Value="1*"/>
+                                <Setter Property="MinWidth" Value="400"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
+                                        <DataTrigger.EnterActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <controls:GridLengthAnimation Storyboard.TargetProperty="Width" From="1*" To="0*" Duration="0:0:0.3" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.EnterActions>
+                                        <DataTrigger.ExitActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <controls:GridLengthAnimation Storyboard.TargetProperty="Width" From="0*" To="1*" Duration="0:0:0.3" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.ExitActions>
+                                        <Setter Property="MinWidth" Value="0"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
                             </Style>
                         </ColumnDefinition.Style>
                     </ColumnDefinition>
@@ -511,40 +532,7 @@
 
         <!-- Right Column: Player & Tab Area -->
         <Grid Grid.Column="2" Background="{DynamicResource PanelBackgroundBrush}" ClipToBounds="True">
-            <Grid.Style>
-                <Style TargetType="Grid">
-                    <Setter Property="Width" Value="400"/>
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="True">
-                            <DataTrigger.EnterActions>
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetProperty="Width" From="0" To="400" Duration="0:0:0.3">
-                                            <DoubleAnimation.EasingFunction>
-                                                <CubicEase EasingMode="EaseOut"/>
-                                            </DoubleAnimation.EasingFunction>
-                                        </DoubleAnimation>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </DataTrigger.EnterActions>
-                            <DataTrigger.ExitActions>
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetProperty="Width" From="400" To="0" Duration="0:0:0.3">
-                                            <DoubleAnimation.EasingFunction>
-                                                <CubicEase EasingMode="EaseIn"/>
-                                            </DoubleAnimation.EasingFunction>
-                                        </DoubleAnimation>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </DataTrigger.ExitActions>
-                        </DataTrigger>
-                        <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
-                            <Setter Property="Width" Value="0"/>
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
-            </Grid.Style>
+
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/> <!-- Top Section (Now Playing + Controls) -->
                 <RowDefinition Height="Auto"/> <!-- Static Border -->
