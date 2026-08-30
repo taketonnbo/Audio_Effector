@@ -2947,12 +2947,19 @@ namespace AudioEffector.ViewModels
 
         public ObservableCollection<SpectrumBarItem> SpectrumValues { get; } = new ObservableCollection<SpectrumBarItem>();
 
+        private DateTime _lastSpectrumUpdateTime = DateTime.MinValue;
+        private readonly TimeSpan _spectrumUpdateInterval = TimeSpan.FromMilliseconds(1000.0 / 30.0); // 約33ms (30fps)
+
         /// <summary>
         /// FFT（高速フーリエ変換）の計算結果を受け取り、スペクトラムアナライザーのバーの高さを更新します。
         /// </summary>
         private void OnFftCalculated(object? sender, FftEventArgs e)
         {
             if (!IsSpectrumVisible) return;
+
+            // スロットリング: 一定間隔未満の更新はスキップ
+            if (DateTime.Now - _lastSpectrumUpdateTime < _spectrumUpdateInterval) return;
+            _lastSpectrumUpdateTime = DateTime.Now;
 
             // Capture current generation
             int currentGen = _spectrumGeneration;
