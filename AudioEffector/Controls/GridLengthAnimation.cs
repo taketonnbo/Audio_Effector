@@ -48,13 +48,13 @@ namespace AudioEffector.Controls
             if (fromVal > toVal)
             {
                 // 閉じる時
-                double newVal = fromVal - ((fromVal - toVal) * progress);
+                double newVal = Math.Max(0.0, fromVal - ((fromVal - toVal) * progress));
                 return new GridLength(newVal, GridUnitType.Star);
             }
             else
             {
                 // 開く時
-                double newVal = fromVal + ((toVal - fromVal) * progress);
+                double newVal = Math.Max(0.0, fromVal + ((toVal - fromVal) * progress));
                 return new GridLength(newVal, GridUnitType.Star);
             }
         }
