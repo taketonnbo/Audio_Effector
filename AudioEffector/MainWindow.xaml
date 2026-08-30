@@ -348,14 +348,7 @@
                     <ColumnDefinition>
                         <ColumnDefinition.Style>
                             <Style TargetType="ColumnDefinition">
-                                <Setter Property="MinWidth" Value="400"/>
-                                <Setter Property="Width" Value="*"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
-                                        <Setter Property="Width" Value="0"/>
-                                        <Setter Property="MinWidth" Value="0"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
+                                <Setter Property="Width" Value="Auto"/>
                             </Style>
                         </ColumnDefinition.Style>
                     </ColumnDefinition>
@@ -476,11 +469,11 @@
         </Grid>
 
 
-        <!-- GridSplitter (Vertical) and Toggle Overlay -->
+        <!-- Separator (Vertical) and Toggle Overlay -->
         <Grid Grid.Column="1" Panel.ZIndex="10">
-            <GridSplitter Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{DynamicResource ControlBackgroundBrush}">
-                <GridSplitter.Style>
-                    <Style TargetType="GridSplitter">
+            <Border Width="1" HorizontalAlignment="Center" VerticalAlignment="Stretch" Background="{DynamicResource ControlBackgroundBrush}">
+                <Border.Style>
+                    <Style TargetType="Border">
                         <Setter Property="Visibility" Value="Visible"/>
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
@@ -488,10 +481,10 @@
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
-                </GridSplitter.Style>
-            </GridSplitter>
+                </Border.Style>
+            </Border>
             
-            <ToggleButton IsChecked="{Binding IsRightPanelOpen}" Command="{Binding ToggleRightPanelCommand}" HorizontalAlignment="Center" VerticalAlignment="Center" Width="16" Height="48" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1,1,1,1" ToolTip="Toggle Right Panel">
+            <ToggleButton IsChecked="{Binding IsRightPanelOpen}" HorizontalAlignment="Center" VerticalAlignment="Center" Width="16" Height="48" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="1,1,1,1" ToolTip="Toggle Right Panel">
                 <ToggleButton.Style>
                     <Style TargetType="ToggleButton">
                         <Setter Property="Template">
@@ -517,20 +510,44 @@
         </Grid>
 
         <!-- Right Column: Player & Tab Area -->
-        <Grid Grid.Column="2" Background="{DynamicResource PanelBackgroundBrush}">
+        <Grid Grid.Column="2" Background="{DynamicResource PanelBackgroundBrush}" ClipToBounds="True">
             <Grid.Style>
                 <Style TargetType="Grid">
-                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Setter Property="Width" Value="400"/>
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="True">
-                            <Setter Property="Visibility" Value="Visible"/>
+                            <DataTrigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="Width" From="0" To="400" Duration="0:0:0.3">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </DataTrigger.EnterActions>
+                            <DataTrigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetProperty="Width" From="400" To="0" Duration="0:0:0.3">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseIn"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </DataTrigger.ExitActions>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsRightPanelOpen}" Value="False">
+                            <Setter Property="Width" Value="0"/>
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
             </Grid.Style>
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/> <!-- Top Section (Now Playing + Controls) -->
-                <RowDefinition Height="Auto"/> <!-- Splitter -->
+                <RowDefinition Height="Auto"/> <!-- Static Border -->
                 <RowDefinition Height="*"/> <!-- Bottom Section (Reserved for Tabs) -->
             </Grid.RowDefinitions>
 
