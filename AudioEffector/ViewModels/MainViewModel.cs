@@ -105,6 +105,19 @@ namespace AudioEffector.ViewModels
 
         public ICommand SwitchViewCommand { get; }
 
+        private bool _isRightPanelOpen = false;
+        /// <summary>
+        /// 右側タブパネルが開いているかどうかを示すプロパティ。
+        /// Falseの場合は画面上部にコンパクトプレイヤーが表示されます。
+        /// </summary>
+        public bool IsRightPanelOpen
+        {
+            get => _isRightPanelOpen;
+            set { _isRightPanelOpen = value; OnPropertyChanged(); }
+        }
+
+        public ICommand ToggleRightPanelCommand { get; }
+
         private bool _isLibraryVisible = true;
         private bool _isFolderViewVisible = false;
         private bool _isPlaylistSelectorVisible = false;
@@ -387,6 +400,7 @@ namespace AudioEffector.ViewModels
             RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
             ShowDeviceManagerCommand = new RelayCommand(o => ShowDeviceManager());
             ShowSettingsCommand = new RelayCommand(o => ShowSettings());
+            ToggleRightPanelCommand = new RelayCommand(o => IsRightPanelOpen = !IsRightPanelOpen);
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
             _audioService.FftCalculated += OnFftCalculated;
