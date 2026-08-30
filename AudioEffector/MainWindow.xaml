@@ -182,7 +182,7 @@
                                 <DataTrigger.EnterActions>
                                     <BeginStoryboard>
                                         <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="Height" From="60" To="0" Duration="0:0:0.4">
+                                            <DoubleAnimation Storyboard.TargetProperty="Height" From="60" To="0" Duration="0:0:0.6">
                                                 <DoubleAnimation.EasingFunction>
                                                     <CubicEase EasingMode="EaseInOut"/>
                                                 </DoubleAnimation.EasingFunction>
@@ -193,7 +193,7 @@
                                 <DataTrigger.ExitActions>
                                     <BeginStoryboard>
                                         <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetProperty="Height" From="0" To="60" Duration="0:0:0.4">
+                                            <DoubleAnimation Storyboard.TargetProperty="Height" From="0" To="60" Duration="0:0:0.6">
                                                 <DoubleAnimation.EasingFunction>
                                                     <CubicEase EasingMode="EaseOut"/>
                                                 </DoubleAnimation.EasingFunction>
@@ -366,7 +366,7 @@
                                         <DataTrigger.EnterActions>
                                             <BeginStoryboard>
                                                 <Storyboard>
-                                                    <controls:GridLengthAnimation Storyboard.TargetProperty="Width" From="1*" To="0*" Duration="0:0:0.4">
+                                                    <controls:GridLengthAnimation Storyboard.TargetProperty="Width" From="1*" To="0*" Duration="0:0:0.6">
                                                         <controls:GridLengthAnimation.EasingFunction>
                                                             <CubicEase EasingMode="EaseInOut"/>
                                                         </controls:GridLengthAnimation.EasingFunction>
@@ -377,7 +377,7 @@
                                         <DataTrigger.ExitActions>
                                             <BeginStoryboard>
                                                 <Storyboard>
-                                                    <controls:GridLengthAnimation Storyboard.TargetProperty="Width" From="0*" To="1*" Duration="0:0:0.4">
+                                                    <controls:GridLengthAnimation Storyboard.TargetProperty="Width" From="0*" To="1*" Duration="0:0:0.6">
                                                         <controls:GridLengthAnimation.EasingFunction>
                                                             <CubicEase EasingMode="EaseInOut"/>
                                                         </controls:GridLengthAnimation.EasingFunction>
