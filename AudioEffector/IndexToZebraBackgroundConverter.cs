@@ -11,7 +11,7 @@ namespace AudioEffector
     public class IndexToZebraBackgroundConverter : IValueConverter
     {
         private static readonly SolidColorBrush EvenBrush = Brushes.Transparent;
-        private static readonly SolidColorBrush OddBrush = new SolidColorBrush(Color.FromArgb(28, 255, 255, 255)); // 約11%透明度の白 (視認性向上)
+        private static readonly SolidColorBrush OddBrush = new SolidColorBrush(Color.FromArgb(32, 255, 255, 255)); // 約12.5%透明度の白 (視認性向上)
 
         static IndexToZebraBackgroundConverter()
         {
