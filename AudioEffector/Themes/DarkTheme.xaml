@@ -1,17 +1,17 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     
-    <!-- Colors -->
-    <Color x:Key="WindowBackgroundColor">#1E1E1E</Color>
-    <Color x:Key="PanelBackgroundColor">#0A0A15</Color>
-    <Color x:Key="ControlBackgroundColor">#202020</Color>
-    <Color x:Key="ControlBackgroundHighlightColor">#303030</Color>
+    <!-- Colors (Modern Deep Slate & Premium Charcoal Palette) -->
+    <Color x:Key="WindowBackgroundColor">#161920</Color>
+    <Color x:Key="PanelBackgroundColor">#1B2028</Color>
+    <Color x:Key="ControlBackgroundColor">#232934</Color>
+    <Color x:Key="ControlBackgroundHighlightColor">#2F3746</Color>
     
-    <Color x:Key="TextForegroundColor">#FFFFFF</Color>
-    <Color x:Key="SecondaryTextForegroundColor">#CCCCCC</Color>
-    <Color x:Key="MutedTextForegroundColor">#808080</Color>
+    <Color x:Key="TextForegroundColor">#F0F4F8</Color>
+    <Color x:Key="SecondaryTextForegroundColor">#A0AEC0</Color>
+    <Color x:Key="MutedTextForegroundColor">#718096</Color>
     
-    <Color x:Key="BorderColor">#404040</Color>
+    <Color x:Key="BorderColor">#343E4E</Color>
     
     <!-- Accent Colors (Shared or Theme Specific) -->
     <Color x:Key="NeonCyanColor">#00FFFF</Color>
@@ -34,18 +34,18 @@
 
     <!-- Metallic Card Background & Border Brushes (Top-Left Light, Bottom-Right Dark) -->
     <LinearGradientBrush x:Key="MetallicCardBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#282E38" Offset="0.0"/>
-        <GradientStop Color="#1E232B" Offset="0.45"/>
-        <GradientStop Color="#13171E" Offset="1.0"/>
+        <GradientStop Color="#2C3545" Offset="0.0"/>
+        <GradientStop Color="#202734" Offset="0.45"/>
+        <GradientStop Color="#161A22" Offset="1.0"/>
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="MetallicCardBorderBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#424D5C" Offset="0.0"/>
-        <GradientStop Color="#2B323D" Offset="0.5"/>
-        <GradientStop Color="#181D24" Offset="1.0"/>
+        <GradientStop Color="#4D5D75" Offset="0.0"/>
+        <GradientStop Color="#323D4D" Offset="0.5"/>
+        <GradientStop Color="#1C222C" Offset="1.0"/>
     </LinearGradientBrush>
 
     <!-- Zebra Stripe Brush (Subtle dynamic white for Dark Theme) -->
-    <SolidColorBrush x:Key="ZebraOddBackgroundBrush" Color="#10FFFFFF"/>
+    <SolidColorBrush x:Key="ZebraOddBackgroundBrush" Color="#12FFFFFF"/>
 
 </ResourceDictionary>
