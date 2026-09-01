@@ -631,12 +631,12 @@
                         </Style>
                     </Grid.Style>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/> <!-- Left: Large Cover Art, Details & Left-side Controls (Animated) -->
-                        <ColumnDefinition Width="*"/>   <!-- Right: Full-Height Tracklist -->
+                        <ColumnDefinition Width="Auto"/> <!-- Left: Large Cover Art, Details & Player Card Pod (Animated) -->
+                        <ColumnDefinition Width="*"/>   <!-- Right: Full-Height Tracklist in Rounded Rectangle Container -->
                     </Grid.ColumnDefinitions>
 
-                    <!-- Left Column: Album Art + Meta + Controls in Left Column -->
-                    <Grid Grid.Column="0" Margin="0,0,25,0">
+                    <!-- Left Column: Album Art + Meta + Player Pod Card -->
+                    <Grid Grid.Column="0" Margin="0,0,20,0">
                         <Grid.Style>
                             <Style TargetType="Grid">
                                 <Setter Property="Width" Value="340"/>
@@ -672,12 +672,11 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/> <!-- Large Album Art -->
                             <RowDefinition Height="Auto"/> <!-- Album Name & Artist & Quality -->
-                            <RowDefinition Height="Auto"/> <!-- Controls Upper: Buttons -->
-                            <RowDefinition Height="Auto"/> <!-- Controls Lower: Title & Seekbar -->
+                            <RowDefinition Height="*"/>    <!-- Player Pod Card (Occupies remaining height) -->
                         </Grid.RowDefinitions>
 
-                        <!-- Large Cover Art (Animated Width / Height) -->
-                        <Border Grid.Row="0" CornerRadius="8" Background="{DynamicResource ControlBackgroundBrush}" HorizontalAlignment="Center" ClipToBounds="True" Margin="0,0,0,12">
+                        <!-- Large Cover Art (Rounded Corners CornerRadius=16 & Animated Width / Height) -->
+                        <Border Grid.Row="0" CornerRadius="16" Background="{DynamicResource ControlBackgroundBrush}" HorizontalAlignment="Center" ClipToBounds="True" Margin="0,0,0,10">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Width" Value="260"/>
@@ -724,12 +723,12 @@
                         </Border>
 
                         <!-- Album Info -->
-                        <StackPanel Grid.Row="1" Margin="5,0,5,15">
-                            <TextBlock Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" FontFamily="Segoe UI" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding PlaybackListSubtitle, FallbackValue=''}" FontSize="13" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                        <StackPanel Grid.Row="1" Margin="4,0,4,10">
+                            <TextBlock Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" FontFamily="Segoe UI" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding PlaybackListSubtitle, FallbackValue=''}" FontSize="12" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
                             
-                            <!-- Quality Info -->
-                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <!-- Quality Info (Hi-Res Text Badge without extra icons) -->
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                 <Border Background="{DynamicResource ControlBackgroundBrush}" CornerRadius="3" Padding="5,1" Margin="0,0,6,0" VerticalAlignment="Center">
                                     <Border.Style>
                                         <Style TargetType="Border">
@@ -750,265 +749,287 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- Controls Upper Row: Shuffle, Prev, Play, Next, Repeat, Queue, Add, Fav -->
-                        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,10">
-                            <!-- Shuffle -->
-                            <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Width="22" Height="22" Margin="0,0,10,0" Background="Transparent" BorderThickness="0" ToolTip="Shuffle">
-                                <ToggleButton.Template>
-                                    <ControlTemplate TargetType="ToggleButton">
-                                        <Grid Background="Transparent">
-                                            <Path Data="M10.59,9.17L5.41,4L4,5.41L9.17,10.58L10.59,9.17M14.5,4L16.54,6.04L4,18.59L5.41,20L17.96,7.46L20,9.5V4M14.83,13.41L13.42,14.83L16.55,17.96L14.5,20H20V14.5L17.96,16.54" 
-                                                  Width="15" Height="15" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <Path.Style>
-                                                    <Style TargetType="Path">
-                                                        <Setter Property="Fill" Value="#606060"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsShuffleEnabled}" Value="True">
-                                                                <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Path.Style>
-                                            </Path>
-                                        </Grid>
-                                    </ControlTemplate>
-                                </ToggleButton.Template>
-                            </ToggleButton>
+                        <!-- Player Pod Card (Semi-transparent Container grouping Current Track & Controls) -->
+                        <Border Grid.Row="2" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="14,10" VerticalAlignment="Top">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/> <!-- Current Track Title & Quick Actions (Fav/Playlist) -->
+                                    <RowDefinition Height="Auto"/> <!-- Playback Control Buttons (Prominent Play Button) -->
+                                    <RowDefinition Height="Auto"/> <!-- Seekbar & Timestamps -->
+                                </Grid.RowDefinitions>
 
-                            <!-- Prev -->
-                            <Button Command="{Binding PreviousCommand}" Margin="0,0,10,0" ToolTip="Previous" Background="Transparent" BorderThickness="0">
-                                <Path Data="M6,6h2v12H6V6z M9.5,12l8.5,6V6L9.5,12z" Fill="{StaticResource NeonCyanBrush}" Width="14" Height="14" Stretch="Uniform"/>
-                            </Button>
-                            
-                            <!-- Play/Pause -->
-                            <Button Command="{Binding TogglePlayPauseCommand}" Width="36" Height="36" Margin="0,0,10,0" ToolTip="Play/Pause">
-                                <Grid>
-                                    <Ellipse Stroke="{StaticResource NeonCyanBrush}" StrokeThickness="2" Fill="Transparent"/>
-                                    <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="White" Width="12" Height="12" Stretch="Uniform" Margin="2,0,0,0"
-                                          Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
-                                    <Path Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="White" Width="12" Height="12" Stretch="Uniform"
-                                          Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}"/>
-                                </Grid>
-                            </Button>
+                                <!-- Row 0: Current Track Title & Fav/Playlist Actions -->
+                                <Grid Grid.Row="0" Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
 
-                            <!-- Next -->
-                            <Button Command="{Binding NextCommand}" Margin="0,0,10,0" ToolTip="Next" Background="Transparent" BorderThickness="0">
-                                <Path Data="M6,18l8.5-6L6,6V18z M16,6v12h2V6H16z" Fill="{StaticResource NeonCyanBrush}" Width="14" Height="14" Stretch="Uniform"/>
-                            </Button>
+                                    <TextBlock Grid.Column="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" 
+                                               FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource NeonCyanBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
 
-                            <!-- Repeat -->
-                            <ToggleButton Command="{Binding ToggleRepeatCommand}" IsChecked="{Binding IsAlbumRepeat, Mode=OneWay}" Width="16" Height="16" Margin="0,0,10,0" Background="Transparent" BorderThickness="0" ToolTip="Repeat">
-                                 <ToggleButton.Template>
-                                    <ControlTemplate TargetType="ToggleButton">
-                                        <Grid Background="Transparent">
-                                            <Path Data="M7,7h10v3l4-4l-4-4v3H5v6h2V7z M17,17H7v-3l-4,4l4,4v-3h12v-6h-2V17z" Stretch="Uniform" Width="15" Height="15">
-                                                <Path.Style>
-                                                    <Style TargetType="Path">
-                                                        <Setter Property="Fill" Value="#606060"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsAlbumRepeat}" Value="True">
-                                                                <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Path.Style>
-                                            </Path>
-                                        </Grid>
-                                    </ControlTemplate>
-                                </ToggleButton.Template>
-                            </ToggleButton>
-                            
-                            <!-- Play Queue -->
-                            <Button Command="{Binding ShowQueueDialogCommand}" Margin="0,0,10,0" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="16" Height="16">
-                                <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{StaticResource NeonCyanBrush}" Stretch="Uniform"/>
-                            </Button>
-
-                            <!-- Add to Playlist -->
-                            <Button Command="{Binding ShowAddToPlaylistDialogCommand}" CommandParameter="{Binding CurrentTrack}" Margin="0,0,10,0" Background="Transparent" BorderThickness="0" ToolTip="Add to Playlist">
-                                <Path Data="M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6V13z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="15" Height="15" Stretch="Uniform"/>
-                            </Button>
-
-                            <!-- Favorite -->
-                            <Button Command="{Binding ToggleFavoriteCommand}" CommandParameter="{Binding CurrentTrack}" Background="Transparent" BorderThickness="0" ToolTip="Favorite">
-                                <Path Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
-                                      Width="15" Height="15" Stretch="Uniform">
-                                    <Path.Style>
-                                        <Style TargetType="Path">
-                                            <Setter Property="Fill" Value="#606060"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding CurrentTrack.IsFavorite}" Value="True">
-                                                    <Setter Property="Fill" Value="#FF4081"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Path.Style>
-                                </Path>
-                            </Button>
-                        </StackPanel>
-
-                        <!-- Controls Lower Row: Title & Seekbar -->
-                        <Grid Grid.Row="3" Margin="5,0,5,0">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            
-                            <TextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" 
-                                       HorizontalAlignment="Left" Foreground="{DynamicResource TextForegroundBrush}" FontSize="12" Margin="0,0,0,3" TextTrimming="CharacterEllipsis"/>
-
-                            <Grid Grid.Row="1">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="{Binding CurrentTimeDisplay}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                 
-                                <Slider Grid.Column="1" Value="{Binding Progress, Mode=TwoWay}" Maximum="100" VerticalAlignment="Center" 
-                                        IsMoveToPointEnabled="True"
-                                        Thumb.DragStarted="Slider_DragStarted"
-                                        Thumb.DragCompleted="Slider_DragCompleted"
-                                        Style="{StaticResource NeonSliderStyle}"/>
-                                        
-                                <TextBlock Grid.Column="2" Text="{Binding TotalTimeDisplay}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
-                            </Grid>
-                        </Grid>
-                    </Grid>
-
-                    <!-- Right Column: Tracklist (Full Height) -->
-                    <Grid Grid.Column="1" Margin="10,0,0,0">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/> <!-- Tracklist Header (Count) -->
-                            <RowDefinition Height="*"/>    <!-- Scrollable Tracklist -->
-                        </Grid.RowDefinitions>
-
-                        <TextBlock Grid.Row="0" Text="{Binding PlaybackListTracksCountText, FallbackValue='Tracklist'}" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextForegroundBrush}" Margin="0,0,40,12"/>
-
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                            <ItemsControl ItemsSource="{Binding PlaybackListTracks}" AlternationCount="999" HorizontalContentAlignment="Stretch">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Button Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
-                                                CommandParameter="{Binding}"
-                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                                Margin="0,2" BorderThickness="0" Padding="6,6">
-                                            <Button.Template>
-                                                <ControlTemplate TargetType="Button">
-                                                    <Border x:Name="TrackBorder" Background="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter, AncestorLevel=2}, Path=(ItemsControl.AlternationIndex), Converter={StaticResource IndexToZebraBackgroundConverter}}" 
-                                                            CornerRadius="4" Padding="{TemplateBinding Padding}">
-                                                        <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
-                                                    </Border>
-                                                    <ControlTemplate.Triggers>
-                                                        <Trigger Property="IsMouseOver" Value="True">
-                                                            <Setter TargetName="TrackBorder" Property="Background" Value="#1800FFFF"/>
-                                                        </Trigger>
-                                                        <DataTrigger Binding="{Binding IsPlaying}" Value="True">
-                                                            <Setter TargetName="TrackBorder" Property="Background" Value="#2400FFFF"/>
-                                                        </DataTrigger>
-                                                    </ControlTemplate.Triggers>
-                                                </ControlTemplate>
-                                            </Button.Template>
-                                            <Button.ContextMenu>
-                                                <ContextMenu>
-                                                    <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" Header="再生"/>
-                                                    <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                    <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                    <Separator/>
-                                                    <MenuItem Header="お気に入りに追加/解除" Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                    <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                    <Separator/>
-                                                    <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                    <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                    <Separator/>
-                                                    <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                </ContextMenu>
-                                            </Button.ContextMenu>
-                                            <Grid HorizontalAlignment="Stretch">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="28"/> <!-- Track Number / Playing / Paused Indicator (Inline) -->
-                                                    <ColumnDefinition Width="*"/>  <!-- Track Title -->
-                                                    <ColumnDefinition Width="45"/> <!-- Duration -->
-                                                </Grid.ColumnDefinitions>
-
-                                                <!-- Track Number (Index + 1, 非再生時のみ表示) -->
-                                                <TextBlock Grid.Column="0" Text="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter, AncestorLevel=2}, Path=(ItemsControl.AlternationIndex), Converter={StaticResource IndexConverter}, StringFormat='{}{0:00}.'}" 
-                                                           Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsPlaying}" Value="True">
-                                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-
-                                                <!-- Playing Indicator (Triangle ▶, 再生中のみ表示) -->
-                                                <Path Grid.Column="0" Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{StaticResource NeonCyanBrush}" Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                                    <Path.Style>
-                                                        <Style TargetType="Path">
-                                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                                            <Style.Triggers>
-                                                                <MultiDataTrigger>
-                                                                    <MultiDataTrigger.Conditions>
-                                                                        <Condition Binding="{Binding IsPlaying}" Value="True"/>
-                                                                        <Condition Binding="{Binding DataContext.IsPlaying, RelativeSource={RelativeSource AncestorType=Window}}" Value="True"/>
-                                                                    </MultiDataTrigger.Conditions>
-                                                                    <Setter Property="Visibility" Value="Visible"/>
-                                                                </MultiDataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Path.Style>
-                                                </Path>
-
-                                                <!-- Paused Indicator (Pause Bars ⏸, 一時停止中のみ表示) -->
-                                                <Path Grid.Column="0" Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="{StaticResource NeonCyanBrush}" Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                                    <Path.Style>
-                                                        <Style TargetType="Path">
-                                                            <Setter Property="Visibility" Value="Collapsed"/>
-                                                            <Style.Triggers>
-                                                                <MultiDataTrigger>
-                                                                    <MultiDataTrigger.Conditions>
-                                                                        <Condition Binding="{Binding IsPlaying}" Value="True"/>
-                                                                        <Condition Binding="{Binding DataContext.IsPlaying, RelativeSource={RelativeSource AncestorType=Window}}" Value="False"/>
-                                                                    </MultiDataTrigger.Conditions>
-                                                                    <Setter Property="Visibility" Value="Visible"/>
-                                                                </MultiDataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Path.Style>
-                                                </Path>
-
-                                                <!-- Track Title -->
-                                                <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsPlaying}" Value="True">
-                                                                    <Setter Property="Foreground" Value="{StaticResource NeonCyanBrush}"/>
-                                                                    <Setter Property="FontWeight" Value="SemiBold"/>
-                                                                </DataTrigger>
-                                                                <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                                                    <Setter Property="Foreground" Value="{StaticResource NeonCyanBrush}"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-
-                                                <!-- Duration -->
-                                                <TextBlock Grid.Column="2" Text="{Binding DurationString}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right"/>
-                                            </Grid>
+                                    <!-- Quick Actions (Fav & Add to Playlist & Queue) -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <!-- Play Queue -->
+                                        <Button Command="{Binding ShowQueueDialogCommand}" Margin="0,0,6,0" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="18" Height="18">
+                                            <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{DynamicResource MutedTextForegroundBrush}" Stretch="Uniform" Width="14" Height="14"/>
                                         </Button>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                                        <!-- Add to Playlist -->
+                                        <Button Command="{Binding ShowAddToPlaylistDialogCommand}" CommandParameter="{Binding CurrentTrack}" Margin="0,0,6,0" Background="Transparent" BorderThickness="0" ToolTip="Add to Playlist">
+                                            <Path Data="M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6V13z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                        </Button>
+                                        <!-- Favorite -->
+                                        <Button Command="{Binding ToggleFavoriteCommand}" CommandParameter="{Binding CurrentTrack}" Background="Transparent" BorderThickness="0" ToolTip="Favorite">
+                                            <Path Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
+                                                  Width="14" Height="14" Stretch="Uniform">
+                                                <Path.Style>
+                                                    <Style TargetType="Path">
+                                                        <Setter Property="Fill" Value="#606060"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding CurrentTrack.IsFavorite}" Value="True">
+                                                                <Setter Property="Fill" Value="#FF4081"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Path.Style>
+                                            </Path>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Row 1: Playback Controls (Shuffle, Prev, Central Play/Pause, Next, Repeat) -->
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,8">
+                                    <!-- Shuffle -->
+                                    <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Width="22" Height="22" Margin="0,0,12,0" Background="Transparent" BorderThickness="0" ToolTip="Shuffle">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Grid Background="Transparent">
+                                                    <Path Data="M10.59,9.17L5.41,4L4,5.41L9.17,10.58L10.59,9.17M14.5,4L16.54,6.04L4,18.59L5.41,20L17.96,7.46L20,9.5V4M14.83,13.41L13.42,14.83L16.55,17.96L14.5,20H20V14.5L17.96,16.54" 
+                                                          Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <Path.Style>
+                                                            <Style TargetType="Path">
+                                                                <Setter Property="Fill" Value="#606060"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsShuffleEnabled}" Value="True">
+                                                                        <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Path.Style>
+                                                    </Path>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+
+                                    <!-- Prev -->
+                                    <Button Command="{Binding PreviousCommand}" Margin="0,0,12,0" ToolTip="Previous" Background="Transparent" BorderThickness="0">
+                                        <Path Data="M6,6h2v12H6V6z M9.5,12l8.5,6V6L9.5,12z" Fill="{StaticResource NeonCyanBrush}" Width="15" Height="15" Stretch="Uniform"/>
+                                    </Button>
+                                    
+                                    <!-- Play/Pause (Prominent Circle Accent Button) -->
+                                    <Button Command="{Binding TogglePlayPauseCommand}" Width="38" Height="38" Margin="0,0,12,0" ToolTip="Play/Pause">
+                                        <Grid>
+                                            <Ellipse Fill="{StaticResource NeonCyanBrush}"/>
+                                            <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="#0D1117" Width="14" Height="14" Stretch="Uniform" Margin="2,0,0,0"
+                                                  Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
+                                            <Path Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="#0D1117" Width="13" Height="14" Stretch="Uniform"
+                                                  Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}"/>
+                                        </Grid>
+                                    </Button>
+
+                                    <!-- Next -->
+                                    <Button Command="{Binding NextCommand}" Margin="0,0,12,0" ToolTip="Next" Background="Transparent" BorderThickness="0">
+                                        <Path Data="M6,18l8.5-6L6,6V18z M16,6v12h2V6H16z" Fill="{StaticResource NeonCyanBrush}" Width="15" Height="15" Stretch="Uniform"/>
+                                    </Button>
+
+                                    <!-- Repeat -->
+                                    <ToggleButton Command="{Binding ToggleRepeatCommand}" IsChecked="{Binding IsAlbumRepeat, Mode=OneWay}" Width="18" Height="18" Background="Transparent" BorderThickness="0" ToolTip="Repeat">
+                                         <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Grid Background="Transparent">
+                                                    <Path Data="M7,7h10v3l4-4l-4-4v3H5v6h2V7z M17,17H7v-3l-4,4l4,4v-3h12v-6h-2V17z" Stretch="Uniform" Width="14" Height="14">
+                                                        <Path.Style>
+                                                            <Style TargetType="Path">
+                                                                <Setter Property="Fill" Value="#606060"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsAlbumRepeat}" Value="True">
+                                                                        <Setter Property="Fill" Value="{StaticResource NeonCyanBrush}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Path.Style>
+                                                    </Path>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+                                </StackPanel>
+
+                                <!-- Row 2: Seekbar & Timestamps -->
+                                <Grid Grid.Row="2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding CurrentTimeDisplay}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                     
+                                    <Slider Grid.Column="1" Value="{Binding Progress, Mode=TwoWay}" Maximum="100" VerticalAlignment="Center" 
+                                            IsMoveToPointEnabled="True"
+                                            Thumb.DragStarted="Slider_DragStarted"
+                                            Thumb.DragCompleted="Slider_DragCompleted"
+                                            Style="{StaticResource NeonSliderStyle}"/>
+                                            
+                                    <TextBlock Grid.Column="2" Text="{Binding TotalTimeDisplay}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
                     </Grid>
+
+                    <!-- Right Column: Tracklist Container (Rounded Gray Rectangle Container) -->
+                    <Border Grid.Column="1" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16,14">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/> <!-- Header: Playlist: <AlbumName> -->
+                                <RowDefinition Height="*"/>    <!-- Scrollable Tracklist -->
+                            </Grid.RowDefinitions>
+
+                            <!-- Playlist Header (Playlist: <AlbumName> & Track Count) -->
+                            <Grid Grid.Row="0" Margin="0,0,30,12">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="Playlist: " FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource NeonCyanBrush}"/>
+                                    <TextBlock Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" TextTrimming="CharacterEllipsis" MaxWidth="320"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding PlaybackListTracksCountText}" FontSize="12" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <ItemsControl ItemsSource="{Binding PlaybackListTracks}" AlternationCount="999" HorizontalContentAlignment="Stretch">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                    CommandParameter="{Binding}"
+                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                    Margin="0,2" BorderThickness="0" Padding="8,6">
+                                                <Button.Template>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="TrackBorder" Background="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter, AncestorLevel=2}, Path=(ItemsControl.AlternationIndex), Converter={StaticResource IndexToZebraBackgroundConverter}}" 
+                                                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="TrackBorder" Property="Background" Value="#2200FFFF"/>
+                                                            </Trigger>
+                                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                <Setter TargetName="TrackBorder" Property="Background" Value="#3500FFFF"/>
+                                                            </DataTrigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Button.Template>
+                                                <Button.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" Header="再生"/>
+                                                        <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="お気に入りに追加/解除" Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                        <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                        <Separator/>
+                                                        <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                    </ContextMenu>
+                                                </Button.ContextMenu>
+                                                <Grid HorizontalAlignment="Stretch">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="28"/> <!-- Track Number / Playing / Paused Indicator (Inline) -->
+                                                        <ColumnDefinition Width="*"/>  <!-- Track Title -->
+                                                        <ColumnDefinition Width="45"/> <!-- Duration -->
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <!-- Track Number (Index + 1, 非再生時のみ表示) -->
+                                                    <TextBlock Grid.Column="0" Text="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter, AncestorLevel=2}, Path=(ItemsControl.AlternationIndex), Converter={StaticResource IndexConverter}, StringFormat='{}{0:00}.'}" 
+                                                               Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+
+                                                    <!-- Playing Indicator (Triangle ▶, 再生中のみ表示) -->
+                                                    <Path Grid.Column="0" Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{StaticResource NeonCyanBrush}" Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                        <Path.Style>
+                                                            <Style TargetType="Path">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                <Style.Triggers>
+                                                                    <MultiDataTrigger>
+                                                                        <MultiDataTrigger.Conditions>
+                                                                            <Condition Binding="{Binding IsPlaying}" Value="True"/>
+                                                                            <Condition Binding="{Binding DataContext.IsPlaying, RelativeSource={RelativeSource AncestorType=Window}}" Value="True"/>
+                                                                        </MultiDataTrigger.Conditions>
+                                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                                    </MultiDataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Path.Style>
+                                                    </Path>
+
+                                                    <!-- Paused Indicator (Pause Bars ⏸, 一時停止中のみ表示) -->
+                                                    <Path Grid.Column="0" Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="{StaticResource NeonCyanBrush}" Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                        <Path.Style>
+                                                            <Style TargetType="Path">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                                <Style.Triggers>
+                                                                    <MultiDataTrigger>
+                                                                        <MultiDataTrigger.Conditions>
+                                                                            <Condition Binding="{Binding IsPlaying}" Value="True"/>
+                                                                            <Condition Binding="{Binding DataContext.IsPlaying, RelativeSource={RelativeSource AncestorType=Window}}" Value="False"/>
+                                                                        </MultiDataTrigger.Conditions>
+                                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                                    </MultiDataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Path.Style>
+                                                    </Path>
+
+                                                    <!-- Track Title -->
+                                                    <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{StaticResource NeonCyanBrush}"/>
+                                                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{StaticResource NeonCyanBrush}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+
+                                                    <!-- Duration -->
+                                                    <TextBlock Grid.Column="2" Text="{Binding DurationString}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                                </Grid>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
                 </Grid>
 
                 <!-- 2. MINIMIZED COMPACT VIEW (IsAlbumViewMaximized = False) -->
