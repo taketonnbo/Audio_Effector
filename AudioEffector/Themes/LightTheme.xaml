@@ -48,6 +48,10 @@
     <!-- Zebra Stripe Brush (Subtle dynamic dark multiply for Light Theme) -->
     <SolidColorBrush x:Key="ZebraOddBackgroundBrush" Color="#0C000000"/>
 
+    <!-- Metallic Frame Edge Highlight Brushes -->
+    <SolidColorBrush x:Key="MetallicFrameOuterEdgeBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="MetallicFrameInnerEdgeBrush" Color="#FFFFFF"/>
+
     <!-- Dynamic Theme Drop Shadows (Light Theme: Soft, subtle opacity) -->
     <DropShadowEffect x:Key="CardDropShadowEffect" Color="#000000" BlurRadius="16" ShadowDepth="3" Direction="270" Opacity="0.30"/>
     <DropShadowEffect x:Key="AlbumArtDropShadowEffect" Color="#000000" BlurRadius="20" ShadowDepth="5" Direction="270" Opacity="0.35"/>
