@@ -754,8 +754,8 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- Player Pod Card (Metallic Gradient Container with Top-Left Light and Bottom-Right Dark) -->
-                        <Border Grid.Row="2" Background="{DynamicResource MetallicCardBackgroundBrush}" BorderBrush="{DynamicResource MetallicCardBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16,14" VerticalAlignment="Top">
+                        <!-- Player Pod Card (Metallic Gradient Container with Top-Left Light and Bottom-Right Dark: Enlarged) -->
+                        <Border Grid.Row="2" Background="{DynamicResource MetallicCardBackgroundBrush}" BorderBrush="{DynamicResource MetallicCardBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="18,16" VerticalAlignment="Top">
                             <Border.Effect>
                                 <DropShadowEffect Color="#000000" BlurRadius="16" ShadowDepth="3" Direction="270" Opacity="0.35"/>
                             </Border.Effect>
@@ -771,10 +771,10 @@
                                 <!-- Row 0: Current Track Title (1.2x Font: 16pt, Full Width with Ellipsis) -->
                                 <TextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" 
                                            FontWeight="SemiBold" FontSize="16" Foreground="{StaticResource NeonCyanBrush}" 
-                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,0,4"/>
+                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,0,8"/>
 
-                                <!-- Row 1: Quick Actions (Queue, Add to Playlist, Favorite - Right Aligned below Track Title) -->
-                                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,0,10">
+                                <!-- Row 1: Quick Actions (Queue, Add to Playlist, Favorite - Right Aligned below Track Title with 1.5x spacing) -->
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,0,14">
                                     <!-- Play Queue -->
                                     <Button Command="{Binding ShowQueueDialogCommand}" Margin="0,0,10,0" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="18" Height="18">
                                         <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{DynamicResource MutedTextForegroundBrush}" Stretch="Uniform" Width="14" Height="14"/>
@@ -802,7 +802,7 @@
                                 </StackPanel>
 
                                 <!-- Row 2: Playback Controls (Shuffle, Prev, Enhanced Big Play/Pause, Next, Repeat) -->
-                                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,14">
+                                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,2,0,16">
                                     <!-- Shuffle -->
                                     <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Width="22" Height="22" Margin="0,0,16,0" Background="Transparent" BorderThickness="0" ToolTip="Shuffle">
                                         <ToggleButton.Template>
@@ -894,7 +894,7 @@
                                         Thumb.DragStarted="Slider_DragStarted"
                                         Thumb.DragCompleted="Slider_DragCompleted"
                                         Style="{StaticResource NeonSliderStyle}"
-                                        Margin="0,0,0,4"/>
+                                        Margin="0,0,0,6"/>
 
                                 <!-- Row 4: Timestamps below seekbar (Left: CurrentTime, Right: TotalTime) -->
                                 <Grid Grid.Row="4">
