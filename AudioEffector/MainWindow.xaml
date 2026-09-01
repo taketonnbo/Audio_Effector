@@ -675,9 +675,10 @@
                             <RowDefinition Height="*"/>    <!-- Player Pod Card (Occupies remaining height) -->
                         </Grid.RowDefinitions>
 
-                        <!-- Large Cover Art (Subtle Rounded Corners CornerRadius=6, Metallic Border & Deep Ambient Shadow) -->
-                        <Border Grid.Row="0" CornerRadius="6" HorizontalAlignment="Center" Margin="0,6,0,30"
-                                BorderBrush="{DynamicResource MetallicCardBorderBrush}" BorderThickness="1">
+                        <!-- Large Cover Art (Subtle Rounded Corners CornerRadius=8, 3px Thick Metallic Border Frame & Deep Dynamic Shadow) -->
+                        <Border Grid.Row="0" CornerRadius="8" HorizontalAlignment="Center" Margin="0,6,0,30"
+                                BorderBrush="{DynamicResource MetallicCardBorderBrush}" BorderThickness="3"
+                                Effect="{DynamicResource AlbumArtDropShadowEffect}">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Width" Value="260"/>
@@ -720,9 +721,6 @@
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
-                            <Border.Effect>
-                                <DropShadowEffect Color="#000000" BlurRadius="22" ShadowDepth="6" Direction="270" Opacity="0.45"/>
-                            </Border.Effect>
                             <Border.Background>
                                 <ImageBrush ImageSource="{Binding NowPlayingImage}" Stretch="UniformToFill"/>
                             </Border.Background>
@@ -756,10 +754,8 @@
                         </StackPanel>
 
                         <!-- Player Pod Card (Metallic Gradient Container with Top-Left Light and Bottom-Right Dark: Enlarged) -->
-                        <Border Grid.Row="2" Background="{DynamicResource MetallicCardBackgroundBrush}" BorderBrush="{DynamicResource MetallicCardBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="18,16" VerticalAlignment="Top">
-                            <Border.Effect>
-                                <DropShadowEffect Color="#000000" BlurRadius="16" ShadowDepth="3" Direction="270" Opacity="0.35"/>
-                            </Border.Effect>
+                        <Border Grid.Row="2" Background="{DynamicResource MetallicCardBackgroundBrush}" BorderBrush="{DynamicResource MetallicCardBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="18,16" VerticalAlignment="Top"
+                                Effect="{DynamicResource CardDropShadowEffect}">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/> <!-- Row 0: Current Track Title (Large ~1.2x: 16pt) -->
@@ -907,10 +903,8 @@
                     </Grid>
 
                     <!-- Right Column: Tracklist Container (Metallic Gradient Container with Top-Left Light and Bottom-Right Dark) -->
-                    <Border Grid.Column="1" Background="{DynamicResource MetallicCardBackgroundBrush}" BorderBrush="{DynamicResource MetallicCardBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16,14">
-                        <Border.Effect>
-                            <DropShadowEffect Color="#000000" BlurRadius="16" ShadowDepth="3" Direction="270" Opacity="0.35"/>
-                        </Border.Effect>
+                    <Border Grid.Column="1" Background="{DynamicResource MetallicCardBackgroundBrush}" BorderBrush="{DynamicResource MetallicCardBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16,14"
+                            Effect="{DynamicResource CardDropShadowEffect}">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/> <!-- Header: Playlist: <AlbumName> -->
