@@ -118,6 +118,26 @@ namespace AudioEffector.ViewModels
 
         public ICommand ToggleRightPanelCommand { get; }
 
+        private bool _isAlbumViewMaximized = true;
+        /// <summary>
+        /// 右側パネルのアルバム情報表示が最大化（全画面）モードかどうかを示すプロパティ。
+        /// Trueの場合は特大アートとフルハイトトラックリスト、Falseの場合は上部にコンパクトプレイヤーと下部に拡張領域を表示します。
+        /// </summary>
+        public bool IsAlbumViewMaximized
+        {
+            get => _isAlbumViewMaximized;
+            set
+            {
+                if (_isAlbumViewMaximized != value)
+                {
+                    _isAlbumViewMaximized = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        public ICommand ToggleAlbumViewSizeModeCommand { get; }
+
         private bool _isLibraryVisible = true;
         private bool _isFolderViewVisible = false;
         private bool _isPlaylistSelectorVisible = false;
@@ -170,7 +190,24 @@ namespace AudioEffector.ViewModels
         public ObservableCollection<Track> PlaybackListTracks
         {
             get => _playbackListTracks;
-            set { _playbackListTracks = value; OnPropertyChanged(); }
+            set 
+            { 
+                _playbackListTracks = value; 
+                OnPropertyChanged(); 
+                OnPropertyChanged(nameof(PlaybackListTracksCountText));
+            }
+        }
+
+        /// <summary>
+        /// トラックリストの総曲数表示文字列（例: "Tracklist (9 tracks)"）。
+        /// </summary>
+        public string PlaybackListTracksCountText
+        {
+            get
+            {
+                int count = PlaybackListTracks?.Count ?? 0;
+                return count == 1 ? "Tracklist (1 track)" : $"Tracklist ({count} tracks)";
+            }
         }
 
         private ObservableCollection<Track> _playQueue = new ObservableCollection<Track>();
@@ -295,6 +332,13 @@ namespace AudioEffector.ViewModels
             {
                 if (o is AudioEffector.Models.Track t)
                 {
+                    // If clicking the currently playing track, toggle play/pause instead of restarting
+                    if (CurrentTrack != null && CurrentTrack.Equals(t))
+                    {
+                        _audioService.TogglePlayPause();
+                        return;
+                    }
+
                     // Check if playing from playlist/favorites view
                     // プレイリストまたはお気に入りビューからの再生かどうかを確認
                     if (IsPlaylistTracksVisible && PlaylistTracks.Any() && PlaylistTracks.Contains(t))
@@ -400,6 +444,7 @@ namespace AudioEffector.ViewModels
             ShowDeviceManagerCommand = new RelayCommand(o => ShowDeviceManager());
             ShowSettingsCommand = new RelayCommand(o => ShowSettings());
             ToggleRightPanelCommand = new RelayCommand(o => IsRightPanelOpen = !IsRightPanelOpen);
+            ToggleAlbumViewSizeModeCommand = new RelayCommand(o => IsAlbumViewMaximized = !IsAlbumViewMaximized);
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
             _audioService.FftCalculated += OnFftCalculated;

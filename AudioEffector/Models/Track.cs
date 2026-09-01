@@ -20,6 +20,13 @@ namespace AudioEffector.Models
         public BitmapImage CoverImage { get; set; }
         public TimeSpan Duration { get; set; }
 
+        /// <summary>
+        /// 再生時間のフォーマット文字列（例: 03:45 または 1:23:45）。
+        /// </summary>
+        public string DurationString => Duration.TotalHours >= 1 
+            ? Duration.ToString(@"h\:mm\:ss") 
+            : Duration.ToString(@"mm\:ss");
+
         private bool _isFavorite;
         /// <summary>
         /// お気に入りに登録されているかどうか。

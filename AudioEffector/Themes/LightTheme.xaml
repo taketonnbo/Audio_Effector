@@ -32,4 +32,28 @@
     <SolidColorBrush x:Key="NeonCyanBrush" Color="{StaticResource NeonCyanColor}"/>
     <SolidColorBrush x:Key="DarkNeonCyanBrush" Color="{StaticResource DarkNeonCyanColor}"/>
 
+    <!-- Metallic Card Background & Border Brushes (Top-Left Light, Bottom-Right Dark) -->
+    <LinearGradientBrush x:Key="MetallicCardBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FFFFFF" Offset="0.0"/>
+        <GradientStop Color="#F0F3F6" Offset="0.45"/>
+        <GradientStop Color="#DFE3E8" Offset="1.0"/>
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="MetallicCardBorderBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#E2E8F0" Offset="0.0"/>
+        <GradientStop Color="#CBD5E1" Offset="0.5"/>
+        <GradientStop Color="#94A3B8" Offset="1.0"/>
+    </LinearGradientBrush>
+
+    <!-- Zebra Stripe Brush (Subtle dynamic dark multiply for Light Theme) -->
+    <SolidColorBrush x:Key="ZebraOddBackgroundBrush" Color="#0C000000"/>
+
+    <!-- Metallic Frame Edge Highlight Brushes -->
+    <SolidColorBrush x:Key="MetallicFrameOuterEdgeBrush" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="MetallicFrameInnerEdgeBrush" Color="#FFFFFF"/>
+
+    <!-- Dynamic Theme Drop Shadows (Light Theme: Soft, subtle opacity) -->
+    <DropShadowEffect x:Key="CardDropShadowEffect" Color="#000000" BlurRadius="16" ShadowDepth="3" Direction="270" Opacity="0.30"/>
+    <DropShadowEffect x:Key="AlbumArtDropShadowEffect" Color="#000000" BlurRadius="20" ShadowDepth="5" Direction="270" Opacity="0.35"/>
+
 </ResourceDictionary>

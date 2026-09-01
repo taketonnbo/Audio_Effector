@@ -40,12 +40,20 @@
     </LinearGradientBrush>
 
     <LinearGradientBrush x:Key="MetallicCardBorderBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#4D5D75" Offset="0.0"/>
-        <GradientStop Color="#323D4D" Offset="0.5"/>
-        <GradientStop Color="#1C222C" Offset="1.0"/>
+        <GradientStop Color="#687B99" Offset="0.0"/>
+        <GradientStop Color="#384556" Offset="0.5"/>
+        <GradientStop Color="#1A2028" Offset="1.0"/>
     </LinearGradientBrush>
 
     <!-- Zebra Stripe Brush (Subtle dynamic white for Dark Theme) -->
     <SolidColorBrush x:Key="ZebraOddBackgroundBrush" Color="#12FFFFFF"/>
+
+    <!-- Metallic Frame Edge Highlight Brushes -->
+    <SolidColorBrush x:Key="MetallicFrameOuterEdgeBrush" Color="#60FFFFFF"/>
+    <SolidColorBrush x:Key="MetallicFrameInnerEdgeBrush" Color="#70FFFFFF"/>
+
+    <!-- Dynamic Theme Drop Shadows (Dark Theme: ~2x Opacity for Deep Slate Contrast) -->
+    <DropShadowEffect x:Key="CardDropShadowEffect" Color="#000000" BlurRadius="22" ShadowDepth="5" Direction="270" Opacity="0.75"/>
+    <DropShadowEffect x:Key="AlbumArtDropShadowEffect" Color="#000000" BlurRadius="30" ShadowDepth="8" Direction="270" Opacity="0.85"/>
 
 </ResourceDictionary>
