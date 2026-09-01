@@ -754,58 +754,54 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- Player Pod Card (Semi-transparent Container grouping Current Track & Controls) -->
-                        <Border Grid.Row="2" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="14,10" VerticalAlignment="Top">
+                        <!-- Player Pod Card (Semi-transparent Container grouping Current Track & Controls: Vertically elongated) -->
+                        <Border Grid.Row="2" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16,14" VerticalAlignment="Top">
                             <Grid>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/> <!-- Current Track Title & Quick Actions (Fav/Playlist) -->
-                                    <RowDefinition Height="Auto"/> <!-- Playback Control Buttons (Prominent Play Button) -->
-                                    <RowDefinition Height="Auto"/> <!-- Seekbar & Timestamps -->
+                                    <RowDefinition Height="Auto"/> <!-- Row 0: Current Track Title (Large ~1.2x: 16pt) -->
+                                    <RowDefinition Height="Auto"/> <!-- Row 1: Quick Actions (Queue, Add to Playlist, Favorite - Right Aligned) -->
+                                    <RowDefinition Height="Auto"/> <!-- Row 2: Playback Control Buttons (Shuffle, Prev, Big Play/Pause 48px, Next, Repeat) -->
+                                    <RowDefinition Height="Auto"/> <!-- Row 3: Extended Full-Width Seekbar -->
+                                    <RowDefinition Height="Auto"/> <!-- Row 4: Timestamps below seekbar (Left: CurrentTime, Right: TotalTime) -->
                                 </Grid.RowDefinitions>
 
-                                <!-- Row 0: Current Track Title & Fav/Playlist Actions -->
-                                <Grid Grid.Row="0" Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
+                                <!-- Row 0: Current Track Title (1.2x Font: 16pt, Full Width with Ellipsis) -->
+                                <TextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" 
+                                           FontWeight="SemiBold" FontSize="16" Foreground="{StaticResource NeonCyanBrush}" 
+                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,0,4"/>
 
-                                    <TextBlock Grid.Column="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" 
-                                               FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource NeonCyanBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                <!-- Row 1: Quick Actions (Queue, Add to Playlist, Favorite - Right Aligned below Track Title) -->
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,0,10">
+                                    <!-- Play Queue -->
+                                    <Button Command="{Binding ShowQueueDialogCommand}" Margin="0,0,10,0" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="18" Height="18">
+                                        <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{DynamicResource MutedTextForegroundBrush}" Stretch="Uniform" Width="14" Height="14"/>
+                                    </Button>
+                                    <!-- Add to Playlist -->
+                                    <Button Command="{Binding ShowAddToPlaylistDialogCommand}" CommandParameter="{Binding CurrentTrack}" Margin="0,0,10,0" Background="Transparent" BorderThickness="0" ToolTip="Add to Playlist">
+                                        <Path Data="M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6V13z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="14" Height="14" Stretch="Uniform"/>
+                                    </Button>
+                                    <!-- Favorite -->
+                                    <Button Command="{Binding ToggleFavoriteCommand}" CommandParameter="{Binding CurrentTrack}" Background="Transparent" BorderThickness="0" ToolTip="Favorite">
+                                        <Path Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
+                                              Width="14" Height="14" Stretch="Uniform">
+                                            <Path.Style>
+                                                <Style TargetType="Path">
+                                                    <Setter Property="Fill" Value="#606060"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CurrentTrack.IsFavorite}" Value="True">
+                                                            <Setter Property="Fill" Value="#FF4081"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Path.Style>
+                                        </Path>
+                                    </Button>
+                                </StackPanel>
 
-                                    <!-- Quick Actions (Fav & Add to Playlist & Queue) -->
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                        <!-- Play Queue -->
-                                        <Button Command="{Binding ShowQueueDialogCommand}" Margin="0,0,6,0" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="18" Height="18">
-                                            <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{DynamicResource MutedTextForegroundBrush}" Stretch="Uniform" Width="14" Height="14"/>
-                                        </Button>
-                                        <!-- Add to Playlist -->
-                                        <Button Command="{Binding ShowAddToPlaylistDialogCommand}" CommandParameter="{Binding CurrentTrack}" Margin="0,0,6,0" Background="Transparent" BorderThickness="0" ToolTip="Add to Playlist">
-                                            <Path Data="M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6V13z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="14" Height="14" Stretch="Uniform"/>
-                                        </Button>
-                                        <!-- Favorite -->
-                                        <Button Command="{Binding ToggleFavoriteCommand}" CommandParameter="{Binding CurrentTrack}" Background="Transparent" BorderThickness="0" ToolTip="Favorite">
-                                            <Path Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
-                                                  Width="14" Height="14" Stretch="Uniform">
-                                                <Path.Style>
-                                                    <Style TargetType="Path">
-                                                        <Setter Property="Fill" Value="#606060"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding CurrentTrack.IsFavorite}" Value="True">
-                                                                <Setter Property="Fill" Value="#FF4081"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Path.Style>
-                                            </Path>
-                                        </Button>
-                                    </StackPanel>
-                                </Grid>
-
-                                <!-- Row 1: Playback Controls (Shuffle, Prev, Enhanced Big Play/Pause, Next, Repeat) -->
-                                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,2,0,8">
+                                <!-- Row 2: Playback Controls (Shuffle, Prev, Enhanced Big Play/Pause, Next, Repeat) -->
+                                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,14">
                                     <!-- Shuffle -->
-                                    <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Width="22" Height="22" Margin="0,0,14,0" Background="Transparent" BorderThickness="0" ToolTip="Shuffle">
+                                    <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Width="22" Height="22" Margin="0,0,16,0" Background="Transparent" BorderThickness="0" ToolTip="Shuffle">
                                         <ToggleButton.Template>
                                             <ControlTemplate TargetType="ToggleButton">
                                                 <Grid Background="Transparent">
@@ -828,12 +824,12 @@
                                     </ToggleButton>
 
                                     <!-- Prev -->
-                                    <Button Command="{Binding PreviousCommand}" Margin="0,0,14,0" ToolTip="Previous" Background="Transparent" BorderThickness="0">
+                                    <Button Command="{Binding PreviousCommand}" Margin="0,0,16,0" ToolTip="Previous" Background="Transparent" BorderThickness="0">
                                         <Path Data="M6,6h2v12H6V6z M9.5,12l8.5,6V6L9.5,12z" Fill="{StaticResource NeonCyanBrush}" Width="16" Height="16" Stretch="Uniform"/>
                                     </Button>
                                     
                                     <!-- Play/Pause (Enhanced Prominent Circle Accent Button: 48x48px with Glow) -->
-                                    <Button Command="{Binding TogglePlayPauseCommand}" Width="48" Height="48" Margin="0,0,14,0" ToolTip="Play/Pause" Background="Transparent" BorderThickness="0">
+                                    <Button Command="{Binding TogglePlayPauseCommand}" Width="48" Height="48" Margin="0,0,16,0" ToolTip="Play/Pause" Background="Transparent" BorderThickness="0">
                                         <Button.Template>
                                             <ControlTemplate TargetType="Button">
                                                 <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -862,7 +858,7 @@
                                     </Button>
 
                                     <!-- Next -->
-                                    <Button Command="{Binding NextCommand}" Margin="0,0,14,0" ToolTip="Next" Background="Transparent" BorderThickness="0">
+                                    <Button Command="{Binding NextCommand}" Margin="0,0,16,0" ToolTip="Next" Background="Transparent" BorderThickness="0">
                                         <Path Data="M6,18l8.5-6L6,6V18z M16,6v12h2V6H16z" Fill="{StaticResource NeonCyanBrush}" Width="16" Height="16" Stretch="Uniform"/>
                                     </Button>
 
@@ -889,22 +885,18 @@
                                     </ToggleButton>
                                 </StackPanel>
 
-                                <!-- Row 2: Seekbar & Timestamps -->
-                                <Grid Grid.Row="2">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{Binding CurrentTimeDisplay}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                     
-                                    <Slider Grid.Column="1" Value="{Binding Progress, Mode=TwoWay}" Maximum="100" VerticalAlignment="Center" 
-                                            IsMoveToPointEnabled="True"
-                                            Thumb.DragStarted="Slider_DragStarted"
-                                            Thumb.DragCompleted="Slider_DragCompleted"
-                                            Style="{StaticResource NeonSliderStyle}"/>
-                                            
-                                    <TextBlock Grid.Column="2" Text="{Binding TotalTimeDisplay}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                <!-- Row 3: Extended Full-Width Seekbar -->
+                                <Slider Grid.Row="3" Value="{Binding Progress, Mode=TwoWay}" Maximum="100" VerticalAlignment="Center" 
+                                        IsMoveToPointEnabled="True"
+                                        Thumb.DragStarted="Slider_DragStarted"
+                                        Thumb.DragCompleted="Slider_DragCompleted"
+                                        Style="{StaticResource NeonSliderStyle}"
+                                        Margin="0,0,0,4"/>
+
+                                <!-- Row 4: Timestamps below seekbar (Left: CurrentTime, Right: TotalTime) -->
+                                <Grid Grid.Row="4">
+                                    <TextBlock HorizontalAlignment="Left" Text="{Binding CurrentTimeDisplay}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" FontFamily="Consolas"/>
+                                    <TextBlock HorizontalAlignment="Right" Text="{Binding TotalTimeDisplay}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" FontFamily="Consolas"/>
                                 </Grid>
                             </Grid>
                         </Border>
