@@ -49,7 +49,10 @@
 
 *   **【特大アルバムアート表示】**:
     *   **サイズ**: 260px × 260px（イコライザー閉時は 330px × 330px）。
-    *   **太いメタルフレーム**: しっかりとした厚みを持つ重厚なメタル境界線（`BorderThickness="3"`, `BorderBrush="{DynamicResource MetallicCardBorderBrush}"`, `CornerRadius="8"`）でアートワークを美しく額装。
+    *   **多層メタリック額装フレーム**:
+        *   **最外周白エッジ線 (`MetallicFrameOuterEdgeBrush`)**: フレームと暗黒シャドウの境界に配置され、シャドウと同化せずに金属のエッジハイライトを際立たせる 1px 白ハイライト線。
+        *   **太いメタルベゼル (7px)**: 左上明るく右下暗い `MetallicCardBackgroundBrush` による重厚な削り出しメタル質感。
+        *   **内周白エッジ線 (`MetallicFrameInnerEdgeBrush`)**: メタルフレームとアートワーク画像の境界に配置され、絵柄をくっきりと額装する 1px 白ハイライト線。
     *   **テーマ連動立体シャドウ (`DynamicResource AlbumArtDropShadowEffect`)**:
         *   **ダークテーマ**: 深層コントラストを際立たせる **約2倍の濃さ**（`Opacity="0.85"`, `BlurRadius="30"`, `ShadowDepth="8"`）のソフトブラックシャドウ。
         *   **ライトテーマ**: 上品で自然な薄いソフトシャドウ（`Opacity="0.35"`, `BlurRadius="20"`, `ShadowDepth="5"`）。
