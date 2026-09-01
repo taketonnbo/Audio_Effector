@@ -49,8 +49,10 @@
 
 *   **【特大アルバムアート表示】**:
     *   **サイズ**: 260px × 260px（イコライザー閉時は 330px × 330px）。
-    *   **角丸と縁取り**: 角の端のほうのみを自然に丸める微細な角丸（`CornerRadius="6"`）と、光の反射を演出するメタリック境界線（`BorderBrush="{DynamicResource MetallicCardBorderBrush}"`, `BorderThickness="1"`）を適用。
-    *   **立体アンビエントシャドウ**: シアンの単色発光を排し、ディープスレート背景に自然に溶け込みつつ浮き上がる深みのあるソフトブラックシャドウ（`BlurRadius="22"`, `ShadowDepth="6"`, `Opacity="0.45"`）を適用。
+    *   **太いメタルフレーム**: しっかりとした厚みを持つ重厚なメタル境界線（`BorderThickness="3"`, `BorderBrush="{DynamicResource MetallicCardBorderBrush}"`, `CornerRadius="8"`）でアートワークを美しく額装。
+    *   **テーマ連動立体シャドウ (`DynamicResource AlbumArtDropShadowEffect`)**:
+        *   **ダークテーマ**: 深層コントラストを際立たせる **約2倍の濃さ**（`Opacity="0.85"`, `BlurRadius="30"`, `ShadowDepth="8"`）のソフトブラックシャドウ。
+        *   **ライトテーマ**: 上品で自然な薄いソフトシャドウ（`Opacity="0.35"`, `BlurRadius="20"`, `ShadowDepth="5"`）。
     *   **滑らかな伸縮モーション**: アナライザ開閉と連動して 260px ⇔ 330px にスムーズにアニメーション変化。
 *   **【アルバムメタ情報】**:
     *   アルバム名称（フォントサイズ **24pt**, Bold, テキストトリミング対応）
