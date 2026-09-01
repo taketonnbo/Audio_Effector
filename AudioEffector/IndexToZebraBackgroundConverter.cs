@@ -32,6 +32,12 @@ namespace AudioEffector
                     return EvenBrush;
                 }
 
+                // テーマリソースの ZebraOddBackgroundBrush を優先解決
+                if (Application.Current != null && Application.Current.TryFindResource("ZebraOddBackgroundBrush") is SolidColorBrush resBrush)
+                {
+                    return resBrush;
+                }
+
                 // テーマの明度を判定（ライトテーマの場合は黒透過、ダークテーマの場合は白透過）
                 if (Application.Current != null && Application.Current.TryFindResource("TextForegroundColor") is Color textColor)
                 {

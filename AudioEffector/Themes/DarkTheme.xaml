@@ -32,4 +32,20 @@
     <SolidColorBrush x:Key="NeonCyanBrush" Color="{StaticResource NeonCyanColor}"/>
     <SolidColorBrush x:Key="DarkNeonCyanBrush" Color="{StaticResource DarkNeonCyanColor}"/>
 
+    <!-- Metallic Card Background & Border Brushes (Top-Left Light, Bottom-Right Dark) -->
+    <LinearGradientBrush x:Key="MetallicCardBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#282E38" Offset="0.0"/>
+        <GradientStop Color="#1E232B" Offset="0.45"/>
+        <GradientStop Color="#13171E" Offset="1.0"/>
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="MetallicCardBorderBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#424D5C" Offset="0.0"/>
+        <GradientStop Color="#2B323D" Offset="0.5"/>
+        <GradientStop Color="#181D24" Offset="1.0"/>
+    </LinearGradientBrush>
+
+    <!-- Zebra Stripe Brush (Subtle dynamic white for Dark Theme) -->
+    <SolidColorBrush x:Key="ZebraOddBackgroundBrush" Color="#10FFFFFF"/>
+
 </ResourceDictionary>
