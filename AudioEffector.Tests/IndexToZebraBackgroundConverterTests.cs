@@ -31,7 +31,7 @@ namespace AudioEffector.Tests
             else
             {
                 Assert.NotEqual(Colors.Transparent, brush.Color);
-                Assert.Equal((byte)28, brush.Color.A);
+                Assert.Equal((byte)32, brush.Color.A);
                 Assert.Equal((byte)255, brush.Color.R);
                 Assert.Equal((byte)255, brush.Color.G);
                 Assert.Equal((byte)255, brush.Color.B);
