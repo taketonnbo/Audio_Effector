@@ -676,7 +676,7 @@
                         </Grid.RowDefinitions>
 
                         <!-- Large Cover Art (Rounded Corners CornerRadius=16, Cyan Ambient Glow & Animated Width/Height) -->
-                        <Border Grid.Row="0" CornerRadius="16" HorizontalAlignment="Center" Margin="0,6,0,16">
+                        <Border Grid.Row="0" CornerRadius="16" HorizontalAlignment="Center" Margin="0,6,0,30">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Width" Value="260"/>
@@ -727,13 +727,13 @@
                             </Border.Background>
                         </Border>
 
-                        <!-- Album Info -->
-                        <StackPanel Grid.Row="1" Margin="4,0,4,12">
-                            <TextBlock Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" FontFamily="Segoe UI" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding PlaybackListSubtitle, FallbackValue=''}" FontSize="12" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                        <!-- Album Info (Font Size ~1.5x) -->
+                        <StackPanel Grid.Row="1" Margin="4,4,4,12">
+                            <TextBlock Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" FontFamily="Segoe UI" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding PlaybackListSubtitle, FallbackValue=''}" FontSize="13" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
                             
                             <!-- Quality Info (Hi-Res Text Badge without extra icons) -->
-                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                                 <Border Background="{DynamicResource ControlBackgroundBrush}" CornerRadius="3" Padding="5,1" Margin="0,0,6,0" VerticalAlignment="Center">
                                     <Border.Style>
                                         <Style TargetType="Border">
@@ -802,10 +802,10 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <!-- Row 1: Playback Controls (Shuffle, Prev, Central Play/Pause, Next, Repeat) -->
-                                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,8">
+                                <!-- Row 1: Playback Controls (Shuffle, Prev, Enhanced Big Play/Pause, Next, Repeat) -->
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,2,0,8">
                                     <!-- Shuffle -->
-                                    <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Width="22" Height="22" Margin="0,0,12,0" Background="Transparent" BorderThickness="0" ToolTip="Shuffle">
+                                    <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Width="22" Height="22" Margin="0,0,14,0" Background="Transparent" BorderThickness="0" ToolTip="Shuffle">
                                         <ToggleButton.Template>
                                             <ControlTemplate TargetType="ToggleButton">
                                                 <Grid Background="Transparent">
@@ -828,24 +828,42 @@
                                     </ToggleButton>
 
                                     <!-- Prev -->
-                                    <Button Command="{Binding PreviousCommand}" Margin="0,0,12,0" ToolTip="Previous" Background="Transparent" BorderThickness="0">
-                                        <Path Data="M6,6h2v12H6V6z M9.5,12l8.5,6V6L9.5,12z" Fill="{StaticResource NeonCyanBrush}" Width="15" Height="15" Stretch="Uniform"/>
+                                    <Button Command="{Binding PreviousCommand}" Margin="0,0,14,0" ToolTip="Previous" Background="Transparent" BorderThickness="0">
+                                        <Path Data="M6,6h2v12H6V6z M9.5,12l8.5,6V6L9.5,12z" Fill="{StaticResource NeonCyanBrush}" Width="16" Height="16" Stretch="Uniform"/>
                                     </Button>
                                     
-                                    <!-- Play/Pause (Prominent Circle Accent Button) -->
-                                    <Button Command="{Binding TogglePlayPauseCommand}" Width="38" Height="38" Margin="0,0,12,0" ToolTip="Play/Pause">
-                                        <Grid>
-                                            <Ellipse Fill="{StaticResource NeonCyanBrush}"/>
-                                            <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="#0D1117" Width="14" Height="14" Stretch="Uniform" Margin="2,0,0,0"
-                                                  Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
-                                            <Path Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="#0D1117" Width="13" Height="14" Stretch="Uniform"
-                                                  Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}"/>
-                                        </Grid>
+                                    <!-- Play/Pause (Enhanced Prominent Circle Accent Button: 48x48px with Glow) -->
+                                    <Button Command="{Binding TogglePlayPauseCommand}" Width="48" Height="48" Margin="0,0,14,0" ToolTip="Play/Pause" Background="Transparent" BorderThickness="0">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Ellipse x:Name="PlayEllipse" Width="48" Height="48" Fill="{StaticResource NeonCyanBrush}">
+                                                        <Ellipse.Effect>
+                                                            <DropShadowEffect Color="#00FFFF" BlurRadius="12" ShadowDepth="0" Opacity="0.55"/>
+                                                        </Ellipse.Effect>
+                                                    </Ellipse>
+                                                    <!-- Play Icon (Centered Triangle ▶) -->
+                                                    <Path x:Name="PlayIcon" Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="#0D1117" Width="16" Height="16" Stretch="Uniform" Margin="3,0,0,0"
+                                                          Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
+                                                    <!-- Pause Icon (Centered Bars ⏸) -->
+                                                    <Path x:Name="PauseIcon" Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="#0D1117" Width="15" Height="16" Stretch="Uniform"
+                                                          Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}"/>
+                                                </Grid>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="PlayEllipse" Property="Opacity" Value="0.9"/>
+                                                    </Trigger>
+                                                    <Trigger Property="IsPressed" Value="True">
+                                                        <Setter TargetName="PlayEllipse" Property="Opacity" Value="0.75"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
                                     </Button>
 
                                     <!-- Next -->
-                                    <Button Command="{Binding NextCommand}" Margin="0,0,12,0" ToolTip="Next" Background="Transparent" BorderThickness="0">
-                                        <Path Data="M6,18l8.5-6L6,6V18z M16,6v12h2V6H16z" Fill="{StaticResource NeonCyanBrush}" Width="15" Height="15" Stretch="Uniform"/>
+                                    <Button Command="{Binding NextCommand}" Margin="0,0,14,0" ToolTip="Next" Background="Transparent" BorderThickness="0">
+                                        <Path Data="M6,18l8.5-6L6,6V18z M16,6v12h2V6H16z" Fill="{StaticResource NeonCyanBrush}" Width="16" Height="16" Stretch="Uniform"/>
                                     </Button>
 
                                     <!-- Repeat -->
@@ -900,20 +918,32 @@
                                 <RowDefinition Height="*"/>    <!-- Scrollable Tracklist -->
                             </Grid.RowDefinitions>
 
-                            <!-- Playlist Header (Playlist: <AlbumName> & Track Count) -->
-                            <Grid Grid.Row="0" Margin="0,0,30,12">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock Text="Playlist: " FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource NeonCyanBrush}"/>
-                                    <TextBlock Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" TextTrimming="CharacterEllipsis" MaxWidth="320"/>
-                                </StackPanel>
-                                <TextBlock Text="{Binding PlaybackListTracksCountText}" FontSize="12" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            <!-- Playlist Header (Playlist: <AlbumName> with Ellipsis & Track Count on the right) -->
+                            <Grid Grid.Row="0" Margin="0,0,0,14">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Left: Playlist Prefix + Truncated Album Title -->
+                                <TextBlock Grid.Column="0" FontSize="15" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,10,0">
+                                    <Run Text="Playlist: " FontWeight="SemiBold" Foreground="{StaticResource NeonCyanBrush}"/>
+                                    <Run Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}"/>
+                                </TextBlock>
+
+                                <!-- Right: Track Count (e.g. "14 Tracks") -->
+                                <TextBlock Grid.Column="1" Text="{Binding PlaybackListTracks.Count, StringFormat='{}{0} Tracks'}" 
+                                           FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" 
+                                           VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,28,0"/>
                             </Grid>
 
                             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <ItemsControl ItemsSource="{Binding PlaybackListTracks}" AlternationCount="999" HorizontalContentAlignment="Stretch">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border Background="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter}, Path=(ItemsControl.AlternationIndex), Converter={StaticResource IndexToZebraBackgroundConverter}}" 
+                                            <Border x:Name="RootItemBorder" 
+                                                    Tag="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter}, Path=(ItemsControl.AlternationIndex)}"
+                                                    Background="{Binding Tag, RelativeSource={RelativeSource Self}, Converter={StaticResource IndexToZebraBackgroundConverter}}" 
                                                     CornerRadius="6" Margin="0,2">
                                                 <Button Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
                                                         Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
@@ -957,8 +987,8 @@
                                                             <ColumnDefinition Width="45"/> <!-- Duration -->
                                                         </Grid.ColumnDefinitions>
 
-                                                        <!-- Track Number (Index + 1, 非再生時のみ表示) -->
-                                                        <TextBlock Grid.Column="0" Text="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter}, Path=(ItemsControl.AlternationIndex), Converter={StaticResource IndexConverter}, StringFormat='{}{0:00}.'}" 
+                                                        <!-- Track Number (Index + 1, 非再生時のみ表示: Tagから確実に取得) -->
+                                                        <TextBlock Grid.Column="0" Text="{Binding Tag, ElementName=RootItemBorder, Converter={StaticResource IndexConverter}, StringFormat='{}{0:00}.'}" 
                                                                    Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Left">
                                                             <TextBlock.Style>
                                                                 <Style TargetType="TextBlock">

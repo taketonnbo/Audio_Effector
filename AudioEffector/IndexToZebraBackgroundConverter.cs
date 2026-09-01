@@ -1,29 +1,49 @@
 using System;
 using System.Globalization;
+using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
 
 namespace AudioEffector
 {
     /// <summary>
-    /// リストのAlternationIndexに基づいてゼブラストライプ用の背景ブラシ（奇数行に微細な明るい背景）を返すコンバーター。
+    /// アイテムのインデックス（0始まり）に応じて、ゼブラストライプ用の背景ブラシを返すコンバーター。
+    /// 偶数行: Transparent
+    /// 奇数行: テーマに応じてダークテーマでは淡い白透過（約6%）、ライトテーマでは淡い黒透過（乗算シャドウ約5%）
     /// </summary>
     public class IndexToZebraBackgroundConverter : IValueConverter
     {
         private static readonly SolidColorBrush EvenBrush = Brushes.Transparent;
-        private static readonly SolidColorBrush OddBrush = new SolidColorBrush(Color.FromArgb(32, 255, 255, 255)); // 約12.5%透明度の白 (視認性向上)
+        private static readonly SolidColorBrush DarkOddBrush = new SolidColorBrush(Color.FromArgb(16, 255, 255, 255)); // 約6.2%白 (上品で淡いハイライト)
+        private static readonly SolidColorBrush LightOddBrush = new SolidColorBrush(Color.FromArgb(12, 0, 0, 0));       // 約4.7%黒 (乗算シャドウ)
 
         static IndexToZebraBackgroundConverter()
         {
-            OddBrush.Freeze();
+            DarkOddBrush.Freeze();
+            LightOddBrush.Freeze();
         }
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             if (value is int index)
             {
-                return (index % 2 == 1) ? OddBrush : EvenBrush;
+                if (index % 2 == 0)
+                {
+                    return EvenBrush;
+                }
+
+                // テーマの明度を判定（ライトテーマの場合は黒透過、ダークテーマの場合は白透過）
+                if (Application.Current != null && Application.Current.TryFindResource("TextForegroundColor") is Color textColor)
+                {
+                    if (textColor.R < 128 && textColor.G < 128 && textColor.B < 128)
+                    {
+                        return LightOddBrush;
+                    }
+                }
+
+                return DarkOddBrush;
             }
+
             return EvenBrush;
         }
 
