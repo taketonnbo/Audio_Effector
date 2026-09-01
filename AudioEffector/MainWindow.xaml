@@ -631,12 +631,44 @@
                         </Style>
                     </Grid.Style>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="340"/> <!-- Left: Large Cover Art, Details & Left-side Controls -->
+                        <ColumnDefinition Width="Auto"/> <!-- Left: Large Cover Art, Details & Left-side Controls (Animated) -->
                         <ColumnDefinition Width="*"/>   <!-- Right: Full-Height Tracklist -->
                     </Grid.ColumnDefinitions>
 
                     <!-- Left Column: Album Art + Meta + Controls in Left Column -->
                     <Grid Grid.Column="0" Margin="0,0,25,0">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Width" Value="340"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                                        <DataTrigger.EnterActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Width" To="380" Duration="0:0:0.3">
+                                                        <DoubleAnimation.EasingFunction>
+                                                            <CubicEase EasingMode="EaseInOut"/>
+                                                        </DoubleAnimation.EasingFunction>
+                                                    </DoubleAnimation>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.EnterActions>
+                                        <DataTrigger.ExitActions>
+                                            <BeginStoryboard>
+                                                <Storyboard>
+                                                    <DoubleAnimation Storyboard.TargetProperty="Width" To="340" Duration="0:0:0.3">
+                                                        <DoubleAnimation.EasingFunction>
+                                                            <CubicEase EasingMode="EaseInOut"/>
+                                                        </DoubleAnimation.EasingFunction>
+                                                    </DoubleAnimation>
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </DataTrigger.ExitActions>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/> <!-- Large Album Art -->
                             <RowDefinition Height="Auto"/> <!-- Album Name & Artist & Quality -->
@@ -644,8 +676,50 @@
                             <RowDefinition Height="Auto"/> <!-- Controls Lower: Title & Seekbar -->
                         </Grid.RowDefinitions>
 
-                        <!-- Large Cover Art -->
-                        <Border Grid.Row="0" Width="260" Height="260" CornerRadius="8" Background="{DynamicResource ControlBackgroundBrush}" HorizontalAlignment="Center" ClipToBounds="True" Margin="0,0,0,12">
+                        <!-- Large Cover Art (Animated Width / Height) -->
+                        <Border Grid.Row="0" CornerRadius="8" Background="{DynamicResource ControlBackgroundBrush}" HorizontalAlignment="Center" ClipToBounds="True" Margin="0,0,0,12">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Width" Value="260"/>
+                                    <Setter Property="Height" Value="260"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                                            <DataTrigger.EnterActions>
+                                                <BeginStoryboard>
+                                                    <Storyboard>
+                                                        <DoubleAnimation Storyboard.TargetProperty="Width" To="330" Duration="0:0:0.3">
+                                                            <DoubleAnimation.EasingFunction>
+                                                                <CubicEase EasingMode="EaseInOut"/>
+                                                            </DoubleAnimation.EasingFunction>
+                                                        </DoubleAnimation>
+                                                        <DoubleAnimation Storyboard.TargetProperty="Height" To="330" Duration="0:0:0.3">
+                                                            <DoubleAnimation.EasingFunction>
+                                                                <CubicEase EasingMode="EaseInOut"/>
+                                                            </DoubleAnimation.EasingFunction>
+                                                        </DoubleAnimation>
+                                                    </Storyboard>
+                                                </BeginStoryboard>
+                                            </DataTrigger.EnterActions>
+                                            <DataTrigger.ExitActions>
+                                                <BeginStoryboard>
+                                                    <Storyboard>
+                                                        <DoubleAnimation Storyboard.TargetProperty="Width" To="260" Duration="0:0:0.3">
+                                                            <DoubleAnimation.EasingFunction>
+                                                                <CubicEase EasingMode="EaseInOut"/>
+                                                            </DoubleAnimation.EasingFunction>
+                                                        </DoubleAnimation>
+                                                        <DoubleAnimation Storyboard.TargetProperty="Height" To="260" Duration="0:0:0.3">
+                                                            <DoubleAnimation.EasingFunction>
+                                                                <CubicEase EasingMode="EaseInOut"/>
+                                                            </DoubleAnimation.EasingFunction>
+                                                        </DoubleAnimation>
+                                                    </Storyboard>
+                                                </BeginStoryboard>
+                                            </DataTrigger.ExitActions>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <Image Source="{Binding NowPlayingImage}" Stretch="UniformToFill"/>
                         </Border>
 
@@ -789,7 +863,7 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="{Binding CurrentTimeDisplay}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                
+                                 
                                 <Slider Grid.Column="1" Value="{Binding Progress, Mode=TwoWay}" Maximum="100" VerticalAlignment="Center" 
                                         IsMoveToPointEnabled="True"
                                         Thumb.DragStarted="Slider_DragStarted"
@@ -818,12 +892,21 @@
                                                 Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
                                                 CommandParameter="{Binding}"
                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                                Margin="0,2" Background="Transparent" BorderThickness="0" Padding="4,4">
+                                                Margin="0,2" BorderThickness="0" Padding="6,6">
                                             <Button.Template>
                                                 <ControlTemplate TargetType="Button">
-                                                    <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+                                                    <Border x:Name="TrackBorder" Background="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter, AncestorLevel=2}, Path=(ItemsControl.AlternationIndex), Converter={StaticResource IndexToZebraBackgroundConverter}}" 
+                                                            CornerRadius="4" Padding="{TemplateBinding Padding}">
                                                         <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
                                                     </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter TargetName="TrackBorder" Property="Background" Value="#1800FFFF"/>
+                                                        </Trigger>
+                                                        <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                            <Setter TargetName="TrackBorder" Property="Background" Value="#2400FFFF"/>
+                                                        </DataTrigger>
+                                                    </ControlTemplate.Triggers>
                                                 </ControlTemplate>
                                             </Button.Template>
                                             <Button.ContextMenu>
@@ -843,14 +926,28 @@
                                             </Button.ContextMenu>
                                             <Grid HorizontalAlignment="Stretch">
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="20"/> <!-- Playing / Paused Indicator -->
-                                                    <ColumnDefinition Width="30"/> <!-- Track Number -->
+                                                    <ColumnDefinition Width="28"/> <!-- Track Number / Playing / Paused Indicator (Inline) -->
                                                     <ColumnDefinition Width="*"/>  <!-- Track Title -->
                                                     <ColumnDefinition Width="45"/> <!-- Duration -->
                                                 </Grid.ColumnDefinitions>
 
-                                                <!-- Playing Indicator (Triangle ▶) -->
-                                                <Path Grid.Column="0" Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{StaticResource NeonCyanBrush}" Width="9" Height="9" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                <!-- Track Number (Index + 1, 非再生時のみ表示) -->
+                                                <TextBlock Grid.Column="0" Text="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter, AncestorLevel=2}, Path=(ItemsControl.AlternationIndex), Converter={StaticResource IndexConverter}, StringFormat='{}{0:00}.'}" 
+                                                           Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+
+                                                <!-- Playing Indicator (Triangle ▶, 再生中のみ表示) -->
+                                                <Path Grid.Column="0" Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{StaticResource NeonCyanBrush}" Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Left">
                                                     <Path.Style>
                                                         <Style TargetType="Path">
                                                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -867,8 +964,8 @@
                                                     </Path.Style>
                                                 </Path>
 
-                                                <!-- Paused Indicator (Pause Bars ⏸) -->
-                                                <Path Grid.Column="0" Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="{StaticResource NeonCyanBrush}" Width="9" Height="9" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                <!-- Paused Indicator (Pause Bars ⏸, 一時停止中のみ表示) -->
+                                                <Path Grid.Column="0" Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="{StaticResource NeonCyanBrush}" Width="10" Height="10" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Left">
                                                     <Path.Style>
                                                         <Style TargetType="Path">
                                                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -885,12 +982,8 @@
                                                     </Path.Style>
                                                 </Path>
 
-                                                <!-- Track Number (Index + 1) -->
-                                                <TextBlock Grid.Column="1" Text="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter, AncestorLevel=2}, Path=(ItemsControl.AlternationIndex), Converter={StaticResource IndexConverter}, StringFormat='{}{0:00}.'}" 
-                                                           Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Left"/>
-
                                                 <!-- Track Title -->
-                                                <TextBlock Grid.Column="2" Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" HorizontalAlignment="Left">
                                                     <TextBlock.Style>
                                                         <Style TargetType="TextBlock">
                                                             <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
@@ -908,7 +1001,7 @@
                                                 </TextBlock>
 
                                                 <!-- Duration -->
-                                                <TextBlock Grid.Column="3" Text="{Binding DurationString}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding DurationString}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right"/>
                                             </Grid>
                                         </Button>
                                     </DataTemplate>

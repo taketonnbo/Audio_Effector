@@ -13,6 +13,7 @@
             <local:BoolToVisConverter x:Key="BoolToVis"/>
             <local:InvertBoolConverter x:Key="InvertBool"/>
             <local:IndexConverter x:Key="IndexConverter"/>
+            <local:IndexToZebraBackgroundConverter x:Key="IndexToZebraBackgroundConverter"/>
             <local:ZeroToTransparentConverter x:Key="ZeroToTransparent"/>
             <local:HeightToBorderThicknessConverter x:Key="HeightToBorderThickness"/>
             <local:EnumToBoolConverter x:Key="EnumToBool"/>
