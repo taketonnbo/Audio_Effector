@@ -675,8 +675,9 @@
                             <RowDefinition Height="*"/>    <!-- Player Pod Card (Occupies remaining height) -->
                         </Grid.RowDefinitions>
 
-                        <!-- Large Cover Art (Rounded Corners CornerRadius=16, Cyan Ambient Glow & Animated Width/Height) -->
-                        <Border Grid.Row="0" CornerRadius="16" HorizontalAlignment="Center" Margin="0,6,0,30">
+                        <!-- Large Cover Art (Subtle Rounded Corners CornerRadius=6, Metallic Border & Deep Ambient Shadow) -->
+                        <Border Grid.Row="0" CornerRadius="6" HorizontalAlignment="Center" Margin="0,6,0,30"
+                                BorderBrush="{DynamicResource MetallicCardBorderBrush}" BorderThickness="1">
                             <Border.Style>
                                 <Style TargetType="Border">
                                     <Setter Property="Width" Value="260"/>
@@ -720,7 +721,7 @@
                                 </Style>
                             </Border.Style>
                             <Border.Effect>
-                                <DropShadowEffect Color="#00FFFF" BlurRadius="28" ShadowDepth="0" Opacity="0.55"/>
+                                <DropShadowEffect Color="#000000" BlurRadius="22" ShadowDepth="6" Direction="270" Opacity="0.45"/>
                             </Border.Effect>
                             <Border.Background>
                                 <ImageBrush ImageSource="{Binding NowPlayingImage}" Stretch="UniformToFill"/>
