@@ -144,7 +144,7 @@ dotnet_diagnostic.SA1516.severity = none
 # ==============================================================================
 # コード品質・パフォーマンス解析 (Code Quality & Performance)
 # ==============================================================================
-dotnet_diagnostic.CA1822.severity = suggestion
+dotnet_diagnostic.CA1822.severity = none
 dotnet_diagnostic.CA1806.severity = warning
 dotnet_diagnostic.CA2000.severity = warning
 
