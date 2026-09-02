@@ -89,7 +89,7 @@ namespace AudioEffector.Views
             _settingsService.SaveSettings(settings);
 
             base.OnClosed(e);
-            var mainWindow = Application.Current.MainWindow;
+            var mainWindow = System.Windows.Application.Current.MainWindow;
             if (mainWindow != null && mainWindow.Visibility != Visibility.Visible)
             {
                 mainWindow.Show();

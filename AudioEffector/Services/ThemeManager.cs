@@ -22,16 +22,16 @@ namespace AudioEffector.Services
             string themeFileName = themeToApply == ThemeType.Light ? "LightTheme.xaml" : "DarkTheme.xaml";
             Uri themeUri = new Uri($"pack://application:,,,/AudioEffector;component/Themes/{themeFileName}");
 
-            var existingThemeDict = Application.Current.Resources.MergedDictionaries
-                .FirstOrDefault(d => d.Source != null && d.Source.OriginalString.Contains("Theme.xaml"));
+            var existingThemeDict = System.Windows.Application.Current.Resources.MergedDictionaries
+                .FirstOrDefault(d => d.Source != null && d.Source.OriginalString.Contains("Themes/"));
 
             if (existingThemeDict != null)
             {
-                Application.Current.Resources.MergedDictionaries.Remove(existingThemeDict);
+                System.Windows.Application.Current.Resources.MergedDictionaries.Remove(existingThemeDict);
             }
 
             ResourceDictionary newThemeDict = new ResourceDictionary { Source = themeUri };
-            Application.Current.Resources.MergedDictionaries.Add(newThemeDict);
+            System.Windows.Application.Current.Resources.MergedDictionaries.Add(newThemeDict);
         }
 
         private static ThemeType GetSystemTheme()
