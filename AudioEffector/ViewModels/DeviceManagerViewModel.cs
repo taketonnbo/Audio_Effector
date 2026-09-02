@@ -79,7 +79,7 @@ namespace AudioEffector.ViewModels
                 }
                 catch (Exception ex)
                 {
-                    Application.Current.Dispatcher.Invoke(() =>
+                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
                         MessageBox.Show($"Error loading device albums: {ex.Message}");
                     });
@@ -234,7 +234,7 @@ namespace AudioEffector.ViewModels
                         }
                         catch (Exception ex)
                         {
-                            Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Error deleting file: {ex.Message}"));
+                            System.Windows.Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Error deleting file: {ex.Message}"));
                         }
                     });
 
@@ -321,7 +321,7 @@ namespace AudioEffector.ViewModels
                     }
                     catch (Exception ex)
                     {
-                        Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Error deleting album: {ex.Message}"));
+                        System.Windows.Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Error deleting album: {ex.Message}"));
                     }
                 });
 

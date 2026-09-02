@@ -1190,7 +1190,7 @@ namespace AudioEffector.ViewModels
                         allTracksExist = false;
                     }
 
-                    Application.Current.Dispatcher.Invoke(() =>
+                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
                     {
                         album.IsOnDevice = allTracksExist;
                         if (allTracksExist) album.IsSelected = false;
@@ -1612,7 +1612,7 @@ namespace AudioEffector.ViewModels
             }
             catch
             {
-                Application.Current.Dispatcher.InvokeAsync(() =>
+                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     var brush = new LinearGradientBrush();
                     brush.StartPoint = new Point(0.5, 1.0);
@@ -1636,7 +1636,7 @@ namespace AudioEffector.ViewModels
 
         private void OnPlaylistChanged(List<Track> playlist)
         {
-            Application.Current.Dispatcher.InvokeAsync(() =>
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track>(playlist);
             });
@@ -1653,7 +1653,7 @@ namespace AudioEffector.ViewModels
             System.Threading.Interlocked.Increment(ref _spectrumGeneration);
 
             // Reset Spectrum immediately to prevent glitches
-            Application.Current.Dispatcher.InvokeAsync(() =>
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 foreach (var item in SpectrumValues)
                 {
@@ -1672,7 +1672,7 @@ namespace AudioEffector.ViewModels
             if (track != null)
             {
                 track.IsPlaying = true;
-                Application.Current.Dispatcher.InvokeAsync(() =>
+                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     if (!IsPlaylistTracksVisible && PlaybackListTracks != null && !PlaybackListTracks.Contains(track))
                     {
@@ -1708,7 +1708,7 @@ namespace AudioEffector.ViewModels
                             if (tfile.Tag.Pictures.Length > 0)
                             {
                                 var bin = tfile.Tag.Pictures[0].Data.Data;
-                                Application.Current.Dispatcher.InvokeAsync(() =>
+                                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
                                     var image = new BitmapImage();
                                     using (var mem = new MemoryStream(bin))
@@ -1749,7 +1749,7 @@ namespace AudioEffector.ViewModels
                             }
                             else
                             {
-                                Application.Current.Dispatcher.InvokeAsync(() =>
+                                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
                                     NowPlayingImage = _defaultNowPlayingImage;
                                     SpectrumBackgroundImage = _defaultSpectrumImage;
@@ -1767,7 +1767,7 @@ namespace AudioEffector.ViewModels
                     }
                     catch
                     {
-                        Application.Current.Dispatcher.InvokeAsync(() =>
+                        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                         {
                             // Default Gradient
                             // Default Gradient: Right to Left
@@ -1794,7 +1794,7 @@ namespace AudioEffector.ViewModels
 
             else
             {
-                Application.Current.Dispatcher.InvokeAsync(() =>
+                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     IsDefaultSpectrumImage = true;
                     // Default Gradient
@@ -1878,7 +1878,7 @@ namespace AudioEffector.ViewModels
 
         private void OnPlaybackStateChanged(bool isPlaying)
         {
-            Application.Current.Dispatcher.InvokeAsync(() =>
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 IsPlaying = isPlaying;
                 if (isPlaying)
@@ -2053,7 +2053,7 @@ namespace AudioEffector.ViewModels
                     tracks.Add(track);
                 });
 
-                Application.Current.Dispatcher.Invoke(() =>
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
                     var grouped = tracks.GroupBy(t => t.Album);
                     foreach (var g in grouped)
@@ -2209,7 +2209,7 @@ namespace AudioEffector.ViewModels
             // If repeat is OFF, try to play next album
             if (!IsAlbumRepeat && CurrentTrack != null)
             {
-                Application.Current.Dispatcher.Invoke(() =>
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
                     var currentAlbum = Albums.FirstOrDefault(a => a.Tracks.Any(t => t.FilePath == CurrentTrack.FilePath));
                     if (currentAlbum != null)
@@ -3109,7 +3109,7 @@ namespace AudioEffector.ViewModels
                 newValues[i] = val;
             }
 
-            Application.Current.Dispatcher.InvokeAsync(() =>
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 // Check if generation has changed (track changed)
                 if (currentGen != _spectrumGeneration) return;
@@ -3196,7 +3196,7 @@ namespace AudioEffector.ViewModels
                 catch { }
             }
 
-            Application.Current.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
             {
                 playlist.ThumbnailTrackPaths.Clear();
                 foreach (var p in distinctAlbumPaths)
