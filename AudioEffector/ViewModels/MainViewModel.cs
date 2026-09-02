@@ -38,6 +38,36 @@ namespace AudioEffector.ViewModels
         public event Action? SettingsUpdated;
 
         /// <summary>
+        /// 再生コントロール専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.PlayerControlViewModel? PlayerControl { get; }
+
+        /// <summary>
+        /// ライブラリ専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.LibraryViewModel? Library { get; }
+
+        /// <summary>
+        /// プレイリスト専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.PlaylistViewModel? Playlist { get; }
+
+        /// <summary>
+        /// イコライザー専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.EqualizerViewModel? Equalizer { get; }
+
+        /// <summary>
+        /// デバイス同期専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.DeviceSyncViewModel? DeviceSync { get; }
+
+        /// <summary>
+        /// 再生中情報専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.NowPlayingViewModel? NowPlaying { get; }
+
+        /// <summary>
         /// コードビハインドからAudioServiceへアクセスするためのプロパティ。
         /// </summary>
         public IAudioService AudioService => _audioService; // Public accessor for code-behind
@@ -254,6 +284,16 @@ namespace AudioEffector.ViewModels
         /// </summary>
         public MainViewModel()
         {
+            if (App.ServiceProvider != null)
+            {
+                PlayerControl = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.PlayerControlViewModel>(App.ServiceProvider);
+                Library = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.LibraryViewModel>(App.ServiceProvider);
+                Playlist = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.PlaylistViewModel>(App.ServiceProvider);
+                Equalizer = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.EqualizerViewModel>(App.ServiceProvider);
+                DeviceSync = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.DeviceSyncViewModel>(App.ServiceProvider);
+                NowPlaying = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.NowPlayingViewModel>(App.ServiceProvider);
+            }
+
             _audioService = LoggingProxy<IAudioService>.Create(new AudioService());
             _presetService = LoggingProxy<IPresetService>.Create(new PresetService());
             _favoriteService = LoggingProxy<IFavoriteService>.Create(new FavoriteService());
