@@ -1,3 +1,4 @@
+using EqualizerPreset = AudioEffector.Domain.Entities.EqualizerPreset;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Models;
 using AudioEffector.Presentation.Views;
@@ -73,7 +74,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public IAudioService AudioService => _audioService; // Public accessor for code-behind
 
-        private Preset? _selectedPreset;
+        private EqualizerPreset? _selectedPreset;
         private Track? _currentTrack;
         private bool _isPlaying;
         private string _currentTimeDisplay = "00:00";
@@ -350,7 +351,7 @@ namespace AudioEffector.Presentation.ViewModels
                 SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
             }
 
-            Presets = new ObservableCollection<Preset>(_presetService.LoadPresets());
+            Presets = new ObservableCollection<EqualizerPreset>(_presetService.LoadPresets());
             if (!string.IsNullOrEmpty(appSettings.LastUsedEffectPreset))
             {
                 SelectedPreset = Presets.FirstOrDefault(p => p.Name == appSettings.LastUsedEffectPreset) ?? Presets.FirstOrDefault();
@@ -647,7 +648,7 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         public ObservableCollection<BandViewModel> Bands { get; set; }
-        public ObservableCollection<Preset> Presets { get; set; }
+        public ObservableCollection<EqualizerPreset> Presets { get; set; }
         public ObservableCollection<Album> Albums { get; set; } = new ObservableCollection<Album>();
 
         public ObservableCollection<UserPlaylist> UserPlaylists
@@ -811,7 +812,7 @@ namespace AudioEffector.Presentation.ViewModels
             set { _isNowPlayingVisible = value; OnPropertyChanged(); }
         }
 
-        public Preset? SelectedPreset
+        public EqualizerPreset? SelectedPreset
         {
             get => _selectedPreset;
             set
@@ -2012,7 +2013,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 指定されたイコライザープリセットを適用します。
         /// </summary>
-        private void ApplyPreset(Preset preset)
+        private void ApplyPreset(EqualizerPreset preset)
         {
             if (preset == null || preset.Gains == null) return;
 
@@ -2493,7 +2494,7 @@ namespace AudioEffector.Presentation.ViewModels
                     string name = inputBox.InputText;
                     if (string.IsNullOrWhiteSpace(name)) name = "Untitled Preset";
 
-                    var newPreset = new Preset
+                    var newPreset = new EqualizerPreset
                     {
                         Name = name,
                         Gains = Bands.Select(b => b.Gain).ToList()

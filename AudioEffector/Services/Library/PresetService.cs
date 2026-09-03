@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
-using AudioEffector.Models;
+using AudioEffector.Domain.Entities;
 
 namespace AudioEffector.Services
 {
@@ -25,7 +25,7 @@ namespace AudioEffector.Services
             _filePath = Path.Combine(folder, "presets.json");
         }
 
-        public List<Preset> LoadPresets()
+        public List<EqualizerPreset> LoadPresets()
         {
             if (!File.Exists(_filePath))
             {
@@ -35,7 +35,7 @@ namespace AudioEffector.Services
             try
             {
                 string json = File.ReadAllText(_filePath);
-                return JsonSerializer.Deserialize<List<Preset>>(json) ?? CreateDefaultPresets();
+                return JsonSerializer.Deserialize<List<EqualizerPreset>>(json) ?? CreateDefaultPresets();
             }
             catch
             {
@@ -43,7 +43,7 @@ namespace AudioEffector.Services
             }
         }
 
-        public void SavePresets(List<Preset> presets)
+        public void SavePresets(List<EqualizerPreset> presets)
         {
             if (presets.Count > MaxPresets)
             {
@@ -53,12 +53,12 @@ namespace AudioEffector.Services
             File.WriteAllText(_filePath, json);
         }
 
-        private List<Preset> CreateDefaultPresets()
+        private List<EqualizerPreset> CreateDefaultPresets()
         {
-            var defaults = new List<Preset>();
+            var defaults = new List<EqualizerPreset>();
 
             // Default Flat
-            defaults.Add(new Preset { Name = "フラット (Flat)", Gains = new List<float>(new float[16]) });
+            defaults.Add(new EqualizerPreset { Name = "フラット (Flat)", Gains = new List<float>(new float[16]) });
 
             return defaults;
         }

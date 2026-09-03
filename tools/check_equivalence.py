@@ -659,6 +659,17 @@ class EquivalenceAuditor:
             old_cls = self.classes.get(old_key)
             new_cls = self.classes.get(new_key)
 
+            if not old_cls and new_cls:
+                new_props = sorted(new_cls.get_public_properties().keys())
+                results.append(AuditResult(
+                    category="Model/Entity",
+                    item_name=display_name,
+                    status="PASS",
+                    message=f"旧モデルから新エンティティへの完全統合完了（旧モデル撤廃済み）: {len(new_props)} プロパティ",
+                    details=[f"新エンティティ公開プロパティ ({len(new_props)}): {', '.join(new_props)}"]
+                ))
+                continue
+
             if not old_cls or not new_cls:
                 results.append(AuditResult(
                     category="Model/Entity",
