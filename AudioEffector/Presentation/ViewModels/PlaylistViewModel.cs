@@ -7,7 +7,6 @@ using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Events;
-using AudioEffector.ViewModels;
 
 namespace AudioEffector.Presentation.ViewModels;
 

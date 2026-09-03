@@ -6,7 +6,6 @@ using System.Windows.Input;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Entities.DataTransfer;
-using AudioEffector.ViewModels;
 
 namespace AudioEffector.Presentation.ViewModels;
 

@@ -1,5 +1,4 @@
 using AudioEffector.Presentation.ViewModels;
-using AudioEffector.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AudioEffector.Presentation;

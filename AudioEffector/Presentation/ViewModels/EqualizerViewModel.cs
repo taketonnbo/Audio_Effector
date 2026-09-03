@@ -9,7 +9,6 @@ using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Events;
 using AudioEffector.Domain.ValueObjects;
-using AudioEffector.ViewModels;
 
 namespace AudioEffector.Presentation.ViewModels;
 

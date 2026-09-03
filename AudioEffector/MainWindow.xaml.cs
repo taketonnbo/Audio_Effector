@@ -1,6 +1,6 @@
 using System.Windows;
 using System.Windows.Controls.Primitives;
-using AudioEffector.ViewModels;
+using AudioEffector.Presentation.ViewModels;
 
 using System.ComponentModel;
 

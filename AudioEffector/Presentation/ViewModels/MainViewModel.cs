@@ -1,6 +1,5 @@
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Models;
-using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Services;
 using AudioEffector.Views;
 using Microsoft.Win32;
@@ -20,7 +19,7 @@ using NAudio.Dsp;
 using System.Threading.Tasks;
 using NLog;
 
-namespace AudioEffector.ViewModels
+namespace AudioEffector.Presentation.ViewModels
 {
     /// <summary>
     /// アプリケーションのメインViewModel。

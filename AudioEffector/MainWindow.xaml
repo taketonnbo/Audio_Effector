@@ -4,11 +4,10 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AudioEffector"
-        xmlns:vm="clr-namespace:AudioEffector.ViewModels"
+        xmlns:vm="clr-namespace:AudioEffector.Presentation.ViewModels"
         xmlns:services="clr-namespace:AudioEffector.Services"
         xmlns:views="clr-namespace:AudioEffector.Views"
         xmlns:controls="clr-namespace:AudioEffector.Presentation.Controls"
-        xmlns:pvm="clr-namespace:AudioEffector.Presentation.ViewModels"
         mc:Ignorable="d"
         Title="Audio Effector" Height="650" Width="1000"
         Icon="pack://application:,,,/Audio_Effector_icon_1.0.1.ico"
@@ -413,7 +412,7 @@
                 <ContentControl.Style>
                     <Style TargetType="ContentControl">
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static pvm:ViewType.AllSongs}">
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.AllSongs}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
@@ -422,7 +421,7 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static pvm:ViewType.Albums}">
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.Albums}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
@@ -431,7 +430,7 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static pvm:ViewType.Artists}">
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.Artists}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
@@ -440,7 +439,7 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static pvm:ViewType.Folders}">
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.Folders}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
@@ -449,7 +448,7 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static pvm:ViewType.Favorites}">
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.Favorites}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
@@ -458,7 +457,7 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static pvm:ViewType.Playlists}">
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.Playlists}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
@@ -467,7 +466,7 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static pvm:ViewType.PlaylistTracks}">
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.PlaylistTracks}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
@@ -476,7 +475,7 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static pvm:ViewType.Recent}">
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.Recent}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
@@ -485,7 +484,7 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static pvm:ViewType.Equalizer}">
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.Equalizer}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
@@ -494,7 +493,7 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
-                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static pvm:ViewType.DeviceSync}">
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.DeviceSync}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
