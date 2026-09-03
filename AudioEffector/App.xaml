@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:AudioEffector"
+             xmlns:converters="clr-namespace:AudioEffector.Presentation.Converters"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
         <ResourceDictionary>
@@ -10,14 +11,15 @@
             </ResourceDictionary.MergedDictionaries>
             
             <!-- Global Converters -->
-            <local:BoolToVisConverter x:Key="BoolToVis"/>
-            <local:InvertBoolConverter x:Key="InvertBool"/>
-            <local:IndexConverter x:Key="IndexConverter"/>
-            <local:IndexToZebraBackgroundConverter x:Key="IndexToZebraBackgroundConverter"/>
-            <local:IndexIsOddConverter x:Key="IndexIsOddConverter"/>
-            <local:ZeroToTransparentConverter x:Key="ZeroToTransparent"/>
-            <local:HeightToBorderThicknessConverter x:Key="HeightToBorderThickness"/>
-            <local:EnumToBoolConverter x:Key="EnumToBool"/>
+            <converters:BoolToVisConverter x:Key="BoolToVis"/>
+            <converters:InvertBoolConverter x:Key="InvertBool"/>
+            <converters:IndexConverter x:Key="IndexConverter"/>
+            <converters:IndexToZebraBackgroundConverter x:Key="IndexToZebraBackgroundConverter"/>
+            <converters:IndexIsOddConverter x:Key="IndexIsOddConverter"/>
+            <converters:ZeroToTransparentConverter x:Key="ZeroToTransparent"/>
+            <converters:HeightToBorderThicknessConverter x:Key="HeightToBorderThickness"/>
+            <converters:EnumToBoolConverter x:Key="EnumToBool"/>
+            <converters:NullToVisConverter x:Key="NullToVis"/>
             
         <!-- Vertical Slider Style for EQ -->
         <Style x:Key="NeonVerticalSliderStyle" TargetType="Slider">

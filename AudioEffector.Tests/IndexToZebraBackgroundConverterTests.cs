@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Windows.Media;
-using AudioEffector;
+using AudioEffector.Presentation.Converters;
 using Xunit;
 
 namespace AudioEffector.Tests

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Data;
+using AudioEffector.Presentation.Converters;
 using AudioEffector.ViewModels;
 using Xunit;
 
