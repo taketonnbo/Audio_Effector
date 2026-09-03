@@ -35,7 +35,6 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly LibraryApplicationService? _libraryService;
         private readonly PlaylistApplicationService? _playlistService;
         private readonly ISettingsService _settingsService;
-        private readonly IDeviceSyncService _deviceSyncService;
 
         public event Action? SettingsUpdated;
 
@@ -301,7 +300,6 @@ namespace AudioEffector.Presentation.ViewModels
             _libraryService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<LibraryApplicationService>(App.ServiceProvider) : null;
             _playlistService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<PlaylistApplicationService>(App.ServiceProvider) : null;
             _settingsService = LoggingProxy<ISettingsService>.Create(new SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository()));
-            _deviceSyncService = LoggingProxy<IDeviceSyncService>.Create(new DeviceSyncService());
             _favoritePaths = _libraryService?.LoadFavorites() ?? new List<string>();
 
             var appSettings = _settingsService.LoadSettings();
