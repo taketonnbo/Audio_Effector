@@ -7,7 +7,7 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="pack://application:,,,/AudioEffector;component/Themes/DarkTheme.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/AudioEffector;component/Presentation/Themes/DarkTheme.xaml" />
             </ResourceDictionary.MergedDictionaries>
             
             <!-- Global Converters -->
