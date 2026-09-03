@@ -32,8 +32,8 @@ namespace AudioEffector.Presentation.ViewModels
 
         private readonly IAudioService _audioService;
         private readonly EqualizerApplicationService? _equalizerApplicationService;
-        private readonly IFavoriteService _favoriteService;
-        private readonly IPlaylistService _playlistService;
+        private readonly LibraryApplicationService? _libraryService;
+        private readonly PlaylistApplicationService? _playlistService;
         private readonly ISettingsService _settingsService;
         private readonly IDeviceSyncService _deviceSyncService;
 
@@ -298,18 +298,18 @@ namespace AudioEffector.Presentation.ViewModels
 
             _audioService = LoggingProxy<IAudioService>.Create(new AudioService());
             _equalizerApplicationService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<EqualizerApplicationService>(App.ServiceProvider) : null;
-            _favoriteService = LoggingProxy<IFavoriteService>.Create(new FavoriteService());
-            _playlistService = LoggingProxy<IPlaylistService>.Create(new PlaylistService());
+            _libraryService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<LibraryApplicationService>(App.ServiceProvider) : null;
+            _playlistService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<PlaylistApplicationService>(App.ServiceProvider) : null;
             _settingsService = LoggingProxy<ISettingsService>.Create(new SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository()));
             _deviceSyncService = LoggingProxy<IDeviceSyncService>.Create(new DeviceSyncService());
-            _favoritePaths = _favoriteService.LoadFavorites();
+            _favoritePaths = _libraryService?.LoadFavorites() ?? new List<string>();
 
             var appSettings = _settingsService.LoadSettings();
             _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
 
             // Load playlists
             // プレイリストの読み込み
-            var loadedPlaylists = _playlistService.LoadPlaylists();
+            var loadedPlaylists = _playlistService?.LoadPlaylists() ?? new List<UserPlaylist>();
             UserPlaylists = new ObservableCollection<UserPlaylist>(loadedPlaylists);
 
             // Generate thumbnails for loaded playlists
@@ -2156,7 +2156,7 @@ namespace AudioEffector.Presentation.ViewModels
                         }
                     }
                 }
-                _favoriteService.SaveFavorites(_favoritePaths);
+                _libraryService?.SaveFavorites(_favoritePaths);
             }
         }
 
@@ -2284,7 +2284,7 @@ namespace AudioEffector.Presentation.ViewModels
                     {
                         selectedPlaylist.TrackPaths.Add(track.FilePath);
                         UpdatePlaylistThumbnails(selectedPlaylist);
-                        _playlistService.SavePlaylists(UserPlaylists.ToList());
+                        _playlistService?.SavePlaylists(UserPlaylists.ToList());
 
                         // Immediate update if viewing this playlist
                         if (CurrentPlaylistName == selectedPlaylist.Name && IsPlaylistTracksVisible)
@@ -2367,7 +2367,7 @@ namespace AudioEffector.Presentation.ViewModels
                 if (addedCount > 0)
                 {
                     UpdatePlaylistThumbnails(selectedPlaylist);
-                    _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    _playlistService?.SavePlaylists(UserPlaylists.ToList());
                     MessageBox.Show($"Added {addedCount} tracks to '{selectedPlaylist.Name}'", "Tracks Added");
 
                     // Clear selection
@@ -2569,7 +2569,7 @@ namespace AudioEffector.Presentation.ViewModels
             {
                 var newPlaylist = new UserPlaylist { Name = dialog.InputText };
                 UserPlaylists.Add(newPlaylist);
-                _playlistService.SavePlaylists(UserPlaylists.ToList());
+                _playlistService?.SavePlaylists(UserPlaylists.ToList());
             }
         }
 
@@ -2580,7 +2580,7 @@ namespace AudioEffector.Presentation.ViewModels
                 if (!playlist.TrackPaths.Contains(CurrentTrack.FilePath))
                 {
                     playlist.TrackPaths.Add(CurrentTrack.FilePath);
-                    _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    _playlistService?.SavePlaylists(UserPlaylists.ToList());
 
                     // Immediate update if viewing this playlist
                     if (CurrentPlaylistName == playlist.Name && IsPlaylistTracksVisible)
@@ -2861,7 +2861,7 @@ namespace AudioEffector.Presentation.ViewModels
                 if (inputBox.ShowDialog() == true && !string.IsNullOrWhiteSpace(inputBox.InputText))
                 {
                     playlist.Name = inputBox.InputText.Trim();
-                    _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    _playlistService?.SavePlaylists(UserPlaylists.ToList());
                     OnPropertyChanged(nameof(UserPlaylists));
                 }
             }
@@ -2877,7 +2877,7 @@ namespace AudioEffector.Presentation.ViewModels
                 if (MessageBox.Show($"Are you sure you want to delete playlist '{playlist.Name}'?", "Delete Playlist", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
                 {
                     UserPlaylists.Remove(playlist);
-                    _playlistService.SavePlaylists(UserPlaylists.ToList());
+                    _playlistService?.SavePlaylists(UserPlaylists.ToList());
                 }
             }
         }
@@ -2904,7 +2904,7 @@ namespace AudioEffector.Presentation.ViewModels
                         // Immediate update
                         PlaylistTracks.Remove(track);
 
-                        _favoriteService.SaveFavorites(_favoritePaths);
+                        _libraryService?.SaveFavorites(_favoritePaths);
                     }
                     return;
                 }
@@ -2918,7 +2918,7 @@ namespace AudioEffector.Presentation.ViewModels
                         CurrentViewingPlaylist.TrackPaths = PlaylistTracks.Select(t => t.FilePath).ToList();
                         UpdatePlaylistThumbnails(CurrentViewingPlaylist);
 
-                        _playlistService.SavePlaylists(UserPlaylists.ToList());
+                        _playlistService?.SavePlaylists(UserPlaylists.ToList());
                     }
                 }
             }
@@ -2995,7 +2995,7 @@ namespace AudioEffector.Presentation.ViewModels
                     if (added)
                     {
                         UpdatePlaylistThumbnails(selectedPlaylist);
-                        _playlistService.SavePlaylists(UserPlaylists.ToList());
+                        _playlistService?.SavePlaylists(UserPlaylists.ToList());
                     }
                 });
             }
@@ -3023,7 +3023,7 @@ namespace AudioEffector.Presentation.ViewModels
                         }
                     }
                     
-                    _favoriteService.SaveFavorites(_favoritePaths);
+                    _libraryService?.SaveFavorites(_favoritePaths);
                 }
             }
         }

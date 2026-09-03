@@ -18,6 +18,7 @@ public class PlaylistApplicationService
     private readonly IPlaylistRepository _playlistRepository;
     private readonly ITrackRepository _trackRepository;
     private readonly IEventBus _eventBus;
+    private readonly string _playlistsFilePath;
 
     /// <summary>
     /// PlaylistApplicationServiceを初期化します
@@ -33,6 +34,50 @@ public class PlaylistApplicationService
         _playlistRepository = playlistRepository ?? throw new ArgumentNullException(nameof(playlistRepository));
         _trackRepository = trackRepository ?? throw new ArgumentNullException(nameof(trackRepository));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
+
+        var appDataPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "AudioEffector");
+        System.IO.Directory.CreateDirectory(appDataPath);
+        _playlistsFilePath = System.IO.Path.Combine(appDataPath, "playlists.json");
+    }
+
+    /// <summary>
+    /// プレイリスト一覧をローカルJSONファイルから読み込みます
+    /// </summary>
+    public List<UserPlaylist> LoadPlaylists()
+    {
+        if (!System.IO.File.Exists(_playlistsFilePath))
+            return new List<UserPlaylist>();
+
+        try
+        {
+            var json = System.IO.File.ReadAllText(_playlistsFilePath);
+            return System.Text.Json.JsonSerializer.Deserialize<List<UserPlaylist>>(json) ?? new List<UserPlaylist>();
+        }
+        catch
+        {
+            return new List<UserPlaylist>();
+        }
+    }
+
+    /// <summary>
+    /// プレイリスト一覧をローカルJSONファイルへ保存します
+    /// </summary>
+    public void SavePlaylists(List<UserPlaylist> playlists)
+    {
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(playlists, new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            System.IO.File.WriteAllText(_playlistsFilePath, json);
+        }
+        catch
+        {
+            // Silent fail
+        }
     }
 
     /// <summary>

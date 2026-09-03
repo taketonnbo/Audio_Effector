@@ -21,6 +21,7 @@ public class LibraryApplicationService
     private readonly IFavoriteRepository _favoriteRepository;
     private readonly TagLibMetadataExtractor _metadataExtractor;
     private readonly IEventBus _eventBus;
+    private readonly string _favoritesFilePath;
 
     /// <summary>
     /// LibraryApplicationServiceを初期化します
@@ -39,6 +40,42 @@ public class LibraryApplicationService
         _favoriteRepository = favoriteRepository ?? throw new ArgumentNullException(nameof(favoriteRepository));
         _metadataExtractor = metadataExtractor ?? throw new ArgumentNullException(nameof(metadataExtractor));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
+
+        var appDataPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "AudioEffector");
+        System.IO.Directory.CreateDirectory(appDataPath);
+        _favoritesFilePath = System.IO.Path.Combine(appDataPath, "favorites.json");
+    }
+
+    /// <summary>
+    /// お気に入りリストをJSONファイルから読み込みます
+    /// </summary>
+    public List<string> LoadFavorites()
+    {
+        if (File.Exists(_favoritesFilePath))
+        {
+            try
+            {
+                string json = File.ReadAllText(_favoritesFilePath);
+                return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+            }
+            catch { }
+        }
+        return new List<string>();
+    }
+
+    /// <summary>
+    /// お気に入りリストをJSONファイルへ保存します
+    /// </summary>
+    public void SaveFavorites(List<string> favorites)
+    {
+        try
+        {
+            string json = System.Text.Json.JsonSerializer.Serialize(favorites);
+            File.WriteAllText(_favoritesFilePath, json);
+        }
+        catch { }
     }
 
     /// <summary>
