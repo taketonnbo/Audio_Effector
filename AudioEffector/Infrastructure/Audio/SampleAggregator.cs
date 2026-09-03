@@ -17,9 +17,14 @@ public class SampleAggregator : ISampleProvider
     private int _sampleBufferIndex;
 
     /// <summary>
-    /// FFT計算完了時に発生するイベント
+    /// FFT計算完了時に発生するイベント（振幅データ）
     /// </summary>
     public event EventHandler<FftCalculatedEventArgs>? FftCalculated;
+
+    /// <summary>
+    /// FFT計算完了時に発生するイベント（複素数データ・旧互換）
+    /// </summary>
+    public event EventHandler<FftEventArgs>? ComplexFftCalculated;
 
     /// <summary>
     /// 出力音声フォーマット
@@ -98,5 +103,6 @@ public class SampleAggregator : ISampleProvider
         }
 
         FftCalculated?.Invoke(this, new FftCalculatedEventArgs(magnitudes, _source.WaveFormat.SampleRate));
+        ComplexFftCalculated?.Invoke(this, new FftEventArgs(_fftBuffer));
     }
 }

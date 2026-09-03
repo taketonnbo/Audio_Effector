@@ -23,6 +23,7 @@ public static class DependencyInjection
     {
         // 音声再生エンジン（リソース管理・排他制御のためSingleton）
         services.AddSingleton<IAudioEngine, NAudioPlaybackEngine>();
+        services.AddSingleton<AudioEffector.Application.ApplicationServices.IAudioService, AudioService>();
 
         // メタデータ抽出および画像ローダー
         services.AddSingleton<TagLibMetadataExtractor>();

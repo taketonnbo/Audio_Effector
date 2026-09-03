@@ -5,7 +5,6 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AudioEffector.Presentation.Views"
         xmlns:vm="clr-namespace:AudioEffector.Presentation.ViewModels"
-        xmlns:services="clr-namespace:AudioEffector.Services"
         xmlns:views="clr-namespace:AudioEffector.Presentation.Views"
         xmlns:controls="clr-namespace:AudioEffector.Presentation.Controls"
         mc:Ignorable="d"

@@ -6,7 +6,7 @@ using AudioEffector.Infrastructure.Windows;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.Themes;
-using IAudioService = AudioEffector.Services.IAudioService;
+
 
 namespace AudioEffector.Presentation.ViewModels;
 

@@ -56,6 +56,11 @@ public class EqualizerDsp : ISampleProvider
     }
 
     /// <summary>
+    /// 指定されたバンドのゲイン（dB）を更新します（SetBandGainの互換エイリアス）
+    /// </summary>
+    public void UpdateGain(int bandIndex, float gain) => SetBandGain(bandIndex, gain);
+
+    /// <summary>
     /// 全バンドのゲイン（dB）を一括更新します
     /// </summary>
     /// <param name="gainsDb">ゲイン配列</param>
