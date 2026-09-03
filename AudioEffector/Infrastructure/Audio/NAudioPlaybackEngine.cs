@@ -103,12 +103,12 @@ public class NAudioPlaybackEngine : IAudioEngine
             {
                 CleanupCurrentPlayback();
 
-                if (!File.Exists(track.FilePath.Value))
+                if (!File.Exists(track.FilePath))
                 {
-                    throw new FileNotFoundException($"音声ファイルが見つかりません: {track.FilePath.Value}", track.FilePath.Value);
+                    throw new FileNotFoundException($"音声ファイルが見つかりません: {track.FilePath}", track.FilePath);
                 }
 
-                _audioFileReader = new AudioFileReader(track.FilePath.Value);
+                _audioFileReader = new AudioFileReader(track.FilePath);
 
                 // 10バンドEQの構築
                 _equalizer = new EqualizerDsp(_audioFileReader, EqualizerPreset.STANDARD_10_BAND_FREQUENCIES);

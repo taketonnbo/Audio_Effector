@@ -1,4 +1,4 @@
-using AudioEffector.Models;
+using AudioEffector.Domain.Entities;
 using Xunit;
 
 namespace AudioEffector.Tests

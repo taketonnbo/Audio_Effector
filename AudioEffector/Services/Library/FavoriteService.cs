@@ -1,4 +1,4 @@
-using AudioEffector.Models;
+using AudioEffector.Domain.Entities;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;

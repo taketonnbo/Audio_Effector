@@ -121,7 +121,7 @@ public class JsonTrackRepository : ITrackRepository
         try
         {
             await EnsureLoadedAsync(cancellationToken);
-            return _tracks.Values.FirstOrDefault(t => string.Equals(t.FilePath.Value, filePath.Value, StringComparison.OrdinalIgnoreCase));
+            return _tracks.Values.FirstOrDefault(t => string.Equals(t.FilePath, filePath.Value, StringComparison.OrdinalIgnoreCase));
         }
         finally
         {
@@ -272,7 +272,7 @@ public class JsonTrackRepository : ITrackRepository
         public static TrackDto FromEntity(Track track) => new()
         {
             Id = track.Id.Value,
-            FilePath = track.FilePath.Value,
+            FilePath = track.FilePath,
             Title = track.Title,
             Artist = track.Artist,
             Album = track.Album,

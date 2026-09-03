@@ -1,7 +1,5 @@
-using EqualizerPreset = AudioEffector.Domain.Entities.EqualizerPreset;
-using UserPlaylist = AudioEffector.Domain.Entities.UserPlaylist;
+using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Logging;
-using AudioEffector.Models;
 using AudioEffector.Presentation.Views;
 using AudioEffector.Services;
 using Microsoft.Win32;
@@ -373,7 +371,7 @@ namespace AudioEffector.Presentation.ViewModels
 
             PlayTrackCommand = new RelayCommand(o =>
             {
-                if (o is AudioEffector.Models.Track t)
+                if (o is Track t)
                 {
                     // If clicking the currently playing track, toggle play/pause instead of restarting
                     if (CurrentTrack != null && CurrentTrack.Equals(t))
@@ -417,7 +415,7 @@ namespace AudioEffector.Presentation.ViewModels
             ShowQueueDialogCommand = new RelayCommand(o => ShowQueueDialog());
             PlayFromQueueCommand = new RelayCommand(o =>
             {
-                if (o is AudioEffector.Models.Track t)
+                if (o is Track t)
                 {
                     if (t == CurrentTrack)
                     {
