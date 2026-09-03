@@ -21,6 +21,7 @@ public class EqualizerApplicationService
     private readonly IAudioEngine _audioEngine;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IEventBus _eventBus;
+    private readonly string _presetsFilePath;
     private readonly object _lock = new();
 
     private EqualizerPreset _currentPreset;
@@ -51,6 +52,52 @@ public class EqualizerApplicationService
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
         _currentPreset = EqualizerPreset.CreateFlat();
+
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string folder = System.IO.Path.Combine(appData, "AudioEffector");
+        System.IO.Directory.CreateDirectory(folder);
+        _presetsFilePath = System.IO.Path.Combine(folder, "presets.json");
+    }
+
+    /// <summary>
+    /// イコライザープリセット一覧をローカルファイル（presets.json）から読み込みます
+    /// </summary>
+    public List<EqualizerPreset> LoadPresets()
+    {
+        if (!System.IO.File.Exists(_presetsFilePath))
+        {
+            return CreateDefaultPresets();
+        }
+
+        try
+        {
+            string json = System.IO.File.ReadAllText(_presetsFilePath);
+            return JsonSerializer.Deserialize<List<EqualizerPreset>>(json) ?? CreateDefaultPresets();
+        }
+        catch
+        {
+            return CreateDefaultPresets();
+        }
+    }
+
+    /// <summary>
+    /// イコライザープリセット一覧をローカルファイル（presets.json）へ保存します
+    /// </summary>
+    public void SavePresets(List<EqualizerPreset> presets)
+    {
+        if (presets == null) return;
+        const int maxPresets = 30;
+        if (presets.Count > maxPresets)
+        {
+            presets = presets.GetRange(0, maxPresets);
+        }
+        string json = JsonSerializer.Serialize(presets);
+        System.IO.File.WriteAllText(_presetsFilePath, json);
+    }
+
+    private static List<EqualizerPreset> CreateDefaultPresets()
+    {
+        return [new EqualizerPreset { Name = "フラット (Flat)", Gains = new List<float>(new float[16]) }];
     }
 
     /// <summary>

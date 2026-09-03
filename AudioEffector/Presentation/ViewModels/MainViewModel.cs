@@ -31,7 +31,7 @@ namespace AudioEffector.Presentation.ViewModels
         private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
         private readonly IAudioService _audioService;
-        private readonly IPresetService _presetService;
+        private readonly EqualizerApplicationService? _equalizerApplicationService;
         private readonly IFavoriteService _favoriteService;
         private readonly IPlaylistService _playlistService;
         private readonly ISettingsService _settingsService;
@@ -297,7 +297,7 @@ namespace AudioEffector.Presentation.ViewModels
             }
 
             _audioService = LoggingProxy<IAudioService>.Create(new AudioService());
-            _presetService = LoggingProxy<IPresetService>.Create(new PresetService());
+            _equalizerApplicationService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<EqualizerApplicationService>(App.ServiceProvider) : null;
             _favoriteService = LoggingProxy<IFavoriteService>.Create(new FavoriteService());
             _playlistService = LoggingProxy<IPlaylistService>.Create(new PlaylistService());
             _settingsService = LoggingProxy<ISettingsService>.Create(new SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository()));
@@ -351,7 +351,7 @@ namespace AudioEffector.Presentation.ViewModels
                 SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
             }
 
-            Presets = new ObservableCollection<EqualizerPreset>(_presetService.LoadPresets());
+            Presets = new ObservableCollection<EqualizerPreset>(_equalizerApplicationService?.LoadPresets() ?? new List<EqualizerPreset>());
             if (!string.IsNullOrEmpty(appSettings.LastUsedEffectPreset))
             {
                 SelectedPreset = Presets.FirstOrDefault(p => p.Name == appSettings.LastUsedEffectPreset) ?? Presets.FirstOrDefault();
@@ -2500,7 +2500,7 @@ namespace AudioEffector.Presentation.ViewModels
                         Gains = Bands.Select(b => b.Gain).ToList()
                     };
                     Presets.Add(newPreset);
-                    _presetService.SavePresets(Presets.ToList());
+                    _equalizerApplicationService?.SavePresets(Presets.ToList());
                     SelectedPreset = newPreset;
                     MessageBox.Show("プリセットを保存しました。\nPreset Saved.", "保存完了");
                 }
@@ -2528,7 +2528,7 @@ namespace AudioEffector.Presentation.ViewModels
                     try
                     {
                         Presets.Remove(SelectedPreset);
-                        _presetService.SavePresets(Presets.ToList());
+                        _equalizerApplicationService?.SavePresets(Presets.ToList());
                         SelectedPreset = Presets.FirstOrDefault();
                     }
                     catch (Exception ex)
