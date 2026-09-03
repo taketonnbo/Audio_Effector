@@ -1,3 +1,5 @@
+using AudioEffector.Infrastructure.Logging;
+
 namespace AudioEffector.Services
 {
     public interface ISettingsService

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using AudioEffector.Infrastructure.Logging;
 
 namespace AudioEffector.Services
 {

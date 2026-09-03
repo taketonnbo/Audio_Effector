@@ -1,3 +1,4 @@
+using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Models;
 using AudioEffector.Services;
 using AudioEffector.Views;
