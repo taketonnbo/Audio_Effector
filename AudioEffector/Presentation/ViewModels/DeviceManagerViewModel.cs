@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using AudioEffector.Models;
+using DeviceAlbum = AudioEffector.Domain.Entities.DataTransfer.DeviceAlbum;
+using DeviceTrack = AudioEffector.Domain.Entities.DataTransfer.DeviceTrack;
 
 namespace AudioEffector.Presentation.ViewModels;
 
