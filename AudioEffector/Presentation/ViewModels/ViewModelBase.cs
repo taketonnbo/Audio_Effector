@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
-namespace AudioEffector.ViewModels;
+namespace AudioEffector.Presentation.ViewModels;
 
 /// <summary>
 /// すべてのViewModelの基底クラス

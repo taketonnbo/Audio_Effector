@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using AudioEffector.Infrastructure.Windows;
 using AudioEffector.Presentation.Themes;
+using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Services;
 
 namespace AudioEffector.ViewModels
