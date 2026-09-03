@@ -1,3 +1,4 @@
+using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Models;
 using System.Collections.Generic;
 

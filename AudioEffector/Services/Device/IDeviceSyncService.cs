@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using AudioEffector.Infrastructure.Logging;
 
 namespace AudioEffector.Services
 {
