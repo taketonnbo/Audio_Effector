@@ -1,5 +1,5 @@
 using System.Windows;
-using AudioEffector.ViewModels;
+using AudioEffector.Presentation.ViewModels;
 
 namespace AudioEffector.Views
 {

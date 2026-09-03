@@ -1,5 +1,6 @@
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Models;
+using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Services;
 using AudioEffector.Views;
 using Microsoft.Win32;

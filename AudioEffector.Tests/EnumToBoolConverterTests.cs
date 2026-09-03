@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Windows.Data;
 using AudioEffector.Presentation.Converters;
-using AudioEffector.ViewModels;
+using AudioEffector.Presentation.ViewModels;
 using Xunit;
 
 namespace AudioEffector.Tests
