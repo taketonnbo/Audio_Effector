@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
 
-namespace AudioEffector.Views
+namespace AudioEffector.Presentation.Views
 {
     /// <summary>
     /// 汎用的なテキスト入力ダイアログ。

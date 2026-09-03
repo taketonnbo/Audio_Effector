@@ -1,7 +1,7 @@
 using System.Windows;
 using AudioEffector.Presentation.ViewModels;
 
-namespace AudioEffector.Views
+namespace AudioEffector.Presentation.Views
 {
     public partial class DeviceManagerDialog : Window
     {

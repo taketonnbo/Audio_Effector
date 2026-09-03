@@ -5,7 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using AudioEffector.Services;
 
-namespace AudioEffector.Views
+namespace AudioEffector.Presentation.Views
 {
     public partial class ShortcutInputBox : UserControl
     {

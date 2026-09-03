@@ -57,6 +57,11 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
 
+    <Page Include="Presentation\Views\*.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+
     <Page Include="Presentation\Themes\*.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>

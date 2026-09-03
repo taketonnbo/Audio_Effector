@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 
-namespace AudioEffector.Views
+namespace AudioEffector.Presentation.Views
 {
     public partial class PlayQueueDialog : Window
     {

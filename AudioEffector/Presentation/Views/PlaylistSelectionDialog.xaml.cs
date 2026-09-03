@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using AudioEffector.Models;
 
-namespace AudioEffector.Views
+namespace AudioEffector.Presentation.Views
 {
     /// <summary>
     /// トラックをプレイリストに追加する際に使用する選択ダイアログ。

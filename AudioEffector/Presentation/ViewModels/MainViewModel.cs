@@ -1,5 +1,6 @@
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Models;
+using AudioEffector.Presentation.Views;
 using AudioEffector.Services;
 using AudioEffector.Views;
 using Microsoft.Win32;
@@ -2201,7 +2202,7 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void ShowQueueDialog()
         {
-            var dialog = new AudioEffector.Views.PlayQueueDialog();
+            var dialog = new PlayQueueDialog();
             dialog.Owner = App.Current.MainWindow;
             dialog.DataContext = this;
             dialog.Show();
@@ -3253,7 +3254,7 @@ namespace AudioEffector.Presentation.ViewModels
 
             string basePath = !string.IsNullOrEmpty(CurrentDevicePath) ? CurrentDevicePath : SelectedDevice.RootPath;
             var dialogViewModel = new DeviceManagerViewModel(SelectedDevice, basePath, Albums.ToList());
-            var dialog = new Views.DeviceManagerDialog(dialogViewModel);
+            var dialog = new DeviceManagerDialog(dialogViewModel);
             dialog.ShowDialog();
 
             // デバイス管理ダイアログを閉じた後、デバイス上のアルバム状況が変更されている可能性があるためチェックを再実行
@@ -3269,7 +3270,7 @@ namespace AudioEffector.Presentation.ViewModels
         private void ShowSettings()
         {
             var settingsViewModel = new SettingsViewModel(_settingsService, _audioService);
-            var settingsDialog = new Views.SettingsDialog(settingsViewModel);
+            var settingsDialog = new SettingsDialog(settingsViewModel);
             if (System.Windows.Application.Current.MainWindow != null)
             {
                 settingsDialog.Owner = System.Windows.Application.Current.MainWindow;
