@@ -1,6 +1,6 @@
 using System.Windows.Controls;
 
-namespace AudioEffector.Views
+namespace AudioEffector.Presentation.Views
 {
     public partial class EqualizerView : UserControl
     {

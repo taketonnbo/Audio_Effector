@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using AudioEffector.Services;
 
-namespace AudioEffector.Views
+namespace AudioEffector.Presentation.Views
 {
     public partial class MiniPlayerWindow : Window
     {

@@ -2,7 +2,6 @@ using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Models;
 using AudioEffector.Presentation.Views;
 using AudioEffector.Services;
-using AudioEffector.Views;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;

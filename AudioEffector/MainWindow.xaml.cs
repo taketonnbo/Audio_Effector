@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls.Primitives;
 using AudioEffector.Presentation.ViewModels;
+using AudioEffector.Presentation.Views;
 
 using System.ComponentModel;
 
@@ -63,7 +64,7 @@ namespace AudioEffector
             }
         }
 
-        private Views.MiniPlayerWindow? _miniPlayer;
+        private MiniPlayerWindow? _miniPlayer;
 
         protected override void OnStateChanged(System.EventArgs e)
         {
@@ -74,7 +75,7 @@ namespace AudioEffector
                 this.Hide();
                 if (_miniPlayer == null)
                 {
-                    _miniPlayer = new Views.MiniPlayerWindow();
+                    _miniPlayer = new MiniPlayerWindow();
                     _miniPlayer.DataContext = this.DataContext;
                     _miniPlayer.Closed += (s, args) => _miniPlayer = null;
                 }

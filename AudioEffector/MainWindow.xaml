@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:AudioEffector"
         xmlns:vm="clr-namespace:AudioEffector.Presentation.ViewModels"
         xmlns:services="clr-namespace:AudioEffector.Services"
-        xmlns:views="clr-namespace:AudioEffector.Views"
+        xmlns:views="clr-namespace:AudioEffector.Presentation.Views"
         xmlns:controls="clr-namespace:AudioEffector.Presentation.Controls"
         mc:Ignorable="d"
         Title="Audio Effector" Height="650" Width="1000"
