@@ -1,26 +1,68 @@
 using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Windows.Media.Imaging;
 
 namespace AudioEffector.Domain.Entities.DataTransfer;
 
 /// <summary>
 /// ポータブルデバイス（MTP）上のアルバムフォルダ情報を表すドメインエンティティ
 /// </summary>
-public class DeviceAlbum : IEquatable<DeviceAlbum>
+public class DeviceAlbum : IEquatable<DeviceAlbum>, INotifyPropertyChanged
 {
+    private string _title = string.Empty;
+    private string _artist = string.Empty;
+    private string _path = string.Empty;
+    private BitmapImage? _coverImage;
+
     /// <summary>
     /// アルバムタイトル
     /// </summary>
-    public string Title { get; }
+    public string Title
+    {
+        get => _title;
+        set { if (_title != value) { _title = value; OnPropertyChanged(); } }
+    }
 
     /// <summary>
     /// アーティスト名
     /// </summary>
-    public string Artist { get; }
+    public string Artist
+    {
+        get => _artist;
+        set { if (_artist != value) { _artist = value; OnPropertyChanged(); } }
+    }
 
     /// <summary>
     /// デバイス上のアルバムフォルダパス
     /// </summary>
-    public string Path { get; }
+    public string Path
+    {
+        get => _path;
+        set { if (_path != value) { _path = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>
+    /// カバー画像
+    /// </summary>
+    public BitmapImage? CoverImage
+    {
+        get => _coverImage;
+        set { if (_coverImage != value) { _coverImage = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>
+    /// アルバムに含まれるデバイストラック一覧
+    /// </summary>
+    public ObservableCollection<DeviceTrack> Tracks { get; set; } = new();
+
+    /// <summary>
+    /// デフォルトコンストラクタ
+    /// </summary>
+    public DeviceAlbum() : this(string.Empty, string.Empty, string.Empty)
+    {
+    }
 
     /// <summary>
     /// DeviceAlbumを初期化します
@@ -30,9 +72,15 @@ public class DeviceAlbum : IEquatable<DeviceAlbum>
     /// <param name="path">デバイス上のフォルダパス</param>
     public DeviceAlbum(string title, string artist, string path)
     {
-        Title = string.IsNullOrWhiteSpace(title) ? "Unknown Album" : title.Trim();
-        Artist = string.IsNullOrWhiteSpace(artist) ? "Unknown Artist" : artist.Trim();
-        Path = path ?? string.Empty;
+        _title = string.IsNullOrWhiteSpace(title) ? "Unknown Album" : title.Trim();
+        _artist = string.IsNullOrWhiteSpace(artist) ? "Unknown Artist" : artist.Trim();
+        _path = path ?? string.Empty;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     /// <summary>

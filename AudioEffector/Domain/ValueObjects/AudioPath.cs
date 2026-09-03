@@ -66,4 +66,14 @@ public readonly record struct AudioPath : IEquatable<AudioPath>
     /// </summary>
     /// <returns>フルパス文字列</returns>
     public override string ToString() => Value;
+
+    /// <summary>
+    /// string型からAudioPathへの暗黙的型変換
+    /// </summary>
+    public static implicit operator AudioPath(string path) => string.IsNullOrWhiteSpace(path) ? default : Create(path);
+
+    /// <summary>
+    /// AudioPathからstring型への暗黙的型変換
+    /// </summary>
+    public static implicit operator string(AudioPath path) => path.Value ?? string.Empty;
 }

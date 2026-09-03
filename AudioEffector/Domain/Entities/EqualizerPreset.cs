@@ -20,22 +20,50 @@ public class EqualizerPreset : IEquatable<EqualizerPreset>
     /// <summary>
     /// プリセット名
     /// </summary>
-    public string Name { get; private set; }
+    public string Name { get; set; }
 
     /// <summary>
     /// 周波数バンド設定一覧（読み取り専用）
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyList<FrequencyBand> Bands => _bands.AsReadOnly();
 
     /// <summary>
     /// ユーザー作成のカスタムプリセットかどうか
     /// </summary>
-    public bool IsCustom { get; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsCustom { get; set; }
 
     /// <summary>
     /// バンド数
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public int BandCount => _bands.Count;
+
+    /// <summary>
+    /// 各周波数バンドのゲイン値（dB）のリスト（JSON・UIバインディング互換プロパティ）
+    /// </summary>
+    public List<float> Gains
+    {
+        get => _bands.Select(b => b.Gain.Value).ToList();
+        set
+        {
+            if (value != null && value.Count > 0)
+            {
+                for (int i = 0; i < value.Count && i < _bands.Count; i++)
+                {
+                    _bands[i] = _bands[i].WithGain(Gain.FromDecibels(value[i]));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// デフォルトコンストラクタ（Flatプリセットとして初期化）
+    /// </summary>
+    public EqualizerPreset() : this("Flat", STANDARD_10_BAND_FREQUENCIES.Select(f => new FrequencyBand(f, Gain.Zero)), false)
+    {
+    }
 
     /// <summary>
     /// イコライザープリセットを初期化します
@@ -45,14 +73,9 @@ public class EqualizerPreset : IEquatable<EqualizerPreset>
     /// <param name="isCustom">カスタムプリセットフラグ</param>
     public EqualizerPreset(string name, IEnumerable<FrequencyBand> bands, bool isCustom = false)
     {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            throw new ArgumentException("プリセット名を空にすることはできません", nameof(name));
-        }
-
+        Name = string.IsNullOrWhiteSpace(name) ? "Flat" : name.Trim();
         ArgumentNullException.ThrowIfNull(bands);
 
-        Name = name.Trim();
         _bands = new List<FrequencyBand>(bands);
         IsCustom = isCustom;
 

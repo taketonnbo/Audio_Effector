@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows;
-using AudioEffector.Models;
+using AudioEffector.Domain.Entities;
 
 namespace AudioEffector.Presentation.Views
 {

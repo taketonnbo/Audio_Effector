@@ -1,36 +1,71 @@
 using System;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 namespace AudioEffector.Domain.Entities.DataTransfer;
 
 /// <summary>
 /// ポータブルデバイス（MTP）上の楽曲ファイル情報を表すドメインエンティティ
 /// </summary>
-public class DeviceTrack : IEquatable<DeviceTrack>
+public class DeviceTrack : IEquatable<DeviceTrack>, INotifyPropertyChanged
 {
+    private string _title = string.Empty;
+    private string _artist = string.Empty;
+    private string _album = string.Empty;
+    private string _path = string.Empty;
+    private long _fileSizeBytes;
+
     /// <summary>
     /// 楽曲タイトル
     /// </summary>
-    public string Title { get; }
+    public string Title
+    {
+        get => _title;
+        set { if (_title != value) { _title = value; OnPropertyChanged(); } }
+    }
 
     /// <summary>
     /// アーティスト名
     /// </summary>
-    public string Artist { get; }
+    public string Artist
+    {
+        get => _artist;
+        set { if (_artist != value) { _artist = value; OnPropertyChanged(); } }
+    }
 
     /// <summary>
     /// アルバム名
     /// </summary>
-    public string Album { get; }
+    public string Album
+    {
+        get => _album;
+        set { if (_album != value) { _album = value; OnPropertyChanged(); } }
+    }
 
     /// <summary>
     /// デバイス上のファイルパス
     /// </summary>
-    public string Path { get; }
+    public string Path
+    {
+        get => _path;
+        set { if (_path != value) { _path = value; OnPropertyChanged(); } }
+    }
 
     /// <summary>
     /// ファイルサイズ（バイト）
     /// </summary>
-    public long FileSizeBytes { get; }
+    public long FileSizeBytes
+    {
+        get => _fileSizeBytes;
+        set { if (_fileSizeBytes != value) { _fileSizeBytes = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>
+    /// デフォルトコンストラクタ
+    /// </summary>
+    public DeviceTrack() : this(string.Empty, string.Empty, string.Empty, string.Empty, 0)
+    {
+    }
 
     /// <summary>
     /// DeviceTrackを初期化します
@@ -42,11 +77,17 @@ public class DeviceTrack : IEquatable<DeviceTrack>
     /// <param name="fileSizeBytes">ファイルサイズ（バイト）</param>
     public DeviceTrack(string title, string artist, string album, string path, long fileSizeBytes = 0)
     {
-        Title = string.IsNullOrWhiteSpace(title) ? System.IO.Path.GetFileName(path) : title.Trim();
-        Artist = string.IsNullOrWhiteSpace(artist) ? "Unknown Artist" : artist.Trim();
-        Album = string.IsNullOrWhiteSpace(album) ? "Unknown Album" : album.Trim();
-        Path = path ?? string.Empty;
-        FileSizeBytes = fileSizeBytes;
+        _title = string.IsNullOrWhiteSpace(title) ? System.IO.Path.GetFileName(path) : title.Trim();
+        _artist = string.IsNullOrWhiteSpace(artist) ? "Unknown Artist" : artist.Trim();
+        _album = string.IsNullOrWhiteSpace(album) ? "Unknown Album" : album.Trim();
+        _path = path ?? string.Empty;
+        _fileSizeBytes = fileSizeBytes;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     /// <summary>
