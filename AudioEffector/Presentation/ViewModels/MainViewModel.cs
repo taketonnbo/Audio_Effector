@@ -1,4 +1,5 @@
 using EqualizerPreset = AudioEffector.Domain.Entities.EqualizerPreset;
+using UserPlaylist = AudioEffector.Domain.Entities.UserPlaylist;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Models;
 using AudioEffector.Presentation.Views;

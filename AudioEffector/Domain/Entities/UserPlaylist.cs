@@ -12,34 +12,58 @@ public class UserPlaylist : IEquatable<UserPlaylist>
     private readonly List<TrackId> _trackIds;
 
     /// <summary>
+    /// <summary>
     /// 一意のプレイリストID
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public PlaylistId Id { get; }
 
     /// <summary>
     /// プレイリスト名
     /// </summary>
-    public string Name { get; private set; }
+    public string Name { get; set; }
+
+    /// <summary>
+    /// プレイリストに含まれるトラックのファイルパスリスト（旧互換プロパティ）
+    /// </summary>
+    public List<string> TrackPaths { get; set; } = [];
+
+    /// <summary>
+    /// サムネイル表示用のトラックパリスト（シリアライズ対象外・UIバインディング用）
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public System.Collections.ObjectModel.ObservableCollection<string> ThumbnailTrackPaths { get; set; } = [];
 
     /// <summary>
     /// プレイリストに含まれるトラックIDのコレクション（順序保持）
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyList<TrackId> TrackIds => _trackIds.AsReadOnly();
 
     /// <summary>
     /// トラック数
     /// </summary>
-    public int TrackCount => _trackIds.Count;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int TrackCount => Math.Max(_trackIds.Count, TrackPaths.Count);
 
     /// <summary>
     /// 作成日時
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public DateTime CreatedAt { get; }
 
     /// <summary>
     /// 最終更新日時
     /// </summary>
-    public DateTime UpdatedAt { get; private set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DateTime UpdatedAt { get; set; }
+
+    /// <summary>
+    /// デフォルトコンストラクタ（オブジェクト初期化子・JSONデシリアライズ用）
+    /// </summary>
+    public UserPlaylist() : this(PlaylistId.New(), "New Playlist")
+    {
+    }
 
     /// <summary>
     /// プレイリストエンティティを初期化します
@@ -56,13 +80,8 @@ public class UserPlaylist : IEquatable<UserPlaylist>
         DateTime? createdAt = null,
         DateTime? updatedAt = null)
     {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            throw new ArgumentException("プレイリスト名を空にすることはできません", nameof(name));
-        }
-
         Id = id;
-        Name = name.Trim();
+        Name = string.IsNullOrWhiteSpace(name) ? "New Playlist" : name.Trim();
         _trackIds = trackIds != null ? new List<TrackId>(trackIds) : [];
         CreatedAt = createdAt ?? DateTime.UtcNow;
         UpdatedAt = updatedAt ?? DateTime.UtcNow;

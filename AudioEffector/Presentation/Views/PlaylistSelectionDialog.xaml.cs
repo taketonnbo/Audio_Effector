@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows;
 using AudioEffector.Models;
+using UserPlaylist = AudioEffector.Domain.Entities.UserPlaylist;
 
 namespace AudioEffector.Presentation.Views
 {
