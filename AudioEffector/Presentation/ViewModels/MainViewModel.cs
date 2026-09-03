@@ -1,3 +1,4 @@
+using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Presentation.Views;
@@ -299,7 +300,7 @@ namespace AudioEffector.Presentation.ViewModels
             _presetService = LoggingProxy<IPresetService>.Create(new PresetService());
             _favoriteService = LoggingProxy<IFavoriteService>.Create(new FavoriteService());
             _playlistService = LoggingProxy<IPlaylistService>.Create(new PlaylistService());
-            _settingsService = LoggingProxy<ISettingsService>.Create(new SettingsService());
+            _settingsService = LoggingProxy<ISettingsService>.Create(new SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository()));
             _deviceSyncService = LoggingProxy<IDeviceSyncService>.Create(new DeviceSyncService());
             _favoritePaths = _favoriteService.LoadFavorites();
 

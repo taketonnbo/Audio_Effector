@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddSingleton<EqualizerApplicationService>();
         services.AddSingleton<DataTransferApplicationService>();
         services.AddSingleton<SettingsApplicationService>();
+        services.AddSingleton<ISettingsService>(sp => sp.GetRequiredService<SettingsApplicationService>());
 
         return services;
     }

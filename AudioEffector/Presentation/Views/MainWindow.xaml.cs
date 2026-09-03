@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls.Primitives;
+using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -24,7 +26,9 @@ namespace AudioEffector.Presentation.Views
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            var settingsService = new AudioEffector.Services.SettingsService();
+            var settingsService = App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider) ?? new SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository())
+                : new SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository());
             var appSettings = settingsService.LoadSettings();
             if (appSettings.StartMinimized)
             {
@@ -38,7 +42,7 @@ namespace AudioEffector.Presentation.Views
             UpdateShortcuts(appSettings);
         }
 
-        private void UpdateShortcuts(AudioEffector.Services.AppSettings settings)
+        private void UpdateShortcuts(AudioEffector.Domain.Entities.AppSettings settings)
         {
             this.InputBindings.Clear();
             if (this.DataContext is MainViewModel vm)
@@ -53,7 +57,7 @@ namespace AudioEffector.Presentation.Views
             }
         }
 
-        private void AddShortcut(AudioEffector.Services.ShortcutKeyConfig config, System.Windows.Input.ICommand command)
+        private void AddShortcut(AudioEffector.Domain.Entities.ShortcutKeyConfig config, System.Windows.Input.ICommand command)
         {
             if (config != null && config.Key != System.Windows.Input.Key.None)
             {

@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using AudioEffector.Services;
+using AudioEffector.Domain.Entities;
 
 namespace AudioEffector.Presentation.Views
 {
@@ -120,10 +120,10 @@ namespace AudioEffector.Presentation.Views
             if (this.DataContext != null)
             {
                 var properties = this.DataContext.GetType().GetProperties()
-                    .Where(p => p.PropertyType == typeof(AudioEffector.Services.ShortcutKeyConfig));
+                    .Where(p => p.PropertyType == typeof(ShortcutKeyConfig));
                 foreach (var prop in properties)
                 {
-                    var sc = prop.GetValue(this.DataContext) as AudioEffector.Services.ShortcutKeyConfig;
+                    var sc = prop.GetValue(this.DataContext) as ShortcutKeyConfig;
                     if (sc != null && sc.Key == key && sc.Modifiers == modifiers)
                     {
                         if (!ReferenceEquals(sc, Shortcut))

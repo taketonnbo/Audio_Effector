@@ -4,7 +4,7 @@ using AudioEffector.Application;
 using AudioEffector.Infrastructure;
 using AudioEffector.Presentation;
 using AudioEffector.Presentation.Views;
-using AudioEffector.Services;
+using AudioEffector.Application.ApplicationServices;
 using Microsoft.Extensions.DependencyInjection;
 using NLog;
 
@@ -49,7 +49,7 @@ public partial class App : System.Windows.Application
         ServiceProvider = services.BuildServiceProvider();
 
         // テーマ設定の適用
-        var settingsService = new AudioEffector.Services.SettingsService();
+        var settingsService = ServiceProvider.GetRequiredService<ISettingsService>();
         var settings = settingsService.LoadSettings();
         AudioEffector.Presentation.Themes.ThemeManager.ApplyTheme(settings.Theme);
 

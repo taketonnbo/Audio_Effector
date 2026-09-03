@@ -1,7 +1,8 @@
 using System;
 using System.Windows;
 using System.Windows.Input;
-using AudioEffector.Services;
+using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Domain.Entities;
 
 namespace AudioEffector.Presentation.Views
 {
@@ -13,7 +14,7 @@ namespace AudioEffector.Presentation.Views
         public MiniPlayerWindow()
         {
             InitializeComponent();
-            _settingsService = new SettingsService();
+            _settingsService = new SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository());
             this.Loaded += MiniPlayerWindow_Loaded;
             this.Deactivated += MiniPlayerWindow_Deactivated;
         }

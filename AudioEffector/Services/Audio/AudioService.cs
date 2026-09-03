@@ -233,7 +233,7 @@ namespace AudioEffector.Services
                     ISampleProvider sourceProvider = _audioFile;
 
                     // Apply Peak Normalization if enabled
-                    var settings = new SettingsService().LoadSettings();
+                    var settings = new AudioEffector.Application.ApplicationServices.SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository()).LoadSettings();
                     if (settings.EnableNormalize)
                     {
                         float maxPeak = 0;

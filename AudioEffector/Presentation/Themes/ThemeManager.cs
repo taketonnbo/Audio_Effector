@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
 using System.Windows;
-using AudioEffector.Services;
+using AudioEffector.Domain.Entities;
 using Microsoft.Win32;
 
 namespace AudioEffector.Presentation.Themes;

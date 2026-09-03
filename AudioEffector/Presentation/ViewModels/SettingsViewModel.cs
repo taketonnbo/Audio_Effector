@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using AudioEffector.Infrastructure.Windows;
+using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.Themes;
-using AudioEffector.Services;
+using IAudioService = AudioEffector.Services.IAudioService;
 
 namespace AudioEffector.Presentation.ViewModels;
 

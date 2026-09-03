@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
 
 namespace AudioEffector.Application.ApplicationServices;
@@ -10,9 +12,10 @@ namespace AudioEffector.Application.ApplicationServices;
 /// <summary>
 /// アプリケーション設定（テーマ、ウィンドウ状態、各種オプション）の読み込み・保存を統括するアプリケーションサービス
 /// </summary>
-public class SettingsApplicationService
+public class SettingsApplicationService : ISettingsService
 {
     private readonly ISettingsRepository _settingsRepository;
+    private readonly string _settingsFilePath;
 
     /// <summary>
     /// SettingsApplicationServiceを初期化します
@@ -21,6 +24,93 @@ public class SettingsApplicationService
     public SettingsApplicationService(ISettingsRepository settingsRepository)
     {
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
+
+#if DEBUG
+        var folderName = "AudioEffector_Debug";
+#else
+        var folderName = "AudioEffector";
+#endif
+        var appDataPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            folderName);
+        Directory.CreateDirectory(appDataPath);
+        _settingsFilePath = Path.Combine(appDataPath, "settings.json");
+    }
+
+    /// <summary>
+    /// アプリケーション設定全体を読み込みます
+    /// </summary>
+    public AppSettings LoadSettings()
+    {
+        if (!File.Exists(_settingsFilePath))
+            return new AppSettings();
+
+        try
+        {
+            var json = File.ReadAllText(_settingsFilePath);
+            return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+        }
+        catch
+        {
+            return new AppSettings();
+        }
+    }
+
+    /// <summary>
+    /// アプリケーション設定全体を保存します
+    /// </summary>
+    public void SaveSettings(AppSettings settings)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            File.WriteAllText(_settingsFilePath, json);
+        }
+        catch
+        {
+            // Silent fail
+        }
+    }
+
+    /// <summary>
+    /// アプリケーション設定全体を非同期で読み込みます
+    /// </summary>
+    public async Task<AppSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(_settingsFilePath))
+            return new AppSettings();
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(_settingsFilePath, cancellationToken);
+            return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+        }
+        catch
+        {
+            return new AppSettings();
+        }
+    }
+
+    /// <summary>
+    /// アプリケーション設定全体を非同期で保存します
+    /// </summary>
+    public async Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            await File.WriteAllTextAsync(_settingsFilePath, json, cancellationToken);
+        }
+        catch
+        {
+            // Silent fail
+        }
     }
 
     /// <summary>

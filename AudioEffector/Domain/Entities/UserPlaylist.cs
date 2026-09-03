@@ -12,7 +12,6 @@ public class UserPlaylist : IEquatable<UserPlaylist>
     private readonly List<TrackId> _trackIds;
 
     /// <summary>
-    /// <summary>
     /// 一意のプレイリストID
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
