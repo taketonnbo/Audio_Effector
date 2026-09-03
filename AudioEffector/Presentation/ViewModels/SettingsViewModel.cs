@@ -113,7 +113,7 @@ public class SettingsViewModel : ViewModelBase
                 _settingsService.SaveSettings(_appSettings);
                 
                 // Update current mini player if it is open
-                var miniPlayer = System.Windows.Application.Current.Windows.OfType<Views.MiniPlayerWindow>().FirstOrDefault();
+                var miniPlayer = System.Windows.Application.Current.Windows.OfType<AudioEffector.Presentation.Views.MiniPlayerWindow>().FirstOrDefault();
                 if (miniPlayer != null)
                 {
                     miniPlayer.UpdateTopmostBehavior(newValue);

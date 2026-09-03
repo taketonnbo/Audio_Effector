@@ -3,6 +3,7 @@ using System.Windows;
 using AudioEffector.Application;
 using AudioEffector.Infrastructure;
 using AudioEffector.Presentation;
+using AudioEffector.Presentation.Views;
 using AudioEffector.Services;
 using Microsoft.Extensions.DependencyInjection;
 using NLog;
@@ -51,6 +52,11 @@ public partial class App : System.Windows.Application
         var settingsService = new AudioEffector.Services.SettingsService();
         var settings = settingsService.LoadSettings();
         AudioEffector.Presentation.Themes.ThemeManager.ApplyTheme(settings.Theme);
+
+        // メインウィンドウの表示（DIコンテナ経由で解決）
+        var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
+        this.MainWindow = mainWindow;
+        mainWindow.Show();
     }
 
     /// <summary>

@@ -47,12 +47,7 @@
       <Generator>MSBuild:Compile</Generator>
     </ApplicationDefinition>
 
-    <Page Include="MainWindow.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-
-    <Page Include="Views\*.xaml">
+    <Page Include="Presentation\Views\*.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

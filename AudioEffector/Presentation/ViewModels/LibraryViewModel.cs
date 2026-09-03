@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
-using AudioEffector.ViewModels;
 
 namespace AudioEffector.Presentation.ViewModels;
 
