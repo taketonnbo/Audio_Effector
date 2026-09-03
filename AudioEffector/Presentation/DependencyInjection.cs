@@ -23,7 +23,7 @@ public static class DependencyInjection
         services.AddSingleton<EqualizerViewModel>();
         services.AddSingleton<DeviceSyncViewModel>();
         services.AddSingleton<NowPlayingViewModel>();
-        services.AddSingleton<AudioEffector.ViewModels.SettingsViewModel>();
+        services.AddSingleton<SettingsViewModel>();
 
         // 全体ViewModel
         services.AddSingleton<MainViewModel>();
