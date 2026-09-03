@@ -1,4 +1,5 @@
 using AudioEffector.Presentation.ViewModels;
+using AudioEffector.Presentation.Views;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AudioEffector.Presentation;
@@ -9,7 +10,7 @@ namespace AudioEffector.Presentation;
 public static class DependencyInjection
 {
     /// <summary>
-    /// プレゼンテーション層の各ViewModelをDIコンテナに登録します
+    /// プレゼンテーション層の各ViewModelおよびViewをDIコンテナに登録します
     /// </summary>
     /// <param name="services">サービスコレクション</param>
     /// <returns>サービスコレクション</returns>
@@ -26,6 +27,9 @@ public static class DependencyInjection
 
         // 全体ViewModel
         services.AddSingleton<MainViewModel>();
+
+        // メインウィンドウ
+        services.AddSingleton<MainWindow>();
 
         return services;
     }

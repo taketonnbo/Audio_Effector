@@ -1,20 +1,24 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls.Primitives;
 using AudioEffector.Presentation.ViewModels;
-using AudioEffector.Presentation.Views;
+using Microsoft.Extensions.DependencyInjection;
 
-using System.ComponentModel;
-
-namespace AudioEffector
+namespace AudioEffector.Presentation.Views
 {
     /// <summary>
     /// アプリケーションのメインウィンドウ。
     /// </summary>
     public partial class MainWindow : Window
     {
-        public MainWindow()
+        public MainWindow() : this(App.ServiceProvider?.GetService<MainViewModel>() ?? new MainViewModel())
+        {
+        }
+
+        public MainWindow(MainViewModel viewModel)
         {
             InitializeComponent();
+            DataContext = viewModel;
             this.Loaded += MainWindow_Loaded;
         }
 
