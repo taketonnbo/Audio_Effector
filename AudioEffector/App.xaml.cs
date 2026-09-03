@@ -50,7 +50,7 @@ public partial class App : System.Windows.Application
         // テーマ設定の適用
         var settingsService = new AudioEffector.Services.SettingsService();
         var settings = settingsService.LoadSettings();
-        AudioEffector.Services.ThemeManager.ApplyTheme(settings.Theme);
+        AudioEffector.Presentation.Themes.ThemeManager.ApplyTheme(settings.Theme);
     }
 
     /// <summary>

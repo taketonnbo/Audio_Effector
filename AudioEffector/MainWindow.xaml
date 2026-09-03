@@ -7,7 +7,7 @@
         xmlns:vm="clr-namespace:AudioEffector.ViewModels"
         xmlns:services="clr-namespace:AudioEffector.Services"
         xmlns:views="clr-namespace:AudioEffector.Views"
-        xmlns:controls="clr-namespace:AudioEffector.Controls"
+        xmlns:controls="clr-namespace:AudioEffector.Presentation.Controls"
         mc:Ignorable="d"
         Title="Audio Effector" Height="650" Width="1000"
         Icon="pack://application:,,,/Audio_Effector_icon_1.0.1.ico"

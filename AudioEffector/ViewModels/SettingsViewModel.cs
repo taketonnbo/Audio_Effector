@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using AudioEffector.Infrastructure.Windows;
+using AudioEffector.Presentation.Themes;
 using AudioEffector.Services;
 
 namespace AudioEffector.ViewModels
