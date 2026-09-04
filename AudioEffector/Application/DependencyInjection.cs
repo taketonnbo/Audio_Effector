@@ -1,4 +1,4 @@
-using AudioEffector.Application.ApplicationServices;
+﻿using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using Microsoft.Extensions.DependencyInjection;
 

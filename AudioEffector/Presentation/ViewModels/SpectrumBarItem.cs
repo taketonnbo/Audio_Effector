@@ -55,8 +55,9 @@ public class SpectrumBarItem : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>
-    /// PropertyChangedイベントを発行します。
+    /// PropertyChangedイベントを発行します
     /// </summary>
+    /// <param name="propertyName">変更されたプロパティ名</param>
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

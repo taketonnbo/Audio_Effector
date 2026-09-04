@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -11,6 +11,9 @@ using AudioEffector.Domain.Entities.DataTransfer;
 
 namespace AudioEffector.Presentation.ViewModels;
 
+/// <summary>
+/// 外部デバイスの楽曲・アルバム管理を行うViewModel
+/// </summary>
 public class DeviceManagerViewModel : ViewModelBase
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
@@ -18,9 +21,16 @@ public class DeviceManagerViewModel : ViewModelBase
     private string _basePath;
     private List<Album> _pcAlbums;
 
+    /// <summary>
+    /// デバイス内のアルバム一覧を取得または設定します
+    /// </summary>
     public ObservableCollection<DeviceAlbum> DeviceAlbums { get; set; } = new ObservableCollection<DeviceAlbum>();
 
     private bool _isLoading;
+
+    /// <summary>
+    /// アルバム読み込み中かどうかを示す値を取得または設定します
+    /// </summary>
     public bool IsLoading
     {
         get => _isLoading;
@@ -31,9 +41,22 @@ public class DeviceManagerViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// トラック削除コマンドを取得します
+    /// </summary>
     public ICommand DeleteTrackCommand { get; }
+
+    /// <summary>
+    /// アルバム削除コマンドを取得します
+    /// </summary>
     public ICommand DeleteAlbumCommand { get; }
 
+    /// <summary>
+    /// デバイス情報、ベースパス、PC側アルバム一覧を指定してインスタンスを初期化します
+    /// </summary>
+    /// <param name="device">対象の外部デバイス情報</param>
+    /// <param name="basePath">同期ベースパス</param>
+    /// <param name="pcAlbums">PC側のアルバム一覧</param>
     public DeviceManagerViewModel(MainViewModel.DeviceViewModel device, string basePath, List<Album> pcAlbums)
     {
         _currentDevice = device;

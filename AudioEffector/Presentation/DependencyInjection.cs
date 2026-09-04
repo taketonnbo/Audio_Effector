@@ -1,4 +1,4 @@
-using AudioEffector.Presentation.ViewModels;
+﻿using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
 using Microsoft.Extensions.DependencyInjection;
 

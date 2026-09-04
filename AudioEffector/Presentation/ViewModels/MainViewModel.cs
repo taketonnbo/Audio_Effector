@@ -1,4 +1,4 @@
-using AudioEffector.Application.ApplicationServices;
+﻿using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Presentation.Views;
@@ -41,6 +41,9 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly SettingsApplicationService? _fallbackSettings;
         private bool _disposed;
 
+        /// <summary>
+        /// 設定が更新された際に発生するイベント
+        /// </summary>
         public event Action? SettingsUpdated;
 
         /// <summary>
@@ -74,12 +77,12 @@ namespace AudioEffector.Presentation.ViewModels
         public Presentation.ViewModels.NowPlayingViewModel? NowPlaying { get; }
 
         /// <summary>
-        /// コードビハインドからAudioServiceへアクセスするためのプロパティ。
+        /// コードビハインドからAudioServiceへアクセスするためのプロパティ
         /// </summary>
         public IAudioService AudioService => _audioService; // Public accessor for code-behind
 
         /// <summary>
-        /// コードビハインドからSettingsServiceへアクセスするためのプロパティ。
+        /// コードビハインドからSettingsServiceへアクセスするためのプロパティ
         /// </summary>
         public ISettingsService SettingsService => _settingsService;
 
@@ -119,6 +122,10 @@ namespace AudioEffector.Presentation.ViewModels
         #endregion
 
         private ViewType _currentViewType = ViewType.Albums;
+
+        /// <summary>
+        /// 現在表示されているメインコンテンツのビュー種別を取得または設定します
+        /// </summary>
         public ViewType CurrentViewType
         {
             get => _currentViewType;
@@ -144,12 +151,15 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 表示ビューを切り替えるコマンドを取得します
+        /// </summary>
         public ICommand SwitchViewCommand { get; }
 
         private bool _isRightPanelOpen;
         /// <summary>
-        /// 右側タブパネルが開いているかどうかを示すプロパティ。
-        /// Falseの場合は画面上部にコンパクトプレイヤーが表示されます。
+        /// 右側タブパネルが開いているかどうかを示すプロパティ
+        /// Falseの場合は画面上部にコンパクトプレイヤーが表示されます
         /// </summary>
         public bool IsRightPanelOpen
         {
@@ -161,12 +171,15 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 右側タブパネルの開閉状態を切り替えるコマンドを取得します
+        /// </summary>
         public ICommand ToggleRightPanelCommand { get; }
 
         private bool _isAlbumViewMaximized = true;
         /// <summary>
-        /// 右側パネルのアルバム情報表示が最大化（全画面）モードかどうかを示すプロパティ。
-        /// Trueの場合は特大アートとフルハイトトラックリスト、Falseの場合は上部にコンパクトプレイヤーと下部に拡張領域を表示します。
+        /// 右側パネルのアルバム情報表示が最大化（全画面）モードかどうかを示すプロパティ
+        /// Trueの場合は特大アートとフルハイトトラックリスト、Falseの場合は上部にコンパクトプレイヤーと下部に拡張領域を表示します
         /// </summary>
         public bool IsAlbumViewMaximized
         {
@@ -181,6 +194,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 右側アルバム表示のサイズモード（最大化 / コンパクト）を切り替えるコマンドを取得します
+        /// </summary>
         public ICommand ToggleAlbumViewSizeModeCommand { get; }
 
         private bool _isLibraryVisible = true;
@@ -618,26 +634,55 @@ namespace AudioEffector.Presentation.ViewModels
 
 
         /// <summary>
-        /// デバイスの種類（ファイルシステム または MTP）。
+        /// デバイスの種類（ファイルシステム または MTP）
         /// </summary>
         public enum DeviceType
         {
+            /// <summary>
+            /// USBマスストレージなどのファイルシステムデバイス
+            /// </summary>
             FileSystem,
+
+            /// <summary>
+            /// ポータブルデバイスなどのMTPデバイス
+            /// </summary>
             MTP
         }
 
         /// <summary>
-        /// 接続されたデバイスを表すViewModel。
+        /// 接続されたデバイスを表すViewModel
         /// </summary>
         public class DeviceViewModel
         {
+            /// <summary>
+            /// デバイス名を取得または設定します
+            /// </summary>
             public string Name { get; set; } = string.Empty;
+
+            /// <summary>
+            /// デバイス種別を取得または設定します
+            /// </summary>
             public DeviceType Type { get; set; }
+
+            /// <summary>
+            /// ファイルシステムデバイスの場合のドライブ情報を取得または設定します
+            /// </summary>
             public DriveInfo? Drive { get; set; }
+
+            /// <summary>
+            /// MTPデバイスの場合のデバイスインスタンスを取得または設定します
+            /// </summary>
             public MediaDevice? MtpDevice { get; set; }
+
+            /// <summary>
+            /// デバイスのルートパスを取得または設定します
+            /// </summary>
             public string RootPath { get; set; } = string.Empty; // For MTP, this might be device ID or root
         }
 
+        /// <summary>
+        /// 接続されている外部デバイス一覧を取得または設定します
+        /// </summary>
         public ObservableCollection<DeviceViewModel> RemovableDrives { get; set; } = new ObservableCollection<DeviceViewModel>();
 
         private DeviceViewModel? _selectedDevice;
@@ -719,6 +764,9 @@ namespace AudioEffector.Presentation.ViewModels
         public bool IsDeviceSyncVisible => CurrentViewType == ViewType.DeviceSync;
 
 
+        /// <summary>
+        /// 現在再生中の曲のアルバムアート画像を取得または設定します
+        /// </summary>
         public BitmapImage? NowPlayingImage
         {
             get => _nowPlayingImage;
@@ -729,10 +777,24 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// イコライザー周波数バンドのViewModelコレクションを取得または設定します
+        /// </summary>
         public ObservableCollection<BandViewModel> Bands { get; set; }
+
+        /// <summary>
+        /// イコライザープリセットのコレクションを取得または設定します
+        /// </summary>
         public ObservableCollection<EqualizerPreset> Presets { get; set; }
+
+        /// <summary>
+        /// ライブラリ内のアルバムコレクションを取得または設定します
+        /// </summary>
         public ObservableCollection<Album> Albums { get; set; } = new ObservableCollection<Album>();
 
+        /// <summary>
+        /// ユーザーが作成したプレイリストのコレクションを取得または設定します
+        /// </summary>
         public ObservableCollection<UserPlaylist> UserPlaylists
         {
             get => _userPlaylists;
@@ -743,6 +805,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 選択中のプレイリストに含まれる楽曲コレクションを取得または設定します
+        /// </summary>
         public ObservableCollection<Track> PlaylistTracks
         {
             get => _playlistTracks;
@@ -753,6 +818,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// ライブラリビューが表示されているかどうかを示す値を取得または設定します
+        /// </summary>
         public bool IsLibraryVisible
         {
             get => _isLibraryVisible;
@@ -763,6 +831,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// フォルダービューが表示されているかどうかを示す値を取得または設定します
+        /// </summary>
         public bool IsFolderViewVisible
         {
             get => _isFolderViewVisible;
@@ -773,6 +844,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// プレイリスト選択画面が表示されているかどうかを示す値を取得または設定します
+        /// </summary>
         public bool IsPlaylistSelectorVisible
         {
             get => _isPlaylistSelectorVisible;
@@ -783,8 +857,14 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// プレイリスト楽曲一覧が表示されているかどうかを示す値を取得します
+        /// </summary>
         public bool IsPlaylistTracksVisible => CurrentViewType == ViewType.PlaylistTracks || CurrentViewType == ViewType.Favorites;
 
+        /// <summary>
+        /// データ読み込み中かどうかを示す値を取得または設定します
+        /// </summary>
         public bool IsLoading
         {
             get => _isLoading;
@@ -822,8 +902,14 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// ライブラリのソート順選択肢一覧を取得します
+        /// </summary>
         public List<string> SortOptions { get; } = new List<string> { "Artist", "Album" };
 
+        /// <summary>
+        /// 選択されているライブラリのソート順を取得または設定します
+        /// </summary>
         public string SelectedSortOption
         {
             get => _selectedSortOption;
@@ -835,6 +921,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// シャッフル再生が有効かどうかを取得または設定します
+        /// </summary>
         public bool IsShuffleEnabled
         {
             get => _audioService.IsShuffleEnabled;
@@ -846,6 +935,10 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         private Album? _currentAlbum;
+
+        /// <summary>
+        /// 現在再生中のアルバムを取得または設定します
+        /// </summary>
         public Album? CurrentAlbum
         {
             get => _currentAlbum;
@@ -856,6 +949,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 現在再生中のトラックを取得または設定します
+        /// </summary>
         public Track? CurrentTrack
         {
             get => _currentTrack;
@@ -875,6 +971,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 現在再生中かどうかを示す値を取得または設定します
+        /// </summary>
         public bool IsPlaying
         {
             get => _isPlaying;
@@ -885,6 +984,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 現在の再生時間表示文字列を取得または設定します
+        /// </summary>
         public string CurrentTimeDisplay
         {
             get => _currentTimeDisplay;
@@ -895,6 +997,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 総再生時間表示文字列を取得または設定します
+        /// </summary>
         public string TotalTimeDisplay
         {
             get => _totalTimeDisplay;
@@ -907,8 +1012,8 @@ namespace AudioEffector.Presentation.ViewModels
 
         private bool _isDraggingProgress;
         /// <summary>
-        /// 現在の再生位置（進捗、0-100）。
-        /// ドラッグ操作中は再生位置を更新しません。
+        /// 現在の再生位置（進捗、0-100）
+        /// ドラッグ操作中は再生位置を更新しません
         /// </summary>
         public double Progress
         {
@@ -925,7 +1030,7 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         /// <summary>
-        /// シークバーがドラッグ操作中かどうか。
+        /// シークバーがドラッグ操作中かどうか
         /// </summary>
         public bool IsDraggingProgress
         {
@@ -934,7 +1039,7 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         /// <summary>
-        /// "Now Playing"セクションが表示されているかどうか。
+        /// "Now Playing"セクションが表示されているかどうか
         /// </summary>
         public bool IsNowPlayingVisible
         {
@@ -946,6 +1051,9 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 選択されているイコライザープリセットを取得または設定します
+        /// </summary>
         public EqualizerPreset? SelectedPreset
         {
             get => _selectedPreset;
@@ -967,9 +1075,17 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         // コマンド定義
+
+        /// <summary>
+        /// 音楽フォルダーを開くコマンドを取得します
+        /// </summary>
         public ICommand OpenFolderCommand { get; }
 
         private bool _isDeviceConnected;
+
+        /// <summary>
+        /// 外部デバイスが接続されているかどうかを示す値を取得または設定します
+        /// </summary>
         public bool IsDeviceConnected
         {
             get => _isDeviceConnected;
@@ -990,51 +1106,209 @@ namespace AudioEffector.Presentation.ViewModels
                 }
             }
         }
+
+        /// <summary>
+        /// 再生/一時停止を切り替えるコマンドを取得します
+        /// </summary>
         public ICommand TogglePlayPauseCommand { get; }
+
+        /// <summary>
+        /// 次のトラックへ進むコマンドを取得します
+        /// </summary>
         public ICommand NextCommand { get; }
+
+        /// <summary>
+        /// 前のトラックへ戻るコマンドを取得します
+        /// </summary>
         public ICommand PreviousCommand { get; }
+
+        /// <summary>
+        /// イコライザープリセットを保存するコマンドを取得します
+        /// </summary>
         public ICommand SavePresetCommand { get; }
+
+        /// <summary>
+        /// イコライザープリセットを削除するコマンドを取得します
+        /// </summary>
         public ICommand DeletePresetCommand { get; }
+
+        /// <summary>
+        /// イコライザー設定をリセットするコマンドを取得します
+        /// </summary>
         public ICommand ResetPresetCommand { get; }
+
+        /// <summary>
+        /// 指定したトラックを再生するコマンドを取得します
+        /// </summary>
         public ICommand PlayTrackCommand { get; }
+
+        /// <summary>
+        /// お気に入り状態を切り替えるコマンドを取得します
+        /// </summary>
         public ICommand ToggleFavoriteCommand { get; }
+
+        /// <summary>
+        /// 表示ビューの切り替えコマンドを取得します
+        /// </summary>
         public ICommand ToggleViewCommand { get; }
+
+        /// <summary>
+        /// 新しいプレイリストを作成するコマンドを取得します
+        /// </summary>
         public ICommand CreatePlaylistCommand { get; }
+
+        /// <summary>
+        /// 楽曲をプレイリストに追加するコマンドを取得します
+        /// </summary>
         public ICommand AddToPlaylistCommand { get; }
+
+        /// <summary>
+        /// 指定したプレイリストを表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowPlaylistCommand { get; }
+
+        /// <summary>
+        /// お気に入り楽曲一覧を表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowFavoritesCommand { get; }
+
+        /// <summary>
+        /// ライブラリ一覧を表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowLibraryCommand { get; }
+
+        /// <summary>
+        /// フォルダーツリービューを表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowFolderCommand { get; }
+
+        /// <summary>
+        /// プレイリスト選択画面を表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowPlaylistSelectorCommand { get; }
+
+        /// <summary>
+        /// プレイリスト追加ダイアログを表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowAddToPlaylistDialogCommand { get; }
+
+        /// <summary>
+        /// プレイリストを削除するコマンドを取得します
+        /// </summary>
         public ICommand DeletePlaylistCommand { get; }
+
+        /// <summary>
+        /// プレイリストを再生するコマンドを取得します
+        /// </summary>
         public ICommand PlayPlaylistCommand { get; }
+
+        /// <summary>
+        /// プレイリストをシャッフル再生するコマンドを取得します
+        /// </summary>
         public ICommand ShufflePlayPlaylistCommand { get; }
+
+        /// <summary>
+        /// プレイリスト名を変更するコマンドを取得します
+        /// </summary>
         public ICommand RenamePlaylistCommand { get; }
+
+        /// <summary>
+        /// プレイリストから楽曲を削除するコマンドを取得します
+        /// </summary>
         public ICommand RemoveFromPlaylistCommand { get; }
+
+        /// <summary>
+        /// アルバム全体を再生するコマンドを取得します
+        /// </summary>
         public ICommand PlayAlbumCommand { get; }
+
+        /// <summary>
+        /// 次に再生するアルバムとしてキューに追加するコマンドを取得します
+        /// </summary>
         public ICommand PlayNextAlbumCommand { get; }
+
+        /// <summary>
+        /// アルバムをキューの末尾に追加するコマンドを取得します
+        /// </summary>
         public ICommand EnqueueAlbumCommand { get; }
+
+        /// <summary>
+        /// アルバムをプレイリストに追加するダイアログを表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowAddAlbumToPlaylistDialogCommand { get; }
+
+        /// <summary>
+        /// アルバムを削除するコマンドを取得します
+        /// </summary>
         public ICommand DeleteAlbumCommand { get; }
 
+        /// <summary>
+        /// 指定トラックを次に再生するようキューに追加するコマンドを取得します
+        /// </summary>
         public ICommand PlayNextCommand { get; }
+
+        /// <summary>
+        /// 指定トラックをキューの末尾に追加するコマンドを取得します
+        /// </summary>
         public ICommand EnqueueTrackCommand { get; }
+
+        /// <summary>
+        /// トラックプロパティを表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowTrackPropertiesCommand { get; }
+
+        /// <summary>
+        /// ファイルの保存場所をエクスプローラーで開くコマンドを取得します
+        /// </summary>
         public ICommand OpenFileLocationCommand { get; }
+
+        /// <summary>
+        /// トラックを削除するコマンドを取得します
+        /// </summary>
         public ICommand DeleteTrackCommand { get; }
+
+        /// <summary>
+        /// 再生キューダイアログを表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowQueueDialogCommand { get; }
+
+        /// <summary>
+        /// 再生キュー内の指定曲を再生するコマンドを取得します
+        /// </summary>
         public ICommand PlayFromQueueCommand { get; }
 
         // Device Sync Commands
+
+        /// <summary>
+        /// デバイス同期画面へ切り替えるコマンドを取得します
+        /// </summary>
         public ICommand SwitchToDeviceSyncCommand { get; }
+
+        /// <summary>
+        /// 選択された楽曲を外部デバイスへ転送するコマンドを取得します
+        /// </summary>
         public ICommand TransferSelectedCommand { get; }
+
+        /// <summary>
+        /// 接続中の外部ドライブ一覧を再検出するコマンドを取得します
+        /// </summary>
         public ICommand RefreshDrivesCommand { get; }
+
+        /// <summary>
+        /// デバイス内の指定ディレクトリへ移動するコマンドを取得します
+        /// </summary>
         public ICommand NavigateDirectoryCommand { get; }
+
+        /// <summary>
+        /// デバイス内の親ディレクトリへ移動するコマンドを取得します
+        /// </summary>
         public ICommand NavigateUpCommand { get; }
 
         private bool _isAscending = true;
 
+        /// <summary>
+        /// ソート順が昇順かどうかを取得または設定します
+        /// </summary>
         public bool IsAscending
         {
             get => _isAscending;
@@ -1048,7 +1322,7 @@ namespace AudioEffector.Presentation.ViewModels
 
         private bool _isSelectionMode;
         /// <summary>
-        /// トラック選択モードが有効かどうか。
+        /// トラック選択モードが有効かどうか
         /// </summary>
         public bool IsSelectionMode
         {
@@ -1062,7 +1336,7 @@ namespace AudioEffector.Presentation.ViewModels
 
         private bool _isAlbumRepeat;
         /// <summary>
-        /// アルバムリピートモードが有効かどうか。
+        /// アルバムリピートモードが有効かどうか
         /// </summary>
         public bool IsAlbumRepeat
         {
@@ -1075,14 +1349,44 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// ソート順（昇順/降順）を切り替えるコマンドを取得します
+        /// </summary>
         public ICommand ToggleSortDirectionCommand { get; }
+
+        /// <summary>
+        /// トラック選択モードの有効/無効を切り替えるコマンドを取得します
+        /// </summary>
         public ICommand ToggleSelectionModeCommand { get; }
+
+        /// <summary>
+        /// リピート再生の有効/無効を切り替えるコマンドを取得します
+        /// </summary>
         public ICommand ToggleRepeatCommand { get; }
+
+        /// <summary>
+        /// 選択されたトラックをプレイリストに追加するコマンドを取得します
+        /// </summary>
         public ICommand AddSelectedToPlaylistCommand { get; }
 
+        /// <summary>
+        /// 音量を上げるコマンドを取得します
+        /// </summary>
         public ICommand IncreaseVolumeCommand { get; }
+
+        /// <summary>
+        /// 音量を下げるコマンドを取得します
+        /// </summary>
         public ICommand DecreaseVolumeCommand { get; }
+
+        /// <summary>
+        /// 再生を停止するコマンドを取得します
+        /// </summary>
         public ICommand StopCommand { get; }
+
+        /// <summary>
+        /// ミュート状態を切り替えるコマンドを取得します
+        /// </summary>
         public ICommand ToggleMuteCommand { get; }
 
         private bool _isMuted;
@@ -1104,8 +1408,8 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         /// <summary>
-        /// 音量（0.0 - 1.0）。
-        /// 変更時に設定ファイルへ保存されます。
+        /// 音量（0.0 - 1.0）
+        /// 変更時に設定ファイルへ保存されます
         /// </summary>
         public float Volume
         {
@@ -1127,22 +1431,40 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 音量のパーセント表示文字列を取得します
+        /// </summary>
         public string VolumePercent => $"{(int)(Volume * 100)}%";
 
-
-
+        /// <summary>
+        /// 外部デバイス上のディレクトリまたはファイルアイテムを表すクラス
+        /// </summary>
         public class DirectoryItem
         {
+            /// <summary>
+            /// アイテム名を取得または設定します
+            /// </summary>
             public string Name { get; set; } = string.Empty;
+
+            /// <summary>
+            /// アイテムのフルパスを取得または設定します
+            /// </summary>
             public string FullPath { get; set; } = string.Empty;
+
+            /// <summary>
+            /// フォルダーかどうかを示す値を取得または設定します
+            /// </summary>
             public bool IsFolder { get; set; }
         }
 
+        /// <summary>
+        /// デバイス内のディレクトリアイテム一覧を取得または設定します
+        /// </summary>
         public ObservableCollection<DirectoryItem> DeviceDirectories { get; set; } = new ObservableCollection<DirectoryItem>();
 
         private GridLength _leftColumnWidth = new GridLength(300);
         /// <summary>
-        /// 左カラム（サイドバー）の幅。
+        /// 左カラム（サイドバー）の幅
         /// </summary>
         public GridLength LeftColumnWidth
         {
@@ -1157,13 +1479,24 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// ディレクトリ一覧を再読み込みするコマンドを取得します
+        /// </summary>
         public ICommand RefreshDirectoryCommand { get; }
+
+        /// <summary>
+        /// 外部デバイス管理ダイアログを表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowDeviceManagerCommand { get; }
+
+        /// <summary>
+        /// 設定ダイアログを表示するコマンドを取得します
+        /// </summary>
         public ICommand ShowSettingsCommand { get; }
 
         private string _currentDevicePath = string.Empty;
         /// <summary>
-        /// 現在デバイス上で表示しているパス。
+        /// 現在デバイス上で表示しているパス
         /// </summary>
         public string CurrentDevicePath
         {
@@ -1176,6 +1509,10 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         private DirectoryItem? _selectedDeviceDirectory;
+
+        /// <summary>
+        /// 選択されているディレクトリアイテムを取得または設定します
+        /// </summary>
         public DirectoryItem? SelectedDeviceDirectory
         {
             get => _selectedDeviceDirectory;
@@ -1601,6 +1938,10 @@ namespace AudioEffector.Presentation.ViewModels
 
 
         private ImageSource? _spectrumBackgroundImageGray;
+
+        /// <summary>
+        /// スペクトラムアナライザーのグレースケール背景画像を取得または設定します
+        /// </summary>
         public ImageSource? SpectrumBackgroundImageGray
         {
             get => _spectrumBackgroundImageGray;
@@ -1612,6 +1953,10 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         private bool _isDefaultSpectrumImage;
+
+        /// <summary>
+        /// スペクトラムアナライザーの背景画像がデフォルト画像かどうかを示す値を取得または設定します
+        /// </summary>
         public bool IsDefaultSpectrumImage
         {
             get => _isDefaultSpectrumImage;
@@ -1624,8 +1969,8 @@ namespace AudioEffector.Presentation.ViewModels
 
         private Brush? _spectrumBarBrush;
         /// <summary>
-        /// スペクトラムアナライザーのバーのブラシ。
-        /// アルバムアートの主要な色に基づいて動的に更新されます。
+        /// スペクトラムアナライザーのバーのブラシ
+        /// アルバムアートの主要な色に基づいて動的に更新されます
         /// </summary>
         public Brush SpectrumBarBrush
         {
@@ -1656,6 +2001,10 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         private Brush _spectrumBorderBrush = new SolidColorBrush(Color.FromArgb(230, 0, 229, 255)); // Default Neon Cyan Border (90%)
+
+        /// <summary>
+        /// スペクトラムアナライザーのボーダーブラシを取得または設定します
+        /// </summary>
         public Brush SpectrumBorderBrush
         {
             get => _spectrumBorderBrush;
@@ -1667,6 +2016,10 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         private Color _spectrumShadowColor = Color.FromRgb(0, 229, 255); // Default Neon Cyan
+
+        /// <summary>
+        /// スペクトラムアナライザーのシャドウ色を取得または設定します
+        /// </summary>
         public Color SpectrumShadowColor
         {
             get => _spectrumShadowColor;
@@ -2707,6 +3060,9 @@ namespace AudioEffector.Presentation.ViewModels
             SelectedPreset = Presets.FirstOrDefault(p => p.Name.Contains("Flat"));
         }
 
+        /// <summary>
+        /// リソースのクリーンアップを行います
+        /// </summary>
         public void Cleanup()
         {
             _timer.Stop();
@@ -2748,9 +3104,16 @@ namespace AudioEffector.Presentation.ViewModels
 
 
 
+        /// <summary>
+        /// プレイリストセクションがアクティブかどうかを示す値を取得します
+        /// </summary>
         public bool IsPlaylistSectionActive => IsPlaylistSelectorVisible || (IsPlaylistTracksVisible && !IsFavoritesView);
 
         private bool _isFavoritesView;
+
+        /// <summary>
+        /// 現在お気に入り画面を表示しているかどうかを示す値を取得または設定します
+        /// </summary>
         public bool IsFavoritesView
         {
             get => _isFavoritesView;
@@ -2766,6 +3129,10 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         private string _currentPlaylistName = string.Empty;
+
+        /// <summary>
+        /// 現在選択・表示されているプレイリスト名を取得または設定します
+        /// </summary>
         public string CurrentPlaylistName
         {
             get => _currentPlaylistName;
@@ -3182,6 +3549,10 @@ namespace AudioEffector.Presentation.ViewModels
 
         // Spectrum Analyzer Logic
         private bool _isSpectrumVisible = true; // Default to true as requested
+
+        /// <summary>
+        /// スペクトラムアナライザーが表示されているかどうかを示す値を取得または設定します
+        /// </summary>
         public bool IsSpectrumVisible
         {
             get => _isSpectrumVisible;
@@ -3199,18 +3570,26 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
-
-
+        /// <summary>
+        /// スペクトラムアナライザー表示へ切り替えるコマンドを取得します
+        /// </summary>
         public ICommand SwitchToSpectrumCommand { get; }
+
+        /// <summary>
+        /// スペクトラムアナライザーの表示/非表示を切り替えるコマンドを取得します
+        /// </summary>
         public ICommand ToggleSpectrumCommand { get; }
 
+        /// <summary>
+        /// スペクトラムアナライザーの各周波数バーのViewModelコレクションを取得します
+        /// </summary>
         public ObservableCollection<SpectrumBarItem> SpectrumValues { get; } = new ObservableCollection<SpectrumBarItem>();
 
         private readonly TimeSpan _spectrumUpdateInterval = TimeSpan.FromMilliseconds(1000.0 / 30.0); // 約33ms (30fps)
         private DateTime _lastSpectrumUpdateTime = DateTime.MinValue;
 
         /// <summary>
-        /// FFT（高速フーリエ変換）の計算結果を受け取り、スペクトラムアナライザーのバーの高さを更新します。
+        /// FFT（高速フーリエ変換）の計算結果を受け取り、スペクトラムアナライザーのバーの高さを更新します
         /// </summary>
         private void OnFftCalculated(object? sender, FftEventArgs e)
         {

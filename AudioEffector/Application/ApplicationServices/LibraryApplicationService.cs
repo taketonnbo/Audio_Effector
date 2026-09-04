@@ -69,6 +69,7 @@ public class LibraryApplicationService
     /// <summary>
     /// お気に入りリストをJSONファイルへ保存します
     /// </summary>
+    /// <param name="favorites">保存するお気に入りファイルパス一覧</param>
     public void SaveFavorites(List<string> favorites)
     {
         try

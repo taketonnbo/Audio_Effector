@@ -84,6 +84,7 @@ public class EqualizerApplicationService
     /// <summary>
     /// イコライザープリセット一覧をローカルファイル（presets.json）へ保存します
     /// </summary>
+    /// <param name="presets">保存するイコライザープリセット一覧</param>
     public void SavePresets(List<EqualizerPreset> presets)
     {
         if (presets == null) return;

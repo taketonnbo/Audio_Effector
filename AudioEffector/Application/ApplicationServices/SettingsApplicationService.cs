@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -78,6 +78,7 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// <summary>
     /// アプリケーション設定全体を保存します
     /// </summary>
+    /// <param name="settings">保存する設定情報</param>
     public void SaveSettings(AppSettings settings)
     {
         try

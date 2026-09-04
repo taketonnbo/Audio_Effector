@@ -1,4 +1,4 @@
-using AudioEffector.Presentation.Converters;
+﻿using AudioEffector.Presentation.Converters;
 using System.Globalization;
 using Xunit;
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -76,6 +76,9 @@ public class AudioService : IAudioService
     /// </summary>
     public float[] Frequencies { get; } = { 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
 
+    /// <summary>
+    /// 現在再生中かどうかを取得します
+    /// </summary>
     public bool IsPlaying => _outputDevice?.PlaybackState == NAudio.Wave.PlaybackState.Playing;
 
     /// <summary>
@@ -104,6 +107,9 @@ public class AudioService : IAudioService
         }
     }
 
+    /// <summary>
+    /// リピート再生が有効かどうかを取得または設定します
+    /// </summary>
     public bool IsRepeatEnabled { get; set; }
 
     /// <summary>
@@ -193,6 +199,10 @@ public class AudioService : IAudioService
         }
     }
 
+    /// <summary>
+    /// 指定された楽曲を再生します
+    /// </summary>
+    /// <param name="track">再生対象のトラック</param>
     public void PlayTrack(Track track)
     {
         lock (_lock)
@@ -393,6 +403,9 @@ public class AudioService : IAudioService
         _equalizer = null;
     }
 
+    /// <summary>
+    /// 再生と一時停止を切り替えます
+    /// </summary>
     public async void TogglePlayPause()
     {
         lock (_lock)
@@ -421,6 +434,9 @@ public class AudioService : IAudioService
         PlaybackStateChanged?.Invoke(IsPlaying);
     }
 
+    /// <summary>
+    /// 次の楽曲へ進みます
+    /// </summary>
     public async void Next()
     {
         lock (_lock)
@@ -448,6 +464,9 @@ public class AudioService : IAudioService
         PlaybackStateChanged?.Invoke(IsPlaying);
     }
 
+    /// <summary>
+    /// 前の楽曲に戻ります
+    /// </summary>
     public async void Previous()
     {
         if (_playlist.Count == 0) return;
@@ -458,6 +477,10 @@ public class AudioService : IAudioService
         PlaybackStateChanged?.Invoke(IsPlaying);
     }
 
+    /// <summary>
+    /// 再生を停止します
+    /// </summary>
+    /// <param name="internalStop">内部要因による停止かどうか</param>
     public void Stop(bool internalStop = false)
     {
         lock (_lock)
@@ -473,6 +496,10 @@ public class AudioService : IAudioService
         PlaybackStateChanged?.Invoke(false);
     }
 
+    /// <summary>
+    /// 指定位置（パーセンテージ）へシークします
+    /// </summary>
+    /// <param name="percentage">シーク位置（0.0〜1.0）</param>
     public void SeekTo(double percentage)
     {
         lock (_lock)
@@ -485,11 +512,19 @@ public class AudioService : IAudioService
         }
     }
 
+    /// <summary>
+    /// イコライザー特定バンドのゲインを設定します
+    /// </summary>
+    /// <param name="bandIndex">バンドインデックス（0〜9）</param>
+    /// <param name="gain">ゲイン値（dB）</param>
     public void SetGain(int bandIndex, float gain)
     {
         _equalizer?.UpdateGain(bandIndex, gain);
     }
 
+    /// <summary>
+    /// 現在の再生時間位置
+    /// </summary>
     public TimeSpan CurrentTime
     {
         get
@@ -501,6 +536,9 @@ public class AudioService : IAudioService
         }
     }
 
+    /// <summary>
+    /// 現在ロード中の楽曲の総再生時間
+    /// </summary>
     public TimeSpan TotalTime
     {
         get
@@ -512,6 +550,9 @@ public class AudioService : IAudioService
         }
     }
 
+    /// <summary>
+    /// シーク操作のために再生を一時停止します
+    /// </summary>
     public void PauseForSeek()
     {
         lock (_lock)
@@ -524,6 +565,9 @@ public class AudioService : IAudioService
         }
     }
 
+    /// <summary>
+    /// シーク操作完了後に再生を再開します
+    /// </summary>
     public void ResumeAfterSeek()
     {
         lock (_lock)
@@ -536,6 +580,10 @@ public class AudioService : IAudioService
     }
 
     private float _volume = 1.0f;
+
+    /// <summary>
+    /// 音量値（0.0〜1.0）
+    /// </summary>
     public float Volume
     {
         get => _volume;
@@ -555,6 +603,11 @@ public class AudioService : IAudioService
         }
     }
 
+    /// <summary>
+    /// サンプリングレートおよびバッファサイズを更新します
+    /// </summary>
+    /// <param name="sampleRate">サンプリングレート（Hz）</param>
+    /// <param name="bufferSizeMs">バッファサイズ（ミリ秒）</param>
     public void UpdateAudioProperties(int sampleRate, int bufferSizeMs)
     {
         lock (_lock)
@@ -564,6 +617,9 @@ public class AudioService : IAudioService
         }
     }
 
+    /// <summary>
+    /// アンマネージドリソースおよびオーディオエンジンを解放します
+    /// </summary>
     public void Dispose()
     {
         Stop();
@@ -579,15 +635,32 @@ public class EndOfStreamProvider : ISampleProvider
     private readonly ISampleProvider _source;
     private bool _endReached;
 
+    /// <summary>
+    /// ストリーム末尾到達時に発生するイベント
+    /// </summary>
     public event Action? EndOfStream;
 
+    /// <summary>
+    /// EndOfStreamProviderを初期化します
+    /// </summary>
+    /// <param name="source">ラップ対象のサンプルプロバイダー</param>
     public EndOfStreamProvider(ISampleProvider source)
     {
         _source = source;
     }
 
+    /// <summary>
+    /// 波形フォーマット
+    /// </summary>
     public WaveFormat WaveFormat => _source.WaveFormat;
 
+    /// <summary>
+    /// 音声サンプルデータを読み込みます
+    /// </summary>
+    /// <param name="buffer">読み込み先バッファ</param>
+    /// <param name="offset">バッファ内の開始オフセット</param>
+    /// <param name="count">読み込みサンプル数</param>
+    /// <returns>実際に読み込まれたサンプル数</returns>
     public int Read(float[] buffer, int offset, int count)
     {
         int read = _source.Read(buffer, offset, count);

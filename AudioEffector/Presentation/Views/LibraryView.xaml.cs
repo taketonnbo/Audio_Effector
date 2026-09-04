@@ -1,12 +1,17 @@
 ﻿using System.Windows.Controls;
 
-namespace AudioEffector.Presentation.Views
+namespace AudioEffector.Presentation.Views;
+
+/// <summary>
+/// ライブラリのアルバム一覧を表示するビュー
+/// </summary>
+public partial class LibraryView : UserControl
 {
-    public partial class LibraryView : UserControl
+    /// <summary>
+    /// インスタンスを初期化します
+    /// </summary>
+    public LibraryView()
     {
-        public LibraryView()
-        {
-            InitializeComponent();
-        }
+        InitializeComponent();
     }
 }

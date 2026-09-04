@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -66,6 +66,7 @@ public class PlaylistApplicationService
     /// <summary>
     /// プレイリスト一覧をローカルJSONファイルへ保存します
     /// </summary>
+    /// <param name="playlists">保存するプレイリスト一覧</param>
     public void SavePlaylists(List<UserPlaylist> playlists)
     {
         try

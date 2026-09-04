@@ -105,7 +105,15 @@ public class DeviceAlbum : IEquatable<DeviceAlbum>, INotifyPropertyChanged
         _path = path ?? string.Empty;
     }
 
+    /// <summary>
+    /// プロパティ値変更時に発生するイベント
+    /// </summary>
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// プロパティ変更通知を発行します
+    /// </summary>
+    /// <param name="propertyName">プロパティ名</param>
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

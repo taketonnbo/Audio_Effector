@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Media.Imaging;
@@ -439,6 +439,22 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// <summary>
     /// トラックエンティティを初期化します
     /// </summary>
+    /// <param name="id">トラックID</param>
+    /// <param name="filePath">音声ファイルパス</param>
+    /// <param name="title">曲名</param>
+    /// <param name="artist">アーティスト名</param>
+    /// <param name="album">アルバム名</param>
+    /// <param name="duration">再生時間</param>
+    /// <param name="year">リリース年</param>
+    /// <param name="trackNumber">トラック番号</param>
+    /// <param name="bitrate">ビットレート（kbps）</param>
+    /// <param name="sampleRate">サンプリング周波数（Hz）</param>
+    /// <param name="bitsPerSample">量子化ビット数</param>
+    /// <param name="format">フォーマット形式</param>
+    /// <param name="genre">ジャンル</param>
+    /// <param name="isFavorite">お気に入り状態</param>
+    /// <param name="isLossless">可逆圧縮かどうか</param>
+    /// <param name="isHiRes">ハイレゾ音源かどうか</param>
     public Track(
         TrackId id,
         AudioPath filePath,
@@ -478,6 +494,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// <summary>
     /// お気に入り登録状態を更新します
     /// </summary>
+    /// <param name="isFavorite">お気に入り状態</param>
     public void SetFavorite(bool isFavorite)
     {
         IsFavorite = isFavorite;
@@ -486,6 +503,9 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// <summary>
     /// タイトルおよびアーティスト情報を更新します
     /// </summary>
+    /// <param name="title">曲名</param>
+    /// <param name="artist">アーティスト名</param>
+    /// <param name="album">アルバム名</param>
     public void UpdateMetadata(string title, string artist, string album)
     {
         if (!string.IsNullOrWhiteSpace(title)) Title = title.Trim();
@@ -493,13 +513,26 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
         if (!string.IsNullOrWhiteSpace(album)) Album = album.Trim();
     }
 
+    /// <summary>
+    /// プロパティ値変更時に発生するイベント
+    /// </summary>
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// プロパティ変更通知を発行します
+    /// </summary>
+    /// <param name="propertyName">プロパティ名</param>
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     #region Equality Members
+    /// <summary>
+    /// 指定されたトラックと等価であるかを判定します
+    /// </summary>
+    /// <param name="other">比較対象のトラック</param>
+    /// <returns>等価な場合はtrue、それ以外はfalse</returns>
     public bool Equals(Track? other)
     {
         if (ReferenceEquals(null, other)) return false;
@@ -509,13 +542,28 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
         return string.Equals(FilePath, other.FilePath, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// 指定されたオブジェクトと等価であるかを判定します
+    /// </summary>
+    /// <param name="obj">比較対象のオブジェクト</param>
+    /// <returns>等価な場合はtrue、それ以外はfalse</returns>
     public override bool Equals(object? obj) => Equals(obj as Track);
 
+    /// <summary>
+    /// トラックのハッシュコードを取得します
+    /// </summary>
+    /// <returns>ハッシュコード</returns>
     public override int GetHashCode()
     {
         return string.IsNullOrEmpty(FilePath) ? Id.GetHashCode() : StringComparer.OrdinalIgnoreCase.GetHashCode(FilePath);
     }
 
+    /// <summary>
+    /// 2つのトラックが等価であるかを判定します
+    /// </summary>
+    /// <param name="left">左辺のトラック</param>
+    /// <param name="right">右辺のトラック</param>
+    /// <returns>等価な場合はtrue、それ以外はfalse</returns>
     public static bool operator ==(Track? left, Track? right)
     {
         if (ReferenceEquals(left, right)) return true;
@@ -523,11 +571,21 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
         return left.Equals(right);
     }
 
+    /// <summary>
+    /// 2つのトラックが異なるかを判定します
+    /// </summary>
+    /// <param name="left">左辺のトラック</param>
+    /// <param name="right">右辺のトラック</param>
+    /// <returns>異なる場合はtrue、それ以外はfalse</returns>
     public static bool operator !=(Track? left, Track? right)
     {
         return !(left == right);
     }
     #endregion
 
+    /// <summary>
+    /// トラックの文字列表現を取得します
+    /// </summary>
+    /// <returns>アーティスト名と曲名および品質情報</returns>
     public override string ToString() => $"{Artist} - {Title} ({QualityInfo})";
 }
