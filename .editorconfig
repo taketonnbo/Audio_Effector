@@ -147,6 +147,7 @@ dotnet_diagnostic.SA1516.severity = none
 dotnet_diagnostic.CA1822.severity = none
 dotnet_diagnostic.CA1806.severity = warning
 dotnet_diagnostic.CA2000.severity = warning
+dotnet_diagnostic.CA1707.severity = none
 
 # ==============================================================================
 # テストプロジェクト除外設定 (Test Project Overrides)

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows.Media;
 using AudioEffector.Presentation.Converters;
 using Xunit;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -22,7 +22,14 @@ public class DeviceAlbum : IEquatable<DeviceAlbum>, INotifyPropertyChanged
     public string Title
     {
         get => _title;
-        set { if (_title != value) { _title = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_title != value)
+            {
+                _title = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -31,7 +38,14 @@ public class DeviceAlbum : IEquatable<DeviceAlbum>, INotifyPropertyChanged
     public string Artist
     {
         get => _artist;
-        set { if (_artist != value) { _artist = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_artist != value)
+            {
+                _artist = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -40,7 +54,14 @@ public class DeviceAlbum : IEquatable<DeviceAlbum>, INotifyPropertyChanged
     public string Path
     {
         get => _path;
-        set { if (_path != value) { _path = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_path != value)
+            {
+                _path = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -49,7 +70,14 @@ public class DeviceAlbum : IEquatable<DeviceAlbum>, INotifyPropertyChanged
     public BitmapImage? CoverImage
     {
         get => _coverImage;
-        set { if (_coverImage != value) { _coverImage = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_coverImage != value)
+            {
+                _coverImage = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>

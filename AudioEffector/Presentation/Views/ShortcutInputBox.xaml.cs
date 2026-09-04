@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -80,14 +80,14 @@ namespace AudioEffector.Presentation.Views
                 e.Key == Key.LeftAlt || e.Key == Key.RightAlt ||
                 e.Key == Key.LeftShift || e.Key == Key.RightShift ||
                 e.Key == Key.LWin || e.Key == Key.RWin ||
-                e.Key == Key.System && (e.SystemKey == Key.LeftAlt || e.SystemKey == Key.RightAlt))
+                (e.Key == Key.System && (e.SystemKey == Key.LeftAlt || e.SystemKey == Key.RightAlt)))
             {
                 e.Handled = true;
                 return;
             }
 
             var key = e.Key == Key.System ? e.SystemKey : e.Key;
-            
+
             // Allow Delete or Backspace to clear shortcut
             if (key == Key.Delete || key == Key.Back)
             {
@@ -98,7 +98,7 @@ namespace AudioEffector.Presentation.Views
             }
 
             var modifiers = Keyboard.Modifiers;
-            
+
             // Check if WPF KeyGesture supports this combination
             try
             {
@@ -107,14 +107,14 @@ namespace AudioEffector.Presentation.Views
             catch (System.NotSupportedException)
             {
                 System.Windows.MessageBox.Show(
-                    "このキーの組み合わせはシステム（WPF）の制約によりショートカットとして設定できません。\nCtrl や Alt などの修飾キーを組み合わせるか、別のキーをお試しください。", 
-                    "無効なショートカット", 
-                    System.Windows.MessageBoxButton.OK, 
+                    "このキーの組み合わせはシステム（WPF）の制約によりショートカットとして設定できません。\nCtrl や Alt などの修飾キーを組み合わせるか、別のキーをお試しください。",
+                    "無効なショートカット",
+                    System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Error);
                 e.Handled = true;
                 return; // Prevent setting the shortcut
             }
-            
+
             // Check for internal duplicates (within the app's settings)
             bool isInternalDuplicate = false;
             if (this.DataContext != null)
@@ -138,9 +138,9 @@ namespace AudioEffector.Presentation.Views
             if (isInternalDuplicate)
             {
                 System.Windows.MessageBox.Show(
-                    "このショートカットは既に別の機能に割り当てられています。\n重複するショートカットは設定できません。", 
-                    "ショートカットの重複エラー", 
-                    System.Windows.MessageBoxButton.OK, 
+                    "このショートカットは既に別の機能に割り当てられています。\n重複するショートカットは設定できません。",
+                    "ショートカットの重複エラー",
+                    System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Warning);
                 e.Handled = true;
                 return; // Prevent setting the shortcut
@@ -152,14 +152,14 @@ namespace AudioEffector.Presentation.Views
                 if (IsShortcutInUse(key, modifiers))
                 {
                     System.Windows.MessageBox.Show(
-                        "このショートカットは他のアプリまたはシステムで既に使われているため、正しく動作しない可能性があります。\n別のキーの組み合わせをお試しください。", 
-                        "ショートカットの競合警告", 
-                        System.Windows.MessageBoxButton.OK, 
+                        "このショートカットは他のアプリまたはシステムで既に使われているため、正しく動作しない可能性があります。\n別のキーの組み合わせをお試しください。",
+                        "ショートカットの競合警告",
+                        System.Windows.MessageBoxButton.OK,
                         System.Windows.MessageBoxImage.Warning);
 
                     WarningTextBlock.Text = "⚠️ このショートカットは他のアプリで既に使われています。";
                     WarningTextBlock.Visibility = System.Windows.Visibility.Visible;
-                    
+
                     e.Handled = true;
                     return; // Prevent setting the shortcut
                 }
@@ -177,10 +177,10 @@ namespace AudioEffector.Presentation.Views
             // Always create a new object to trigger ViewModel setter
             var newConfig = new ShortcutKeyConfig { Key = key, Modifiers = modifiers };
             Shortcut = newConfig;
-            
+
             // Force text update in case binding doesn't trigger property changed
             UpdateDisplayText();
-            
+
             e.Handled = true;
         }
 
@@ -193,13 +193,13 @@ namespace AudioEffector.Presentation.Views
         private bool IsShortcutInUse(Key key, ModifierKeys modifiers)
         {
             if (key == Key.None) return false;
-            
+
             uint fsModifiers = 0;
             if (modifiers.HasFlag(ModifierKeys.Alt)) fsModifiers |= 0x0001;
             if (modifiers.HasFlag(ModifierKeys.Control)) fsModifiers |= 0x0002;
             if (modifiers.HasFlag(ModifierKeys.Shift)) fsModifiers |= 0x0004;
             if (modifiers.HasFlag(ModifierKeys.Windows)) fsModifiers |= 0x0008;
-            
+
             uint vk = (uint)KeyInterop.VirtualKeyFromKey(key);
             int id = 9999; // Random ID
 
@@ -210,7 +210,7 @@ namespace AudioEffector.Presentation.Views
                 UnregisterHotKey(IntPtr.Zero, id);
                 return false;
             }
-            
+
             return true; // Register failed -> in use
         }
     }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -62,6 +62,7 @@ public class EqualizerApplicationService
     /// <summary>
     /// イコライザープリセット一覧をローカルファイル（presets.json）から読み込みます
     /// </summary>
+    /// <returns></returns>
     public List<EqualizerPreset> LoadPresets()
     {
         if (!System.IO.File.Exists(_presetsFilePath))

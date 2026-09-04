@@ -1,4 +1,4 @@
-using AudioEffector.Presentation.ViewModels;
+﻿using AudioEffector.Presentation.ViewModels;
 using Xunit;
 
 namespace AudioEffector.Tests

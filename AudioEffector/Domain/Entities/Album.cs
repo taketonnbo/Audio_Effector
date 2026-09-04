@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -35,7 +35,15 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     public string Title
     {
         get => _title;
-        set { if (_title != value) { _title = value; OnPropertyChanged(); OnPropertyChanged(nameof(Name)); } }
+        set
+        {
+            if (_title != value)
+            {
+                _title = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(Name));
+            }
+        }
     }
 
     /// <summary>
@@ -44,7 +52,14 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     public string Artist
     {
         get => _artist;
-        set { if (_artist != value) { _artist = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_artist != value)
+            {
+                _artist = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -53,7 +68,14 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     public BitmapImage? CoverImage
     {
         get => _coverImage;
-        set { if (_coverImage != value) { _coverImage = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_coverImage != value)
+            {
+                _coverImage = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -62,7 +84,14 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     public uint Year
     {
         get => _year;
-        set { if (_year != value) { _year = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_year != value)
+            {
+                _year = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -71,7 +100,13 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     public List<Track> Tracks
     {
         get => _tracks;
-        set { _tracks = value ?? new List<Track>(); OnPropertyChanged(); OnPropertyChanged(nameof(TrackCount)); OnPropertyChanged(nameof(TotalDuration)); }
+        set
+        {
+            _tracks = value ?? new List<Track>();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TrackCount));
+            OnPropertyChanged(nameof(TotalDuration));
+        }
     }
 
     /// <summary>
@@ -167,6 +202,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     /// <summary>
     /// トラックを削除します
     /// </summary>
+    /// <returns></returns>
     public bool RemoveTrack(Track track)
     {
         if (track is null) return false;

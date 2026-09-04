@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using AudioEffector.Presentation.ViewModels;
 
 namespace AudioEffector.Presentation.Views

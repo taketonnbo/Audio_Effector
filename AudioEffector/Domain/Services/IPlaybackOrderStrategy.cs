@@ -1,4 +1,4 @@
-namespace AudioEffector.Domain.Services;
+﻿namespace AudioEffector.Domain.Services;
 
 /// <summary>
 /// 楽曲の再生順序（通常順・シャッフル・リピート）を決定する戦略インターフェース

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -39,7 +39,7 @@ public class DeviceManagerViewModel : ViewModelBase
         _currentDevice = device;
         _basePath = basePath;
         _pcAlbums = pcAlbums;
-        
+
         DeleteTrackCommand = new RelayCommand(ExecuteDeleteTrack);
         DeleteAlbumCommand = new RelayCommand(ExecuteDeleteAlbum);
 
@@ -51,7 +51,7 @@ public class DeviceManagerViewModel : ViewModelBase
     private async void LoadAlbumsAsync()
     {
         if (_currentDevice == null) return;
-        
+
         IsLoading = true;
         DeviceAlbums.Clear();
 
@@ -288,7 +288,7 @@ public class DeviceManagerViewModel : ViewModelBase
                         {
                             if (Directory.Exists(path))
                                 Directory.Delete(path, true);
-                            
+
                             string? pArtistPath = Path.GetDirectoryName(path);
                             if (pArtistPath != null && Directory.Exists(pArtistPath) && !Directory.EnumerateFileSystemEntries(pArtistPath).Any())
                             {
@@ -304,7 +304,7 @@ public class DeviceManagerViewModel : ViewModelBase
                             if (path != null)
                             {
                                 _currentDevice.MtpDevice.DeleteDirectory(path, true);
-                                
+
                                 string pArtistPath = GetParentDirectory(path);
                                 if (!string.IsNullOrEmpty(pArtistPath))
                                 {

@@ -1,4 +1,4 @@
-using AudioEffector.Application.ApplicationServices;
+﻿using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Presentation.Views;
@@ -108,7 +108,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>スペクトラムアナライザ: 全体感度（ゲイン）係数</summary>
         public const double SpectrumSensitivity = 1.65;
         #endregion
-        
+
         private ViewType _currentViewType = ViewType.Albums;
         public ViewType CurrentViewType
         {
@@ -145,7 +145,11 @@ namespace AudioEffector.Presentation.ViewModels
         public bool IsRightPanelOpen
         {
             get => _isRightPanelOpen;
-            set { _isRightPanelOpen = value; OnPropertyChanged(); }
+            set
+            {
+                _isRightPanelOpen = value;
+                OnPropertyChanged();
+            }
         }
 
         public ICommand ToggleRightPanelCommand { get; }
@@ -200,7 +204,11 @@ namespace AudioEffector.Presentation.ViewModels
         public string PlaybackListName
         {
             get => _playbackListName;
-            set { _playbackListName = value; OnPropertyChanged(); }
+            set
+            {
+                _playbackListName = value;
+                OnPropertyChanged();
+            }
         }
 
         private string _playbackListSubtitle = "";
@@ -211,7 +219,11 @@ namespace AudioEffector.Presentation.ViewModels
         public string PlaybackListSubtitle
         {
             get => _playbackListSubtitle;
-            set { _playbackListSubtitle = value; OnPropertyChanged(); }
+            set
+            {
+                _playbackListSubtitle = value;
+                OnPropertyChanged();
+            }
         }
 
         private ObservableCollection<Track> _playbackListTracks = new ObservableCollection<Track>();
@@ -222,10 +234,10 @@ namespace AudioEffector.Presentation.ViewModels
         public ObservableCollection<Track> PlaybackListTracks
         {
             get => _playbackListTracks;
-            set 
-            { 
-                _playbackListTracks = value; 
-                OnPropertyChanged(); 
+            set
+            {
+                _playbackListTracks = value;
+                OnPropertyChanged();
                 OnPropertyChanged(nameof(PlaybackListTracksCountText));
             }
         }
@@ -250,7 +262,11 @@ namespace AudioEffector.Presentation.ViewModels
         public ObservableCollection<Track> PlayQueue
         {
             get => _playQueue;
-            set { _playQueue = value; OnPropertyChanged(); }
+            set
+            {
+                _playQueue = value;
+                OnPropertyChanged();
+            }
         }
 
         private BitmapImage? _defaultSpectrumImage;
@@ -265,7 +281,11 @@ namespace AudioEffector.Presentation.ViewModels
         public ImageSource? PlaylistBackgroundImage
         {
             get => _playlistBackgroundImage;
-            set { _playlistBackgroundImage = value; OnPropertyChanged(); }
+            set
+            {
+                _playlistBackgroundImage = value;
+                OnPropertyChanged();
+            }
         }
 
         private ImageSource? _spectrumBackgroundImage;
@@ -276,7 +296,11 @@ namespace AudioEffector.Presentation.ViewModels
         public ImageSource? SpectrumBackgroundImage
         {
             get => _spectrumBackgroundImage;
-            set { _spectrumBackgroundImage = value; OnPropertyChanged(); }
+            set
+            {
+                _spectrumBackgroundImage = value;
+                OnPropertyChanged();
+            }
         }
 
         // ... (existing code) ...
@@ -435,8 +459,8 @@ namespace AudioEffector.Presentation.ViewModels
             AddToPlaylistCommand = new RelayCommand(AddToPlaylist);
             ShowPlaylistCommand = new RelayCommand(ShowPlaylist);
             ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
-            
-            SwitchViewCommand = new RelayCommand(param => 
+
+            SwitchViewCommand = new RelayCommand(param =>
             {
                 if (param is ViewType viewType)
                 {
@@ -553,7 +577,11 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// デバイスの種類（ファイルシステム または MTP）。
         /// </summary>
-        public enum DeviceType { FileSystem, MTP }
+        public enum DeviceType
+        {
+            FileSystem,
+            MTP
+        }
 
         /// <summary>
         /// 接続されたデバイスを表すViewModel。
@@ -621,7 +649,11 @@ namespace AudioEffector.Presentation.ViewModels
         public double TransferProgress
         {
             get => _transferProgress;
-            set { _transferProgress = value; OnPropertyChanged(); }
+            set
+            {
+                _transferProgress = value;
+                OnPropertyChanged();
+            }
         }
 
         private bool _isTransferring;
@@ -631,7 +663,11 @@ namespace AudioEffector.Presentation.ViewModels
         public bool IsTransferring
         {
             get => _isTransferring;
-            set { _isTransferring = value; OnPropertyChanged(); }
+            set
+            {
+                _isTransferring = value;
+                OnPropertyChanged();
+            }
         }
 
         /// <summary>
@@ -643,7 +679,11 @@ namespace AudioEffector.Presentation.ViewModels
         public BitmapImage? NowPlayingImage
         {
             get => _nowPlayingImage;
-            set { _nowPlayingImage = value; OnPropertyChanged(); }
+            set
+            {
+                _nowPlayingImage = value;
+                OnPropertyChanged();
+            }
         }
 
         public ObservableCollection<BandViewModel> Bands { get; set; }
@@ -653,31 +693,51 @@ namespace AudioEffector.Presentation.ViewModels
         public ObservableCollection<UserPlaylist> UserPlaylists
         {
             get => _userPlaylists;
-            set { _userPlaylists = value; OnPropertyChanged(); }
+            set
+            {
+                _userPlaylists = value;
+                OnPropertyChanged();
+            }
         }
 
         public ObservableCollection<Track> PlaylistTracks
         {
             get => _playlistTracks;
-            set { _playlistTracks = value; OnPropertyChanged(); }
+            set
+            {
+                _playlistTracks = value;
+                OnPropertyChanged();
+            }
         }
 
         public bool IsLibraryVisible
         {
             get => _isLibraryVisible;
-            set { _isLibraryVisible = value; OnPropertyChanged(); }
+            set
+            {
+                _isLibraryVisible = value;
+                OnPropertyChanged();
+            }
         }
 
         public bool IsFolderViewVisible
         {
             get => _isFolderViewVisible;
-            set { _isFolderViewVisible = value; OnPropertyChanged(); }
+            set
+            {
+                _isFolderViewVisible = value;
+                OnPropertyChanged();
+            }
         }
 
         public bool IsPlaylistSelectorVisible
         {
             get => _isPlaylistSelectorVisible;
-            set { _isPlaylistSelectorVisible = value; OnPropertyChanged(); }
+            set
+            {
+                _isPlaylistSelectorVisible = value;
+                OnPropertyChanged();
+            }
         }
 
         public bool IsPlaylistTracksVisible => CurrentViewType == ViewType.PlaylistTracks || CurrentViewType == ViewType.Favorites;
@@ -685,7 +745,11 @@ namespace AudioEffector.Presentation.ViewModels
         public bool IsLoading
         {
             get => _isLoading;
-            set { _isLoading = value; OnPropertyChanged(); }
+            set
+            {
+                _isLoading = value;
+                OnPropertyChanged();
+            }
         }
 
         /// <summary>
@@ -708,7 +772,11 @@ namespace AudioEffector.Presentation.ViewModels
         public bool IsListView
         {
             get => !_isGridView;
-            set { IsGridView = !value; OnPropertyChanged(nameof(IsGridView)); }
+            set
+            {
+                IsGridView = !value;
+                OnPropertyChanged(nameof(IsGridView));
+            }
         }
 
         public List<string> SortOptions { get; } = new List<string> { "Artist", "Album" };
@@ -727,14 +795,22 @@ namespace AudioEffector.Presentation.ViewModels
         public bool IsShuffleEnabled
         {
             get => _audioService.IsShuffleEnabled;
-            set { _audioService.IsShuffleEnabled = value; OnPropertyChanged(); }
+            set
+            {
+                _audioService.IsShuffleEnabled = value;
+                OnPropertyChanged();
+            }
         }
 
         private Album? _currentAlbum;
         public Album? CurrentAlbum
         {
             get => _currentAlbum;
-            set { _currentAlbum = value; OnPropertyChanged(); }
+            set
+            {
+                _currentAlbum = value;
+                OnPropertyChanged();
+            }
         }
 
         public Track? CurrentTrack
@@ -759,19 +835,31 @@ namespace AudioEffector.Presentation.ViewModels
         public bool IsPlaying
         {
             get => _isPlaying;
-            set { _isPlaying = value; OnPropertyChanged(); }
+            set
+            {
+                _isPlaying = value;
+                OnPropertyChanged();
+            }
         }
 
         public string CurrentTimeDisplay
         {
             get => _currentTimeDisplay;
-            set { _currentTimeDisplay = value; OnPropertyChanged(); }
+            set
+            {
+                _currentTimeDisplay = value;
+                OnPropertyChanged();
+            }
         }
 
         public string TotalTimeDisplay
         {
             get => _totalTimeDisplay;
-            set { _totalTimeDisplay = value; OnPropertyChanged(); }
+            set
+            {
+                _totalTimeDisplay = value;
+                OnPropertyChanged();
+            }
         }
 
         private bool _isDraggingProgress;
@@ -808,7 +896,11 @@ namespace AudioEffector.Presentation.ViewModels
         public bool IsNowPlayingVisible
         {
             get => _isNowPlayingVisible;
-            set { _isNowPlayingVisible = value; OnPropertyChanged(); }
+            set
+            {
+                _isNowPlayingVisible = value;
+                OnPropertyChanged();
+            }
         }
 
         public EqualizerPreset? SelectedPreset
@@ -833,7 +925,7 @@ namespace AudioEffector.Presentation.ViewModels
 
         // コマンド定義
         public ICommand OpenFolderCommand { get; }
-        
+
         private bool _isDeviceConnected;
         public bool IsDeviceConnected
         {
@@ -882,7 +974,7 @@ namespace AudioEffector.Presentation.ViewModels
         public ICommand EnqueueAlbumCommand { get; }
         public ICommand ShowAddAlbumToPlaylistDialogCommand { get; }
         public ICommand DeleteAlbumCommand { get; }
-        
+
         public ICommand PlayNextCommand { get; }
         public ICommand EnqueueTrackCommand { get; }
         public ICommand ShowTrackPropertiesCommand { get; }
@@ -1469,14 +1561,22 @@ namespace AudioEffector.Presentation.ViewModels
         public ImageSource? SpectrumBackgroundImageGray
         {
             get => _spectrumBackgroundImageGray;
-            set { _spectrumBackgroundImageGray = value; OnPropertyChanged(); }
+            set
+            {
+                _spectrumBackgroundImageGray = value;
+                OnPropertyChanged();
+            }
         }
 
         private bool _isDefaultSpectrumImage;
         public bool IsDefaultSpectrumImage
         {
             get => _isDefaultSpectrumImage;
-            set { _isDefaultSpectrumImage = value; OnPropertyChanged(); }
+            set
+            {
+                _isDefaultSpectrumImage = value;
+                OnPropertyChanged();
+            }
         }
 
         private Brush _spectrumBarBrush;
@@ -1504,21 +1604,34 @@ namespace AudioEffector.Presentation.ViewModels
                 }
                 return _spectrumBarBrush;
             }
-            set { _spectrumBarBrush = value; OnPropertyChanged(); }
+
+            set
+            {
+                _spectrumBarBrush = value;
+                OnPropertyChanged();
+            }
         }
 
         private Brush _spectrumBorderBrush = new SolidColorBrush(Color.FromArgb(230, 0, 229, 255)); // Default Neon Cyan Border (90%)
         public Brush SpectrumBorderBrush
         {
             get => _spectrumBorderBrush;
-            set { _spectrumBorderBrush = value; OnPropertyChanged(); }
+            set
+            {
+                _spectrumBorderBrush = value;
+                OnPropertyChanged();
+            }
         }
 
         private Color _spectrumShadowColor = Color.FromRgb(0, 229, 255); // Default Neon Cyan
         public Color SpectrumShadowColor
         {
             get => _spectrumShadowColor;
-            set { _spectrumShadowColor = value; OnPropertyChanged(); }
+            set
+            {
+                _spectrumShadowColor = value;
+                OnPropertyChanged();
+            }
         }
 
         /// <summary>
@@ -1832,7 +1945,6 @@ namespace AudioEffector.Presentation.ViewModels
                     }
                 });
             }
-
             else
             {
                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
@@ -1964,7 +2076,7 @@ namespace AudioEffector.Presentation.ViewModels
                     App.Current.Dispatcher.InvokeAsync(() =>
                     {
                         IsDeviceConnected = connected;
-                        
+
                         // もしデバイスが取り外されて、かつデバイス同期ビューが開いていたら閉じる
                         if (!IsDeviceConnected && CurrentViewType == ViewType.DeviceSync)
                         {
@@ -2026,7 +2138,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// 指定されたフォルダー（または設定された最後のパス）からライブラリを非同期でロードします。
         /// サポートされている音声ファイルを検索し、メタデータを読み取ってアルバムごとにグループ化します。
         /// </summary>
-        private async void LoadLibrary(string rootFolder = null)
+        private async void LoadLibrary(string? rootFolder = null)
         {
             if (string.IsNullOrEmpty(rootFolder))
             {
@@ -2051,9 +2163,9 @@ namespace AudioEffector.Presentation.ViewModels
 
                 Parallel.ForEach(files, file =>
                 {
-                    var track = new Track 
-                    { 
-                        FilePath = file, 
+                    var track = new Track
+                    {
+                        FilePath = file,
                         Title = Path.GetFileNameWithoutExtension(file),
                         Artist = "Unknown Artist",
                         Album = "Unknown Album"
@@ -2232,7 +2344,7 @@ namespace AudioEffector.Presentation.ViewModels
                             Albums.Remove(album);
                         }
                     }
-                    
+
                     // Remove from Playlists and views
                     PlaylistTracks.Remove(track);
                     PlaybackListTracks.Remove(track);
@@ -2633,10 +2745,10 @@ namespace AudioEffector.Presentation.ViewModels
                 System.Diagnostics.Debug.WriteLine($"ShowPlaylist: {playlist.Name}, Tracks: {playlist.TrackPaths.Count}");
 
                 CurrentViewType = ViewType.PlaylistTracks;
-                
-                
-                
-                
+
+
+
+
                 IsFavoritesView = false;
                 CurrentPlaylistName = playlist.Name;
                 CurrentPlaylistName = playlist.Name;
@@ -2667,10 +2779,10 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void ShowFavorites()
         {
-            
-            
-            
-            
+
+
+
+
             IsFavoritesView = true;
             CurrentViewType = ViewType.Favorites;
             CurrentPlaylistName = "Favorites";
@@ -2694,10 +2806,10 @@ namespace AudioEffector.Presentation.ViewModels
         private void ShowLibrary()
         {
             CurrentViewType = ViewType.Albums;
-            
-            
-            
-            
+
+
+
+
             CurrentViewingPlaylist = null;
             IsFavoritesView = false;
             OnPropertyChanged(nameof(IsPlaylistSectionActive));
@@ -2706,10 +2818,10 @@ namespace AudioEffector.Presentation.ViewModels
         private void ShowFolder()
         {
             CurrentViewType = ViewType.Folders;
-            
-            
-            
-            
+
+
+
+
             CurrentViewingPlaylist = null;
             IsFavoritesView = false;
             OnPropertyChanged(nameof(IsPlaylistSectionActive));
@@ -2718,10 +2830,10 @@ namespace AudioEffector.Presentation.ViewModels
         private void ShowPlaylistSelector()
         {
             CurrentViewType = ViewType.Playlists;
-            
-            
-            
-            
+
+
+
+
             IsFavoritesView = false;
             OnPropertyChanged(nameof(IsPlaylistSectionActive));
         }
@@ -3008,20 +3120,20 @@ namespace AudioEffector.Presentation.ViewModels
                 if (result == System.Windows.MessageBoxResult.Yes)
                 {
                     var tracksToRemove = album.Tracks.ToList();
-                    
+
                     Albums.Remove(album);
-                    
+
                     foreach (var track in tracksToRemove)
                     {
                         PlaylistTracks.Remove(track);
                         PlaybackListTracks.Remove(track);
-                        
+
                         if (_favoritePaths.Contains(track.FilePath))
                         {
                             _favoritePaths.Remove(track.FilePath);
                         }
                     }
-                    
+
                     _libraryService?.SaveFavorites(_favoritePaths);
                 }
             }
@@ -3258,7 +3370,7 @@ namespace AudioEffector.Presentation.ViewModels
 
             // デバイス管理ダイアログを閉じた後、デバイス上のアルバム状況が変更されている可能性があるためチェックを再実行
             CheckDeviceAlbums();
-            
+
             // 現在のディレクトリ表示も更新する
             if (!string.IsNullOrEmpty(CurrentDevicePath))
             {

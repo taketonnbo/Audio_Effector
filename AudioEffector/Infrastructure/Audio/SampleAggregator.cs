@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using AudioEffector.Application.Common;
 using NAudio.Dsp;
 using NAudio.Wave;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using AudioEffector.Domain.ValueObjects;
 
 namespace AudioEffector.Domain.Events;

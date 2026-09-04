@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Media.Imaging;
@@ -41,7 +41,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string FilePath
     {
         get => _filePath;
-        set { if (_filePath != value) { _filePath = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_filePath != value)
+            {
+                _filePath = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -50,7 +57,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string Title
     {
         get => _title;
-        set { if (_title != value) { _title = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_title != value)
+            {
+                _title = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -59,7 +73,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string Artist
     {
         get => _artist;
-        set { if (_artist != value) { _artist = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_artist != value)
+            {
+                _artist = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -68,7 +89,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string Album
     {
         get => _album;
-        set { if (_album != value) { _album = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_album != value)
+            {
+                _album = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -77,7 +105,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public BitmapImage? CoverImage
     {
         get => _coverImage;
-        set { if (_coverImage != value) { _coverImage = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_coverImage != value)
+            {
+                _coverImage = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -86,7 +121,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public TimeSpan Duration
     {
         get => _duration;
-        set { if (_duration != value) { _duration = value; OnPropertyChanged(); OnPropertyChanged(nameof(DurationString)); } }
+        set
+        {
+            if (_duration != value)
+            {
+                _duration = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(DurationString));
+            }
+        }
     }
 
     /// <summary>
@@ -102,7 +145,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public bool IsFavorite
     {
         get => _isFavorite;
-        set { if (_isFavorite != value) { _isFavorite = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_isFavorite != value)
+            {
+                _isFavorite = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -111,7 +161,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public bool IsPlaying
     {
         get => _isPlaying;
-        set { if (_isPlaying != value) { _isPlaying = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_isPlaying != value)
+            {
+                _isPlaying = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -120,7 +177,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public uint Year
     {
         get => _year;
-        set { if (_year != value) { _year = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_year != value)
+            {
+                _year = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -129,7 +193,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public uint TrackNumber
     {
         get => _trackNumber;
-        set { if (_trackNumber != value) { _trackNumber = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_trackNumber != value)
+            {
+                _trackNumber = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -138,7 +209,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public int Bitrate
     {
         get => _bitrate;
-        set { if (_bitrate != value) { _bitrate = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityInfo)); } }
+        set
+        {
+            if (_bitrate != value)
+            {
+                _bitrate = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityInfo));
+            }
+        }
     }
 
     /// <summary>
@@ -147,7 +226,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public int SampleRate
     {
         get => _sampleRate;
-        set { if (_sampleRate != value) { _sampleRate = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityInfo)); } }
+        set
+        {
+            if (_sampleRate != value)
+            {
+                _sampleRate = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityInfo));
+            }
+        }
     }
 
     /// <summary>
@@ -156,7 +243,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public int BitsPerSample
     {
         get => _bitsPerSample;
-        set { if (_bitsPerSample != value) { _bitsPerSample = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityInfo)); } }
+        set
+        {
+            if (_bitsPerSample != value)
+            {
+                _bitsPerSample = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityInfo));
+            }
+        }
     }
 
     /// <summary>
@@ -165,7 +260,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string Format
     {
         get => _format;
-        set { if (_format != value) { _format = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityInfo)); } }
+        set
+        {
+            if (_format != value)
+            {
+                _format = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityInfo));
+            }
+        }
     }
 
     /// <summary>
@@ -174,7 +277,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string Genre
     {
         get => _genre;
-        set { if (_genre != value) { _genre = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_genre != value)
+            {
+                _genre = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -183,7 +293,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public bool IsLossless
     {
         get => _isLossless;
-        set { if (_isLossless != value) { _isLossless = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityLabel)); } }
+        set
+        {
+            if (_isLossless != value)
+            {
+                _isLossless = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityLabel));
+            }
+        }
     }
 
     /// <summary>
@@ -192,7 +310,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public bool IsHiRes
     {
         get => _isHiRes;
-        set { if (_isHiRes != value) { _isHiRes = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityLabel)); } }
+        set
+        {
+            if (_isHiRes != value)
+            {
+                _isHiRes = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityLabel));
+            }
+        }
     }
 
     /// <summary>
@@ -201,7 +327,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public bool IsSelected
     {
         get => _isSelected;
-        set { if (_isSelected != value) { _isSelected = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_isSelected != value)
+            {
+                _isSelected = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>

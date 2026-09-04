@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -40,6 +40,7 @@ public class SettingsApplicationService : ISettingsService
     /// <summary>
     /// アプリケーション設定全体を読み込みます
     /// </summary>
+    /// <returns></returns>
     public AppSettings LoadSettings()
     {
         if (!File.Exists(_settingsFilePath))
@@ -78,6 +79,7 @@ public class SettingsApplicationService : ISettingsService
     /// <summary>
     /// アプリケーション設定全体を非同期で読み込みます
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task<AppSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
     {
         if (!File.Exists(_settingsFilePath))
@@ -97,6 +99,7 @@ public class SettingsApplicationService : ISettingsService
     /// <summary>
     /// アプリケーション設定全体を非同期で保存します
     /// </summary>
+    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
     public async Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
     {
         try

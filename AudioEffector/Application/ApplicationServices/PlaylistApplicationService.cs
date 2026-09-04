@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -45,6 +45,7 @@ public class PlaylistApplicationService
     /// <summary>
     /// プレイリスト一覧をローカルJSONファイルから読み込みます
     /// </summary>
+    /// <returns></returns>
     public List<UserPlaylist> LoadPlaylists()
     {
         if (!System.IO.File.Exists(_playlistsFilePath))

@@ -1,4 +1,4 @@
-namespace AudioEffector.Presentation.ViewModels;
+﻿namespace AudioEffector.Presentation.ViewModels;
 
 public enum ViewType
 {

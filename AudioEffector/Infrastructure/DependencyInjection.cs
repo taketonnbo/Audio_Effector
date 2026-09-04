@@ -1,4 +1,4 @@
-using AudioEffector.Application.Common;
+﻿using AudioEffector.Application.Common;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Infrastructure.DataTransfer;

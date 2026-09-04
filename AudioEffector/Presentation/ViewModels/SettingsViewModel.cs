@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -107,13 +107,13 @@ public class SettingsViewModel : ViewModelBase
             MiniPlayerTopmostBehavior newValue = MiniPlayerTopmostBehavior.None;
             if (value == AvailableTopmostBehaviors[0]) newValue = MiniPlayerTopmostBehavior.AlwaysOnTop;
             else if (value == AvailableTopmostBehaviors[1]) newValue = MiniPlayerTopmostBehavior.OnDisplayOnly;
-            
+
             if (_appSettings.MiniPlayerTopmostBehavior != newValue)
             {
                 _appSettings.MiniPlayerTopmostBehavior = newValue;
                 OnPropertyChanged();
                 _settingsService.SaveSettings(_appSettings);
-                
+
                 // Update current mini player if it is open
                 var miniPlayer = System.Windows.Application.Current.Windows.OfType<AudioEffector.Presentation.Views.MiniPlayerWindow>().FirstOrDefault();
                 if (miniPlayer != null)
@@ -193,37 +193,72 @@ public class SettingsViewModel : ViewModelBase
     public ShortcutKeyConfig PlayPauseShortcut
     {
         get => _appSettings.PlayPauseShortcut;
-        set { _appSettings.PlayPauseShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        set
+        {
+            _appSettings.PlayPauseShortcut = value;
+            OnPropertyChanged();
+            _settingsService.SaveSettings(_appSettings);
+        }
     }
     public ShortcutKeyConfig StopShortcut
     {
         get => _appSettings.StopShortcut;
-        set { _appSettings.StopShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        set
+        {
+            _appSettings.StopShortcut = value;
+            OnPropertyChanged();
+            _settingsService.SaveSettings(_appSettings);
+        }
     }
     public ShortcutKeyConfig NextShortcut
     {
         get => _appSettings.NextShortcut;
-        set { _appSettings.NextShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        set
+        {
+            _appSettings.NextShortcut = value;
+            OnPropertyChanged();
+            _settingsService.SaveSettings(_appSettings);
+        }
     }
     public ShortcutKeyConfig PreviousShortcut
     {
         get => _appSettings.PreviousShortcut;
-        set { _appSettings.PreviousShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        set
+        {
+            _appSettings.PreviousShortcut = value;
+            OnPropertyChanged();
+            _settingsService.SaveSettings(_appSettings);
+        }
     }
     public ShortcutKeyConfig MuteShortcut
     {
         get => _appSettings.MuteShortcut;
-        set { _appSettings.MuteShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        set
+        {
+            _appSettings.MuteShortcut = value;
+            OnPropertyChanged();
+            _settingsService.SaveSettings(_appSettings);
+        }
     }
     public ShortcutKeyConfig VolumeUpShortcut
     {
         get => _appSettings.VolumeUpShortcut;
-        set { _appSettings.VolumeUpShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        set
+        {
+            _appSettings.VolumeUpShortcut = value;
+            OnPropertyChanged();
+            _settingsService.SaveSettings(_appSettings);
+        }
     }
     public ShortcutKeyConfig VolumeDownShortcut
     {
         get => _appSettings.VolumeDownShortcut;
-        set { _appSettings.VolumeDownShortcut = value; OnPropertyChanged(); _settingsService.SaveSettings(_appSettings); }
+        set
+        {
+            _appSettings.VolumeDownShortcut = value;
+            OnPropertyChanged();
+            _settingsService.SaveSettings(_appSettings);
+        }
     }
 
     public SettingsViewModel(ISettingsService settingsService, IAudioService audioService)

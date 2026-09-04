@@ -1,4 +1,4 @@
-namespace AudioEffector.Domain.ValueObjects;
+﻿namespace AudioEffector.Domain.ValueObjects;
 
 /// <summary>
 /// 音声再生エンジンの状態を表す列挙型

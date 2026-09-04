@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,7 +23,8 @@ public class InMemoryEventBus : IEventBus
     /// <param name="domainEvent">ドメインイベントインスタンス</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>非同期タスク</returns>
-    public async Task PublishAsync<TEvent>(TEvent domainEvent, CancellationToken cancellationToken = default) where TEvent : IDomainEvent
+    public async Task PublishAsync<TEvent>(TEvent domainEvent, CancellationToken cancellationToken = default)
+        where TEvent : IDomainEvent
     {
         ArgumentNullException.ThrowIfNull(domainEvent);
 
@@ -65,7 +66,8 @@ public class InMemoryEventBus : IEventBus
     /// </summary>
     /// <typeparam name="TEvent">購読するイベントの型</typeparam>
     /// <param name="handler">イベント受信時の非同期コールバック</param>
-    public void Subscribe<TEvent>(Func<TEvent, CancellationToken, Task> handler) where TEvent : IDomainEvent
+    public void Subscribe<TEvent>(Func<TEvent, CancellationToken, Task> handler)
+        where TEvent : IDomainEvent
     {
         ArgumentNullException.ThrowIfNull(handler);
 
@@ -84,7 +86,8 @@ public class InMemoryEventBus : IEventBus
     /// </summary>
     /// <typeparam name="TEvent">購読解除するイベントの型</typeparam>
     /// <param name="handler">解除対象のハンドラーコールバック</param>
-    public void Unsubscribe<TEvent>(Func<TEvent, CancellationToken, Task> handler) where TEvent : IDomainEvent
+    public void Unsubscribe<TEvent>(Func<TEvent, CancellationToken, Task> handler)
+        where TEvent : IDomainEvent
     {
         ArgumentNullException.ThrowIfNull(handler);
 

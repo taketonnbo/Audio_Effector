@@ -1,4 +1,4 @@
-namespace AudioEffector.Domain.Services;
+﻿namespace AudioEffector.Domain.Services;
 
 /// <summary>
 /// リピート再生モード（単曲リピートまたは全曲ループ）
