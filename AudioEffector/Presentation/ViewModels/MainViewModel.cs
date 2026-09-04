@@ -396,6 +396,16 @@ namespace AudioEffector.Presentation.ViewModels
                 Playlist.AddToPlaylistDialogRequested += () => ShowAddToPlaylistDialog(null);
             }
 
+            Library ??= new Presentation.ViewModels.LibraryViewModel(_libraryService, _audioService);
+            if (Library != null)
+            {
+                Library.PlayAlbumRequested += al => PlayAlbum(al);
+                Library.PlayNextAlbumRequested += al => PlayNextAlbum(al);
+                Library.EnqueueAlbumRequested += al => EnqueueAlbum(al);
+                Library.DeleteAlbumRequested += al => DeleteAlbum(al);
+                Library.ToggleFavoriteRequested += tr => ToggleFavorite(tr);
+            }
+
             if (App.ServiceProvider != null)
             {
                 var resolvedSettings = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider);
@@ -508,9 +518,6 @@ namespace AudioEffector.Presentation.ViewModels
                     }
                 }
             });
-            ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
-            ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
-
             // Playlist commands
             ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
 
@@ -530,12 +537,7 @@ namespace AudioEffector.Presentation.ViewModels
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
             ShowFolderCommand = new RelayCommand(o => ShowFolder());
 
-            ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
-            PlayAlbumCommand = new RelayCommand(PlayAlbum);
-            PlayNextAlbumCommand = new RelayCommand(PlayNextAlbum);
-            EnqueueAlbumCommand = new RelayCommand(EnqueueAlbum);
-            DeleteAlbumCommand = new RelayCommand(DeleteAlbum);
 
             IncreaseVolumeCommand = new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
             DecreaseVolumeCommand = new RelayCommand(o => Volume = Math.Max(0.0f, Volume - 0.05f));
@@ -693,10 +695,12 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ObservableCollection<EqualizerPreset> Presets => Equalizer?.Presets ?? [];
 
+        private ObservableCollection<Album> _albums = new ObservableCollection<Album>();
+
         /// <summary>
         /// ライブラリ内のアルバムコレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<Album> Albums { get; set; } = new ObservableCollection<Album>();
+        public ObservableCollection<Album> Albums => Library?.Albums ?? _albums;
 
         /// <summary>
         /// ユーザーが作成したプレイリストのコレクションを取得または設定します
@@ -775,9 +779,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsGridView
         {
-            get => _isGridView;
+            get => Library?.IsGridView ?? _isGridView;
             set
             {
+                if (Library != null)
+                {
+                    Library.IsGridView = value;
+                }
                 _isGridView = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsListView));
@@ -787,29 +795,25 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// リスト表示モードかどうか。
         /// </summary>
-        public bool IsListView
-        {
-            get => !_isGridView;
-            set
-            {
-                IsGridView = !value;
-                OnPropertyChanged(nameof(IsGridView));
-            }
-        }
+        public bool IsListView => Library?.IsListView ?? !_isGridView;
 
         /// <summary>
         /// ライブラリのソート順選択肢一覧を取得します
         /// </summary>
-        public List<string> SortOptions { get; } = new List<string> { "Artist", "Album" };
+        public List<string> SortOptions => Library?.SortOptions ?? new List<string> { "Artist", "Album" };
 
         /// <summary>
         /// 選択されているライブラリのソート順を取得または設定します
         /// </summary>
         public string SelectedSortOption
         {
-            get => _selectedSortOption;
+            get => Library?.SelectedSortOption ?? _selectedSortOption;
             set
             {
+                if (Library != null)
+                {
+                    Library.SelectedSortOption = value;
+                }
                 _selectedSortOption = value;
                 OnPropertyChanged();
                 SortLibrary();
@@ -1048,7 +1052,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 表示ビューの切り替えコマンドを取得します
         /// </summary>
-        public ICommand ToggleViewCommand { get; }
+        public ICommand ToggleViewCommand => Library?.ToggleViewCommand ?? new RelayCommand(o => IsGridView = !IsGridView);
 
         /// <summary>
         /// 新しいプレイリストを作成するコマンドを取得します
@@ -1118,17 +1122,17 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// アルバム全体を再生するコマンドを取得します
         /// </summary>
-        public ICommand PlayAlbumCommand { get; }
+        public ICommand PlayAlbumCommand => Library?.PlayAlbumCommand ?? new RelayCommand(PlayAlbum);
 
         /// <summary>
         /// 次に再生するアルバムとしてキューに追加するコマンドを取得します
         /// </summary>
-        public ICommand PlayNextAlbumCommand { get; }
+        public ICommand PlayNextAlbumCommand => Library?.PlayNextAlbumCommand ?? new RelayCommand(PlayNextAlbum);
 
         /// <summary>
         /// アルバムをキューの末尾に追加するコマンドを取得します
         /// </summary>
-        public ICommand EnqueueAlbumCommand { get; }
+        public ICommand EnqueueAlbumCommand => Library?.EnqueueAlbumCommand ?? new RelayCommand(EnqueueAlbum);
 
         /// <summary>
         /// アルバムをプレイリストに追加するダイアログを表示するコマンドを取得します
@@ -1138,7 +1142,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// アルバムを削除するコマンドを取得します
         /// </summary>
-        public ICommand DeleteAlbumCommand { get; }
+        public ICommand DeleteAlbumCommand => Library?.DeleteAlbumCommand ?? new RelayCommand(DeleteAlbum);
 
         /// <summary>
         /// 指定トラックを次に再生するようキューに追加するコマンドを取得します
@@ -1209,9 +1213,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsAscending
         {
-            get => _isAscending;
+            get => Library?.IsAscending ?? _isAscending;
             set
             {
+                if (Library != null)
+                {
+                    Library.IsAscending = value;
+                }
                 _isAscending = value;
                 OnPropertyChanged();
                 SortLibrary();
@@ -1224,9 +1232,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsSelectionMode
         {
-            get => _isSelectionMode;
+            get => Library?.IsSelectionMode ?? _isSelectionMode;
             set
             {
+                if (Library != null)
+                {
+                    Library.IsSelectionMode = value;
+                }
                 _isSelectionMode = value;
                 OnPropertyChanged();
             }
@@ -1250,12 +1262,12 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// ソート順（昇順/降順）を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand ToggleSortDirectionCommand { get; }
+        public ICommand ToggleSortDirectionCommand => Library?.ToggleSortDirectionCommand ?? new RelayCommand(o => IsAscending = !IsAscending);
 
         /// <summary>
         /// トラック選択モードの有効/無効を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand ToggleSelectionModeCommand { get; }
+        public ICommand ToggleSelectionModeCommand => Library?.ToggleSelectionModeCommand ?? new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
 
         /// <summary>
         /// リピート再生の有効/無効を切り替えるコマンドを取得します
