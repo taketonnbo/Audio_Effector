@@ -487,7 +487,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:EqualizerView />
+                                            <views:EqualizerView DataContext="{Binding Equalizer}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
@@ -640,7 +640,7 @@
                             <Style TargetType="Grid">
                                 <Setter Property="Width" Value="340"/>
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                                    <DataTrigger Binding="{Binding PlayerControl.IsSpectrumVisible}" Value="False">
                                         <DataTrigger.EnterActions>
                                             <BeginStoryboard>
                                                 <Storyboard>
@@ -685,7 +685,7 @@
                                     <Setter Property="Width" Value="260"/>
                                     <Setter Property="Height" Value="260"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                                        <DataTrigger Binding="{Binding PlayerControl.IsSpectrumVisible}" Value="False">
                                             <DataTrigger.EnterActions>
                                                 <BeginStoryboard>
                                                     <Storyboard>
@@ -1264,7 +1264,7 @@
 
             <!-- Toggle Handle Bar -->
             <Border Grid.Row="0" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Height="22">
-                <Button Command="{Binding ToggleSpectrumCommand}" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="12,2" HorizontalAlignment="Center">
+                <Button Command="{Binding PlayerControl.ToggleSpectrumCommand}" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="12,2" HorizontalAlignment="Center">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
@@ -1278,7 +1278,7 @@
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
                                 </Trigger>
-                                <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                                <DataTrigger Binding="{Binding PlayerControl.IsSpectrumVisible}" Value="False">
                                     <Setter TargetName="ArrowIcon" Property="Data" Value="M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z"/>
                                 </DataTrigger>
                             </ControlTemplate.Triggers>
@@ -1293,7 +1293,7 @@
                     <Style TargetType="Grid">
                         <Setter Property="Height" Value="140"/>
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                            <DataTrigger Binding="{Binding PlayerControl.IsSpectrumVisible}" Value="False">
                                 <DataTrigger.EnterActions>
                                     <BeginStoryboard>
                                         <Storyboard>
@@ -1382,7 +1382,7 @@
                     </Border>
 
                     <!-- Spectrum Bars (64 High-Density Bars with Fixed 6px Width) -->
-                    <ItemsControl x:Name="SpectrumBarsControl" Grid.Row="1" ItemsSource="{Binding SpectrumValues}" Margin="0,0,0,22" RenderOptions.EdgeMode="Aliased"
+                    <ItemsControl x:Name="SpectrumBarsControl" Grid.Row="1" ItemsSource="{Binding PlayerControl.SpectrumValues}" Margin="0,0,0,22" RenderOptions.EdgeMode="Aliased"
                                   VerticalAlignment="Bottom" Height="90" Width="768" HorizontalAlignment="Center"
                                   Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
                         <ItemsControl.ItemsPanel>

@@ -15,14 +15,24 @@ namespace AudioEffector.Presentation.ViewModels;
 /// <summary>
 /// 音声の再生・一時停止・停止・シーク・音量制御・スペクトラム描画データバインディングを担当するViewModel
 /// </summary>
-public class PlayerControlViewModel : ViewModelBase,
+public class PlayerControlViewModel : ViewModelBase, IDisposable,
     IHandle<TrackChangedEvent>,
     IHandle<PlaybackStateChangedEvent>,
     IHandle<VolumeChangedEvent>
 {
     private readonly AudioApplicationService _audioService;
+    private readonly IAudioEngine _audioEngine;
+    private readonly IAudioService _legacyAudioService;
     private readonly IEventBus _eventBus;
     private readonly ISpectrumCalculator _spectrumCalculator;
+
+    private const int SpectrumBarCount = SpectrumCalculator.DEFAULT_BAR_COUNT;
+    private const double SpectrumBassScale = 0.55;
+    private const double SpectrumMidScale = 0.90;
+    private const double SpectrumTrebleScale = 2.90;
+    private const double SpectrumTrebleTiltDb = 8.5;
+    private const double SpectrumSensitivity = 1.65;
+    private readonly TimeSpan _spectrumUpdateInterval = TimeSpan.FromMilliseconds(1000.0 / 30.0);
 
     private Track? _currentTrack;
     private bool _isPlaying;
@@ -33,11 +43,24 @@ public class PlayerControlViewModel : ViewModelBase,
     private int _repeatMode; // 0: None, 1: All, 2: One
     private string _currentTime = "00:00";
     private string _totalTime = "00:00";
+    private bool _isSpectrumVisible = true;
+    private DateTime _lastSpectrumUpdateTime = DateTime.MinValue;
+    private int _spectrumGeneration;
+    private bool _disposed;
 
     /// <summary>
     /// スペクトラムバーの描画値コレクション（64バンド）
     /// </summary>
-    public ObservableCollection<double> SpectrumValues { get; } = new();
+    public ObservableCollection<SpectrumBarItem> SpectrumValues { get; } = new();
+
+    /// <summary>
+    /// スペクトラムアナライザーが表示されているかどうか
+    /// </summary>
+    public bool IsSpectrumVisible
+    {
+        get => _isSpectrumVisible;
+        set => SetProperty(ref _isSpectrumVisible, value);
+    }
 
     /// <summary>
     /// 現在再生中のトラック
@@ -182,24 +205,40 @@ public class PlayerControlViewModel : ViewModelBase,
     public ICommand ToggleRepeatCommand { get; }
 
     /// <summary>
+    /// スペクトラムアナライザーを表示するコマンド
+    /// </summary>
+    public ICommand SwitchToSpectrumCommand { get; }
+
+    /// <summary>
+    /// スペクトラムアナライザーの表示状態を切り替えるコマンド
+    /// </summary>
+    public ICommand ToggleSpectrumCommand { get; }
+
+    /// <summary>
     /// PlayerControlViewModelを初期化します
     /// </summary>
     /// <param name="audioService">オーディオ再生アプリケーションサービス</param>
+    /// <param name="audioEngine">FFT計算イベントを提供するオーディオエンジン</param>
+    /// <param name="legacyAudioService">移行期間中の既存再生サービス</param>
     /// <param name="eventBus">イベントバス</param>
     /// <param name="spectrumCalculator">スペクトラム計算ドメインサービス</param>
     public PlayerControlViewModel(
         AudioApplicationService audioService,
+        IAudioEngine audioEngine,
+        IAudioService legacyAudioService,
         IEventBus eventBus,
         ISpectrumCalculator? spectrumCalculator = null)
     {
         _audioService = audioService ?? throw new ArgumentNullException(nameof(audioService));
+        _audioEngine = audioEngine ?? throw new ArgumentNullException(nameof(audioEngine));
+        _legacyAudioService = legacyAudioService ?? throw new ArgumentNullException(nameof(legacyAudioService));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
         _spectrumCalculator = spectrumCalculator ?? new SpectrumCalculator();
 
         // 64バンドのスペクトラムバッファ初期化
         for (int i = 0; i < SpectrumCalculator.DEFAULT_BAR_COUNT; i++)
         {
-            SpectrumValues.Add(0.0);
+            SpectrumValues.Add(new SpectrumBarItem());
         }
 
         // コマンド初期化
@@ -209,11 +248,16 @@ public class PlayerControlViewModel : ViewModelBase,
         PreviousCommand = new RelayCommand(async _ => await _audioService.PreviousTrackAsync());
         ToggleShuffleCommand = new RelayCommand(_ => IsShuffle = !IsShuffle);
         ToggleRepeatCommand = new RelayCommand(_ => RepeatMode = (RepeatMode + 1) % 3);
+        SwitchToSpectrumCommand = new RelayCommand(_ => IsSpectrumVisible = true);
+        ToggleSpectrumCommand = new RelayCommand(_ => IsSpectrumVisible = !IsSpectrumVisible);
 
         // イベント購読登録
         _eventBus.Subscribe<TrackChangedEvent>(HandleAsync);
         _eventBus.Subscribe<PlaybackStateChangedEvent>(HandleAsync);
         _eventBus.Subscribe<VolumeChangedEvent>(HandleAsync);
+        _audioEngine.FftCalculated += OnFftCalculated;
+        _legacyAudioService.FftCalculated += OnLegacyFftCalculated;
+        _legacyAudioService.TrackChanged += OnLegacyTrackChanged;
     }
 
     private async Task ExecuteTogglePlayPauseAsync()
@@ -258,15 +302,119 @@ public class PlayerControlViewModel : ViewModelBase,
     /// <param name="sampleRate">サンプリングレート</param>
     public void UpdateSpectrum(double[] fftMagnitudes, int sampleRate)
     {
-        var bars = _spectrumCalculator.CalculateBars(fftMagnitudes, sampleRate);
-        System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+        int currentGeneration = _spectrumGeneration;
+        var bars = _spectrumCalculator.CalculateBars(
+            fftMagnitudes,
+            sampleRate,
+            SpectrumBarCount,
+            SpectrumSensitivity,
+            SpectrumBassScale,
+            SpectrumMidScale,
+            SpectrumTrebleScale,
+            SpectrumTrebleTiltDb);
+
+        void ApplySpectrumValues()
         {
-            int count = Math.Min(bars.Length, SpectrumValues.Count);
-            for (int i = 0; i < count; i++)
+            if (currentGeneration != _spectrumGeneration)
             {
-                SpectrumValues[i] = bars[i];
+                return;
             }
-        });
+
+            for (int i = 0; i < Math.Min(bars.Length, SpectrumValues.Count); i++)
+            {
+                var item = SpectrumValues[i];
+                double current = item.Value;
+                double target = Math.Min(78.0, bars[i]);
+                item.Value = target > current
+                    ? current + (target - current) * 0.45
+                    : current - (current - target) * 0.075;
+
+                if (item.Value >= item.PeakValue)
+                {
+                    item.PeakValue = item.Value;
+                    item.PeakHoldCount = 14;
+                }
+                else if (item.PeakHoldCount > 0)
+                {
+                    item.PeakHoldCount--;
+                }
+                else
+                {
+                    item.PeakValue = Math.Max(item.Value, item.PeakValue - 1.3);
+                }
+            }
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            ApplySpectrumValues();
+        }
+        else
+        {
+            dispatcher.InvokeAsync(ApplySpectrumValues);
+        }
+    }
+
+    private void OnFftCalculated(object? sender, FftCalculatedEventArgs e)
+    {
+        if (!IsSpectrumVisible)
+        {
+            return;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        if (now - _lastSpectrumUpdateTime < _spectrumUpdateInterval)
+        {
+            return;
+        }
+
+        _lastSpectrumUpdateTime = now;
+        UpdateSpectrum(e.Magnitudes, e.SampleRate);
+    }
+
+    private void OnLegacyFftCalculated(object? sender, FftEventArgs e)
+    {
+        int halfLength = e.Result.Length / 2;
+        var magnitudes = new double[halfLength];
+        for (int i = 0; i < halfLength; i++)
+        {
+            double real = e.Result[i].X;
+            double imaginary = e.Result[i].Y;
+            magnitudes[i] = Math.Sqrt((real * real) + (imaginary * imaginary));
+        }
+
+        OnFftCalculated(sender, new FftCalculatedEventArgs(magnitudes, 44100));
+    }
+
+    private void OnLegacyTrackChanged(Track track)
+    {
+        ResetSpectrum();
+    }
+
+    private void ResetSpectrum()
+    {
+        Interlocked.Increment(ref _spectrumGeneration);
+
+        void ResetValues()
+        {
+            foreach (var item in SpectrumValues)
+            {
+                item.Value = 0.0;
+                item.PeakValue = 0.0;
+                item.PeakHoldCount = 0;
+            }
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            ResetValues();
+        }
+        else
+        {
+            dispatcher.InvokeAsync(ResetValues);
+        }
     }
 
     /// <summary>
@@ -279,6 +427,8 @@ public class PlayerControlViewModel : ViewModelBase,
     {
         System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
         {
+            ResetSpectrum();
+
             CurrentTrack = domainEvent.Track;
             TotalTime = domainEvent.Track?.Duration.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture) ?? "00:00";
             CurrentTime = "00:00";
@@ -319,5 +469,25 @@ public class PlayerControlViewModel : ViewModelBase,
             OnPropertyChanged(nameof(IsMuted));
         });
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// イベント購読を解除します。
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _audioEngine.FftCalculated -= OnFftCalculated;
+        _legacyAudioService.FftCalculated -= OnLegacyFftCalculated;
+        _legacyAudioService.TrackChanged -= OnLegacyTrackChanged;
+        _eventBus.Unsubscribe<TrackChangedEvent>(HandleAsync);
+        _eventBus.Unsubscribe<PlaybackStateChangedEvent>(HandleAsync);
+        _eventBus.Unsubscribe<VolumeChangedEvent>(HandleAsync);
+        _disposed = true;
+        GC.SuppressFinalize(this);
     }
 }

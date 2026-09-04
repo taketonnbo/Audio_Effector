@@ -17,6 +17,7 @@ namespace AudioEffector.Application.ApplicationServices;
 public class AudioApplicationService
 {
     private readonly IAudioEngine _audioEngine;
+    private readonly IAudioService? _legacyAudioService;
     private readonly ITrackRepository _trackRepository;
     private readonly IEventBus _eventBus;
     private readonly object _lock = new();
@@ -77,16 +78,19 @@ public class AudioApplicationService
     /// <param name="trackRepository">トラックリポジトリ</param>
     /// <param name="eventBus">イベントバス</param>
     /// <param name="playbackOrderStrategy">再生順序戦略（未指定時はSequentialPlaybackStrategy）</param>
+    /// <param name="legacyAudioService">移行期間中の既存再生サービス</param>
     public AudioApplicationService(
         IAudioEngine audioEngine,
         ITrackRepository trackRepository,
         IEventBus eventBus,
-        IPlaybackOrderStrategy? playbackOrderStrategy = null)
+        IPlaybackOrderStrategy? playbackOrderStrategy = null,
+        IAudioService? legacyAudioService = null)
     {
         _audioEngine = audioEngine ?? throw new ArgumentNullException(nameof(audioEngine));
         _trackRepository = trackRepository ?? throw new ArgumentNullException(nameof(trackRepository));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
         _playbackOrderStrategy = playbackOrderStrategy ?? new SequentialPlaybackStrategy();
+        _legacyAudioService = legacyAudioService;
 
         _audioEngine.PlaybackEnded += OnPlaybackEnded;
     }
@@ -232,6 +236,11 @@ public class AudioApplicationService
         }
 
         await _audioEngine.SetVolumeAsync(volume.EffectiveVolume, cancellationToken);
+        if (_legacyAudioService != null)
+        {
+            _legacyAudioService.Volume = volume.EffectiveVolume;
+        }
+
         await _eventBus.PublishAsync(new VolumeChangedEvent(volume.EffectiveVolume, volume.IsMuted), cancellationToken);
     }
 
@@ -251,6 +260,11 @@ public class AudioApplicationService
         }
 
         await _audioEngine.SetVolumeAsync(newVolume.EffectiveVolume, cancellationToken);
+        if (_legacyAudioService != null)
+        {
+            _legacyAudioService.Volume = newVolume.EffectiveVolume;
+        }
+
         await _eventBus.PublishAsync(new VolumeChangedEvent(newVolume.EffectiveVolume, newVolume.IsMuted), cancellationToken);
     }
 
