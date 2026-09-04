@@ -215,13 +215,19 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public UserPlaylist? CurrentViewingPlaylist
         {
-            get => _currentViewingPlaylist;
+            get => Playlist?.SelectedPlaylist ?? _currentViewingPlaylist;
             set
             {
+                if (Playlist != null)
+                {
+                    Playlist.SelectedPlaylist = value;
+                }
                 if (_currentViewingPlaylist != value)
                 {
                     _currentViewingPlaylist = value;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsPlaylistTracksVisible));
+                    OnPropertyChanged(nameof(IsPlaylistSectionActive));
                 }
             }
         }
@@ -310,9 +316,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ImageSource? PlaylistBackgroundImage
         {
-            get => _playlistBackgroundImage;
+            get => Playlist?.PlaylistBackgroundImage ?? _playlistBackgroundImage;
             set
             {
+                if (Playlist != null)
+                {
+                    Playlist.PlaylistBackgroundImage = value;
+                }
                 _playlistBackgroundImage = value;
                 OnPropertyChanged();
             }
@@ -373,6 +383,19 @@ namespace AudioEffector.Presentation.ViewModels
             DeviceSync ??= new Presentation.ViewModels.DeviceSyncViewModel();
             _libraryService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<LibraryApplicationService>(App.ServiceProvider) : null;
             _playlistService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<PlaylistApplicationService>(App.ServiceProvider) : null;
+            var eventBus = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<AudioEffector.Application.Common.IEventBus>(App.ServiceProvider) : null;
+            Playlist ??= new Presentation.ViewModels.PlaylistViewModel(_playlistService, _audioService, eventBus, _libraryService);
+
+            if (Playlist != null)
+            {
+                Playlist.PlaylistSelected += pl => ShowPlaylist(pl);
+                Playlist.PlaylistSelectorRequested += () => ShowPlaylistSelector();
+                Playlist.AddToPlaylistRequested += pl => AddToPlaylist(pl);
+                Playlist.AddSelectedToPlaylistRequested += tr => AddSelectedToPlaylist(tr);
+                Playlist.AddAlbumToPlaylistRequested += al => ShowAddAlbumToPlaylistDialog(al);
+                Playlist.AddToPlaylistDialogRequested += () => ShowAddToPlaylistDialog(null);
+            }
+
             if (App.ServiceProvider != null)
             {
                 var resolvedSettings = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider);
@@ -399,14 +422,9 @@ namespace AudioEffector.Presentation.ViewModels
 
             // Load playlists
             // プレイリストの読み込み
-            var loadedPlaylists = _playlistService?.LoadPlaylists() ?? new List<UserPlaylist>();
-            UserPlaylists = new ObservableCollection<UserPlaylist>(loadedPlaylists);
-
-            // Generate thumbnails for loaded playlists
-            // プレイリストのサムネイル生成
-            foreach (var playlist in UserPlaylists)
+            if (Playlist != null && Playlist.Playlists.Count == 0)
             {
-                UpdatePlaylistThumbnails(playlist);
+                Playlist.LoadPlaylists();
             }
 
             _audioService.TrackChanged += OnTrackChanged;
@@ -494,9 +512,6 @@ namespace AudioEffector.Presentation.ViewModels
             ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
 
             // Playlist commands
-            CreatePlaylistCommand = new RelayCommand(CreatePlaylist);
-            AddToPlaylistCommand = new RelayCommand(AddToPlaylist);
-            ShowPlaylistCommand = new RelayCommand(ShowPlaylist);
             ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
 
             SwitchViewCommand = new RelayCommand(param =>
@@ -514,21 +529,12 @@ namespace AudioEffector.Presentation.ViewModels
 
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
             ShowFolderCommand = new RelayCommand(o => ShowFolder());
-            ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
-            ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
-            DeletePlaylistCommand = new RelayCommand(DeletePlaylist);
-            PlayPlaylistCommand = new RelayCommand(PlayPlaylist);
-            ShufflePlayPlaylistCommand = new RelayCommand(ShufflePlayPlaylist);
-            RenamePlaylistCommand = new RelayCommand(RenamePlaylist);
-            RemoveFromPlaylistCommand = new RelayCommand(RemoveFromPlaylist);
 
             ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
-            AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
             PlayAlbumCommand = new RelayCommand(PlayAlbum);
             PlayNextAlbumCommand = new RelayCommand(PlayNextAlbum);
             EnqueueAlbumCommand = new RelayCommand(EnqueueAlbum);
-            ShowAddAlbumToPlaylistDialogCommand = new RelayCommand(ShowAddAlbumToPlaylistDialog);
             DeleteAlbumCommand = new RelayCommand(DeleteAlbum);
 
             IncreaseVolumeCommand = new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
@@ -695,28 +701,12 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// ユーザーが作成したプレイリストのコレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<UserPlaylist> UserPlaylists
-        {
-            get => _userPlaylists;
-            set
-            {
-                _userPlaylists = value;
-                OnPropertyChanged();
-            }
-        }
+        public ObservableCollection<UserPlaylist> UserPlaylists => Playlist?.Playlists ?? _userPlaylists;
 
         /// <summary>
         /// 選択中のプレイリストに含まれる楽曲コレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<Track> PlaylistTracks
-        {
-            get => _playlistTracks;
-            set
-            {
-                _playlistTracks = value;
-                OnPropertyChanged();
-            }
-        }
+        public ObservableCollection<Track> PlaylistTracks => Playlist?.PlaylistTracks ?? _playlistTracks;
 
         /// <summary>
         /// ライブラリビューが表示されているかどうかを示す値を取得または設定します
@@ -749,11 +739,16 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsPlaylistSelectorVisible
         {
-            get => _isPlaylistSelectorVisible;
+            get => Playlist?.IsPlaylistSelectorVisible ?? _isPlaylistSelectorVisible;
             set
             {
+                if (Playlist != null)
+                {
+                    Playlist.IsPlaylistSelectorVisible = value;
+                }
                 _isPlaylistSelectorVisible = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsPlaylistSectionActive));
             }
         }
 
@@ -1058,17 +1053,17 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 新しいプレイリストを作成するコマンドを取得します
         /// </summary>
-        public ICommand CreatePlaylistCommand { get; }
+        public ICommand CreatePlaylistCommand => Playlist?.CreatePlaylistCommand ?? new RelayCommand(CreatePlaylist);
 
         /// <summary>
         /// 楽曲をプレイリストに追加するコマンドを取得します
         /// </summary>
-        public ICommand AddToPlaylistCommand { get; }
+        public ICommand AddToPlaylistCommand => Playlist?.AddToPlaylistCommand ?? new RelayCommand(AddToPlaylist);
 
         /// <summary>
         /// 指定したプレイリストを表示するコマンドを取得します
         /// </summary>
-        public ICommand ShowPlaylistCommand { get; }
+        public ICommand ShowPlaylistCommand => Playlist?.ShowPlaylistCommand ?? new RelayCommand(ShowPlaylist);
 
         /// <summary>
         /// お気に入り楽曲一覧を表示するコマンドを取得します
@@ -1088,37 +1083,37 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// プレイリスト選択画面を表示するコマンドを取得します
         /// </summary>
-        public ICommand ShowPlaylistSelectorCommand { get; }
+        public ICommand ShowPlaylistSelectorCommand => Playlist?.ShowPlaylistSelectorCommand ?? new RelayCommand(o => ShowPlaylistSelector());
 
         /// <summary>
         /// プレイリスト追加ダイアログを表示するコマンドを取得します
         /// </summary>
-        public ICommand ShowAddToPlaylistDialogCommand { get; }
+        public ICommand ShowAddToPlaylistDialogCommand => Playlist?.ShowAddToPlaylistDialogCommand ?? new RelayCommand(ShowAddToPlaylistDialog);
 
         /// <summary>
         /// プレイリストを削除するコマンドを取得します
         /// </summary>
-        public ICommand DeletePlaylistCommand { get; }
+        public ICommand DeletePlaylistCommand => Playlist?.DeletePlaylistCommand ?? new RelayCommand(DeletePlaylist);
 
         /// <summary>
         /// プレイリストを再生するコマンドを取得します
         /// </summary>
-        public ICommand PlayPlaylistCommand { get; }
+        public ICommand PlayPlaylistCommand => Playlist?.PlayPlaylistCommand ?? new RelayCommand(PlayPlaylist);
 
         /// <summary>
         /// プレイリストをシャッフル再生するコマンドを取得します
         /// </summary>
-        public ICommand ShufflePlayPlaylistCommand { get; }
+        public ICommand ShufflePlayPlaylistCommand => Playlist?.ShufflePlayPlaylistCommand ?? new RelayCommand(ShufflePlayPlaylist);
 
         /// <summary>
         /// プレイリスト名を変更するコマンドを取得します
         /// </summary>
-        public ICommand RenamePlaylistCommand { get; }
+        public ICommand RenamePlaylistCommand => Playlist?.RenamePlaylistCommand ?? new RelayCommand(RenamePlaylist);
 
         /// <summary>
         /// プレイリストから楽曲を削除するコマンドを取得します
         /// </summary>
-        public ICommand RemoveFromPlaylistCommand { get; }
+        public ICommand RemoveFromPlaylistCommand => Playlist?.RemoveFromPlaylistCommand ?? new RelayCommand(RemoveFromPlaylist);
 
         /// <summary>
         /// アルバム全体を再生するコマンドを取得します
@@ -1138,7 +1133,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// アルバムをプレイリストに追加するダイアログを表示するコマンドを取得します
         /// </summary>
-        public ICommand ShowAddAlbumToPlaylistDialogCommand { get; }
+        public ICommand ShowAddAlbumToPlaylistDialogCommand => Playlist?.ShowAddAlbumToPlaylistDialogCommand ?? new RelayCommand(ShowAddAlbumToPlaylistDialog);
 
         /// <summary>
         /// アルバムを削除するコマンドを取得します
@@ -1270,7 +1265,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 選択されたトラックをプレイリストに追加するコマンドを取得します
         /// </summary>
-        public ICommand AddSelectedToPlaylistCommand { get; }
+        public ICommand AddSelectedToPlaylistCommand => Playlist?.AddSelectedToPlaylistCommand ?? new RelayCommand(AddSelectedToPlaylist);
 
         /// <summary>
         /// 音量を上げるコマンドを取得します
@@ -2740,7 +2735,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// プレイリストセクションがアクティブかどうかを示す値を取得します
         /// </summary>
-        public bool IsPlaylistSectionActive => IsPlaylistSelectorVisible || (IsPlaylistTracksVisible && !IsFavoritesView);
+        public bool IsPlaylistSectionActive => Playlist?.IsPlaylistSectionActive ?? (IsPlaylistSelectorVisible || (IsPlaylistTracksVisible && !IsFavoritesView));
 
         private bool _isFavoritesView;
 
@@ -2749,9 +2744,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsFavoritesView
         {
-            get => _isFavoritesView;
+            get => Playlist?.IsFavoritesView ?? _isFavoritesView;
             set
             {
+                if (Playlist != null)
+                {
+                    Playlist.IsFavoritesView = value;
+                }
                 if (_isFavoritesView != value)
                 {
                     _isFavoritesView = value;
@@ -2768,9 +2767,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string CurrentPlaylistName
         {
-            get => _currentPlaylistName;
+            get => Playlist?.CurrentPlaylistName ?? _currentPlaylistName;
             set
             {
+                if (Playlist != null)
+                {
+                    Playlist.CurrentPlaylistName = value;
+                }
                 if (_currentPlaylistName != value)
                 {
                     _currentPlaylistName = value;
@@ -3225,36 +3228,7 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void UpdatePlaylistThumbnails(UserPlaylist playlist)
         {
-            if (playlist == null) return;
-
-            var distinctAlbumPaths = new List<string>();
-            var processedAlbums = new HashSet<string>();
-
-            // Only take up to 4 distinct albums
-            foreach (var path in playlist.TrackPaths)
-            {
-                if (distinctAlbumPaths.Count >= 4) break;
-
-                try
-                {
-                    var directory = System.IO.Path.GetDirectoryName(path);
-                    if (!string.IsNullOrEmpty(directory) && !processedAlbums.Contains(directory))
-                    {
-                        processedAlbums.Add(directory);
-                        distinctAlbumPaths.Add(path);
-                    }
-                }
-                catch { }
-            }
-
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
-            {
-                playlist.ThumbnailTrackPaths.Clear();
-                foreach (var p in distinctAlbumPaths)
-                {
-                    playlist.ThumbnailTrackPaths.Add(p);
-                }
-            });
+            Playlist?.UpdatePlaylistThumbnails(playlist);
         }
 
         private void ShowDeviceManager()
