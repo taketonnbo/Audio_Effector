@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -18,7 +18,7 @@ public class SettingsViewModel : ViewModelBase
 
     public ObservableCollection<string> Categories { get; }
 
-    private string _selectedCategory;
+    private string _selectedCategory = string.Empty;
     public string SelectedCategory
     {
         get => _selectedCategory;

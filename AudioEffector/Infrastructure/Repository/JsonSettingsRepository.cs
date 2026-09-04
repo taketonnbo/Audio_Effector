@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -11,12 +11,14 @@ namespace AudioEffector.Infrastructure.Repository;
 /// <summary>
 /// アプリケーション設定キーと値をローカルJSONファイルおよびメモリディクショナリで管理するリポジトリ具象クラス
 /// </summary>
-public class JsonSettingsRepository : ISettingsRepository
+public class JsonSettingsRepository : ISettingsRepository, IDisposable
 {
+    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly string _filePath;
     private readonly Dictionary<string, string> _settings = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private bool _isLoaded;
+    private bool _disposed;
 
     /// <summary>
     /// 指定されたJSONファイルパスでJsonSettingsRepositoryを初期化します
@@ -76,7 +78,7 @@ public class JsonSettingsRepository : ISettingsRepository
             Directory.CreateDirectory(dir);
         }
 
-        string json = JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true });
+        string json = JsonSerializer.Serialize(_settings, _jsonOptions);
 
         string tempPath = $"{_filePath}.tmp";
         await File.WriteAllTextAsync(tempPath, json, cancellationToken);
@@ -179,6 +181,31 @@ public class JsonSettingsRepository : ISettingsRepository
         finally
         {
             _semaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// リソースを解放します
+    /// </summary>
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// アンマネージドリソースおよびマネージドリソースを解放します
+    /// </summary>
+    /// <param name="disposing">マネージドリソースを破棄するかどうか</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                _semaphore.Dispose();
+            }
+            _disposed = true;
         }
     }
 }

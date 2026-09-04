@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -17,7 +17,9 @@ namespace AudioEffector.Infrastructure.Audio;
 /// </summary>
 public class AudioService : IAudioService
 {
-    private IWavePlayer? _outputDevice;
+    private readonly object _lock = new();
+
+    private WaveOutEvent? _outputDevice;
     private AudioFileReader? _audioFile;
     private EqualizerDsp? _equalizer;
     private List<Track> _playlist = new();
@@ -33,7 +35,6 @@ public class AudioService : IAudioService
     private VolumeSampleProvider? _masterVolumeProvider;
 
     private bool _stopRequested;
-    private readonly object _lock = new();
 
     /// <summary>
     /// トラックが変更された際に発生するイベント

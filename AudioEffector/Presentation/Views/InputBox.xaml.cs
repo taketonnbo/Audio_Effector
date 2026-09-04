@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
 
@@ -9,7 +9,7 @@ namespace AudioEffector.Presentation.Views
     /// </summary>
     public partial class InputBox : Window, INotifyPropertyChanged
     {
-        private string _inputText;
+        private string _inputText = string.Empty;
 
         /// <summary>
         /// 入力されたテキスト。
@@ -30,9 +30,9 @@ namespace AudioEffector.Presentation.Views
         /// <summary>
         /// ダイアログに表示するメッセージ。
         /// </summary>
-        public string Message { get; set; }
+        public string Message { get; set; } = string.Empty;
 
-        public event PropertyChangedEventHandler PropertyChanged;
+        public event PropertyChangedEventHandler? PropertyChanged;
 
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {

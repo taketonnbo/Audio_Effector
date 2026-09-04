@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -14,12 +14,14 @@ namespace AudioEffector.Infrastructure.Repository;
 /// <summary>
 /// 楽曲情報をローカルJSONファイルおよびメモリキャッシュで管理するリポジトリ具象クラス
 /// </summary>
-public class JsonTrackRepository : ITrackRepository
+public class JsonTrackRepository : ITrackRepository, IDisposable
 {
+    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly string _filePath;
     private readonly Dictionary<TrackId, Track> _tracks = new();
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private bool _isLoaded;
+    private bool _disposed;
 
     /// <summary>
     /// 指定されたJSONファイルパスでJsonTrackRepositoryを初期化します
@@ -81,7 +83,7 @@ public class JsonTrackRepository : ITrackRepository
         }
 
         var dtos = _tracks.Values.Select(TrackDto.FromEntity).ToList();
-        string json = JsonSerializer.Serialize(dtos, new JsonSerializerOptions { WriteIndented = true });
+        string json = JsonSerializer.Serialize(dtos, _jsonOptions);
 
         // 一時ファイル書き込みによるファイル破損防止
         string tempPath = $"{_filePath}.tmp";
@@ -247,6 +249,31 @@ public class JsonTrackRepository : ITrackRepository
         finally
         {
             _semaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// リソースを解放します
+    /// </summary>
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// アンマネージドリソースおよびマネージドリソースを解放します
+    /// </summary>
+    /// <param name="disposing">マネージドリソースを破棄するかどうか</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                _semaphore.Dispose();
+            }
+            _disposed = true;
         }
     }
 

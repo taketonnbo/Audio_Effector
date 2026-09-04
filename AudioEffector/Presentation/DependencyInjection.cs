@@ -1,4 +1,4 @@
-﻿using AudioEffector.Presentation.ViewModels;
+using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,8 +12,8 @@ public static class DependencyInjection
     /// <summary>
     /// プレゼンテーション層の各ViewModelおよびViewをDIコンテナに登録します
     /// </summary>
-    /// <param name="services">サービスコレクション</param>
-    /// <returns>サービスコレクション</returns>
+    /// <param name="services">登録対象のサービスコレクション</param>
+    /// <returns>サービス登録後のサービスコレクション</returns>
     public static IServiceCollection AddPresentationServices(this IServiceCollection services)
     {
         // 状態保持および画面間共有のため各ViewModelはSingleton登録

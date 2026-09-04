@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -100,12 +100,13 @@ public class DeviceManagerViewModel : ViewModelBase
         try
         {
             var files = Directory.GetFiles(path);
-            var audioFiles = files.Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
+            var audioFiles = files.Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLower(System.Globalization.CultureInfo.InvariantCulture))).ToList();
 
-            if (audioFiles.Any())
+            if (audioFiles.Count > 0)
             {
-                string albumName = Path.GetFileName(path);
-                string artistName = Path.GetFileName(Path.GetDirectoryName(path));
+                string albumName = Path.GetFileName(path) ?? "Unknown Album";
+                string? dirName = Path.GetDirectoryName(path);
+                string artistName = (!string.IsNullOrEmpty(dirName) ? Path.GetFileName(dirName) : null) ?? "Unknown Artist";
 
                 var existingAlbum = loadedAlbums.FirstOrDefault(a => string.Equals(a.Title, albumName, StringComparison.OrdinalIgnoreCase));
                 if (existingAlbum != null)
@@ -145,7 +146,7 @@ public class DeviceManagerViewModel : ViewModelBase
             foreach (var dir in dirs)
             {
                 string name = Path.GetFileName(dir);
-                if (name.StartsWith(".") || name == "System Volume Information" || name == "$RECYCLE.BIN") continue;
+                if (name.StartsWith('.') || name == "System Volume Information" || name == "$RECYCLE.BIN") continue;
                 ScanFileSystemDirectory(dir, loadedAlbums);
             }
         }
@@ -154,15 +155,22 @@ public class DeviceManagerViewModel : ViewModelBase
 
     private void ScanMtpDirectory(string path, List<DeviceAlbum> loadedAlbums)
     {
+        var mtp = _currentDevice?.MtpDevice;
+        if (mtp == null)
+        {
+            return;
+        }
+
         try
         {
-            var files = _currentDevice.MtpDevice.GetFiles(path);
-            var audioFiles = files.Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLower())).ToList();
+            var files = mtp.GetFiles(path);
+            var audioFiles = files.Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLower(System.Globalization.CultureInfo.InvariantCulture))).ToList();
 
-            if (audioFiles.Any())
+            if (audioFiles.Count > 0)
             {
-                string albumName = Path.GetFileName(path);
-                string artistName = Path.GetFileName(GetParentDirectory(path));
+                string albumName = Path.GetFileName(path) ?? "Unknown Album";
+                string parentDir = GetParentDirectory(path);
+                string artistName = (!string.IsNullOrEmpty(parentDir) ? Path.GetFileName(parentDir) : null) ?? "Unknown Artist";
 
                 var existingAlbum = loadedAlbums.FirstOrDefault(a => string.Equals(a.Title, albumName, StringComparison.OrdinalIgnoreCase));
                 if (existingAlbum != null)
@@ -182,7 +190,7 @@ public class DeviceManagerViewModel : ViewModelBase
                     var deviceAlbum = new DeviceAlbum
                     {
                         Artist = artistName,
-                        Title = albumName ?? "Unknown Album",
+                        Title = albumName,
                         Path = path
                     };
                     foreach (var file in audioFiles)
@@ -198,11 +206,11 @@ public class DeviceManagerViewModel : ViewModelBase
 
         try
         {
-            var dirs = _currentDevice.MtpDevice.GetDirectories(path);
+            var dirs = mtp.GetDirectories(path);
             foreach (var dir in dirs)
             {
                 string name = Path.GetFileName(dir);
-                if (name.StartsWith(".") || name == "Android" || name == "LOST.DIR" || name == "System Volume Information" || name == "Alarms" || name == "Notifications" || name == "Ringtones" || name == "Podcasts") continue;
+                if (name.StartsWith('.') || name == "Android" || name == "LOST.DIR" || name == "System Volume Information" || name == "Alarms" || name == "Notifications" || name == "Ringtones" || name == "Podcasts") continue;
                 ScanMtpDirectory(dir, loadedAlbums);
             }
         }
@@ -244,9 +252,8 @@ public class DeviceManagerViewModel : ViewModelBase
                     // Remove from UI
                     foreach (var album in DeviceAlbums)
                     {
-                        if (album.Tracks.Contains(track))
+                        if (album.Tracks.Remove(track))
                         {
-                            album.Tracks.Remove(track);
                             if (album.Tracks.Count == 0)
                             {
                                 await ExecuteDeleteAlbum(album, skipConfirm: true);
@@ -310,7 +317,7 @@ public class DeviceManagerViewModel : ViewModelBase
                                 {
                                     var remainingItems = _currentDevice.MtpDevice.GetDirectories(pArtistPath);
                                     var remainingFiles = _currentDevice.MtpDevice.GetFiles(pArtistPath);
-                                    if (!remainingItems.Any() && !remainingFiles.Any())
+                                    if (remainingItems.Length == 0 && remainingFiles.Length == 0)
                                     {
                                         _currentDevice.MtpDevice.DeleteDirectory(pArtistPath, true);
                                     }

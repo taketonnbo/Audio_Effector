@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Reflection;
 using System.Threading.Tasks;
 using NLog;
@@ -63,8 +63,12 @@ public class LoggingProxy<T> : DispatchProxy
     /// <returns>プロキシインスタンス</returns>
     public static T Create(T target)
     {
-        object proxy = Create<T, LoggingProxy<T>>();
-        ((LoggingProxy<T>)proxy)._target = target;
-        return (T)proxy;
+        object? proxy = Create<T, LoggingProxy<T>>();
+        if (proxy is LoggingProxy<T> loggingProxy)
+        {
+            loggingProxy._target = target;
+        }
+
+        return (T)proxy!;
     }
 }

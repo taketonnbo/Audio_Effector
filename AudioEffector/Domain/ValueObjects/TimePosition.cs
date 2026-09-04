@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace AudioEffector.Domain.ValueObjects;
 
@@ -73,8 +73,8 @@ public readonly record struct TimePosition : IEquatable<TimePosition>
     private static string FormatTimeSpan(TimeSpan timeSpan)
     {
         return timeSpan.TotalHours >= 1
-            ? timeSpan.ToString(@"h\:mm\:ss")
-            : timeSpan.ToString(@"mm\:ss");
+            ? timeSpan.ToString(@"h\:mm\:ss", System.Globalization.CultureInfo.InvariantCulture)
+            : timeSpan.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>

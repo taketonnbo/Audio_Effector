@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Media.Imaging;
@@ -136,8 +136,8 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// 再生時間のフォーマット文字列（例: 03:45 または 1:23:45）
     /// </summary>
     public string DurationString => Duration.TotalHours >= 1
-        ? Duration.ToString(@"h\:mm\:ss")
-        : Duration.ToString(@"mm\:ss");
+        ? Duration.ToString(@"h\:mm\:ss", System.Globalization.CultureInfo.InvariantCulture)
+        : Duration.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>
     /// お気に入りに登録されているかどうか
@@ -364,7 +364,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     // Async Album Art Loading
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, BitmapImage> _artCache
         = new System.Collections.Concurrent.ConcurrentDictionary<string, BitmapImage>();
-    private bool _isArtLoaded = false;
+    private bool _isArtLoaded;
     private BitmapImage? _albumArt;
 
     /// <summary>

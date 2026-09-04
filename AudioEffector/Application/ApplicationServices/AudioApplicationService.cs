@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,9 +20,9 @@ public class AudioApplicationService
     private readonly ITrackRepository _trackRepository;
     private readonly IEventBus _eventBus;
     private readonly object _lock = new();
+    private readonly List<Track> _playbackQueue = new();
 
     private IPlaybackOrderStrategy _playbackOrderStrategy;
-    private readonly List<Track> _playbackQueue = new();
     private int _currentIndex = -1;
     private Track? _currentTrack;
     private Volume _currentVolume = Volume.FromFloat(0.5f);

@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls.Primitives;
 using AudioEffector.Application.ApplicationServices;
@@ -13,6 +13,8 @@ namespace AudioEffector.Presentation.Views
     /// </summary>
     public partial class MainWindow : Window
     {
+        private readonly ISettingsService _settingsService;
+
         public MainWindow() : this(App.ServiceProvider?.GetService<MainViewModel>() ?? new MainViewModel())
         {
         }
@@ -21,15 +23,19 @@ namespace AudioEffector.Presentation.Views
         {
             InitializeComponent();
             DataContext = viewModel;
+
+            _settingsService = (App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider)
+                : null)
+                ?? viewModel.SettingsService
+                ?? SettingsApplicationService.Default;
+
             this.Loaded += MainWindow_Loaded;
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            var settingsService = App.ServiceProvider != null
-                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider) ?? new SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository())
-                : new SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository());
-            var appSettings = settingsService.LoadSettings();
+            var appSettings = _settingsService.LoadSettings();
             if (appSettings.StartMinimized)
             {
                 this.WindowState = WindowState.Minimized;
@@ -37,7 +43,7 @@ namespace AudioEffector.Presentation.Views
 
             if (this.DataContext is MainViewModel vm)
             {
-                vm.SettingsUpdated += () => UpdateShortcuts(settingsService.LoadSettings());
+                vm.SettingsUpdated += () => UpdateShortcuts(_settingsService.LoadSettings());
             }
             UpdateShortcuts(appSettings);
         }

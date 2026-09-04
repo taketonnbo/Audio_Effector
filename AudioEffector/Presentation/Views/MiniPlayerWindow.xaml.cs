@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Windows;
 using System.Windows.Input;
 using AudioEffector.Application.ApplicationServices;
@@ -11,10 +11,19 @@ namespace AudioEffector.Presentation.Views
         private readonly ISettingsService _settingsService;
         private MiniPlayerTopmostBehavior _currentBehavior;
 
-        public MiniPlayerWindow()
+        public MiniPlayerWindow() : this(null)
+        {
+        }
+
+        public MiniPlayerWindow(ISettingsService? settingsService)
         {
             InitializeComponent();
-            _settingsService = new SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository());
+            _settingsService = settingsService
+                ?? (App.ServiceProvider != null
+                    ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider)
+                    : null)
+                ?? SettingsApplicationService.Default;
+
             this.Loaded += MiniPlayerWindow_Loaded;
             this.Deactivated += MiniPlayerWindow_Deactivated;
         }
@@ -60,7 +69,7 @@ namespace AudioEffector.Presentation.Views
             }
         }
 
-        private void MiniPlayerWindow_Deactivated(object sender, EventArgs e)
+        private void MiniPlayerWindow_Deactivated(object? sender, EventArgs e)
         {
             if (_currentBehavior == MiniPlayerTopmostBehavior.OnDisplayOnly)
             {
@@ -68,7 +77,7 @@ namespace AudioEffector.Presentation.Views
             }
         }
 
-        private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void Window_MouseLeftButtonDown(object? sender, MouseButtonEventArgs e)
         {
             if (e.ButtonState == MouseButtonState.Pressed)
             {
@@ -81,7 +90,7 @@ namespace AudioEffector.Presentation.Views
             this.Close();
         }
 
-        protected override void OnClosed(System.EventArgs e)
+        protected override void OnClosed(EventArgs e)
         {
             // Save window position
             var settings = _settingsService.LoadSettings();
@@ -90,6 +99,7 @@ namespace AudioEffector.Presentation.Views
             _settingsService.SaveSettings(settings);
 
             base.OnClosed(e);
+
             var mainWindow = System.Windows.Application.Current.MainWindow;
             if (mainWindow != null && mainWindow.Visibility != Visibility.Visible)
             {

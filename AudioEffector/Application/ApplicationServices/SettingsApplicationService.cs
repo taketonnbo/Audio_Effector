@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -12,10 +12,28 @@ namespace AudioEffector.Application.ApplicationServices;
 /// <summary>
 /// アプリケーション設定（テーマ、ウィンドウ状態、各種オプション）の読み込み・保存を統括するアプリケーションサービス
 /// </summary>
-public class SettingsApplicationService : ISettingsService
+public class SettingsApplicationService : ISettingsService, IDisposable
 {
+    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
+
+    /// <summary>
+    /// デフォルトインスタンス。フォールバック用。
+    /// </summary>
+    public static SettingsApplicationService Default { get; } = new();
+
     private readonly ISettingsRepository _settingsRepository;
     private readonly string _settingsFilePath;
+    private readonly bool _ownsRepository;
+    private bool _disposed;
+
+    /// <summary>
+    /// デフォルトのJsonSettingsRepositoryを使用してSettingsApplicationServiceを初期化します
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership of repository is transferred and managed via IDisposable")]
+    public SettingsApplicationService() : this(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository())
+    {
+        _ownsRepository = true;
+    }
 
     /// <summary>
     /// SettingsApplicationServiceを初期化します
@@ -64,10 +82,7 @@ public class SettingsApplicationService : ISettingsService
     {
         try
         {
-            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            var json = JsonSerializer.Serialize(settings, _jsonOptions);
             File.WriteAllText(_settingsFilePath, json);
         }
         catch
@@ -79,7 +94,8 @@ public class SettingsApplicationService : ISettingsService
     /// <summary>
     /// アプリケーション設定全体を非同期で読み込みます
     /// </summary>
-    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>読み込んだ設定情報を含むタスク</returns>
     public async Task<AppSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
     {
         if (!File.Exists(_settingsFilePath))
@@ -99,15 +115,14 @@ public class SettingsApplicationService : ISettingsService
     /// <summary>
     /// アプリケーション設定全体を非同期で保存します
     /// </summary>
-    /// <returns><placeholder>A <see cref="Task"/> representing the asynchronous operation.</placeholder></returns>
+    /// <param name="settings">保存する設定</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>保存処理を表す非同期タスク</returns>
     public async Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
     {
         try
         {
-            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            var json = JsonSerializer.Serialize(settings, _jsonOptions);
             await File.WriteAllTextAsync(_settingsFilePath, json, cancellationToken);
         }
         catch
@@ -176,5 +191,30 @@ public class SettingsApplicationService : ISettingsService
     public async Task<IReadOnlyDictionary<string, string>> GetAllSettingsAsync(CancellationToken cancellationToken = default)
     {
         return await _settingsRepository.GetAllAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// リソースを解放します
+    /// </summary>
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// アンマネージドリソースおよびマネージドリソースを解放します
+    /// </summary>
+    /// <param name="disposing">マネージドリソースを破棄するかどうか</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing && _ownsRepository)
+            {
+                (_settingsRepository as IDisposable)?.Dispose();
+            }
+            _disposed = true;
+        }
     }
 }

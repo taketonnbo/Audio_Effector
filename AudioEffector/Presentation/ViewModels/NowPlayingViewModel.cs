@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.Common;
@@ -99,6 +99,20 @@ public class NowPlayingViewModel : ViewModelBase, IHandle<TrackChangedEvent>
     public async Task HandleAsync(TrackChangedEvent domainEvent, CancellationToken cancellationToken = default)
     {
         var track = domainEvent.Track;
+        if (track == null)
+        {
+            System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+            {
+                CurrentTrack = null;
+                Title = string.Empty;
+                Artist = string.Empty;
+                Album = string.Empty;
+                QualityInfo = string.Empty;
+                AlbumArtBytes = null;
+            });
+            return;
+        }
+
         byte[]? artBytes = await _albumArtLoader.GetAlbumArtBytesAsync(track.FilePath, cancellationToken);
 
         System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>

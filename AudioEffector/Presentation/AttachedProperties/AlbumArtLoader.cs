@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -172,9 +172,8 @@ public static class AlbumArtLoader
 
     private static void UpdateLru(string key)
     {
-        if (LruList.Contains(key))
+        if (LruList.Remove(key))
         {
-            LruList.Remove(key);
             LruList.AddFirst(key);
         }
     }
