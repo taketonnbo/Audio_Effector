@@ -442,7 +442,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:FolderView />
+                                            <views:FolderView DataContext="{Binding Folder}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>

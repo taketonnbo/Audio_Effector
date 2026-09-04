@@ -77,6 +77,11 @@ namespace AudioEffector.Presentation.ViewModels
         public Presentation.ViewModels.NowPlayingViewModel? NowPlaying { get; }
 
         /// <summary>
+        /// フォルダーブラウズ専用ViewModel
+        /// </summary>
+        public FolderViewModel Folder { get; }
+
+        /// <summary>
         /// コードビハインドからAudioServiceへアクセスするためのプロパティ
         /// </summary>
         public IAudioService AudioService => _audioService; // Public accessor for code-behind
@@ -443,7 +448,7 @@ namespace AudioEffector.Presentation.ViewModels
                 SelectedPreset = Presets.FirstOrDefault();
             }
 
-            OpenFolderCommand = new RelayCommand(OpenFolder);
+            Folder = new FolderViewModel(_settingsService, path => LoadLibrary(path));
             TogglePlayPauseCommand = new RelayCommand(o => _audioService.TogglePlayPause());
             StopCommand = new RelayCommand(o => _audioService.Stop(false));
             NextCommand = new RelayCommand(o => _audioService.Next());
@@ -1075,11 +1080,6 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         // コマンド定義
-
-        /// <summary>
-        /// 音楽フォルダーを開くコマンドを取得します
-        /// </summary>
-        public ICommand OpenFolderCommand { get; }
 
         private bool _isDeviceConnected;
 
@@ -2499,23 +2499,7 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
-        /// <summary>
-        /// フォルダー選択ダイアログを開き、新しいライブラリパスを設定します。
-        /// </summary>
-        private void OpenFolder(object? obj)
-        {
-            var dialog = new OpenFolderDialog();
-            if (dialog.ShowDialog() == true)
-            {
-                string selectedPath = dialog.FolderName;
 
-                var settings = _settingsService.LoadSettings();
-                settings.LastLibraryPath = selectedPath;
-                _settingsService.SaveSettings(settings);
-
-                LoadLibrary(selectedPath);
-            }
-        }
 
         /// <summary>
         /// 指定されたイコライザープリセットを適用します。
