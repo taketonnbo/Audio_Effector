@@ -16,7 +16,7 @@
                          HorizontalAlignment="Stretch" Margin="10,0,10,10" Background="{DynamicResource ControlBackgroundBrush}" Height="30"/>
                  <ListBox Grid.Row="1" ItemsSource="{Binding UserPlaylists}" Background="Transparent" BorderThickness="0" Margin="10,0"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                          Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                          Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
                      <ListBox.ContextMenu>
                          <ContextMenu>
                              <MenuItem Header="新規プレイリスト作成" Command="{Binding PlacementTarget.Tag.CreatePlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
@@ -43,8 +43,8 @@
                      </ListBox.ItemContainerStyle>
                      <ListBox.ItemTemplate>
                          <DataTemplate>
-                             <Button Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
-                                     Command="{Binding DataContext.ShowPlaylistCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                             <Button Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                     Command="{Binding DataContext.ShowPlaylistCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                      CommandParameter="{Binding}"
                                      Width="160" Height="200" Background="{DynamicResource ControlBackgroundBrush}" BorderThickness="0" Margin="0">
                                  <Button.ContextMenu>
@@ -97,7 +97,7 @@
                                                      
                                                      <!-- Delete Button (-) -->
                                                      <Button Grid.Column="1" Content="-" 
-                                                             Command="{Binding DataContext.DeletePlaylistCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                             Command="{Binding DataContext.DeletePlaylistCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                              CommandParameter="{Binding}"
                                                              Width="20" Height="20" Background="Transparent" Foreground="#FF4040" 
                                                              FontSize="18" FontWeight="Bold" Margin="5,0,0,0" BorderThickness="0" Padding="0"/>

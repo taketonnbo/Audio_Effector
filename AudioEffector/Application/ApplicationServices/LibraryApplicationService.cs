@@ -159,6 +159,24 @@ public class LibraryApplicationService
     }
 
     /// <summary>
+    /// ファイルパスからトラックを取得します。未登録の場合はファイルのメタデータを読み込みます。
+    /// </summary>
+    /// <param name="filePath">対象オーディオファイルのパス</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>取得したトラック。ファイルを解決できない場合はnull</returns>
+    public async Task<Track?> GetTrackByPathAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return null;
+        }
+
+        var audioPath = AudioPath.Create(filePath);
+        var track = await _trackRepository.GetByPathAsync(audioPath, cancellationToken);
+        return track ?? await _metadataExtractor.ExtractMetadataAsync(audioPath, cancellationToken);
+    }
+
+    /// <summary>
     /// ライブラリ内のすべてのトラックからアルバムを集約して取得します
     /// </summary>
     /// <param name="cancellationToken">キャンセレーショントークン</param>

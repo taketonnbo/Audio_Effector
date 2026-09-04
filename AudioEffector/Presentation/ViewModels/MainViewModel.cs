@@ -34,7 +34,6 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly IAudioService _audioService;
         private readonly AudioService? _fallbackAudioService;
         private readonly LibraryApplicationService? _libraryService;
-        private readonly PlaylistApplicationService? _playlistService;
         private readonly ISettingsService _settingsService;
         private readonly SettingsApplicationService? _fallbackSettings;
         private bool _disposed;
@@ -106,8 +105,6 @@ namespace AudioEffector.Presentation.ViewModels
         private bool _isGridView = true;
         private string _selectedSortOption = "Artist";
         private List<string> _favoritePaths;
-        private ObservableCollection<UserPlaylist> _userPlaylists = new ObservableCollection<UserPlaylist>();
-        private ObservableCollection<Track> _playlistTracks = new ObservableCollection<Track>();
         private ViewType _currentViewType = ViewType.Albums;
 
         /// <summary>
@@ -128,6 +125,7 @@ namespace AudioEffector.Presentation.ViewModels
                     OnPropertyChanged(nameof(IsPlaylistTracksVisible));
                     OnPropertyChanged(nameof(IsPlaylistSectionActive));
                     OnPropertyChanged(nameof(IsDeviceSyncVisible));
+                    OnPropertyChanged(nameof(IsFavoritesView));
 
                     if (_currentViewType == ViewType.DeviceSync)
                     {
@@ -191,25 +189,7 @@ namespace AudioEffector.Presentation.ViewModels
 
         private bool _isLibraryVisible = true;
         private bool _isFolderViewVisible;
-        private bool _isPlaylistSelectorVisible;
         private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
-        private UserPlaylist? _currentViewingPlaylist;
-
-        /// <summary>
-        /// 現在表示中のプレイリスト。
-        /// </summary>
-        public UserPlaylist? CurrentViewingPlaylist
-        {
-            get => _currentViewingPlaylist;
-            set
-            {
-                if (_currentViewingPlaylist != value)
-                {
-                    _currentViewingPlaylist = value;
-                    OnPropertyChanged();
-                }
-            }
-        }
 
         private string _playbackListName = "No Album Selected";
 
@@ -288,21 +268,6 @@ namespace AudioEffector.Presentation.ViewModels
         private BitmapImage? _favoritesImage;
         private BitmapImage? _defaultNowPlayingImage;
 
-        private ImageSource? _playlistBackgroundImage;
-
-        /// <summary>
-        /// プレイリストビューの背景画像。
-        /// </summary>
-        public ImageSource? PlaylistBackgroundImage
-        {
-            get => _playlistBackgroundImage;
-            set
-            {
-                _playlistBackgroundImage = value;
-                OnPropertyChanged();
-            }
-        }
-
         private ImageSource? _spectrumBackgroundImage;
 
         /// <summary>
@@ -354,7 +319,32 @@ namespace AudioEffector.Presentation.ViewModels
                 _audioService = LoggingProxy<IAudioService>.Create(_fallbackAudioService);
             }
             _libraryService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<LibraryApplicationService>(App.ServiceProvider) : null;
-            _playlistService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<PlaylistApplicationService>(App.ServiceProvider) : null;
+            if (Playlist != null)
+            {
+                Playlist.ViewRequested += viewType =>
+                {
+                    CurrentViewType = viewType;
+                    if (viewType == ViewType.PlaylistTracks)
+                    {
+                        Playlist.SetBackgroundImage(NowPlayingImage ?? _defaultNowPlayingImage);
+                    }
+                };
+                Playlist.PlaybackRequested += (tracks, name, subtitle) =>
+                {
+                    PlayQueue = new ObservableCollection<Track>(tracks);
+                    PlaybackListName = name;
+                    PlaybackListSubtitle = subtitle;
+                    PlaybackListTracks = new ObservableCollection<Track>(tracks);
+                };
+                Playlist.FavoriteRemovalRequested += track =>
+                {
+                    if (track.IsFavorite)
+                    {
+                        ToggleFavorite(track);
+                    }
+                };
+                Playlist.LoadPlaylists();
+            }
             if (App.ServiceProvider != null)
             {
                 var resolvedSettings = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider);
@@ -377,18 +367,6 @@ namespace AudioEffector.Presentation.ViewModels
 
             var appSettings = _settingsService.LoadSettings();
             _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
-
-            // Load playlists
-            // プレイリストの読み込み
-            var loadedPlaylists = _playlistService?.LoadPlaylists() ?? new List<UserPlaylist>();
-            UserPlaylists = new ObservableCollection<UserPlaylist>(loadedPlaylists);
-
-            // Generate thumbnails for loaded playlists
-            // プレイリストのサムネイル生成
-            foreach (var playlist in UserPlaylists)
-            {
-                UpdatePlaylistThumbnails(playlist);
-            }
 
             _audioService.TrackChanged += OnTrackChanged;
             _audioService.PlaybackStateChanged += OnPlaybackStateChanged;
@@ -423,13 +401,13 @@ namespace AudioEffector.Presentation.ViewModels
 
                     // Check if playing from playlist/favorites view
                     // プレイリストまたはお気に入りビューからの再生かどうかを確認
-                    if (IsPlaylistTracksVisible && PlaylistTracks.Any() && PlaylistTracks.Contains(t))
+                    if (IsPlaylistTracksVisible && Playlist is { PlaylistTracks.Count: > 0 } playlistViewModel && playlistViewModel.PlaylistTracks.Contains(t))
                     {
-                        PlayQueue = new ObservableCollection<Track>(PlaylistTracks);
+                        PlayQueue = new ObservableCollection<Track>(playlistViewModel.PlaylistTracks);
                         _audioService.SetPlaylist(PlayQueue.ToList());
-                        PlaybackListName = CurrentPlaylistName;
-                        PlaybackListSubtitle = IsFavoritesView ? "Selected You" : "Playlist"; // Phase 8: Selected You
-                        PlaybackListTracks = new ObservableCollection<Track>(PlaylistTracks);
+                        PlaybackListName = playlistViewModel.CurrentPlaylistName;
+                        PlaybackListSubtitle = playlistViewModel.IsFavoritesView ? "Selected You" : "Playlist";
+                        PlaybackListTracks = new ObservableCollection<Track>(playlistViewModel.PlaylistTracks);
                     }
                     else
                     {
@@ -471,10 +449,6 @@ namespace AudioEffector.Presentation.ViewModels
             ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
             ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
 
-            // Playlist commands
-            CreatePlaylistCommand = new RelayCommand(CreatePlaylist);
-            AddToPlaylistCommand = new RelayCommand(AddToPlaylist);
-            ShowPlaylistCommand = new RelayCommand(ShowPlaylist);
             ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
 
             SwitchViewCommand = new RelayCommand(param =>
@@ -492,21 +466,11 @@ namespace AudioEffector.Presentation.ViewModels
 
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
             ShowFolderCommand = new RelayCommand(o => ShowFolder());
-            ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
-            ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
-            DeletePlaylistCommand = new RelayCommand(DeletePlaylist);
-            PlayPlaylistCommand = new RelayCommand(PlayPlaylist);
-            ShufflePlayPlaylistCommand = new RelayCommand(ShufflePlayPlaylist);
-            RenamePlaylistCommand = new RelayCommand(RenamePlaylist);
-            RemoveFromPlaylistCommand = new RelayCommand(RemoveFromPlaylist);
-
             ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
             ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
-            AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
             PlayAlbumCommand = new RelayCommand(PlayAlbum);
             PlayNextAlbumCommand = new RelayCommand(PlayNextAlbum);
             EnqueueAlbumCommand = new RelayCommand(EnqueueAlbum);
-            ShowAddAlbumToPlaylistDialogCommand = new RelayCommand(ShowAddAlbumToPlaylistDialog);
             DeleteAlbumCommand = new RelayCommand(DeleteAlbum);
 
             IncreaseVolumeCommand = new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
@@ -658,32 +622,6 @@ namespace AudioEffector.Presentation.ViewModels
         public ObservableCollection<Album> Albums { get; set; } = new ObservableCollection<Album>();
 
         /// <summary>
-        /// ユーザーが作成したプレイリストのコレクションを取得または設定します
-        /// </summary>
-        public ObservableCollection<UserPlaylist> UserPlaylists
-        {
-            get => _userPlaylists;
-            set
-            {
-                _userPlaylists = value;
-                OnPropertyChanged();
-            }
-        }
-
-        /// <summary>
-        /// 選択中のプレイリストに含まれる楽曲コレクションを取得または設定します
-        /// </summary>
-        public ObservableCollection<Track> PlaylistTracks
-        {
-            get => _playlistTracks;
-            set
-            {
-                _playlistTracks = value;
-                OnPropertyChanged();
-            }
-        }
-
-        /// <summary>
         /// ライブラリビューが表示されているかどうかを示す値を取得または設定します
         /// </summary>
         public bool IsLibraryVisible
@@ -710,17 +648,9 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         /// <summary>
-        /// プレイリスト選択画面が表示されているかどうかを示す値を取得または設定します
+        /// プレイリスト選択画面が表示されているかどうかを示す値を取得します
         /// </summary>
-        public bool IsPlaylistSelectorVisible
-        {
-            get => _isPlaylistSelectorVisible;
-            set
-            {
-                _isPlaylistSelectorVisible = value;
-                OnPropertyChanged();
-            }
-        }
+        public bool IsPlaylistSelectorVisible => CurrentViewType == ViewType.Playlists;
 
         /// <summary>
         /// プレイリスト楽曲一覧が表示されているかどうかを示す値を取得します
@@ -975,21 +905,6 @@ namespace AudioEffector.Presentation.ViewModels
         public ICommand ToggleViewCommand { get; }
 
         /// <summary>
-        /// 新しいプレイリストを作成するコマンドを取得します
-        /// </summary>
-        public ICommand CreatePlaylistCommand { get; }
-
-        /// <summary>
-        /// 楽曲をプレイリストに追加するコマンドを取得します
-        /// </summary>
-        public ICommand AddToPlaylistCommand { get; }
-
-        /// <summary>
-        /// 指定したプレイリストを表示するコマンドを取得します
-        /// </summary>
-        public ICommand ShowPlaylistCommand { get; }
-
-        /// <summary>
         /// お気に入り楽曲一覧を表示するコマンドを取得します
         /// </summary>
         public ICommand ShowFavoritesCommand { get; }
@@ -1005,41 +920,6 @@ namespace AudioEffector.Presentation.ViewModels
         public ICommand ShowFolderCommand { get; }
 
         /// <summary>
-        /// プレイリスト選択画面を表示するコマンドを取得します
-        /// </summary>
-        public ICommand ShowPlaylistSelectorCommand { get; }
-
-        /// <summary>
-        /// プレイリスト追加ダイアログを表示するコマンドを取得します
-        /// </summary>
-        public ICommand ShowAddToPlaylistDialogCommand { get; }
-
-        /// <summary>
-        /// プレイリストを削除するコマンドを取得します
-        /// </summary>
-        public ICommand DeletePlaylistCommand { get; }
-
-        /// <summary>
-        /// プレイリストを再生するコマンドを取得します
-        /// </summary>
-        public ICommand PlayPlaylistCommand { get; }
-
-        /// <summary>
-        /// プレイリストをシャッフル再生するコマンドを取得します
-        /// </summary>
-        public ICommand ShufflePlayPlaylistCommand { get; }
-
-        /// <summary>
-        /// プレイリスト名を変更するコマンドを取得します
-        /// </summary>
-        public ICommand RenamePlaylistCommand { get; }
-
-        /// <summary>
-        /// プレイリストから楽曲を削除するコマンドを取得します
-        /// </summary>
-        public ICommand RemoveFromPlaylistCommand { get; }
-
-        /// <summary>
         /// アルバム全体を再生するコマンドを取得します
         /// </summary>
         public ICommand PlayAlbumCommand { get; }
@@ -1053,11 +933,6 @@ namespace AudioEffector.Presentation.ViewModels
         /// アルバムをキューの末尾に追加するコマンドを取得します
         /// </summary>
         public ICommand EnqueueAlbumCommand { get; }
-
-        /// <summary>
-        /// アルバムをプレイリストに追加するダイアログを表示するコマンドを取得します
-        /// </summary>
-        public ICommand ShowAddAlbumToPlaylistDialogCommand { get; }
 
         /// <summary>
         /// アルバムを削除するコマンドを取得します
@@ -1165,11 +1040,6 @@ namespace AudioEffector.Presentation.ViewModels
         /// リピート再生の有効/無効を切り替えるコマンドを取得します
         /// </summary>
         public ICommand ToggleRepeatCommand { get; }
-
-        /// <summary>
-        /// 選択されたトラックをプレイリストに追加するコマンドを取得します
-        /// </summary>
-        public ICommand AddSelectedToPlaylistCommand { get; }
 
         /// <summary>
         /// 音量を上げるコマンドを取得します
@@ -1600,7 +1470,7 @@ namespace AudioEffector.Presentation.ViewModels
             // If viewing Favorites, FORCE Background to Galaxy.
             if (IsFavoritesView && _favoritesImage != null)
             {
-                PlaylistBackgroundImage = _favoritesImage;
+                Playlist?.SetFavoritesBackgroundImage(_favoritesImage);
             }
             // If viewing anything else (Playlist), use Track Art (NowPlayingImage).
             // But NowPlayingImage is not yet updated here (async).
@@ -1638,7 +1508,7 @@ namespace AudioEffector.Presentation.ViewModels
                                     // Phase 9: Update PlaylistBackgroundImage if NOT favorites view
                                     if (!IsFavoritesView)
                                     {
-                                        PlaylistBackgroundImage = image;
+                                        Playlist?.SetBackgroundImage(image);
                                     }
 
                                     // Create Grayscale version for Spectrum Background Overlay
@@ -1974,7 +1844,7 @@ namespace AudioEffector.Presentation.ViewModels
                         // Immediate update if viewing favorites
                         if (IsFavoritesView)
                         {
-                            PlaylistTracks.Add(targetTrack);
+                            Playlist?.AddFavoriteTrack(targetTrack);
                         }
                     }
                 }
@@ -1984,11 +1854,7 @@ namespace AudioEffector.Presentation.ViewModels
                     // Immediate update if viewing favorites
                     if (IsFavoritesView)
                     {
-                        var trackToRemove = PlaylistTracks.FirstOrDefault(t => t.FilePath == targetTrack.FilePath);
-                        if (trackToRemove != null)
-                        {
-                            PlaylistTracks.Remove(trackToRemove);
-                        }
+                        Playlist?.RemoveDisplayedTrack(targetTrack);
                     }
                 }
                 _libraryService?.SaveFavorites(_favoritePaths);
@@ -2086,7 +1952,7 @@ namespace AudioEffector.Presentation.ViewModels
                     }
 
                     // Remove from Playlists and views
-                    PlaylistTracks.Remove(track);
+                    Playlist?.RemoveDisplayedTrack(track);
                     PlaybackListTracks.Remove(track);
                 }
             }
@@ -2123,219 +1989,6 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         /// <summary>
-        /// トラックをプレイリストに追加するためのダイアログを表示します。
-        /// </summary>
-        private void ShowAddToPlaylistDialog(object? parameter)
-        {
-            if (parameter is Track track)
-            {
-                ShowPlaylistSelectionDialog(selectedPlaylist =>
-                {
-                    if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
-                    {
-                        selectedPlaylist.TrackPaths.Add(track.FilePath);
-                        UpdatePlaylistThumbnails(selectedPlaylist);
-                        _playlistService?.SavePlaylists(UserPlaylists.ToList());
-
-                        // Immediate update if viewing this playlist
-                        if (CurrentPlaylistName == selectedPlaylist.Name && IsPlaylistTracksVisible)
-                        {
-                            PlaylistTracks.Add(track);
-                        }
-
-                        MessageBox.Show($"Added '{track.Title}' to '{selectedPlaylist.Name}'", "Track Added");
-                    }
-                    else
-                    {
-                        MessageBox.Show($"'{track.Title}' is already in '{selectedPlaylist.Name}'", "Already Added");
-                    }
-                });
-            }
-        }
-
-        /// <summary>
-        /// 選択されている複数のトラックを、選択したプレイリストに追加します。
-        /// </summary>
-        private void AddSelectedToPlaylist(object? parameter)
-        {
-            var selectedTracks = new List<Track>();
-
-            // Collect from Album tracks
-            if (Albums != null)
-            {
-                foreach (var album in Albums)
-                {
-                    if (album.Tracks != null)
-                    {
-                        foreach (var track in album.Tracks)
-                        {
-                            if (track.IsSelected) selectedTracks.Add(track);
-                        }
-                    }
-                }
-            }
-
-            // Collect from Playlist tracks
-            if (PlaylistTracks != null)
-            {
-                foreach (var track in PlaylistTracks)
-                {
-                    if (track.IsSelected) selectedTracks.Add(track);
-                }
-            }
-
-            // Also include the parameter if it's a track and not already selected
-            if (parameter is Track paramTrack && !selectedTracks.Contains(paramTrack))
-            {
-                selectedTracks.Add(paramTrack);
-            }
-
-            if (selectedTracks.Count == 0)
-            {
-                MessageBox.Show("No tracks selected.", "Add to Playlist");
-                return;
-            }
-
-            ShowPlaylistSelectionDialog(selectedPlaylist =>
-            {
-                int addedCount = 0;
-                foreach (var track in selectedTracks)
-                {
-                    if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
-                    {
-                        selectedPlaylist.TrackPaths.Add(track.FilePath);
-
-                        // Immediate update if viewing this playlist
-                        if (CurrentPlaylistName == selectedPlaylist.Name && IsPlaylistTracksVisible)
-                        {
-                            PlaylistTracks?.Add(track);
-                        }
-
-                        addedCount++;
-                    }
-                }
-
-                if (addedCount > 0)
-                {
-                    UpdatePlaylistThumbnails(selectedPlaylist);
-                    _playlistService?.SavePlaylists(UserPlaylists.ToList());
-                    MessageBox.Show($"Added {addedCount} tracks to '{selectedPlaylist.Name}'", "Tracks Added");
-
-                    // Clear selection
-                    foreach (var track in selectedTracks)
-                    {
-                        track.IsSelected = false;
-                    }
-                }
-                else
-                {
-                    MessageBox.Show("All selected tracks are already in the playlist.", "No Tracks Added");
-                }
-            });
-        }
-
-        private void ShowPlaylistSelectionDialog(Action<UserPlaylist> onPlaylistSelected)
-        {
-            var dialog = new Window
-            {
-                Title = "Add to Playlist",
-                Width = 300,
-                Height = 500,
-                WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush(Color.FromRgb(20, 20, 20))
-            };
-            dialog.MouseLeftButtonDown += (s, e) => dialog.DragMove();
-
-            var stackPanel = new StackPanel { Margin = new Thickness(20) };
-
-            var title = new TextBlock
-            {
-                Text = "Select Playlist",
-                Foreground = Brushes.White,
-                FontSize = 18,
-                Margin = new Thickness(0, 0, 0, 15),
-                HorizontalAlignment = HorizontalAlignment.Center
-            };
-            stackPanel.Children.Add(title);
-
-            var newPlaylistButton = new Button
-            {
-                Content = "+ NEW PLAYLIST",
-                Width = 150,
-                Height = 30,
-                Background = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
-                Foreground = Brushes.White,
-                Margin = new Thickness(0, 0, 0, 10),
-                BorderThickness = new Thickness(0),
-                HorizontalAlignment = HorizontalAlignment.Center
-            };
-            newPlaylistButton.Click += (s, e) =>
-            {
-                int previousCount = UserPlaylists.Count;
-                CreatePlaylist(null);
-                if (UserPlaylists.Count > previousCount)
-                {
-                    onPlaylistSelected(UserPlaylists.Last());
-                    dialog.Close();
-                }
-            };
-            stackPanel.Children.Add(newPlaylistButton);
-
-            var listBox = new ListBox
-            {
-                ItemsSource = UserPlaylists,
-                DisplayMemberPath = "Name",
-                Height = 250,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(1),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(60, 60, 60)),
-                Foreground = Brushes.White,
-                Margin = new Thickness(0, 0, 0, 20)
-            };
-            stackPanel.Children.Add(listBox);
-
-            var buttonsPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-
-            var addButton = new Button
-            {
-                Content = "ADD",
-                Width = 80,
-                Height = 30,
-                Background = new SolidColorBrush(Color.FromRgb(0, 255, 255)),
-                Foreground = Brushes.Black,
-                Margin = new Thickness(0, 0, 10, 0),
-                BorderThickness = new Thickness(0)
-            };
-            addButton.Click += (s, e) =>
-            {
-                if (listBox.SelectedItem is UserPlaylist selectedPlaylist)
-                {
-                    onPlaylistSelected(selectedPlaylist);
-                    dialog.Close();
-                }
-            };
-            buttonsPanel.Children.Add(addButton);
-
-            var cancelButton = new Button
-            {
-                Content = "CANCEL",
-                Width = 80,
-                Height = 30,
-                Background = Brushes.Transparent,
-                Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
-                BorderThickness = new Thickness(1)
-            };
-            cancelButton.Click += (s, e) => dialog.Close();
-            buttonsPanel.Children.Add(cancelButton);
-
-            stackPanel.Children.Add(buttonsPanel);
-            dialog.Content = stackPanel;
-            dialog.ShowDialog();
-        }
-
-        /// <summary>
         /// リソースのクリーンアップを行います
         /// </summary>
         public void Cleanup()
@@ -2344,181 +1997,35 @@ namespace AudioEffector.Presentation.ViewModels
             _audioService.Dispose();
         }
 
-        // Playlist management methods
-        private void CreatePlaylist(object? obj)
-        {
-            var dialog = new Views.InputBox("New Playlist", "Enter playlist name:");
-            if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.InputText))
-            {
-                var newPlaylist = new UserPlaylist { Name = dialog.InputText };
-                UserPlaylists.Add(newPlaylist);
-                _playlistService?.SavePlaylists(UserPlaylists.ToList());
-            }
-        }
-
-        private void AddToPlaylist(object? obj)
-        {
-            if (obj is UserPlaylist playlist && CurrentTrack != null)
-            {
-                if (!playlist.TrackPaths.Contains(CurrentTrack.FilePath))
-                {
-                    playlist.TrackPaths.Add(CurrentTrack.FilePath);
-                    _playlistService?.SavePlaylists(UserPlaylists.ToList());
-
-                    // Immediate update if viewing this playlist
-                    if (CurrentPlaylistName == playlist.Name && IsPlaylistTracksVisible)
-                    {
-                        PlaylistTracks.Add(CurrentTrack);
-                    }
-
-                    MessageBox.Show($"Added '{CurrentTrack.Title}' to '{playlist.Name}'", "Track Added");
-                }
-            }
-        }
-
-
-
-
         /// <summary>
         /// プレイリストセクションがアクティブかどうかを示す値を取得します
         /// </summary>
-        public bool IsPlaylistSectionActive => IsPlaylistSelectorVisible || (IsPlaylistTracksVisible && !IsFavoritesView);
-
-        private bool _isFavoritesView;
+        public bool IsPlaylistSectionActive => CurrentViewType is ViewType.Playlists or ViewType.PlaylistTracks;
 
         /// <summary>
-        /// 現在お気に入り画面を表示しているかどうかを示す値を取得または設定します
+        /// 現在お気に入り画面を表示しているかどうかを示す値を取得します
         /// </summary>
-        public bool IsFavoritesView
-        {
-            get => _isFavoritesView;
-            set
-            {
-                if (_isFavoritesView != value)
-                {
-                    _isFavoritesView = value;
-                    OnPropertyChanged();
-                    OnPropertyChanged(nameof(IsPlaylistSectionActive));
-                }
-            }
-        }
-
-        private string _currentPlaylistName = string.Empty;
-
-        /// <summary>
-        /// 現在選択・表示されているプレイリスト名を取得または設定します
-        /// </summary>
-        public string CurrentPlaylistName
-        {
-            get => _currentPlaylistName;
-            set
-            {
-                if (_currentPlaylistName != value)
-                {
-                    _currentPlaylistName = value;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        private void ShowPlaylist(object? obj)
-        {
-            if (obj is UserPlaylist playlist)
-            {
-                System.Diagnostics.Debug.WriteLine($"ShowPlaylist: {playlist.Name}, Tracks: {playlist.TrackPaths.Count}");
-
-                CurrentViewType = ViewType.PlaylistTracks;
-
-
-
-
-                IsFavoritesView = false;
-                CurrentPlaylistName = playlist.Name;
-                CurrentPlaylistName = playlist.Name;
-                CurrentViewingPlaylist = playlist; // Update Public Property
-
-                // Phase 9: When opening playlist, background should default to Now Playing (or default)
-                PlaylistBackgroundImage = NowPlayingImage ?? _defaultNowPlayingImage;
-
-                PlaylistTracks.Clear();
-                foreach (var path in playlist.TrackPaths)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Loading track: {path}");
-                    var track = LoadTrack(path);
-                    if (track != null)
-                    {
-                        PlaylistTracks.Add(track);
-                        System.Diagnostics.Debug.WriteLine($"Added track: {track.Title}");
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Failed to load track: {path}");
-                    }
-                }
-                System.Diagnostics.Debug.WriteLine($"Total tracks loaded: {PlaylistTracks.Count}");
-                OnPropertyChanged(nameof(IsPlaylistSectionActive));
-            }
-        }
+        public bool IsFavoritesView => CurrentViewType == ViewType.Favorites;
 
         private void ShowFavorites()
         {
-
-
-
-
-            IsFavoritesView = true;
             CurrentViewType = ViewType.Favorites;
-            CurrentPlaylistName = "Favorites";
-            CurrentPlaylistName = "Favorites";
-            CurrentViewingPlaylist = null; // Important: Favorites has no UserPlaylist object
-
-            // Phase 9: When opening favorites, background is Galaxy
-            if (_favoritesImage != null)
-                PlaylistBackgroundImage = _favoritesImage;
-
-            PlaylistTracks.Clear();
-            foreach (var path in _favoritePaths)
-            {
-                var track = LoadTrack(path);
-                if (track != null)
-                    PlaylistTracks.Add(track);
-            }
-            OnPropertyChanged(nameof(IsPlaylistSectionActive));
+            var favoriteTracks = _favoritePaths
+                .Select(LoadTrack)
+                .Where(track => track != null)
+                .Cast<Track>()
+                .ToList();
+            Playlist?.ShowFavorites(favoriteTracks, _favoritesImage);
         }
 
         private void ShowLibrary()
         {
             CurrentViewType = ViewType.Albums;
-
-
-
-
-            CurrentViewingPlaylist = null;
-            IsFavoritesView = false;
-            OnPropertyChanged(nameof(IsPlaylistSectionActive));
         }
 
         private void ShowFolder()
         {
             CurrentViewType = ViewType.Folders;
-
-
-
-
-            CurrentViewingPlaylist = null;
-            IsFavoritesView = false;
-            OnPropertyChanged(nameof(IsPlaylistSectionActive));
-        }
-
-        private void ShowPlaylistSelector()
-        {
-            CurrentViewType = ViewType.Playlists;
-
-
-
-
-            IsFavoritesView = false;
-            OnPropertyChanged(nameof(IsPlaylistSectionActive));
         }
 
         /// <summary>
@@ -2586,139 +2093,6 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         /// <summary>
-        /// プレイリストを再生キューにセットして再生を開始します。
-        /// </summary>
-        private void PlayPlaylist(object? parameter)
-        {
-            if (parameter is UserPlaylist playlist && playlist.TrackPaths != null && playlist.TrackPaths.Count > 0)
-            {
-                var tracks = new List<Track>();
-                foreach (var path in playlist.TrackPaths)
-                {
-                    var track = LoadTrack(path);
-                    if (track != null)
-                    {
-                        tracks.Add(track);
-                    }
-                }
-
-                if (tracks.Count > 0)
-                {
-                    PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track>(tracks);
-                    _audioService.SetPlaylist(PlayQueue.ToList());
-                    PlaybackListName = playlist.Name;
-                    PlaybackListSubtitle = "Playlist";
-                    PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(tracks);
-                    _audioService.PlayTrack(tracks.First());
-                }
-            }
-        }
-
-        /// <summary>
-        /// プレイリストをシャッフルして再生キューにセットし、再生を開始します。
-        /// </summary>
-        private void ShufflePlayPlaylist(object? parameter)
-        {
-            if (parameter is UserPlaylist playlist && playlist.TrackPaths != null && playlist.TrackPaths.Count > 0)
-            {
-                var tracks = new List<Track>();
-                foreach (var path in playlist.TrackPaths)
-                {
-                    var track = LoadTrack(path);
-                    if (track != null)
-                    {
-                        tracks.Add(track);
-                    }
-                }
-
-                if (tracks.Count > 0)
-                {
-                    var shuffled = tracks.OrderBy(x => Guid.NewGuid()).ToList();
-                    PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track>(shuffled);
-                    _audioService.SetPlaylist(PlayQueue.ToList());
-                    PlaybackListName = playlist.Name;
-                    PlaybackListSubtitle = "Playlist (Shuffled)";
-                    PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(shuffled);
-                    _audioService.PlayTrack(shuffled.First());
-                }
-            }
-        }
-
-        /// <summary>
-        /// プレイリストの名前を変更します。
-        /// </summary>
-        private void RenamePlaylist(object? parameter)
-        {
-            if (parameter is UserPlaylist playlist)
-            {
-                var inputBox = new Views.InputBox("新しい名前を入力してください:", playlist.Name);
-                if (inputBox.ShowDialog() == true && !string.IsNullOrWhiteSpace(inputBox.InputText))
-                {
-                    playlist.Name = inputBox.InputText.Trim();
-                    _playlistService?.SavePlaylists(UserPlaylists.ToList());
-                    OnPropertyChanged(nameof(UserPlaylists));
-                }
-            }
-        }
-
-        /// <summary>
-        /// プレイリストを削除します。
-        /// </summary>
-        private void DeletePlaylist(object? parameter)
-        {
-            if (parameter is UserPlaylist playlist)
-            {
-                if (MessageBox.Show($"Are you sure you want to delete playlist '{playlist.Name}'?", "Delete Playlist", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-                {
-                    UserPlaylists.Remove(playlist);
-                    _playlistService?.SavePlaylists(UserPlaylists.ToList());
-                }
-            }
-        }
-
-        /// <summary>
-        /// プレイリストからトラックを削除します。
-        /// </summary>
-        private void RemoveFromPlaylist(object? parameter)
-        {
-            if (parameter is Track track)
-            {
-                // Special handling for Favorites View
-                if (IsFavoritesView)
-                {
-                    // ToggleFavorite handles removal from _favoritePaths and _playlistTracks
-                    ToggleFavorite(null); // Wait, ToggleFavorite assumes CurrentTrack. We need to handle the *passed* track.
-                                          // Refactoring logic to allow passing track to ToggleFavorite would be ideal, but for now let's reproduce logic safely.
-
-                    if (track.IsFavorite)
-                    {
-                        track.IsFavorite = false;
-                        _favoritePaths.Remove(track.FilePath);
-
-                        // Immediate update
-                        PlaylistTracks.Remove(track);
-
-                        _libraryService?.SaveFavorites(_favoritePaths);
-                    }
-                    return;
-                }
-
-                // Normal Playlist Logic
-                if (CurrentViewingPlaylist != null)
-                {
-                    if (MessageBox.Show($"Remove '{track.Title}' from playlist?", "Remove Song", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-                    {
-                        PlaylistTracks.Remove(track);
-                        CurrentViewingPlaylist.TrackPaths = PlaylistTracks.Select(t => t.FilePath).ToList();
-                        UpdatePlaylistThumbnails(CurrentViewingPlaylist);
-
-                        _playlistService?.SavePlaylists(UserPlaylists.ToList());
-                    }
-                }
-            }
-        }
-
-        /// <summary>
         /// 指定されたアルバム全体を再生キューに設定し、再生を開始します。
         /// </summary>
         private void PlayAlbum(object? parameter)
@@ -2771,30 +2145,6 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
-        private void ShowAddAlbumToPlaylistDialog(object? parameter)
-        {
-            if (parameter is Album album && album.Tracks.Count > 0)
-            {
-                ShowPlaylistSelectionDialog(selectedPlaylist =>
-                {
-                    bool added = false;
-                    foreach (var track in album.Tracks)
-                    {
-                        if (!selectedPlaylist.TrackPaths.Contains(track.FilePath))
-                        {
-                            selectedPlaylist.TrackPaths.Add(track.FilePath);
-                            added = true;
-                        }
-                    }
-                    if (added)
-                    {
-                        UpdatePlaylistThumbnails(selectedPlaylist);
-                        _playlistService?.SavePlaylists(UserPlaylists.ToList());
-                    }
-                });
-            }
-        }
-
         private void DeleteAlbum(object? parameter)
         {
             if (parameter is Album album)
@@ -2808,7 +2158,7 @@ namespace AudioEffector.Presentation.ViewModels
 
                     foreach (var track in tracksToRemove)
                     {
-                        PlaylistTracks.Remove(track);
+                        Playlist?.RemoveDisplayedTrack(track);
                         PlaybackListTracks.Remove(track);
 
                         if (_favoritePaths.Contains(track.FilePath))
@@ -2821,42 +2171,6 @@ namespace AudioEffector.Presentation.ViewModels
                 }
             }
         }
-
-        private void UpdatePlaylistThumbnails(UserPlaylist playlist)
-        {
-            if (playlist == null) return;
-
-            var distinctAlbumPaths = new List<string>();
-            var processedAlbums = new HashSet<string>();
-
-            // Only take up to 4 distinct albums
-            foreach (var path in playlist.TrackPaths)
-            {
-                if (distinctAlbumPaths.Count >= 4) break;
-
-                try
-                {
-                    var directory = System.IO.Path.GetDirectoryName(path);
-                    if (!string.IsNullOrEmpty(directory) && !processedAlbums.Contains(directory))
-                    {
-                        processedAlbums.Add(directory);
-                        distinctAlbumPaths.Add(path);
-                    }
-                }
-                catch { }
-            }
-
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
-            {
-                playlist.ThumbnailTrackPaths.Clear();
-                foreach (var p in distinctAlbumPaths)
-                {
-                    playlist.ThumbnailTrackPaths.Add(p);
-                }
-            });
-        }
-
-
 
         private void ShowSettings()
         {
