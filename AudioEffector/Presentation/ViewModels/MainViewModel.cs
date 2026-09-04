@@ -1,4 +1,4 @@
-﻿using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Presentation.Views;
@@ -2705,12 +2705,28 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        private PlayQueueDialog? _playQueueDialog;
+
         private void ShowQueueDialog()
         {
-            var dialog = new PlayQueueDialog();
-            dialog.Owner = App.Current.MainWindow;
-            dialog.DataContext = this;
-            dialog.Show();
+            if (_playQueueDialog == null || !_playQueueDialog.IsLoaded)
+            {
+                _playQueueDialog = new PlayQueueDialog
+                {
+                    Owner = App.Current.MainWindow,
+                    DataContext = this
+                };
+                _playQueueDialog.Closed += (s, e) => _playQueueDialog = null;
+                _playQueueDialog.Show();
+            }
+            else
+            {
+                if (_playQueueDialog.WindowState == WindowState.Minimized)
+                {
+                    _playQueueDialog.WindowState = WindowState.Normal;
+                }
+                _playQueueDialog.Activate();
+            }
         }
 
         private void OpenFileLocation(object? obj)
@@ -3830,6 +3846,7 @@ namespace AudioEffector.Presentation.ViewModels
                 if (disposing)
                 {
                     _timer?.Stop();
+                    _playQueueDialog?.Close();
                     _fallbackAudioService?.Dispose();
                     _fallbackSettings?.Dispose();
                     (_audioService as IDisposable)?.Dispose();
