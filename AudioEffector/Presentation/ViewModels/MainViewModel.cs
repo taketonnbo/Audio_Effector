@@ -370,6 +370,7 @@ namespace AudioEffector.Presentation.ViewModels
             }
             _equalizerApplicationService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<EqualizerApplicationService>(App.ServiceProvider) : null;
             Equalizer ??= new Presentation.ViewModels.EqualizerViewModel(_equalizerApplicationService);
+            DeviceSync ??= new Presentation.ViewModels.DeviceSyncViewModel();
             _libraryService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<LibraryApplicationService>(App.ServiceProvider) : null;
             _playlistService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<PlaylistApplicationService>(App.ServiceProvider) : null;
             if (App.ServiceProvider != null)
@@ -536,12 +537,7 @@ namespace AudioEffector.Presentation.ViewModels
 
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => CurrentViewType = ViewType.DeviceSync);
-
-            RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
             TransferSelectedCommand = new RelayCommand(o => TransferSelected());
-            NavigateDirectoryCommand = new RelayCommand(o => NavigateDirectory(o as DirectoryItem));
-            NavigateUpCommand = new RelayCommand(o => NavigateUp());
-            RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
             ShowDeviceManagerCommand = new RelayCommand(o => ShowDeviceManager());
             ShowSettingsCommand = new RelayCommand(o => ShowSettings());
             ToggleRightPanelCommand = new RelayCommand(o => IsRightPanelOpen = !IsRightPanelOpen);
@@ -607,102 +603,29 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
-        // ...
-
-
-        /// <summary>
-        /// デバイスの種類（ファイルシステム または MTP）
-        /// </summary>
-        public enum DeviceType
-        {
-            /// <summary>
-            /// USBマスストレージなどのファイルシステムデバイス
-            /// </summary>
-            FileSystem,
-
-            /// <summary>
-            /// ポータブルデバイスなどのMTPデバイス
-            /// </summary>
-            MTP
-        }
-
-        /// <summary>
-        /// 接続されたデバイスを表すViewModel
-        /// </summary>
-        public class DeviceViewModel
-        {
-            /// <summary>
-            /// デバイス名を取得または設定します
-            /// </summary>
-            public string Name { get; set; } = string.Empty;
-
-            /// <summary>
-            /// デバイス種別を取得または設定します
-            /// </summary>
-            public DeviceType Type { get; set; }
-
-            /// <summary>
-            /// ファイルシステムデバイスの場合のドライブ情報を取得または設定します
-            /// </summary>
-            public DriveInfo? Drive { get; set; }
-
-            /// <summary>
-            /// MTPデバイスの場合のデバイスインスタンスを取得または設定します
-            /// </summary>
-            public MediaDevice? MtpDevice { get; set; }
-
-            /// <summary>
-            /// デバイスのルートパスを取得または設定します
-            /// </summary>
-            public string RootPath { get; set; } = string.Empty; // For MTP, this might be device ID or root
-        }
-
         /// <summary>
         /// 接続されている外部デバイス一覧を取得または設定します
         /// </summary>
-        public ObservableCollection<DeviceViewModel> RemovableDrives { get; set; } = new ObservableCollection<DeviceViewModel>();
+        public ObservableCollection<DeviceViewModel> RemovableDrives => DeviceSync?.RemovableDrives ?? [];
 
         private DeviceViewModel? _selectedDevice;
 
         /// <summary>
         /// 現在選択されている同期対象デバイス。
-        /// 変更時にデバイスへの接続や初期ディレクトリ読み込みを行います。
         /// </summary>
         public DeviceViewModel? SelectedDevice
         {
-            get => _selectedDevice;
+            get => DeviceSync?.SelectedDevice ?? _selectedDevice;
             set
             {
+                if (DeviceSync != null)
+                {
+                    DeviceSync.SelectedDevice = value;
+                }
                 if (_selectedDevice != value)
                 {
-                    // Disconnect previous MTP device if applicable
-                    if (_selectedDevice?.Type == DeviceType.MTP && _selectedDevice.MtpDevice != null && _selectedDevice.MtpDevice.IsConnected)
-                    {
-                        try { _selectedDevice.MtpDevice.Disconnect(); } catch { }
-                    }
-
                     _selectedDevice = value;
                     OnPropertyChanged();
-
-                    if (_selectedDevice != null)
-                    {
-                        if (_selectedDevice.Type == DeviceType.MTP && _selectedDevice.MtpDevice != null)
-                        {
-                            try
-                            {
-                                _selectedDevice.MtpDevice.Connect();
-                                LoadDeviceDirectories(@"\"); // Root for MTP
-                            }
-                            catch (Exception ex)
-                            {
-                                MessageBox.Show($"Failed to connect to device: {ex.Message}");
-                            }
-                        }
-                        else if (_selectedDevice.Type == DeviceType.FileSystem && _selectedDevice.Drive != null)
-                        {
-                            LoadDeviceDirectories(_selectedDevice.Drive.RootDirectory.FullName);
-                        }
-                    }
                 }
             }
         }
@@ -1272,17 +1195,17 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 接続中の外部ドライブ一覧を再検出するコマンドを取得します
         /// </summary>
-        public ICommand RefreshDrivesCommand { get; }
+        public ICommand RefreshDrivesCommand => DeviceSync?.RefreshDrivesCommand ?? new RelayCommand(_ => { });
 
         /// <summary>
         /// デバイス内の指定ディレクトリへ移動するコマンドを取得します
         /// </summary>
-        public ICommand NavigateDirectoryCommand { get; }
+        public ICommand NavigateDirectoryCommand => DeviceSync?.NavigateDirectoryCommand ?? new RelayCommand(_ => { });
 
         /// <summary>
         /// デバイス内の親ディレクトリへ移動するコマンドを取得します
         /// </summary>
-        public ICommand NavigateUpCommand { get; }
+        public ICommand NavigateUpCommand => DeviceSync?.NavigateUpCommand ?? new RelayCommand(_ => { });
 
         private bool _isAscending = true;
 
@@ -1419,7 +1342,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// デバイス内のディレクトリアイテム一覧を取得または設定します
         /// </summary>
-        public ObservableCollection<DirectoryItem> DeviceDirectories { get; set; } = new ObservableCollection<DirectoryItem>();
+        public ObservableCollection<DirectoryItem> DeviceDirectories => DeviceSync?.DeviceDirectories ?? [];
 
         private GridLength _leftColumnWidth = new GridLength(300);
         /// <summary>
@@ -1441,7 +1364,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// ディレクトリ一覧を再読み込みするコマンドを取得します
         /// </summary>
-        public ICommand RefreshDirectoryCommand { get; }
+        public ICommand RefreshDirectoryCommand => DeviceSync?.RefreshDirectoryCommand ?? new RelayCommand(_ => { });
 
         /// <summary>
         /// 外部デバイス管理ダイアログを表示するコマンドを取得します
@@ -1454,14 +1377,19 @@ namespace AudioEffector.Presentation.ViewModels
         public ICommand ShowSettingsCommand { get; }
 
         private string _currentDevicePath = string.Empty;
+
         /// <summary>
         /// 現在デバイス上で表示しているパス
         /// </summary>
         public string CurrentDevicePath
         {
-            get => _currentDevicePath;
+            get => DeviceSync?.CurrentDevicePath ?? _currentDevicePath;
             set
             {
+                if (DeviceSync != null)
+                {
+                    DeviceSync.CurrentDevicePath = value;
+                }
                 _currentDevicePath = value;
                 OnPropertyChanged();
             }
@@ -1474,9 +1402,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public DirectoryItem? SelectedDeviceDirectory
         {
-            get => _selectedDeviceDirectory;
+            get => DeviceSync?.SelectedDeviceDirectory ?? _selectedDeviceDirectory;
             set
             {
+                if (DeviceSync != null)
+                {
+                    DeviceSync.SelectedDeviceDirectory = value;
+                }
                 _selectedDeviceDirectory = value;
                 OnPropertyChanged();
             }
@@ -1487,46 +1419,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         private void RefreshDrives()
         {
-            if (IsTransferring) return; // 転送中の切断を防止
-
-            RemovableDrives.Clear();
-
-            // Add File System Drives
-            // ファイルシステムドライブの追加
-            var drives = DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Removable).ToList();
-            foreach (var drive in drives)
-            {
-                RemovableDrives.Add(new DeviceViewModel
-                {
-                    Name = $"{drive.VolumeLabel} ({drive.Name})",
-                    Type = DeviceType.FileSystem,
-                    Drive = drive,
-                    RootPath = drive.RootDirectory.FullName
-                });
-            }
-
-            // Add MTP Devices
-            // MTPデバイスの追加
-            try
-            {
-                var devices = MediaDevice.GetDevices();
-                foreach (var device in devices)
-                {
-                    RemovableDrives.Add(new DeviceViewModel
-                    {
-                        Name = device.FriendlyName,
-                        Type = DeviceType.MTP,
-                        MtpDevice = device,
-                        RootPath = @"\" // MTP root
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error listing MTP devices: {ex.Message}");
-            }
-
-            SelectedDevice = RemovableDrives.FirstOrDefault();
+            DeviceSync?.RefreshDrives();
         }
 
         /// <summary>
@@ -1535,81 +1428,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <param name="path">ロード対象のディレクトリパス。</param>
         private void LoadDeviceDirectories(string path)
         {
-            try
-            {
-                DeviceDirectories.Clear();
-                CurrentDevicePath = path;
-
-                if (SelectedDevice == null) return;
-
-                if (SelectedDevice.Type == DeviceType.FileSystem)
-                {
-                    if (Directory.Exists(path))
-                    {
-                        // Add Directories
-                        // ディレクトリの追加
-                        var dirs = Directory.GetDirectories(path);
-                        foreach (var dir in dirs)
-                        {
-                            DeviceDirectories.Add(new DirectoryItem
-                            {
-                                Name = Path.GetFileName(dir),
-                                FullPath = dir,
-                                IsFolder = true
-                            });
-                        }
-
-                        // Add Files
-                        // ファイルの追加
-                        var files = Directory.GetFiles(path);
-                        foreach (var file in files)
-                        {
-                            DeviceDirectories.Add(new DirectoryItem
-                            {
-                                Name = Path.GetFileName(file),
-                                FullPath = file,
-                                IsFolder = false
-                            });
-                        }
-                    }
-                }
-                else if (SelectedDevice.Type == DeviceType.MTP && SelectedDevice.MtpDevice != null)
-                {
-                    if (SelectedDevice.MtpDevice.IsConnected)
-                    {
-                        // Add Directories
-                        var dirs = SelectedDevice.MtpDevice.GetDirectories(path);
-                        foreach (var dir in dirs)
-                        {
-                            DeviceDirectories.Add(new DirectoryItem
-                            {
-                                Name = Path.GetFileName(dir),
-                                FullPath = dir,
-                                IsFolder = true
-                            });
-                        }
-
-                        // Add Files
-                        // ファイルの追加
-                        var files = SelectedDevice.MtpDevice.GetFiles(path);
-                        foreach (var file in files)
-                        {
-                            DeviceDirectories.Add(new DirectoryItem
-                            {
-                                Name = Path.GetFileName(file),
-                                FullPath = file,
-                                IsFolder = false
-                            });
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error loading directories: {ex.Message}");
-                MessageBox.Show($"Error loading directory: {ex.Message}");
-            }
-
+            DeviceSync?.LoadDeviceDirectories(path);
             CheckDeviceAlbums();
         }
 
@@ -1673,37 +1492,14 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void NavigateDirectory(DirectoryItem? dir)
         {
-            if (dir == null || !dir.IsFolder) return;
-            LoadDeviceDirectories(dir.FullPath);
+            DeviceSync?.NavigateDirectory(dir);
+            CheckDeviceAlbums();
         }
 
         private void NavigateUp()
         {
-            try
-            {
-                if (string.IsNullOrEmpty(CurrentDevicePath) || SelectedDevice == null) return;
-
-                if (SelectedDevice.Type == DeviceType.FileSystem)
-                {
-                    var parent = Directory.GetParent(CurrentDevicePath);
-                    if (parent != null)
-                    {
-                        LoadDeviceDirectories(parent.FullName);
-                    }
-                }
-                else if (SelectedDevice.Type == DeviceType.MTP)
-                {
-                    if (CurrentDevicePath == @"\" || CurrentDevicePath == "/") return;
-
-                    var parentPath = Path.GetDirectoryName(CurrentDevicePath);
-                    if (string.IsNullOrEmpty(parentPath)) parentPath = @"\";
-                    LoadDeviceDirectories(parentPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error navigating up: {ex.Message}");
-            }
+            DeviceSync?.NavigateUp();
+            CheckDeviceAlbums();
         }
 
         private string SanitizeFileName(string name)
