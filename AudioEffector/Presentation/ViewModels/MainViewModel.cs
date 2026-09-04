@@ -239,9 +239,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string PlaybackListName
         {
-            get => _playbackListName;
+            get => PlayerControl?.PlaybackListName ?? _playbackListName;
             set
             {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.PlaybackListName = value;
+                }
                 _playbackListName = value;
                 OnPropertyChanged();
             }
@@ -254,9 +258,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string PlaybackListSubtitle
         {
-            get => _playbackListSubtitle;
+            get => PlayerControl?.PlaybackListSubtitle ?? _playbackListSubtitle;
             set
             {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.PlaybackListSubtitle = value;
+                }
                 _playbackListSubtitle = value;
                 OnPropertyChanged();
             }
@@ -269,10 +277,18 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ObservableCollection<Track> PlaybackListTracks
         {
-            get => _playbackListTracks;
+            get => PlayerControl?.PlaybackListTracks ?? _playbackListTracks;
             set
             {
-                _playbackListTracks = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.PlaybackListTracks.Clear();
+                    if (value != null)
+                    {
+                        foreach (var t in value) PlayerControl.PlaybackListTracks.Add(t);
+                    }
+                }
+                _playbackListTracks = value ?? new ObservableCollection<Track>();
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(PlaybackListTracksCountText));
             }
@@ -281,14 +297,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// トラックリストの総曲数表示文字列（例: "Tracklist (9 tracks)"）。
         /// </summary>
-        public string PlaybackListTracksCountText
-        {
-            get
-            {
-                int count = PlaybackListTracks?.Count ?? 0;
-                return count == 1 ? "Tracklist (1 track)" : $"Tracklist ({count} tracks)";
-            }
-        }
+        public string PlaybackListTracksCountText => PlayerControl?.PlaybackListTracksCountText ?? (PlaybackListTracks?.Count == 1 ? "Tracklist (1 track)" : $"Tracklist ({PlaybackListTracks?.Count ?? 0} tracks)");
 
         private ObservableCollection<Track> _playQueue = new ObservableCollection<Track>();
 
@@ -297,10 +306,18 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ObservableCollection<Track> PlayQueue
         {
-            get => _playQueue;
+            get => PlayerControl?.PlayQueue ?? _playQueue;
             set
             {
-                _playQueue = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.PlayQueue.Clear();
+                    if (value != null)
+                    {
+                        foreach (var t in value) PlayerControl.PlayQueue.Add(t);
+                    }
+                }
+                _playQueue = value ?? new ObservableCollection<Track>();
                 OnPropertyChanged();
             }
         }
@@ -406,6 +423,15 @@ namespace AudioEffector.Presentation.ViewModels
                 Library.ToggleFavoriteRequested += tr => ToggleFavorite(tr);
             }
 
+            PlayerControl ??= new Presentation.ViewModels.PlayerControlViewModel(null, eventBus, null, _audioService);
+            if (PlayerControl != null)
+            {
+                PlayerControl.PlayFromQueueRequested += tr => PlayFromQueue(tr);
+                PlayerControl.PlayNextRequested += tr => PlayNext(tr);
+                PlayerControl.EnqueueTrackRequested += tr => EnqueueTrack(tr);
+                PlayerControl.ShowQueueDialogRequested += () => ShowQueueDialog();
+            }
+
             if (App.ServiceProvider != null)
             {
                 var resolvedSettings = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider);
@@ -455,10 +481,7 @@ namespace AudioEffector.Presentation.ViewModels
                 Equalizer.SelectedPreset = Presets.FirstOrDefault(p => p.Name == appSettings.LastUsedEffectPreset) ?? Presets.FirstOrDefault();
             }
 
-            TogglePlayPauseCommand = new RelayCommand(o => _audioService.TogglePlayPause());
-            StopCommand = new RelayCommand(o => _audioService.Stop(false));
-            NextCommand = new RelayCommand(o => _audioService.Next());
-            PreviousCommand = new RelayCommand(o => _audioService.Previous());
+
 
             PlayTrackCommand = new RelayCommand(o =>
             {
@@ -498,26 +521,10 @@ namespace AudioEffector.Presentation.ViewModels
             });
 
             ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
-            PlayNextCommand = new RelayCommand(PlayNext);
-            EnqueueTrackCommand = new RelayCommand(EnqueueTrack);
             ShowTrackPropertiesCommand = new RelayCommand(ShowTrackProperties);
             OpenFileLocationCommand = new RelayCommand(OpenFileLocation);
             DeleteTrackCommand = new RelayCommand(DeleteTrack);
-            ShowQueueDialogCommand = new RelayCommand(o => ShowQueueDialog());
-            PlayFromQueueCommand = new RelayCommand(o =>
-            {
-                if (o is Track t)
-                {
-                    if (t == CurrentTrack)
-                    {
-                        _audioService.TogglePlayPause();
-                    }
-                    else
-                    {
-                        _audioService.PlayTrack(t);
-                    }
-                }
-            });
+
             // Playlist commands
             ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
 
@@ -536,12 +543,6 @@ namespace AudioEffector.Presentation.ViewModels
 
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
             ShowFolderCommand = new RelayCommand(o => ShowFolder());
-
-            ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
-
-            IncreaseVolumeCommand = new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
-            DecreaseVolumeCommand = new RelayCommand(o => Volume = Math.Max(0.0f, Volume - 0.05f));
-            ToggleMuteCommand = new RelayCommand(o => ToggleMute());
 
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => CurrentViewType = ViewType.DeviceSync);
@@ -875,9 +876,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsPlaying
         {
-            get => _isPlaying;
+            get => PlayerControl?.IsPlaying ?? _isPlaying;
             set
             {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.IsPlaying = value;
+                }
                 _isPlaying = value;
                 OnPropertyChanged();
             }
@@ -888,9 +893,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string CurrentTimeDisplay
         {
-            get => _currentTimeDisplay;
+            get => PlayerControl?.CurrentTimeDisplay ?? _currentTimeDisplay;
             set
             {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.CurrentTimeDisplay = value;
+                }
                 _currentTimeDisplay = value;
                 OnPropertyChanged();
             }
@@ -901,9 +910,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string TotalTimeDisplay
         {
-            get => _totalTimeDisplay;
+            get => PlayerControl?.TotalTimeDisplay ?? _totalTimeDisplay;
             set
             {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.TotalTimeDisplay = value;
+                }
                 _totalTimeDisplay = value;
                 OnPropertyChanged();
             }
@@ -916,12 +929,16 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public double Progress
         {
-            get => _progress;
+            get => PlayerControl?.Progress ?? _progress;
             set
             {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.Progress = value;
+                }
                 _progress = value;
                 OnPropertyChanged();
-                if (_isDraggingProgress)
+                if (IsDraggingProgress)
                 {
                     _audioService.SeekTo(value);
                 }
@@ -933,8 +950,15 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsDraggingProgress
         {
-            get => _isDraggingProgress;
-            set => _isDraggingProgress = value;
+            get => PlayerControl?.IsDraggingProgress ?? _isDraggingProgress;
+            set
+            {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.IsDraggingProgress = value;
+                }
+                _isDraggingProgress = value;
+            }
         }
 
         /// <summary>
@@ -1012,17 +1036,17 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 再生/一時停止を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand TogglePlayPauseCommand { get; }
+        public ICommand TogglePlayPauseCommand => PlayerControl?.TogglePlayPauseCommand ?? new RelayCommand(o => _audioService.TogglePlayPause());
 
         /// <summary>
         /// 次のトラックへ進むコマンドを取得します
         /// </summary>
-        public ICommand NextCommand { get; }
+        public ICommand NextCommand => PlayerControl?.NextCommand ?? new RelayCommand(o => _audioService.Next());
 
         /// <summary>
         /// 前のトラックへ戻るコマンドを取得します
         /// </summary>
-        public ICommand PreviousCommand { get; }
+        public ICommand PreviousCommand => PlayerControl?.PreviousCommand ?? new RelayCommand(o => _audioService.Previous());
 
         /// <summary>
         /// イコライザープリセットを保存するコマンドを取得します
@@ -1147,12 +1171,12 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 指定トラックを次に再生するようキューに追加するコマンドを取得します
         /// </summary>
-        public ICommand PlayNextCommand { get; }
+        public ICommand PlayNextCommand => PlayerControl?.PlayNextCommand ?? new RelayCommand(PlayNext);
 
         /// <summary>
         /// 指定トラックをキューの末尾に追加するコマンドを取得します
         /// </summary>
-        public ICommand EnqueueTrackCommand { get; }
+        public ICommand EnqueueTrackCommand => PlayerControl?.EnqueueTrackCommand ?? new RelayCommand(EnqueueTrack);
 
         /// <summary>
         /// トラックプロパティを表示するコマンドを取得します
@@ -1172,12 +1196,18 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 再生キューダイアログを表示するコマンドを取得します
         /// </summary>
-        public ICommand ShowQueueDialogCommand { get; }
+        public ICommand ShowQueueDialogCommand => PlayerControl?.ShowQueueDialogCommand ?? new RelayCommand(o => ShowQueueDialog());
 
         /// <summary>
         /// 再生キュー内の指定曲を再生するコマンドを取得します
         /// </summary>
-        public ICommand PlayFromQueueCommand { get; }
+        public ICommand PlayFromQueueCommand => PlayerControl?.PlayFromQueueCommand ?? new RelayCommand(o =>
+        {
+            if (o is Track t)
+            {
+                PlayFromQueue(t);
+            }
+        });
 
         // Device Sync Commands
 
@@ -1250,9 +1280,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsAlbumRepeat
         {
-            get => _isAlbumRepeat;
+            get => PlayerControl?.IsAlbumRepeat ?? _isAlbumRepeat;
             set
             {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.IsAlbumRepeat = value;
+                }
                 _isAlbumRepeat = value;
                 _audioService.IsRepeatEnabled = value;
                 OnPropertyChanged();
@@ -1272,7 +1306,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// リピート再生の有効/無効を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand ToggleRepeatCommand { get; }
+        public ICommand ToggleRepeatCommand => PlayerControl?.ToggleRepeatCommand ?? new RelayCommand(ToggleRepeat);
 
         /// <summary>
         /// 選択されたトラックをプレイリストに追加するコマンドを取得します
@@ -1282,22 +1316,22 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 音量を上げるコマンドを取得します
         /// </summary>
-        public ICommand IncreaseVolumeCommand { get; }
+        public ICommand IncreaseVolumeCommand => PlayerControl?.IncreaseVolumeCommand ?? new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
 
         /// <summary>
         /// 音量を下げるコマンドを取得します
         /// </summary>
-        public ICommand DecreaseVolumeCommand { get; }
+        public ICommand DecreaseVolumeCommand => PlayerControl?.DecreaseVolumeCommand ?? new RelayCommand(o => Volume = Math.Max(0.0f, Volume - 0.05f));
 
         /// <summary>
         /// 再生を停止するコマンドを取得します
         /// </summary>
-        public ICommand StopCommand { get; }
+        public ICommand StopCommand => PlayerControl?.StopCommand ?? new RelayCommand(o => _audioService.Stop(false));
 
         /// <summary>
         /// ミュート状態を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand ToggleMuteCommand { get; }
+        public ICommand ToggleMuteCommand => PlayerControl?.ToggleMuteCommand ?? new RelayCommand(o => ToggleMute());
 
         private bool _isMuted;
         private float _preMuteVolume = 1.0f;
@@ -1323,9 +1357,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public float Volume
         {
-            get => _audioService.Volume;
+            get => PlayerControl != null ? (float)PlayerControl.Volume : _audioService.Volume;
             set
             {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.Volume = value;
+                }
                 if (_audioService.Volume != value)
                 {
                     _audioService.Volume = value;
@@ -1344,7 +1382,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 音量のパーセント表示文字列を取得します
         /// </summary>
-        public string VolumePercent => $"{(int)(Volume * 100)}%";
+        public string VolumePercent => PlayerControl?.VolumePercent ?? $"{(int)(Volume * 100)}%";
 
         /// <summary>
         /// デバイス内のディレクトリアイテム一覧を取得または設定します
@@ -2372,6 +2410,18 @@ namespace AudioEffector.Presentation.ViewModels
                     }
                 }
                 _libraryService?.SaveFavorites(_favoritePaths);
+            }
+        }
+
+        private void PlayFromQueue(Track track)
+        {
+            if (track == CurrentTrack)
+            {
+                _audioService.TogglePlayPause();
+            }
+            else
+            {
+                _audioService.PlayTrack(track);
             }
         }
 
