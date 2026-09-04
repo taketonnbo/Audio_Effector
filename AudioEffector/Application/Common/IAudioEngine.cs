@@ -1,37 +1,10 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.ValueObjects;
 
 namespace AudioEffector.Application.Common;
-
-/// <summary>
-/// FFT計算完了時のイベント引数
-/// </summary>
-public class FftCalculatedEventArgs : EventArgs
-{
-    /// <summary>
-    /// FFT複素数/振幅配列
-    /// </summary>
-    public double[] Magnitudes { get; }
-
-    /// <summary>
-    /// サンプリング周波数（Hz）
-    /// </summary>
-    public int SampleRate { get; }
-
-    /// <summary>
-    /// FftCalculatedEventArgsを初期化します
-    /// </summary>
-    /// <param name="magnitudes">振幅配列</param>
-    /// <param name="sampleRate">サンプリングレート</param>
-    public FftCalculatedEventArgs(double[] magnitudes, int sampleRate)
-    {
-        Magnitudes = magnitudes ?? [];
-        SampleRate = sampleRate;
-    }
-}
 
 /// <summary>
 /// 音声再生・DSPイコライザー・FFT解析を担当するオーディオエンジンの抽象インターフェース
@@ -129,4 +102,31 @@ public interface IAudioEngine : IDisposable
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>非同期タスク</returns>
     Task SetEqualizerAllGainsAsync(float[] gainsDb, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// FFT計算完了時のイベント引数
+/// </summary>
+public class FftCalculatedEventArgs : EventArgs
+{
+    /// <summary>
+    /// FFT複素数/振幅配列
+    /// </summary>
+    public double[] Magnitudes { get; }
+
+    /// <summary>
+    /// サンプリング周波数（Hz）
+    /// </summary>
+    public int SampleRate { get; }
+
+    /// <summary>
+    /// FftCalculatedEventArgsを初期化します
+    /// </summary>
+    /// <param name="magnitudes">振幅配列</param>
+    /// <param name="sampleRate">サンプリングレート</param>
+    public FftCalculatedEventArgs(double[] magnitudes, int sampleRate)
+    {
+        Magnitudes = magnitudes ?? [];
+        SampleRate = sampleRate;
+    }
 }

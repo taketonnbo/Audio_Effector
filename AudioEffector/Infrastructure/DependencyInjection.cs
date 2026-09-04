@@ -1,4 +1,4 @@
-using AudioEffector.Application.Common;
+﻿using AudioEffector.Application.Common;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Infrastructure.DataTransfer;
@@ -17,8 +17,8 @@ public static class DependencyInjection
     /// <summary>
     /// インフラストラクチャ層の各サービスおよびリポジトリをDIコンテナに登録します
     /// </summary>
-    /// <param name="services">サービスコレクション</param>
-    /// <returns>サービスコレクション</returns>
+    /// <param name="services">登録対象のサービスコレクション</param>
+    /// <returns>サービス登録後のサービスコレクション</returns>
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
         // 音声再生エンジン（リソース管理・排他制御のためSingleton）

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 
@@ -70,10 +70,14 @@ public readonly record struct AudioPath : IEquatable<AudioPath>
     /// <summary>
     /// string型からAudioPathへの暗黙的型変換
     /// </summary>
+    /// <param name="path">パス文字列</param>
+    /// <returns>変換後のAudioPath</returns>
     public static implicit operator AudioPath(string path) => string.IsNullOrWhiteSpace(path) ? default : Create(path);
 
     /// <summary>
     /// AudioPathからstring型への暗黙的型変換
     /// </summary>
+    /// <param name="path">AudioPathインスタンス</param>
+    /// <returns>内部パス文字列</returns>
     public static implicit operator string(AudioPath path) => path.Value ?? string.Empty;
 }

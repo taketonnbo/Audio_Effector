@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Media.Imaging;
@@ -41,7 +41,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string FilePath
     {
         get => _filePath;
-        set { if (_filePath != value) { _filePath = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_filePath != value)
+            {
+                _filePath = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -50,7 +57,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string Title
     {
         get => _title;
-        set { if (_title != value) { _title = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_title != value)
+            {
+                _title = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -59,7 +73,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string Artist
     {
         get => _artist;
-        set { if (_artist != value) { _artist = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_artist != value)
+            {
+                _artist = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -68,7 +89,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string Album
     {
         get => _album;
-        set { if (_album != value) { _album = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_album != value)
+            {
+                _album = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -77,7 +105,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public BitmapImage? CoverImage
     {
         get => _coverImage;
-        set { if (_coverImage != value) { _coverImage = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_coverImage != value)
+            {
+                _coverImage = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -86,15 +121,23 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public TimeSpan Duration
     {
         get => _duration;
-        set { if (_duration != value) { _duration = value; OnPropertyChanged(); OnPropertyChanged(nameof(DurationString)); } }
+        set
+        {
+            if (_duration != value)
+            {
+                _duration = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(DurationString));
+            }
+        }
     }
 
     /// <summary>
     /// 再生時間のフォーマット文字列（例: 03:45 または 1:23:45）
     /// </summary>
     public string DurationString => Duration.TotalHours >= 1
-        ? Duration.ToString(@"h\:mm\:ss")
-        : Duration.ToString(@"mm\:ss");
+        ? Duration.ToString(@"h\:mm\:ss", System.Globalization.CultureInfo.InvariantCulture)
+        : Duration.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>
     /// お気に入りに登録されているかどうか
@@ -102,7 +145,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public bool IsFavorite
     {
         get => _isFavorite;
-        set { if (_isFavorite != value) { _isFavorite = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_isFavorite != value)
+            {
+                _isFavorite = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -111,7 +161,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public bool IsPlaying
     {
         get => _isPlaying;
-        set { if (_isPlaying != value) { _isPlaying = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_isPlaying != value)
+            {
+                _isPlaying = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -120,7 +177,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public uint Year
     {
         get => _year;
-        set { if (_year != value) { _year = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_year != value)
+            {
+                _year = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -129,7 +193,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public uint TrackNumber
     {
         get => _trackNumber;
-        set { if (_trackNumber != value) { _trackNumber = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_trackNumber != value)
+            {
+                _trackNumber = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -138,7 +209,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public int Bitrate
     {
         get => _bitrate;
-        set { if (_bitrate != value) { _bitrate = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityInfo)); } }
+        set
+        {
+            if (_bitrate != value)
+            {
+                _bitrate = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityInfo));
+            }
+        }
     }
 
     /// <summary>
@@ -147,7 +226,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public int SampleRate
     {
         get => _sampleRate;
-        set { if (_sampleRate != value) { _sampleRate = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityInfo)); } }
+        set
+        {
+            if (_sampleRate != value)
+            {
+                _sampleRate = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityInfo));
+            }
+        }
     }
 
     /// <summary>
@@ -156,7 +243,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public int BitsPerSample
     {
         get => _bitsPerSample;
-        set { if (_bitsPerSample != value) { _bitsPerSample = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityInfo)); } }
+        set
+        {
+            if (_bitsPerSample != value)
+            {
+                _bitsPerSample = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityInfo));
+            }
+        }
     }
 
     /// <summary>
@@ -165,7 +260,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string Format
     {
         get => _format;
-        set { if (_format != value) { _format = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityInfo)); } }
+        set
+        {
+            if (_format != value)
+            {
+                _format = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityInfo));
+            }
+        }
     }
 
     /// <summary>
@@ -174,7 +277,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public string Genre
     {
         get => _genre;
-        set { if (_genre != value) { _genre = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_genre != value)
+            {
+                _genre = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -183,7 +293,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public bool IsLossless
     {
         get => _isLossless;
-        set { if (_isLossless != value) { _isLossless = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityLabel)); } }
+        set
+        {
+            if (_isLossless != value)
+            {
+                _isLossless = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityLabel));
+            }
+        }
     }
 
     /// <summary>
@@ -192,7 +310,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public bool IsHiRes
     {
         get => _isHiRes;
-        set { if (_isHiRes != value) { _isHiRes = value; OnPropertyChanged(); OnPropertyChanged(nameof(QualityLabel)); } }
+        set
+        {
+            if (_isHiRes != value)
+            {
+                _isHiRes = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(QualityLabel));
+            }
+        }
     }
 
     /// <summary>
@@ -201,7 +327,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public bool IsSelected
     {
         get => _isSelected;
-        set { if (_isSelected != value) { _isSelected = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_isSelected != value)
+            {
+                _isSelected = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -231,7 +364,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     // Async Album Art Loading
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, BitmapImage> _artCache
         = new System.Collections.Concurrent.ConcurrentDictionary<string, BitmapImage>();
-    private bool _isArtLoaded = false;
+    private bool _isArtLoaded;
     private BitmapImage? _albumArt;
 
     /// <summary>
@@ -306,6 +439,22 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// <summary>
     /// トラックエンティティを初期化します
     /// </summary>
+    /// <param name="id">トラックID</param>
+    /// <param name="filePath">音声ファイルパス</param>
+    /// <param name="title">曲名</param>
+    /// <param name="artist">アーティスト名</param>
+    /// <param name="album">アルバム名</param>
+    /// <param name="duration">再生時間</param>
+    /// <param name="year">リリース年</param>
+    /// <param name="trackNumber">トラック番号</param>
+    /// <param name="bitrate">ビットレート（kbps）</param>
+    /// <param name="sampleRate">サンプリング周波数（Hz）</param>
+    /// <param name="bitsPerSample">量子化ビット数</param>
+    /// <param name="format">フォーマット形式</param>
+    /// <param name="genre">ジャンル</param>
+    /// <param name="isFavorite">お気に入り状態</param>
+    /// <param name="isLossless">可逆圧縮かどうか</param>
+    /// <param name="isHiRes">ハイレゾ音源かどうか</param>
     public Track(
         TrackId id,
         AudioPath filePath,
@@ -345,6 +494,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// <summary>
     /// お気に入り登録状態を更新します
     /// </summary>
+    /// <param name="isFavorite">お気に入り状態</param>
     public void SetFavorite(bool isFavorite)
     {
         IsFavorite = isFavorite;
@@ -353,6 +503,9 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// <summary>
     /// タイトルおよびアーティスト情報を更新します
     /// </summary>
+    /// <param name="title">曲名</param>
+    /// <param name="artist">アーティスト名</param>
+    /// <param name="album">アルバム名</param>
     public void UpdateMetadata(string title, string artist, string album)
     {
         if (!string.IsNullOrWhiteSpace(title)) Title = title.Trim();
@@ -360,13 +513,26 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
         if (!string.IsNullOrWhiteSpace(album)) Album = album.Trim();
     }
 
+    /// <summary>
+    /// プロパティ値変更時に発生するイベント
+    /// </summary>
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// プロパティ変更通知を発行します
+    /// </summary>
+    /// <param name="propertyName">プロパティ名</param>
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     #region Equality Members
+    /// <summary>
+    /// 指定されたトラックと等価であるかを判定します
+    /// </summary>
+    /// <param name="other">比較対象のトラック</param>
+    /// <returns>等価な場合はtrue、それ以外はfalse</returns>
     public bool Equals(Track? other)
     {
         if (ReferenceEquals(null, other)) return false;
@@ -376,13 +542,28 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
         return string.Equals(FilePath, other.FilePath, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// 指定されたオブジェクトと等価であるかを判定します
+    /// </summary>
+    /// <param name="obj">比較対象のオブジェクト</param>
+    /// <returns>等価な場合はtrue、それ以外はfalse</returns>
     public override bool Equals(object? obj) => Equals(obj as Track);
 
+    /// <summary>
+    /// トラックのハッシュコードを取得します
+    /// </summary>
+    /// <returns>ハッシュコード</returns>
     public override int GetHashCode()
     {
         return string.IsNullOrEmpty(FilePath) ? Id.GetHashCode() : StringComparer.OrdinalIgnoreCase.GetHashCode(FilePath);
     }
 
+    /// <summary>
+    /// 2つのトラックが等価であるかを判定します
+    /// </summary>
+    /// <param name="left">左辺のトラック</param>
+    /// <param name="right">右辺のトラック</param>
+    /// <returns>等価な場合はtrue、それ以外はfalse</returns>
     public static bool operator ==(Track? left, Track? right)
     {
         if (ReferenceEquals(left, right)) return true;
@@ -390,11 +571,21 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
         return left.Equals(right);
     }
 
+    /// <summary>
+    /// 2つのトラックが異なるかを判定します
+    /// </summary>
+    /// <param name="left">左辺のトラック</param>
+    /// <param name="right">右辺のトラック</param>
+    /// <returns>異なる場合はtrue、それ以外はfalse</returns>
     public static bool operator !=(Track? left, Track? right)
     {
         return !(left == right);
     }
     #endregion
 
+    /// <summary>
+    /// トラックの文字列表現を取得します
+    /// </summary>
+    /// <returns>アーティスト名と曲名および品質情報</returns>
     public override string ToString() => $"{Artist} - {Title} ({QualityInfo})";
 }

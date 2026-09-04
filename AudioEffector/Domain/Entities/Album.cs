@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -35,7 +35,15 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     public string Title
     {
         get => _title;
-        set { if (_title != value) { _title = value; OnPropertyChanged(); OnPropertyChanged(nameof(Name)); } }
+        set
+        {
+            if (_title != value)
+            {
+                _title = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(Name));
+            }
+        }
     }
 
     /// <summary>
@@ -44,7 +52,14 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     public string Artist
     {
         get => _artist;
-        set { if (_artist != value) { _artist = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_artist != value)
+            {
+                _artist = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -53,7 +68,14 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     public BitmapImage? CoverImage
     {
         get => _coverImage;
-        set { if (_coverImage != value) { _coverImage = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_coverImage != value)
+            {
+                _coverImage = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -62,7 +84,14 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     public uint Year
     {
         get => _year;
-        set { if (_year != value) { _year = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_year != value)
+            {
+                _year = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -71,7 +100,13 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     public List<Track> Tracks
     {
         get => _tracks;
-        set { _tracks = value ?? new List<Track>(); OnPropertyChanged(); OnPropertyChanged(nameof(TrackCount)); OnPropertyChanged(nameof(TotalDuration)); }
+        set
+        {
+            _tracks = value ?? new List<Track>();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TrackCount));
+            OnPropertyChanged(nameof(TotalDuration));
+        }
     }
 
     /// <summary>
@@ -144,6 +179,10 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     /// <summary>
     /// アルバムエンティティを初期化します
     /// </summary>
+    /// <param name="name">アルバム名</param>
+    /// <param name="artist">アーティスト名</param>
+    /// <param name="year">リリース年</param>
+    /// <param name="tracks">トラックコレクション</param>
     public Album(string name, string artist, uint year = 0, IEnumerable<Track>? tracks = null)
     {
         _title = string.IsNullOrWhiteSpace(name) ? "Unknown Album" : name.Trim();
@@ -155,6 +194,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     /// <summary>
     /// トラックを追加します
     /// </summary>
+    /// <param name="track">追加対象のトラック</param>
     public void AddTrack(Track track)
     {
         ArgumentNullException.ThrowIfNull(track);
@@ -167,6 +207,8 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     /// <summary>
     /// トラックを削除します
     /// </summary>
+    /// <param name="track">削除対象のトラック</param>
+    /// <returns>削除に成功した場合はtrue、それ以外はfalse</returns>
     public bool RemoveTrack(Track track)
     {
         if (track is null) return false;
@@ -180,13 +222,26 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
         return removed;
     }
 
+    /// <summary>
+    /// プロパティ値変更時に発生するイベント
+    /// </summary>
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// プロパティ変更通知を発行します
+    /// </summary>
+    /// <param name="propertyName">プロパティ名</param>
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     #region Equality Members
+    /// <summary>
+    /// 指定されたアルバムと等価であるかを判定します
+    /// </summary>
+    /// <param name="other">比較対象のアルバム</param>
+    /// <returns>等価な場合はtrue、それ以外はfalse</returns>
     public bool Equals(Album? other)
     {
         if (other is null) return false;
@@ -195,12 +250,25 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
                string.Equals(Artist, other.Artist, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// 指定されたオブジェクトと等価であるかを判定します
+    /// </summary>
+    /// <param name="obj">比較対象のオブジェクト</param>
+    /// <returns>等価な場合はtrue、それ以外はfalse</returns>
     public override bool Equals(object? obj) => Equals(obj as Album);
 
+    /// <summary>
+    /// アルバムのハッシュコードを取得します
+    /// </summary>
+    /// <returns>ハッシュコード</returns>
     public override int GetHashCode() => HashCode.Combine(
         StringComparer.OrdinalIgnoreCase.GetHashCode(Name),
         StringComparer.OrdinalIgnoreCase.GetHashCode(Artist));
 
+    /// <summary>
+    /// アルバムの文字列表現を取得します
+    /// </summary>
+    /// <returns>アーティスト名とアルバム名およびトラック数</returns>
     public override string ToString() => $"{Artist} - {Name} ({TrackCount} tracks)";
     #endregion
 }

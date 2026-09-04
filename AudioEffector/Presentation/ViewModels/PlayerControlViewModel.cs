@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
@@ -280,7 +280,7 @@ public class PlayerControlViewModel : ViewModelBase,
         System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
         {
             CurrentTrack = domainEvent.Track;
-            TotalTime = domainEvent.Track.Duration.ToString(@"mm\:ss");
+            TotalTime = domainEvent.Track?.Duration.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture) ?? "00:00";
             CurrentTime = "00:00";
             _position = 0.0;
             OnPropertyChanged(nameof(Position));

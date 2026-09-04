@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -28,11 +28,21 @@ public static class AlbumArtLoader
             typeof(AlbumArtLoader),
             new PropertyMetadata(null, OnSourcePathChanged));
 
+    /// <summary>
+    /// SourcePath添付プロパティの値を取得します
+    /// </summary>
+    /// <param name="obj">対象のDependencyObject</param>
+    /// <returns>ファイルパス文字列</returns>
     public static string? GetSourcePath(DependencyObject obj)
     {
         return (string?)obj.GetValue(SourcePathProperty);
     }
 
+    /// <summary>
+    /// SourcePath添付プロパティの値を設定します
+    /// </summary>
+    /// <param name="obj">対象のDependencyObject</param>
+    /// <param name="value">設定するファイルパス文字列</param>
     public static void SetSourcePath(DependencyObject obj, string? value)
     {
         obj.SetValue(SourcePathProperty, value);
@@ -172,9 +182,8 @@ public static class AlbumArtLoader
 
     private static void UpdateLru(string key)
     {
-        if (LruList.Contains(key))
+        if (LruList.Remove(key))
         {
-            LruList.Remove(key);
             LruList.AddFirst(key);
         }
     }

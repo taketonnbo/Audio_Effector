@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Windows;
 using AudioEffector.Domain.Entities;
@@ -14,6 +14,10 @@ public class ThemeManager
     private const string RegistryKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
     private const string RegistryValueName = "AppsUseLightTheme";
 
+    /// <summary>
+    /// 指定されたテーマをアプリケーションリソースに適用します
+    /// </summary>
+    /// <param name="theme">適用するテーマの種類</param>
     public static void ApplyTheme(ThemeType theme)
     {
         ThemeType themeToApply = theme;

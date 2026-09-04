@@ -1,4 +1,4 @@
-using AudioEffector.Presentation.Converters;
+﻿using AudioEffector.Presentation.Converters;
 using System.Globalization;
 using Xunit;
 
@@ -17,15 +17,15 @@ namespace AudioEffector.Tests
         [InlineData(99, true)]
         public void Convert_ReturnsCorrectOddState(int index, bool expected)
         {
-            var result = _converter.Convert(index, typeof(bool), null, CultureInfo.InvariantCulture);
+            var result = _converter.Convert(index, typeof(bool), null!, CultureInfo.InvariantCulture);
             Assert.Equal(expected, result);
         }
 
         [Fact]
         public void Convert_NonInt_ReturnsFalse()
         {
-            var result = _converter.Convert("not-an-int", typeof(bool), null, CultureInfo.InvariantCulture);
-            Assert.False((bool)result);
+            var result = _converter.Convert("not-an-int", typeof(bool), null!, CultureInfo.InvariantCulture);
+            Assert.False((bool)result!);
         }
     }
 }

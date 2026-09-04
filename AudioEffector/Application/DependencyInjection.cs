@@ -1,4 +1,4 @@
-using AudioEffector.Application.ApplicationServices;
+﻿using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,8 +12,8 @@ public static class DependencyInjection
     /// <summary>
     /// アプリケーション層の各サービスおよびEventBusをDIコンテナに登録します
     /// </summary>
-    /// <param name="services">サービスコレクション</param>
-    /// <returns>サービスコレクション</returns>
+    /// <param name="services">登録対象のサービスコレクション</param>
+    /// <returns>サービス登録後のサービスコレクション</returns>
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
         // イベントバス（全体共有）

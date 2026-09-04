@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -51,6 +51,7 @@ public class LibraryApplicationService
     /// <summary>
     /// お気に入りリストをJSONファイルから読み込みます
     /// </summary>
+    /// <returns></returns>
     public List<string> LoadFavorites()
     {
         if (File.Exists(_favoritesFilePath))
@@ -68,6 +69,7 @@ public class LibraryApplicationService
     /// <summary>
     /// お気に入りリストをJSONファイルへ保存します
     /// </summary>
+    /// <param name="favorites">保存するお気に入りファイルパス一覧</param>
     public void SaveFavorites(List<string> favorites)
     {
         try

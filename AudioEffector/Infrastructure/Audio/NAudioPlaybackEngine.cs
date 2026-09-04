@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,7 +16,7 @@ namespace AudioEffector.Infrastructure.Audio;
 public class NAudioPlaybackEngine : IAudioEngine
 {
     private readonly object _lock = new();
-    private IWavePlayer? _outputDevice;
+    private WaveOutEvent? _outputDevice;
     private AudioFileReader? _audioFileReader;
     private EqualizerDsp? _equalizer;
     private VolumeSampleProvider? _volumeProvider;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -21,7 +21,14 @@ public class DeviceTrack : IEquatable<DeviceTrack>, INotifyPropertyChanged
     public string Title
     {
         get => _title;
-        set { if (_title != value) { _title = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_title != value)
+            {
+                _title = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -30,7 +37,14 @@ public class DeviceTrack : IEquatable<DeviceTrack>, INotifyPropertyChanged
     public string Artist
     {
         get => _artist;
-        set { if (_artist != value) { _artist = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_artist != value)
+            {
+                _artist = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -39,7 +53,14 @@ public class DeviceTrack : IEquatable<DeviceTrack>, INotifyPropertyChanged
     public string Album
     {
         get => _album;
-        set { if (_album != value) { _album = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_album != value)
+            {
+                _album = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -48,7 +69,14 @@ public class DeviceTrack : IEquatable<DeviceTrack>, INotifyPropertyChanged
     public string Path
     {
         get => _path;
-        set { if (_path != value) { _path = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_path != value)
+            {
+                _path = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -57,7 +85,14 @@ public class DeviceTrack : IEquatable<DeviceTrack>, INotifyPropertyChanged
     public long FileSizeBytes
     {
         get => _fileSizeBytes;
-        set { if (_fileSizeBytes != value) { _fileSizeBytes = value; OnPropertyChanged(); } }
+        set
+        {
+            if (_fileSizeBytes != value)
+            {
+                _fileSizeBytes = value;
+                OnPropertyChanged();
+            }
+        }
     }
 
     /// <summary>
@@ -84,7 +119,15 @@ public class DeviceTrack : IEquatable<DeviceTrack>, INotifyPropertyChanged
         _fileSizeBytes = fileSizeBytes;
     }
 
+    /// <summary>
+    /// プロパティ値変更時に発生するイベント
+    /// </summary>
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// プロパティ変更通知を発行します
+    /// </summary>
+    /// <param name="propertyName">プロパティ名</param>
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

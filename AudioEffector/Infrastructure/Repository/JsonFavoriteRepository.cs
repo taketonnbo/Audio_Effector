@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -13,12 +13,14 @@ namespace AudioEffector.Infrastructure.Repository;
 /// <summary>
 /// お気に入り楽曲IDをローカルJSONファイルおよびメモリセットで管理するリポジトリ具象クラス
 /// </summary>
-public class JsonFavoriteRepository : IFavoriteRepository
+public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
 {
+    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly string _filePath;
     private readonly HashSet<TrackId> _favoriteIds = new();
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private bool _isLoaded;
+    private bool _disposed;
 
     /// <summary>
     /// 指定されたJSONファイルパスでJsonFavoriteRepositoryを初期化します
@@ -79,7 +81,7 @@ public class JsonFavoriteRepository : IFavoriteRepository
         }
 
         var guids = _favoriteIds.Select(t => t.Value).ToList();
-        string json = JsonSerializer.Serialize(guids, new JsonSerializerOptions { WriteIndented = true });
+        string json = JsonSerializer.Serialize(guids, _jsonOptions);
 
         string tempPath = $"{_filePath}.tmp";
         await File.WriteAllTextAsync(tempPath, json, cancellationToken);
@@ -168,6 +170,31 @@ public class JsonFavoriteRepository : IFavoriteRepository
         finally
         {
             _semaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// リソースを解放します
+    /// </summary>
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// アンマネージドリソースおよびマネージドリソースを解放します
+    /// </summary>
+    /// <param name="disposing">マネージドリソースを破棄するかどうか</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                _semaphore.Dispose();
+            }
+            _disposed = true;
         }
     }
 }

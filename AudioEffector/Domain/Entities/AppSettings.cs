@@ -1,38 +1,6 @@
-using System;
+﻿using System;
 
 namespace AudioEffector.Domain.Entities;
-
-/// <summary>
-/// UIテーマの種類を表す列挙体
-/// </summary>
-public enum ThemeType
-{
-    Dark,
-    Light,
-    System
-}
-
-/// <summary>
-/// ミニプレイヤーの最前面表示の挙動
-/// </summary>
-public enum MiniPlayerTopmostBehavior
-{
-    /// <summary>常に最前面に表示する</summary>
-    AlwaysOnTop,
-    /// <summary>表示された時のみ最前面とし、他選択で解除</summary>
-    OnDisplayOnly,
-    /// <summary>最前面に表示しない（通常のウィンドウ）</summary>
-    None
-}
-
-/// <summary>
-/// キーボードショートカットの設定を保持するクラス
-/// </summary>
-public class ShortcutKeyConfig
-{
-    public System.Windows.Input.Key Key { get; set; } = System.Windows.Input.Key.None;
-    public System.Windows.Input.ModifierKeys Modifiers { get; set; } = System.Windows.Input.ModifierKeys.None;
-}
 
 /// <summary>
 /// アプリケーションの設定情報を保持するモデルクラス
@@ -62,17 +30,17 @@ public class AppSettings
     /// <summary>
     /// ノーマライズ（音量正規化）を有効にするかどうか
     /// </summary>
-    public bool EnableNormalize { get; set; } = false;
+    public bool EnableNormalize { get; set; }
 
     /// <summary>
     /// OS起動時に自動起動するかどうか
     /// </summary>
-    public bool AutoStart { get; set; } = false;
+    public bool AutoStart { get; set; }
 
     /// <summary>
     /// アプリ起動時に最小化状態で開始するかどうか
     /// </summary>
-    public bool StartMinimized { get; set; } = false;
+    public bool StartMinimized { get; set; }
 
     /// <summary>
     /// オーディオのサンプリングレート（Hz）
@@ -104,12 +72,75 @@ public class AppSettings
     /// </summary>
     public double? MiniPlayerLeft { get; set; }
 
-    // --- ショートカット設定 ---
+    /// <summary>
+    /// 再生/一時停止ショートカットキー設定
+    /// </summary>
     public ShortcutKeyConfig PlayPauseShortcut { get; set; } = new();
+
+    /// <summary>
+    /// 停止ショートカットキー設定
+    /// </summary>
     public ShortcutKeyConfig StopShortcut { get; set; } = new();
+
+    /// <summary>
+    /// 次へショートカットキー設定
+    /// </summary>
     public ShortcutKeyConfig NextShortcut { get; set; } = new();
+
+    /// <summary>
+    /// 前へショートカットキー設定
+    /// </summary>
     public ShortcutKeyConfig PreviousShortcut { get; set; } = new();
+
+    /// <summary>
+    /// ミュートショートカットキー設定
+    /// </summary>
     public ShortcutKeyConfig MuteShortcut { get; set; } = new();
+
+    /// <summary>
+    /// 音量アップショートカットキー設定
+    /// </summary>
     public ShortcutKeyConfig VolumeUpShortcut { get; set; } = new();
+
+    /// <summary>
+    /// 音量ダウンショートカットキー設定
+    /// </summary>
     public ShortcutKeyConfig VolumeDownShortcut { get; set; } = new();
+}
+
+/// <summary>
+/// UIテーマの種類を表す列挙体
+/// </summary>
+public enum ThemeType
+{
+    /// <summary>ダークテーマ</summary>
+    Dark,
+    /// <summary>ライトテーマ</summary>
+    Light,
+    /// <summary>システム同期テーマ</summary>
+    System
+}
+
+/// <summary>
+/// ミニプレイヤーの最前面表示の挙動
+/// </summary>
+public enum MiniPlayerTopmostBehavior
+{
+    /// <summary>常に最前面に表示する</summary>
+    AlwaysOnTop,
+    /// <summary>表示された時のみ最前面とし、他選択で解除</summary>
+    OnDisplayOnly,
+    /// <summary>最前面に表示しない（通常のウィンドウ）</summary>
+    None
+}
+
+/// <summary>
+/// キーボードショートカットの設定を保持するクラス
+/// </summary>
+public class ShortcutKeyConfig
+{
+    /// <summary>対象キー</summary>
+    public System.Windows.Input.Key Key { get; set; } = System.Windows.Input.Key.None;
+    /// <summary>修飾キー</summary>
+    public System.Windows.Input.ModifierKeys Modifiers { get; set; } = System.Windows.Input.ModifierKeys.None;
 }

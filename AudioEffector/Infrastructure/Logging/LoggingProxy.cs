@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Reflection;
 using System.Threading.Tasks;
 using NLog;
@@ -14,6 +14,12 @@ public class LoggingProxy<T> : DispatchProxy
     private T _target = default!;
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
+    /// <summary>
+    /// 対象メソッドの呼び出しをインターセプトしてログを出力します
+    /// </summary>
+    /// <param name="targetMethod">呼び出し対象のメソッド情報</param>
+    /// <param name="args">メソッド引数配列</param>
+    /// <returns>メソッドの戻り値</returns>
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
     {
         if (targetMethod == null) return null;
@@ -63,8 +69,12 @@ public class LoggingProxy<T> : DispatchProxy
     /// <returns>プロキシインスタンス</returns>
     public static T Create(T target)
     {
-        object proxy = Create<T, LoggingProxy<T>>();
-        ((LoggingProxy<T>)proxy)._target = target;
-        return (T)proxy;
+        object? proxy = Create<T, LoggingProxy<T>>();
+        if (proxy is LoggingProxy<T> loggingProxy)
+        {
+            loggingProxy._target = target;
+        }
+
+        return (T)proxy!;
     }
 }

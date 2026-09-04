@@ -1,4 +1,4 @@
-namespace AudioEffector.Domain.Services;
+﻿namespace AudioEffector.Domain.Services;
 
 /// <summary>
 /// 通常の順次再生（先頭から末尾へ順番に再生し、末尾で停止する）戦略

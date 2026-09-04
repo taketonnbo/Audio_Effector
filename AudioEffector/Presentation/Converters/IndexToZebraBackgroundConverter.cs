@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
@@ -23,6 +23,14 @@ public class IndexToZebraBackgroundConverter : IValueConverter
         LightOddBrush.Freeze();
     }
 
+    /// <summary>
+    /// アイテムのインデックスに応じた背景ブラシに変換します
+    /// </summary>
+    /// <param name="value">0始まりのインデックス（int）</param>
+    /// <param name="targetType">ターゲットの型</param>
+    /// <param name="parameter">変換パラメーター</param>
+    /// <param name="culture">カルチャ情報</param>
+    /// <returns>偶数・奇数行およびテーマに応じた背景ブラシ</returns>
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         if (value is int index)
@@ -53,6 +61,14 @@ public class IndexToZebraBackgroundConverter : IValueConverter
         return EvenBrush;
     }
 
+    /// <summary>
+    /// 背景ブラシからインデックスへの逆変換を行います（未サポート）
+    /// </summary>
+    /// <param name="value">変換元の値</param>
+    /// <param name="targetType">ターゲットの型</param>
+    /// <param name="parameter">変換パラメーター</param>
+    /// <param name="culture">カルチャ情報</param>
+    /// <returns>変換後の値</returns>
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
     {
         throw new NotImplementedException();

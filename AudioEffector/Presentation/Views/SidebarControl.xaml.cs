@@ -1,12 +1,17 @@
-using System.Windows.Controls;
+﻿using System.Windows.Controls;
 
-namespace AudioEffector.Presentation.Views
+namespace AudioEffector.Presentation.Views;
+
+/// <summary>
+/// ナビゲーションサイドバーを表示するコントロール
+/// </summary>
+public partial class SidebarControl : UserControl
 {
-    public partial class SidebarControl : UserControl
+    /// <summary>
+    /// インスタンスを初期化します
+    /// </summary>
+    public SidebarControl()
     {
-        public SidebarControl()
-        {
-            InitializeComponent();
-        }
+        InitializeComponent();
     }
 }

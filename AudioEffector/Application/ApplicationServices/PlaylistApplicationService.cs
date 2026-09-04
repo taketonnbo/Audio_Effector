@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +15,7 @@ namespace AudioEffector.Application.ApplicationServices;
 /// </summary>
 public class PlaylistApplicationService
 {
+    private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly IPlaylistRepository _playlistRepository;
     private readonly ITrackRepository _trackRepository;
     private readonly IEventBus _eventBus;
@@ -45,6 +46,7 @@ public class PlaylistApplicationService
     /// <summary>
     /// プレイリスト一覧をローカルJSONファイルから読み込みます
     /// </summary>
+    /// <returns></returns>
     public List<UserPlaylist> LoadPlaylists()
     {
         if (!System.IO.File.Exists(_playlistsFilePath))
@@ -64,14 +66,12 @@ public class PlaylistApplicationService
     /// <summary>
     /// プレイリスト一覧をローカルJSONファイルへ保存します
     /// </summary>
+    /// <param name="playlists">保存するプレイリスト一覧</param>
     public void SavePlaylists(List<UserPlaylist> playlists)
     {
         try
         {
-            var json = System.Text.Json.JsonSerializer.Serialize(playlists, new System.Text.Json.JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            var json = System.Text.Json.JsonSerializer.Serialize(playlists, _jsonOptions);
             System.IO.File.WriteAllText(_playlistsFilePath, json);
         }
         catch

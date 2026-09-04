@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using NAudio.Dsp;
 using NAudio.Wave;
 
@@ -58,6 +58,8 @@ public class EqualizerDsp : ISampleProvider
     /// <summary>
     /// 指定されたバンドのゲイン（dB）を更新します（SetBandGainの互換エイリアス）
     /// </summary>
+    /// <param name="bandIndex">バンドインデックス（0〜9）</param>
+    /// <param name="gain">ゲイン値（dB）</param>
     public void UpdateGain(int bandIndex, float gain) => SetBandGain(bandIndex, gain);
 
     /// <summary>

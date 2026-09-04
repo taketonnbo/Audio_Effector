@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using NLog;
 
 namespace AudioEffector.Infrastructure.Logging;
@@ -8,7 +8,7 @@ namespace AudioEffector.Infrastructure.Logging;
 /// </summary>
 public class NLogService
 {
-    private readonly ILogger _logger;
+    private readonly Logger _logger;
 
     /// <summary>
     /// 指定された名前のロガーでNLogServiceを初期化します
