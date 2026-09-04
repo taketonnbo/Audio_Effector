@@ -496,7 +496,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:DeviceSyncView />
+                                            <views:DeviceSyncView DataContext="{Binding DeviceBrowser}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
