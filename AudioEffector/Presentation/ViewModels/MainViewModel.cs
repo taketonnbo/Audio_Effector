@@ -1,4 +1,4 @@
-using AudioEffector.Application.ApplicationServices;
+﻿using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Presentation.Views;
@@ -77,11 +77,6 @@ namespace AudioEffector.Presentation.ViewModels
         public Presentation.ViewModels.NowPlayingViewModel? NowPlaying { get; }
 
         /// <summary>
-        /// フォルダーナビゲーション専用ViewModel
-        /// </summary>
-        public Presentation.ViewModels.FolderViewModel Folder { get; }
-
-        /// <summary>
         /// コードビハインドからAudioServiceへアクセスするためのプロパティ
         /// </summary>
         public IAudioService AudioService => _audioService; // Public accessor for code-behind
@@ -106,24 +101,24 @@ namespace AudioEffector.Presentation.ViewModels
         private List<string> _favoritePaths;
         private ObservableCollection<UserPlaylist> _userPlaylists = new ObservableCollection<UserPlaylist>();
         private ObservableCollection<Track> _playlistTracks = new ObservableCollection<Track>();
-        #region Spectrum Analyzer Tuning Coefficients
-        /// <summary>スペクトラムアナライザのバー数</summary>
-        public const int SpectrumBarCount = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_BAR_COUNT;
+        private const int SpectrumBarCount = 64;
+        private int _spectrumGeneration;
 
+        #region Spectrum Analyzer Tuning Coefficients
         /// <summary>スペクトラムアナライザ: 低音域（〜250Hz）のスケーリング係数（低音の過度な頭打ちを抑制）</summary>
-        public const double SpectrumBassScale = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_BASS_SCALE;
+        public const double SpectrumBassScale = 0.55;
 
         /// <summary>スペクトラムアナライザ: 中音域（250Hz〜2.5kHz）のスケーリング係数</summary>
-        public const double SpectrumMidScale = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_MID_SCALE;
+        public const double SpectrumMidScale = 0.90;
 
         /// <summary>スペクトラムアナライザ: 高音域（2.5kHz〜18kHz）のスケーリング係数（高音の躍動感を大幅強化）</summary>
-        public const double SpectrumTrebleScale = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_TREBLE_SCALE;
+        public const double SpectrumTrebleScale = 2.90;
 
         /// <summary>スペクトラムアナライザ: 高音域のオクターブあたりdB補正（チルト）係数</summary>
-        public const double SpectrumTrebleTiltDb = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_TREBLE_TILT_DB;
+        public const double SpectrumTrebleTiltDb = 8.5;
 
         /// <summary>スペクトラムアナライザ: 全体感度（ゲイン）係数</summary>
-        public const double SpectrumSensitivity = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_SENSITIVITY;
+        public const double SpectrumSensitivity = 1.65;
         #endregion
 
         private ViewType _currentViewType = ViewType.Albums;
@@ -215,19 +210,13 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public UserPlaylist? CurrentViewingPlaylist
         {
-            get => Playlist?.SelectedPlaylist ?? _currentViewingPlaylist;
+            get => _currentViewingPlaylist;
             set
             {
-                if (Playlist != null)
-                {
-                    Playlist.SelectedPlaylist = value;
-                }
                 if (_currentViewingPlaylist != value)
                 {
                     _currentViewingPlaylist = value;
                     OnPropertyChanged();
-                    OnPropertyChanged(nameof(IsPlaylistTracksVisible));
-                    OnPropertyChanged(nameof(IsPlaylistSectionActive));
                 }
             }
         }
@@ -239,13 +228,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string PlaybackListName
         {
-            get => PlayerControl?.PlaybackListName ?? _playbackListName;
+            get => _playbackListName;
             set
             {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.PlaybackListName = value;
-                }
                 _playbackListName = value;
                 OnPropertyChanged();
             }
@@ -258,13 +243,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string PlaybackListSubtitle
         {
-            get => PlayerControl?.PlaybackListSubtitle ?? _playbackListSubtitle;
+            get => _playbackListSubtitle;
             set
             {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.PlaybackListSubtitle = value;
-                }
                 _playbackListSubtitle = value;
                 OnPropertyChanged();
             }
@@ -277,18 +258,10 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ObservableCollection<Track> PlaybackListTracks
         {
-            get => PlayerControl?.PlaybackListTracks ?? _playbackListTracks;
+            get => _playbackListTracks;
             set
             {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.PlaybackListTracks.Clear();
-                    if (value != null)
-                    {
-                        foreach (var t in value) PlayerControl.PlaybackListTracks.Add(t);
-                    }
-                }
-                _playbackListTracks = value ?? new ObservableCollection<Track>();
+                _playbackListTracks = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(PlaybackListTracksCountText));
             }
@@ -297,7 +270,14 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// トラックリストの総曲数表示文字列（例: "Tracklist (9 tracks)"）。
         /// </summary>
-        public string PlaybackListTracksCountText => PlayerControl?.PlaybackListTracksCountText ?? (PlaybackListTracks?.Count == 1 ? "Tracklist (1 track)" : $"Tracklist ({PlaybackListTracks?.Count ?? 0} tracks)");
+        public string PlaybackListTracksCountText
+        {
+            get
+            {
+                int count = PlaybackListTracks?.Count ?? 0;
+                return count == 1 ? "Tracklist (1 track)" : $"Tracklist ({count} tracks)";
+            }
+        }
 
         private ObservableCollection<Track> _playQueue = new ObservableCollection<Track>();
 
@@ -306,18 +286,10 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ObservableCollection<Track> PlayQueue
         {
-            get => PlayerControl?.PlayQueue ?? _playQueue;
+            get => _playQueue;
             set
             {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.PlayQueue.Clear();
-                    if (value != null)
-                    {
-                        foreach (var t in value) PlayerControl.PlayQueue.Add(t);
-                    }
-                }
-                _playQueue = value ?? new ObservableCollection<Track>();
+                _playQueue = value;
                 OnPropertyChanged();
             }
         }
@@ -333,13 +305,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ImageSource? PlaylistBackgroundImage
         {
-            get => Playlist?.PlaylistBackgroundImage ?? _playlistBackgroundImage;
+            get => _playlistBackgroundImage;
             set
             {
-                if (Playlist != null)
-                {
-                    Playlist.PlaylistBackgroundImage = value;
-                }
                 _playlistBackgroundImage = value;
                 OnPropertyChanged();
             }
@@ -396,42 +364,8 @@ namespace AudioEffector.Presentation.ViewModels
                 _audioService = LoggingProxy<IAudioService>.Create(_fallbackAudioService);
             }
             _equalizerApplicationService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<EqualizerApplicationService>(App.ServiceProvider) : null;
-            Equalizer ??= new Presentation.ViewModels.EqualizerViewModel(_equalizerApplicationService);
-            DeviceSync ??= new Presentation.ViewModels.DeviceSyncViewModel();
             _libraryService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<LibraryApplicationService>(App.ServiceProvider) : null;
             _playlistService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<PlaylistApplicationService>(App.ServiceProvider) : null;
-            var eventBus = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<AudioEffector.Application.Common.IEventBus>(App.ServiceProvider) : null;
-            Playlist ??= new Presentation.ViewModels.PlaylistViewModel(_playlistService, _audioService, eventBus, _libraryService);
-
-            if (Playlist != null)
-            {
-                Playlist.PlaylistSelected += pl => ShowPlaylist(pl);
-                Playlist.PlaylistSelectorRequested += () => ShowPlaylistSelector();
-                Playlist.AddToPlaylistRequested += pl => AddToPlaylist(pl);
-                Playlist.AddSelectedToPlaylistRequested += tr => AddSelectedToPlaylist(tr);
-                Playlist.AddAlbumToPlaylistRequested += al => ShowAddAlbumToPlaylistDialog(al);
-                Playlist.AddToPlaylistDialogRequested += () => ShowAddToPlaylistDialog(null);
-            }
-
-            Library ??= new Presentation.ViewModels.LibraryViewModel(_libraryService, _audioService);
-            if (Library != null)
-            {
-                Library.PlayAlbumRequested += al => PlayAlbum(al);
-                Library.PlayNextAlbumRequested += al => PlayNextAlbum(al);
-                Library.EnqueueAlbumRequested += al => EnqueueAlbum(al);
-                Library.DeleteAlbumRequested += al => DeleteAlbum(al);
-                Library.ToggleFavoriteRequested += tr => ToggleFavorite(tr);
-            }
-
-            PlayerControl ??= new Presentation.ViewModels.PlayerControlViewModel(null, eventBus, null, _audioService);
-            if (PlayerControl != null)
-            {
-                PlayerControl.PlayFromQueueRequested += tr => PlayFromQueue(tr);
-                PlayerControl.PlayNextRequested += tr => PlayNext(tr);
-                PlayerControl.EnqueueTrackRequested += tr => EnqueueTrack(tr);
-                PlayerControl.ShowQueueDialogRequested += () => ShowQueueDialog();
-            }
-
             if (App.ServiceProvider != null)
             {
                 var resolvedSettings = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider);
@@ -450,7 +384,6 @@ namespace AudioEffector.Presentation.ViewModels
                 _fallbackSettings = new SettingsApplicationService();
                 _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
             }
-            Folder = new Presentation.ViewModels.FolderViewModel(_settingsService, path => LoadLibrary(path));
             _favoritePaths = _libraryService?.LoadFavorites() ?? new List<string>();
 
             var appSettings = _settingsService.LoadSettings();
@@ -458,9 +391,14 @@ namespace AudioEffector.Presentation.ViewModels
 
             // Load playlists
             // プレイリストの読み込み
-            if (Playlist != null && Playlist.Playlists.Count == 0)
+            var loadedPlaylists = _playlistService?.LoadPlaylists() ?? new List<UserPlaylist>();
+            UserPlaylists = new ObservableCollection<UserPlaylist>(loadedPlaylists);
+
+            // Generate thumbnails for loaded playlists
+            // プレイリストのサムネイル生成
+            foreach (var playlist in UserPlaylists)
             {
-                Playlist.LoadPlaylists();
+                UpdatePlaylistThumbnails(playlist);
             }
 
             _audioService.TrackChanged += OnTrackChanged;
@@ -475,13 +413,44 @@ namespace AudioEffector.Presentation.ViewModels
 
             LoadDefaultImages();
             NowPlayingImage = _defaultNowPlayingImage;
+            SpectrumBackgroundImage = _defaultSpectrumImage;
 
-            if (!string.IsNullOrEmpty(appSettings.LastUsedEffectPreset) && Equalizer != null)
+            Bands = new ObservableCollection<BandViewModel>();
+            for (int i = 0; i < _audioService.Frequencies.Length; i++)
             {
-                Equalizer.SelectedPreset = Presets.FirstOrDefault(p => p.Name == appSettings.LastUsedEffectPreset) ?? Presets.FirstOrDefault();
+                Bands.Add(new BandViewModel
+                {
+                    Index = i,
+                    Frequency = _audioService.Frequencies[i],
+                    OnGainChanged = (idx, gain) => _audioService.SetGain(idx, gain)
+                });
             }
 
+            // Pre-populate SpectrumValues to avoid layout glitches
+            // レイアウト崩れを防ぐためにスペクトラム値を初期化
+            for (int i = 0; i < SpectrumBarCount; i++)
+            {
+                SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
+            }
 
+            Presets = new ObservableCollection<EqualizerPreset>(_equalizerApplicationService?.LoadPresets() ?? new List<EqualizerPreset>());
+            if (!string.IsNullOrEmpty(appSettings.LastUsedEffectPreset))
+            {
+                SelectedPreset = Presets.FirstOrDefault(p => p.Name == appSettings.LastUsedEffectPreset) ?? Presets.FirstOrDefault();
+            }
+            else
+            {
+                SelectedPreset = Presets.FirstOrDefault();
+            }
+
+            OpenFolderCommand = new RelayCommand(OpenFolder);
+            TogglePlayPauseCommand = new RelayCommand(o => _audioService.TogglePlayPause());
+            StopCommand = new RelayCommand(o => _audioService.Stop(false));
+            NextCommand = new RelayCommand(o => _audioService.Next());
+            PreviousCommand = new RelayCommand(o => _audioService.Previous());
+            SavePresetCommand = new RelayCommand(SavePreset);
+            DeletePresetCommand = new RelayCommand(DeletePreset);
+            ResetPresetCommand = new RelayCommand(Reset);
 
             PlayTrackCommand = new RelayCommand(o =>
             {
@@ -521,11 +490,33 @@ namespace AudioEffector.Presentation.ViewModels
             });
 
             ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
+            PlayNextCommand = new RelayCommand(PlayNext);
+            EnqueueTrackCommand = new RelayCommand(EnqueueTrack);
             ShowTrackPropertiesCommand = new RelayCommand(ShowTrackProperties);
             OpenFileLocationCommand = new RelayCommand(OpenFileLocation);
             DeleteTrackCommand = new RelayCommand(DeleteTrack);
+            ShowQueueDialogCommand = new RelayCommand(o => ShowQueueDialog());
+            PlayFromQueueCommand = new RelayCommand(o =>
+            {
+                if (o is Track t)
+                {
+                    if (t == CurrentTrack)
+                    {
+                        _audioService.TogglePlayPause();
+                    }
+                    else
+                    {
+                        _audioService.PlayTrack(t);
+                    }
+                }
+            });
+            ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
+            ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
 
             // Playlist commands
+            CreatePlaylistCommand = new RelayCommand(CreatePlaylist);
+            AddToPlaylistCommand = new RelayCommand(AddToPlaylist);
+            ShowPlaylistCommand = new RelayCommand(ShowPlaylist);
             ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
 
             SwitchViewCommand = new RelayCommand(param =>
@@ -543,10 +534,37 @@ namespace AudioEffector.Presentation.ViewModels
 
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
             ShowFolderCommand = new RelayCommand(o => ShowFolder());
+            ShowPlaylistSelectorCommand = new RelayCommand(o => ShowPlaylistSelector());
+            ShowAddToPlaylistDialogCommand = new RelayCommand(ShowAddToPlaylistDialog);
+            DeletePlaylistCommand = new RelayCommand(DeletePlaylist);
+            PlayPlaylistCommand = new RelayCommand(PlayPlaylist);
+            ShufflePlayPlaylistCommand = new RelayCommand(ShufflePlayPlaylist);
+            RenamePlaylistCommand = new RelayCommand(RenamePlaylist);
+            RemoveFromPlaylistCommand = new RelayCommand(RemoveFromPlaylist);
+
+            ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
+            ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
+            AddSelectedToPlaylistCommand = new RelayCommand(AddSelectedToPlaylist);
+            PlayAlbumCommand = new RelayCommand(PlayAlbum);
+            PlayNextAlbumCommand = new RelayCommand(PlayNextAlbum);
+            EnqueueAlbumCommand = new RelayCommand(EnqueueAlbum);
+            ShowAddAlbumToPlaylistDialogCommand = new RelayCommand(ShowAddAlbumToPlaylistDialog);
+            DeleteAlbumCommand = new RelayCommand(DeleteAlbum);
+
+            IncreaseVolumeCommand = new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
+            DecreaseVolumeCommand = new RelayCommand(o => Volume = Math.Max(0.0f, Volume - 0.05f));
+            ToggleMuteCommand = new RelayCommand(o => ToggleMute());
 
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => CurrentViewType = ViewType.DeviceSync);
+            SwitchToSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = true);
+            ToggleSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = !IsSpectrumVisible);
+
+            RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
             TransferSelectedCommand = new RelayCommand(o => TransferSelected());
+            NavigateDirectoryCommand = new RelayCommand(o => NavigateDirectory(o as DirectoryItem));
+            NavigateUpCommand = new RelayCommand(o => NavigateUp());
+            RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
             ShowDeviceManagerCommand = new RelayCommand(o => ShowDeviceManager());
             ShowSettingsCommand = new RelayCommand(o => ShowSettings());
             ToggleRightPanelCommand = new RelayCommand(o => IsRightPanelOpen = !IsRightPanelOpen);
@@ -612,29 +630,102 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        // ...
+
+
+        /// <summary>
+        /// デバイスの種類（ファイルシステム または MTP）
+        /// </summary>
+        public enum DeviceType
+        {
+            /// <summary>
+            /// USBマスストレージなどのファイルシステムデバイス
+            /// </summary>
+            FileSystem,
+
+            /// <summary>
+            /// ポータブルデバイスなどのMTPデバイス
+            /// </summary>
+            MTP
+        }
+
+        /// <summary>
+        /// 接続されたデバイスを表すViewModel
+        /// </summary>
+        public class DeviceViewModel
+        {
+            /// <summary>
+            /// デバイス名を取得または設定します
+            /// </summary>
+            public string Name { get; set; } = string.Empty;
+
+            /// <summary>
+            /// デバイス種別を取得または設定します
+            /// </summary>
+            public DeviceType Type { get; set; }
+
+            /// <summary>
+            /// ファイルシステムデバイスの場合のドライブ情報を取得または設定します
+            /// </summary>
+            public DriveInfo? Drive { get; set; }
+
+            /// <summary>
+            /// MTPデバイスの場合のデバイスインスタンスを取得または設定します
+            /// </summary>
+            public MediaDevice? MtpDevice { get; set; }
+
+            /// <summary>
+            /// デバイスのルートパスを取得または設定します
+            /// </summary>
+            public string RootPath { get; set; } = string.Empty; // For MTP, this might be device ID or root
+        }
+
         /// <summary>
         /// 接続されている外部デバイス一覧を取得または設定します
         /// </summary>
-        public ObservableCollection<DeviceViewModel> RemovableDrives => DeviceSync?.RemovableDrives ?? [];
+        public ObservableCollection<DeviceViewModel> RemovableDrives { get; set; } = new ObservableCollection<DeviceViewModel>();
 
         private DeviceViewModel? _selectedDevice;
 
         /// <summary>
         /// 現在選択されている同期対象デバイス。
+        /// 変更時にデバイスへの接続や初期ディレクトリ読み込みを行います。
         /// </summary>
         public DeviceViewModel? SelectedDevice
         {
-            get => DeviceSync?.SelectedDevice ?? _selectedDevice;
+            get => _selectedDevice;
             set
             {
-                if (DeviceSync != null)
-                {
-                    DeviceSync.SelectedDevice = value;
-                }
                 if (_selectedDevice != value)
                 {
+                    // Disconnect previous MTP device if applicable
+                    if (_selectedDevice?.Type == DeviceType.MTP && _selectedDevice.MtpDevice != null && _selectedDevice.MtpDevice.IsConnected)
+                    {
+                        try { _selectedDevice.MtpDevice.Disconnect(); } catch { }
+                    }
+
                     _selectedDevice = value;
                     OnPropertyChanged();
+
+                    if (_selectedDevice != null)
+                    {
+                        if (_selectedDevice.Type == DeviceType.MTP && _selectedDevice.MtpDevice != null)
+                        {
+                            try
+                            {
+                                _selectedDevice.MtpDevice.Connect();
+                                LoadDeviceDirectories(@"\"); // Root for MTP
+                            }
+                            catch (Exception ex)
+                            {
+                                MessageBox.Show($"Failed to connect to device: {ex.Message}");
+                            }
+                        }
+                        else if (_selectedDevice.Type == DeviceType.FileSystem && _selectedDevice.Drive != null)
+                        {
+                            LoadDeviceDirectories(_selectedDevice.Drive.RootDirectory.FullName);
+                        }
+                    }
                 }
             }
         }
@@ -689,29 +780,43 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// イコライザー周波数バンドのViewModelコレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<BandViewModel> Bands => Equalizer?.Bands ?? [];
+        public ObservableCollection<BandViewModel> Bands { get; set; }
 
         /// <summary>
         /// イコライザープリセットのコレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<EqualizerPreset> Presets => Equalizer?.Presets ?? [];
-
-        private ObservableCollection<Album> _albums = new ObservableCollection<Album>();
+        public ObservableCollection<EqualizerPreset> Presets { get; set; }
 
         /// <summary>
         /// ライブラリ内のアルバムコレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<Album> Albums => Library?.Albums ?? _albums;
+        public ObservableCollection<Album> Albums { get; set; } = new ObservableCollection<Album>();
 
         /// <summary>
         /// ユーザーが作成したプレイリストのコレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<UserPlaylist> UserPlaylists => Playlist?.Playlists ?? _userPlaylists;
+        public ObservableCollection<UserPlaylist> UserPlaylists
+        {
+            get => _userPlaylists;
+            set
+            {
+                _userPlaylists = value;
+                OnPropertyChanged();
+            }
+        }
 
         /// <summary>
         /// 選択中のプレイリストに含まれる楽曲コレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<Track> PlaylistTracks => Playlist?.PlaylistTracks ?? _playlistTracks;
+        public ObservableCollection<Track> PlaylistTracks
+        {
+            get => _playlistTracks;
+            set
+            {
+                _playlistTracks = value;
+                OnPropertyChanged();
+            }
+        }
 
         /// <summary>
         /// ライブラリビューが表示されているかどうかを示す値を取得または設定します
@@ -744,16 +849,11 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsPlaylistSelectorVisible
         {
-            get => Playlist?.IsPlaylistSelectorVisible ?? _isPlaylistSelectorVisible;
+            get => _isPlaylistSelectorVisible;
             set
             {
-                if (Playlist != null)
-                {
-                    Playlist.IsPlaylistSelectorVisible = value;
-                }
                 _isPlaylistSelectorVisible = value;
                 OnPropertyChanged();
-                OnPropertyChanged(nameof(IsPlaylistSectionActive));
             }
         }
 
@@ -780,13 +880,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsGridView
         {
-            get => Library?.IsGridView ?? _isGridView;
+            get => _isGridView;
             set
             {
-                if (Library != null)
-                {
-                    Library.IsGridView = value;
-                }
                 _isGridView = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsListView));
@@ -796,25 +892,29 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// リスト表示モードかどうか。
         /// </summary>
-        public bool IsListView => Library?.IsListView ?? !_isGridView;
+        public bool IsListView
+        {
+            get => !_isGridView;
+            set
+            {
+                IsGridView = !value;
+                OnPropertyChanged(nameof(IsGridView));
+            }
+        }
 
         /// <summary>
         /// ライブラリのソート順選択肢一覧を取得します
         /// </summary>
-        public List<string> SortOptions => Library?.SortOptions ?? new List<string> { "Artist", "Album" };
+        public List<string> SortOptions { get; } = new List<string> { "Artist", "Album" };
 
         /// <summary>
         /// 選択されているライブラリのソート順を取得または設定します
         /// </summary>
         public string SelectedSortOption
         {
-            get => Library?.SelectedSortOption ?? _selectedSortOption;
+            get => _selectedSortOption;
             set
             {
-                if (Library != null)
-                {
-                    Library.SelectedSortOption = value;
-                }
                 _selectedSortOption = value;
                 OnPropertyChanged();
                 SortLibrary();
@@ -876,13 +976,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsPlaying
         {
-            get => PlayerControl?.IsPlaying ?? _isPlaying;
+            get => _isPlaying;
             set
             {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.IsPlaying = value;
-                }
                 _isPlaying = value;
                 OnPropertyChanged();
             }
@@ -893,13 +989,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string CurrentTimeDisplay
         {
-            get => PlayerControl?.CurrentTimeDisplay ?? _currentTimeDisplay;
+            get => _currentTimeDisplay;
             set
             {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.CurrentTimeDisplay = value;
-                }
                 _currentTimeDisplay = value;
                 OnPropertyChanged();
             }
@@ -910,13 +1002,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string TotalTimeDisplay
         {
-            get => PlayerControl?.TotalTimeDisplay ?? _totalTimeDisplay;
+            get => _totalTimeDisplay;
             set
             {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.TotalTimeDisplay = value;
-                }
                 _totalTimeDisplay = value;
                 OnPropertyChanged();
             }
@@ -929,16 +1017,12 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public double Progress
         {
-            get => PlayerControl?.Progress ?? _progress;
+            get => _progress;
             set
             {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.Progress = value;
-                }
                 _progress = value;
                 OnPropertyChanged();
-                if (IsDraggingProgress)
+                if (_isDraggingProgress)
                 {
                     _audioService.SeekTo(value);
                 }
@@ -950,15 +1034,8 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsDraggingProgress
         {
-            get => PlayerControl?.IsDraggingProgress ?? _isDraggingProgress;
-            set
-            {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.IsDraggingProgress = value;
-                }
-                _isDraggingProgress = value;
-            }
+            get => _isDraggingProgress;
+            set => _isDraggingProgress = value;
         }
 
         /// <summary>
@@ -979,19 +1056,16 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public EqualizerPreset? SelectedPreset
         {
-            get => Equalizer?.SelectedPreset ?? _selectedPreset;
+            get => _selectedPreset;
             set
             {
-                if (Equalizer != null)
-                {
-                    Equalizer.SelectedPreset = value;
-                }
                 if (_selectedPreset != value)
                 {
                     _selectedPreset = value;
                     OnPropertyChanged();
                     if (_selectedPreset != null)
                     {
+                        ApplyPreset(_selectedPreset);
                         var settings = _settingsService.LoadSettings();
                         settings.LastUsedEffectPreset = _selectedPreset.Name;
                         _settingsService.SaveSettings(settings);
@@ -1005,7 +1079,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 音楽フォルダーを開くコマンドを取得します
         /// </summary>
-        public ICommand OpenFolderCommand => Folder.OpenFolderCommand;
+        public ICommand OpenFolderCommand { get; }
 
         private bool _isDeviceConnected;
 
@@ -1036,32 +1110,32 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 再生/一時停止を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand TogglePlayPauseCommand => PlayerControl?.TogglePlayPauseCommand ?? new RelayCommand(o => _audioService.TogglePlayPause());
+        public ICommand TogglePlayPauseCommand { get; }
 
         /// <summary>
         /// 次のトラックへ進むコマンドを取得します
         /// </summary>
-        public ICommand NextCommand => PlayerControl?.NextCommand ?? new RelayCommand(o => _audioService.Next());
+        public ICommand NextCommand { get; }
 
         /// <summary>
         /// 前のトラックへ戻るコマンドを取得します
         /// </summary>
-        public ICommand PreviousCommand => PlayerControl?.PreviousCommand ?? new RelayCommand(o => _audioService.Previous());
+        public ICommand PreviousCommand { get; }
 
         /// <summary>
         /// イコライザープリセットを保存するコマンドを取得します
         /// </summary>
-        public ICommand SavePresetCommand => Equalizer?.SavePresetCommand ?? new RelayCommand(_ => { });
+        public ICommand SavePresetCommand { get; }
 
         /// <summary>
         /// イコライザープリセットを削除するコマンドを取得します
         /// </summary>
-        public ICommand DeletePresetCommand => Equalizer?.DeletePresetCommand ?? new RelayCommand(_ => { });
+        public ICommand DeletePresetCommand { get; }
 
         /// <summary>
         /// イコライザー設定をリセットするコマンドを取得します
         /// </summary>
-        public ICommand ResetPresetCommand => Equalizer?.ResetPresetCommand ?? new RelayCommand(_ => { });
+        public ICommand ResetPresetCommand { get; }
 
         /// <summary>
         /// 指定したトラックを再生するコマンドを取得します
@@ -1076,22 +1150,22 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 表示ビューの切り替えコマンドを取得します
         /// </summary>
-        public ICommand ToggleViewCommand => Library?.ToggleViewCommand ?? new RelayCommand(o => IsGridView = !IsGridView);
+        public ICommand ToggleViewCommand { get; }
 
         /// <summary>
         /// 新しいプレイリストを作成するコマンドを取得します
         /// </summary>
-        public ICommand CreatePlaylistCommand => Playlist?.CreatePlaylistCommand ?? new RelayCommand(CreatePlaylist);
+        public ICommand CreatePlaylistCommand { get; }
 
         /// <summary>
         /// 楽曲をプレイリストに追加するコマンドを取得します
         /// </summary>
-        public ICommand AddToPlaylistCommand => Playlist?.AddToPlaylistCommand ?? new RelayCommand(AddToPlaylist);
+        public ICommand AddToPlaylistCommand { get; }
 
         /// <summary>
         /// 指定したプレイリストを表示するコマンドを取得します
         /// </summary>
-        public ICommand ShowPlaylistCommand => Playlist?.ShowPlaylistCommand ?? new RelayCommand(ShowPlaylist);
+        public ICommand ShowPlaylistCommand { get; }
 
         /// <summary>
         /// お気に入り楽曲一覧を表示するコマンドを取得します
@@ -1111,72 +1185,72 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// プレイリスト選択画面を表示するコマンドを取得します
         /// </summary>
-        public ICommand ShowPlaylistSelectorCommand => Playlist?.ShowPlaylistSelectorCommand ?? new RelayCommand(o => ShowPlaylistSelector());
+        public ICommand ShowPlaylistSelectorCommand { get; }
 
         /// <summary>
         /// プレイリスト追加ダイアログを表示するコマンドを取得します
         /// </summary>
-        public ICommand ShowAddToPlaylistDialogCommand => Playlist?.ShowAddToPlaylistDialogCommand ?? new RelayCommand(ShowAddToPlaylistDialog);
+        public ICommand ShowAddToPlaylistDialogCommand { get; }
 
         /// <summary>
         /// プレイリストを削除するコマンドを取得します
         /// </summary>
-        public ICommand DeletePlaylistCommand => Playlist?.DeletePlaylistCommand ?? new RelayCommand(DeletePlaylist);
+        public ICommand DeletePlaylistCommand { get; }
 
         /// <summary>
         /// プレイリストを再生するコマンドを取得します
         /// </summary>
-        public ICommand PlayPlaylistCommand => Playlist?.PlayPlaylistCommand ?? new RelayCommand(PlayPlaylist);
+        public ICommand PlayPlaylistCommand { get; }
 
         /// <summary>
         /// プレイリストをシャッフル再生するコマンドを取得します
         /// </summary>
-        public ICommand ShufflePlayPlaylistCommand => Playlist?.ShufflePlayPlaylistCommand ?? new RelayCommand(ShufflePlayPlaylist);
+        public ICommand ShufflePlayPlaylistCommand { get; }
 
         /// <summary>
         /// プレイリスト名を変更するコマンドを取得します
         /// </summary>
-        public ICommand RenamePlaylistCommand => Playlist?.RenamePlaylistCommand ?? new RelayCommand(RenamePlaylist);
+        public ICommand RenamePlaylistCommand { get; }
 
         /// <summary>
         /// プレイリストから楽曲を削除するコマンドを取得します
         /// </summary>
-        public ICommand RemoveFromPlaylistCommand => Playlist?.RemoveFromPlaylistCommand ?? new RelayCommand(RemoveFromPlaylist);
+        public ICommand RemoveFromPlaylistCommand { get; }
 
         /// <summary>
         /// アルバム全体を再生するコマンドを取得します
         /// </summary>
-        public ICommand PlayAlbumCommand => Library?.PlayAlbumCommand ?? new RelayCommand(PlayAlbum);
+        public ICommand PlayAlbumCommand { get; }
 
         /// <summary>
         /// 次に再生するアルバムとしてキューに追加するコマンドを取得します
         /// </summary>
-        public ICommand PlayNextAlbumCommand => Library?.PlayNextAlbumCommand ?? new RelayCommand(PlayNextAlbum);
+        public ICommand PlayNextAlbumCommand { get; }
 
         /// <summary>
         /// アルバムをキューの末尾に追加するコマンドを取得します
         /// </summary>
-        public ICommand EnqueueAlbumCommand => Library?.EnqueueAlbumCommand ?? new RelayCommand(EnqueueAlbum);
+        public ICommand EnqueueAlbumCommand { get; }
 
         /// <summary>
         /// アルバムをプレイリストに追加するダイアログを表示するコマンドを取得します
         /// </summary>
-        public ICommand ShowAddAlbumToPlaylistDialogCommand => Playlist?.ShowAddAlbumToPlaylistDialogCommand ?? new RelayCommand(ShowAddAlbumToPlaylistDialog);
+        public ICommand ShowAddAlbumToPlaylistDialogCommand { get; }
 
         /// <summary>
         /// アルバムを削除するコマンドを取得します
         /// </summary>
-        public ICommand DeleteAlbumCommand => Library?.DeleteAlbumCommand ?? new RelayCommand(DeleteAlbum);
+        public ICommand DeleteAlbumCommand { get; }
 
         /// <summary>
         /// 指定トラックを次に再生するようキューに追加するコマンドを取得します
         /// </summary>
-        public ICommand PlayNextCommand => PlayerControl?.PlayNextCommand ?? new RelayCommand(PlayNext);
+        public ICommand PlayNextCommand { get; }
 
         /// <summary>
         /// 指定トラックをキューの末尾に追加するコマンドを取得します
         /// </summary>
-        public ICommand EnqueueTrackCommand => PlayerControl?.EnqueueTrackCommand ?? new RelayCommand(EnqueueTrack);
+        public ICommand EnqueueTrackCommand { get; }
 
         /// <summary>
         /// トラックプロパティを表示するコマンドを取得します
@@ -1196,18 +1270,12 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 再生キューダイアログを表示するコマンドを取得します
         /// </summary>
-        public ICommand ShowQueueDialogCommand => PlayerControl?.ShowQueueDialogCommand ?? new RelayCommand(o => ShowQueueDialog());
+        public ICommand ShowQueueDialogCommand { get; }
 
         /// <summary>
         /// 再生キュー内の指定曲を再生するコマンドを取得します
         /// </summary>
-        public ICommand PlayFromQueueCommand => PlayerControl?.PlayFromQueueCommand ?? new RelayCommand(o =>
-        {
-            if (o is Track t)
-            {
-                PlayFromQueue(t);
-            }
-        });
+        public ICommand PlayFromQueueCommand { get; }
 
         // Device Sync Commands
 
@@ -1224,17 +1292,17 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 接続中の外部ドライブ一覧を再検出するコマンドを取得します
         /// </summary>
-        public ICommand RefreshDrivesCommand => DeviceSync?.RefreshDrivesCommand ?? new RelayCommand(_ => { });
+        public ICommand RefreshDrivesCommand { get; }
 
         /// <summary>
         /// デバイス内の指定ディレクトリへ移動するコマンドを取得します
         /// </summary>
-        public ICommand NavigateDirectoryCommand => DeviceSync?.NavigateDirectoryCommand ?? new RelayCommand(_ => { });
+        public ICommand NavigateDirectoryCommand { get; }
 
         /// <summary>
         /// デバイス内の親ディレクトリへ移動するコマンドを取得します
         /// </summary>
-        public ICommand NavigateUpCommand => DeviceSync?.NavigateUpCommand ?? new RelayCommand(_ => { });
+        public ICommand NavigateUpCommand { get; }
 
         private bool _isAscending = true;
 
@@ -1243,13 +1311,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsAscending
         {
-            get => Library?.IsAscending ?? _isAscending;
+            get => _isAscending;
             set
             {
-                if (Library != null)
-                {
-                    Library.IsAscending = value;
-                }
                 _isAscending = value;
                 OnPropertyChanged();
                 SortLibrary();
@@ -1262,13 +1326,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsSelectionMode
         {
-            get => Library?.IsSelectionMode ?? _isSelectionMode;
+            get => _isSelectionMode;
             set
             {
-                if (Library != null)
-                {
-                    Library.IsSelectionMode = value;
-                }
                 _isSelectionMode = value;
                 OnPropertyChanged();
             }
@@ -1280,13 +1340,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsAlbumRepeat
         {
-            get => PlayerControl?.IsAlbumRepeat ?? _isAlbumRepeat;
+            get => _isAlbumRepeat;
             set
             {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.IsAlbumRepeat = value;
-                }
                 _isAlbumRepeat = value;
                 _audioService.IsRepeatEnabled = value;
                 OnPropertyChanged();
@@ -1296,42 +1352,42 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// ソート順（昇順/降順）を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand ToggleSortDirectionCommand => Library?.ToggleSortDirectionCommand ?? new RelayCommand(o => IsAscending = !IsAscending);
+        public ICommand ToggleSortDirectionCommand { get; }
 
         /// <summary>
         /// トラック選択モードの有効/無効を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand ToggleSelectionModeCommand => Library?.ToggleSelectionModeCommand ?? new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
+        public ICommand ToggleSelectionModeCommand { get; }
 
         /// <summary>
         /// リピート再生の有効/無効を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand ToggleRepeatCommand => PlayerControl?.ToggleRepeatCommand ?? new RelayCommand(ToggleRepeat);
+        public ICommand ToggleRepeatCommand { get; }
 
         /// <summary>
         /// 選択されたトラックをプレイリストに追加するコマンドを取得します
         /// </summary>
-        public ICommand AddSelectedToPlaylistCommand => Playlist?.AddSelectedToPlaylistCommand ?? new RelayCommand(AddSelectedToPlaylist);
+        public ICommand AddSelectedToPlaylistCommand { get; }
 
         /// <summary>
         /// 音量を上げるコマンドを取得します
         /// </summary>
-        public ICommand IncreaseVolumeCommand => PlayerControl?.IncreaseVolumeCommand ?? new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
+        public ICommand IncreaseVolumeCommand { get; }
 
         /// <summary>
         /// 音量を下げるコマンドを取得します
         /// </summary>
-        public ICommand DecreaseVolumeCommand => PlayerControl?.DecreaseVolumeCommand ?? new RelayCommand(o => Volume = Math.Max(0.0f, Volume - 0.05f));
+        public ICommand DecreaseVolumeCommand { get; }
 
         /// <summary>
         /// 再生を停止するコマンドを取得します
         /// </summary>
-        public ICommand StopCommand => PlayerControl?.StopCommand ?? new RelayCommand(o => _audioService.Stop(false));
+        public ICommand StopCommand { get; }
 
         /// <summary>
         /// ミュート状態を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand ToggleMuteCommand => PlayerControl?.ToggleMuteCommand ?? new RelayCommand(o => ToggleMute());
+        public ICommand ToggleMuteCommand { get; }
 
         private bool _isMuted;
         private float _preMuteVolume = 1.0f;
@@ -1357,13 +1413,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public float Volume
         {
-            get => PlayerControl != null ? (float)PlayerControl.Volume : _audioService.Volume;
+            get => _audioService.Volume;
             set
             {
-                if (PlayerControl != null)
-                {
-                    PlayerControl.Volume = value;
-                }
                 if (_audioService.Volume != value)
                 {
                     _audioService.Volume = value;
@@ -1382,12 +1434,33 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 音量のパーセント表示文字列を取得します
         /// </summary>
-        public string VolumePercent => PlayerControl?.VolumePercent ?? $"{(int)(Volume * 100)}%";
+        public string VolumePercent => $"{(int)(Volume * 100)}%";
+
+        /// <summary>
+        /// 外部デバイス上のディレクトリまたはファイルアイテムを表すクラス
+        /// </summary>
+        public class DirectoryItem
+        {
+            /// <summary>
+            /// アイテム名を取得または設定します
+            /// </summary>
+            public string Name { get; set; } = string.Empty;
+
+            /// <summary>
+            /// アイテムのフルパスを取得または設定します
+            /// </summary>
+            public string FullPath { get; set; } = string.Empty;
+
+            /// <summary>
+            /// フォルダーかどうかを示す値を取得または設定します
+            /// </summary>
+            public bool IsFolder { get; set; }
+        }
 
         /// <summary>
         /// デバイス内のディレクトリアイテム一覧を取得または設定します
         /// </summary>
-        public ObservableCollection<DirectoryItem> DeviceDirectories => DeviceSync?.DeviceDirectories ?? [];
+        public ObservableCollection<DirectoryItem> DeviceDirectories { get; set; } = new ObservableCollection<DirectoryItem>();
 
         private GridLength _leftColumnWidth = new GridLength(300);
         /// <summary>
@@ -1409,7 +1482,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// ディレクトリ一覧を再読み込みするコマンドを取得します
         /// </summary>
-        public ICommand RefreshDirectoryCommand => DeviceSync?.RefreshDirectoryCommand ?? new RelayCommand(_ => { });
+        public ICommand RefreshDirectoryCommand { get; }
 
         /// <summary>
         /// 外部デバイス管理ダイアログを表示するコマンドを取得します
@@ -1422,19 +1495,14 @@ namespace AudioEffector.Presentation.ViewModels
         public ICommand ShowSettingsCommand { get; }
 
         private string _currentDevicePath = string.Empty;
-
         /// <summary>
         /// 現在デバイス上で表示しているパス
         /// </summary>
         public string CurrentDevicePath
         {
-            get => DeviceSync?.CurrentDevicePath ?? _currentDevicePath;
+            get => _currentDevicePath;
             set
             {
-                if (DeviceSync != null)
-                {
-                    DeviceSync.CurrentDevicePath = value;
-                }
                 _currentDevicePath = value;
                 OnPropertyChanged();
             }
@@ -1447,13 +1515,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public DirectoryItem? SelectedDeviceDirectory
         {
-            get => DeviceSync?.SelectedDeviceDirectory ?? _selectedDeviceDirectory;
+            get => _selectedDeviceDirectory;
             set
             {
-                if (DeviceSync != null)
-                {
-                    DeviceSync.SelectedDeviceDirectory = value;
-                }
                 _selectedDeviceDirectory = value;
                 OnPropertyChanged();
             }
@@ -1464,7 +1528,46 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         private void RefreshDrives()
         {
-            DeviceSync?.RefreshDrives();
+            if (IsTransferring) return; // 転送中の切断を防止
+
+            RemovableDrives.Clear();
+
+            // Add File System Drives
+            // ファイルシステムドライブの追加
+            var drives = DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Removable).ToList();
+            foreach (var drive in drives)
+            {
+                RemovableDrives.Add(new DeviceViewModel
+                {
+                    Name = $"{drive.VolumeLabel} ({drive.Name})",
+                    Type = DeviceType.FileSystem,
+                    Drive = drive,
+                    RootPath = drive.RootDirectory.FullName
+                });
+            }
+
+            // Add MTP Devices
+            // MTPデバイスの追加
+            try
+            {
+                var devices = MediaDevice.GetDevices();
+                foreach (var device in devices)
+                {
+                    RemovableDrives.Add(new DeviceViewModel
+                    {
+                        Name = device.FriendlyName,
+                        Type = DeviceType.MTP,
+                        MtpDevice = device,
+                        RootPath = @"\" // MTP root
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error listing MTP devices: {ex.Message}");
+            }
+
+            SelectedDevice = RemovableDrives.FirstOrDefault();
         }
 
         /// <summary>
@@ -1473,7 +1576,81 @@ namespace AudioEffector.Presentation.ViewModels
         /// <param name="path">ロード対象のディレクトリパス。</param>
         private void LoadDeviceDirectories(string path)
         {
-            DeviceSync?.LoadDeviceDirectories(path);
+            try
+            {
+                DeviceDirectories.Clear();
+                CurrentDevicePath = path;
+
+                if (SelectedDevice == null) return;
+
+                if (SelectedDevice.Type == DeviceType.FileSystem)
+                {
+                    if (Directory.Exists(path))
+                    {
+                        // Add Directories
+                        // ディレクトリの追加
+                        var dirs = Directory.GetDirectories(path);
+                        foreach (var dir in dirs)
+                        {
+                            DeviceDirectories.Add(new DirectoryItem
+                            {
+                                Name = Path.GetFileName(dir),
+                                FullPath = dir,
+                                IsFolder = true
+                            });
+                        }
+
+                        // Add Files
+                        // ファイルの追加
+                        var files = Directory.GetFiles(path);
+                        foreach (var file in files)
+                        {
+                            DeviceDirectories.Add(new DirectoryItem
+                            {
+                                Name = Path.GetFileName(file),
+                                FullPath = file,
+                                IsFolder = false
+                            });
+                        }
+                    }
+                }
+                else if (SelectedDevice.Type == DeviceType.MTP && SelectedDevice.MtpDevice != null)
+                {
+                    if (SelectedDevice.MtpDevice.IsConnected)
+                    {
+                        // Add Directories
+                        var dirs = SelectedDevice.MtpDevice.GetDirectories(path);
+                        foreach (var dir in dirs)
+                        {
+                            DeviceDirectories.Add(new DirectoryItem
+                            {
+                                Name = Path.GetFileName(dir),
+                                FullPath = dir,
+                                IsFolder = true
+                            });
+                        }
+
+                        // Add Files
+                        // ファイルの追加
+                        var files = SelectedDevice.MtpDevice.GetFiles(path);
+                        foreach (var file in files)
+                        {
+                            DeviceDirectories.Add(new DirectoryItem
+                            {
+                                Name = Path.GetFileName(file),
+                                FullPath = file,
+                                IsFolder = false
+                            });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading directories: {ex.Message}");
+                MessageBox.Show($"Error loading directory: {ex.Message}");
+            }
+
             CheckDeviceAlbums();
         }
 
@@ -1537,14 +1714,37 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void NavigateDirectory(DirectoryItem? dir)
         {
-            DeviceSync?.NavigateDirectory(dir);
-            CheckDeviceAlbums();
+            if (dir == null || !dir.IsFolder) return;
+            LoadDeviceDirectories(dir.FullPath);
         }
 
         private void NavigateUp()
         {
-            DeviceSync?.NavigateUp();
-            CheckDeviceAlbums();
+            try
+            {
+                if (string.IsNullOrEmpty(CurrentDevicePath) || SelectedDevice == null) return;
+
+                if (SelectedDevice.Type == DeviceType.FileSystem)
+                {
+                    var parent = Directory.GetParent(CurrentDevicePath);
+                    if (parent != null)
+                    {
+                        LoadDeviceDirectories(parent.FullName);
+                    }
+                }
+                else if (SelectedDevice.Type == DeviceType.MTP)
+                {
+                    if (CurrentDevicePath == @"\" || CurrentDevicePath == "/") return;
+
+                    var parentPath = Path.GetDirectoryName(CurrentDevicePath);
+                    if (string.IsNullOrEmpty(parentPath)) parentPath = @"\";
+                    LoadDeviceDirectories(parentPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error navigating up: {ex.Message}");
+            }
         }
 
         private string SanitizeFileName(string name)
@@ -1999,8 +2199,17 @@ namespace AudioEffector.Presentation.ViewModels
         /// <param name="track">新しいトラック。</param>
         private void OnTrackChanged(Track track)
         {
+            // Increment generation to invalidate pending FFT updates
+            System.Threading.Interlocked.Increment(ref _spectrumGeneration);
+
             // Reset Spectrum immediately to prevent glitches
-            Equalizer?.ResetSpectrum();
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                foreach (var item in SpectrumValues)
+                {
+                    item.Value = 0;
+                }
+            });
 
             if (CurrentTrack != null)
             {
@@ -2084,8 +2293,8 @@ namespace AudioEffector.Presentation.ViewModels
                                     SpectrumBackgroundImageGray = grayImage;
                                     IsDefaultSpectrumImage = false;
 
-                                    // Update Spectrum Art
-                                    Equalizer?.UpdateSpectrumArt(image);
+                                    // Update Spectrum Bar Color
+                                    UpdateSpectrumBrush(image);
                                 });
                             }
                             else
@@ -2093,7 +2302,15 @@ namespace AudioEffector.Presentation.ViewModels
                                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
                                     NowPlayingImage = _defaultNowPlayingImage;
-                                    Equalizer?.ResetSpectrumArt();
+                                    SpectrumBackgroundImage = _defaultSpectrumImage;
+                                    SpectrumBackgroundImageGray = null;
+
+                                    // Border: Brighter (Lower Saturation), 100% Opacity
+                                    var borderColor = Color.FromRgb(204, 249, 255);
+                                    borderColor.A = 255;
+                                    var solidBorderBrush = new SolidColorBrush(borderColor);
+                                    solidBorderBrush.Freeze();
+                                    SpectrumBorderBrush = solidBorderBrush;
                                 });
                             }
                         }
@@ -2102,7 +2319,24 @@ namespace AudioEffector.Presentation.ViewModels
                     {
                         System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                         {
-                            Equalizer?.ResetSpectrumArt();
+                            // Default Gradient
+                            // Default Gradient: Right to Left
+                            var brush = new LinearGradientBrush();
+                            brush.StartPoint = new Point(1, 0.5);
+                            brush.EndPoint = new Point(0, 0.5);
+                            brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
+                            brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+                            brush.Freeze();
+                            SpectrumBarBrush = brush;
+                            SpectrumShadowColor = Color.FromRgb(0, 229, 255);
+
+                            // Border: Brighter (Lower Saturation), 100% Opacity
+                            // Reduced Saturation: S=0.2 (Very White)
+                            var borderColor = Color.FromRgb(204, 249, 255); // Approx for H186 S0.2 V1.0
+                            borderColor.A = 255;
+                            var solidBorderBrush = new SolidColorBrush(borderColor);
+                            solidBorderBrush.Freeze();
+                            SpectrumBorderBrush = solidBorderBrush;
                         });
                     }
                 });
@@ -2266,6 +2500,24 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         /// <summary>
+        /// フォルダー選択ダイアログを開き、新しいライブラリパスを設定します。
+        /// </summary>
+        private void OpenFolder(object? obj)
+        {
+            var dialog = new OpenFolderDialog();
+            if (dialog.ShowDialog() == true)
+            {
+                string selectedPath = dialog.FolderName;
+
+                var settings = _settingsService.LoadSettings();
+                settings.LastLibraryPath = selectedPath;
+                _settingsService.SaveSettings(settings);
+
+                LoadLibrary(selectedPath);
+            }
+        }
+
+        /// <summary>
         /// 指定されたイコライザープリセットを適用します。
         /// </summary>
         private void ApplyPreset(EqualizerPreset preset)
@@ -2410,18 +2662,6 @@ namespace AudioEffector.Presentation.ViewModels
                     }
                 }
                 _libraryService?.SaveFavorites(_favoritePaths);
-            }
-        }
-
-        private void PlayFromQueue(Track track)
-        {
-            if (track == CurrentTrack)
-            {
-                _audioService.TogglePlayPause();
-            }
-            else
-            {
-                _audioService.PlayTrack(track);
             }
         }
 
@@ -2749,6 +2989,76 @@ namespace AudioEffector.Presentation.ViewModels
             dialog.ShowDialog();
         }
 
+        private void SavePreset(object? obj)
+        {
+            try
+            {
+                var inputBox = new Views.InputBox("Enter Preset Name:", $"User Preset {DateTime.Now:MM-dd HH:mm}");
+                if (inputBox.ShowDialog() == true)
+                {
+                    string name = inputBox.InputText;
+                    if (string.IsNullOrWhiteSpace(name)) name = "Untitled Preset";
+
+                    var newPreset = new EqualizerPreset
+                    {
+                        Name = name,
+                        Gains = Bands.Select(b => b.Gain).ToList()
+                    };
+                    Presets.Add(newPreset);
+                    _equalizerApplicationService?.SavePresets(Presets.ToList());
+                    SelectedPreset = newPreset;
+                    MessageBox.Show("プリセットを保存しました。\nPreset Saved.", "保存完了");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error saving preset: {ex.Message}", "Error");
+            }
+        }
+
+        private void DeletePreset(object? obj)
+        {
+            if (SelectedPreset != null && Presets.Contains(SelectedPreset))
+            {
+                // Prevent deletion of default presets
+                var defaultPresets = new[] { "フラット (Flat)", "ロック (Rock)", "ポップ (Pop)" }; // Corrected literals to match potential JP names if localized, but keeping safe
+                if (defaultPresets.Contains(SelectedPreset.Name) || SelectedPreset.Name.Contains("Flat") || SelectedPreset.Name.Contains("Rock") || SelectedPreset.Name.Contains("Pop"))
+                {
+                    MessageBox.Show($"'{SelectedPreset.Name}' is a default preset and cannot be deleted.", "Cannot Delete", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                if (MessageBox.Show($"Are you sure you want to delete '{SelectedPreset.Name}'?", "Delete Preset", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                {
+                    try
+                    {
+                        Presets.Remove(SelectedPreset);
+                        _equalizerApplicationService?.SavePresets(Presets.ToList());
+                        SelectedPreset = Presets.FirstOrDefault();
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error saving presets: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        // Optionally reload presets to ensure UI is in sync with file
+                        // Presets = new ObservableCollection<Preset>(_presetService.LoadPresets());
+                    }
+                }
+            }
+        }
+
+
+
+
+
+        private void Reset(object? obj)
+        {
+            foreach (var band in Bands)
+            {
+                band.Gain = 0;
+            }
+            // Set preset display to "Flat" (match default preset name)
+            SelectedPreset = Presets.FirstOrDefault(p => p.Name.Contains("Flat"));
+        }
 
         /// <summary>
         /// リソースのクリーンアップを行います
@@ -2797,7 +3107,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// プレイリストセクションがアクティブかどうかを示す値を取得します
         /// </summary>
-        public bool IsPlaylistSectionActive => Playlist?.IsPlaylistSectionActive ?? (IsPlaylistSelectorVisible || (IsPlaylistTracksVisible && !IsFavoritesView));
+        public bool IsPlaylistSectionActive => IsPlaylistSelectorVisible || (IsPlaylistTracksVisible && !IsFavoritesView);
 
         private bool _isFavoritesView;
 
@@ -2806,13 +3116,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsFavoritesView
         {
-            get => Playlist?.IsFavoritesView ?? _isFavoritesView;
+            get => _isFavoritesView;
             set
             {
-                if (Playlist != null)
-                {
-                    Playlist.IsFavoritesView = value;
-                }
                 if (_isFavoritesView != value)
                 {
                     _isFavoritesView = value;
@@ -2829,13 +3135,9 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string CurrentPlaylistName
         {
-            get => Playlist?.CurrentPlaylistName ?? _currentPlaylistName;
+            get => _currentPlaylistName;
             set
             {
-                if (Playlist != null)
-                {
-                    Playlist.CurrentPlaylistName = value;
-                }
                 if (_currentPlaylistName != value)
                 {
                     _currentPlaylistName = value;
@@ -3245,17 +3547,20 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        // Spectrum Analyzer Logic
+        private bool _isSpectrumVisible = true; // Default to true as requested
+
         /// <summary>
         /// スペクトラムアナライザーが表示されているかどうかを示す値を取得または設定します
         /// </summary>
         public bool IsSpectrumVisible
         {
-            get => Equalizer?.IsSpectrumVisible ?? false;
+            get => _isSpectrumVisible;
             set
             {
-                if (Equalizer != null && Equalizer.IsSpectrumVisible != value)
+                if (_isSpectrumVisible != value)
                 {
-                    Equalizer.IsSpectrumVisible = value;
+                    _isSpectrumVisible = value;
                     OnPropertyChanged();
                     if (value && CurrentViewType == ViewType.DeviceSync)
                     {
@@ -3268,29 +3573,210 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// スペクトラムアナライザー表示へ切り替えるコマンドを取得します
         /// </summary>
-        public ICommand SwitchToSpectrumCommand => Equalizer?.SwitchToSpectrumCommand ?? new RelayCommand(_ => { });
+        public ICommand SwitchToSpectrumCommand { get; }
 
         /// <summary>
         /// スペクトラムアナライザーの表示/非表示を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand ToggleSpectrumCommand => Equalizer?.ToggleSpectrumCommand ?? new RelayCommand(_ => { });
+        public ICommand ToggleSpectrumCommand { get; }
 
         /// <summary>
         /// スペクトラムアナライザーの各周波数バーのViewModelコレクションを取得します
         /// </summary>
-        public ObservableCollection<SpectrumBarItem> SpectrumValues => Equalizer?.SpectrumValues ?? [];
+        public ObservableCollection<SpectrumBarItem> SpectrumValues { get; } = new ObservableCollection<SpectrumBarItem>();
+
+        private readonly TimeSpan _spectrumUpdateInterval = TimeSpan.FromMilliseconds(1000.0 / 30.0); // 約33ms (30fps)
+        private DateTime _lastSpectrumUpdateTime = DateTime.MinValue;
 
         /// <summary>
         /// FFT（高速フーリエ変換）の計算結果を受け取り、スペクトラムアナライザーのバーの高さを更新します
         /// </summary>
         private void OnFftCalculated(object? sender, FftEventArgs e)
         {
-            Equalizer?.OnFftCalculated(sender, e);
+            if (!IsSpectrumVisible) return;
+
+            // スロットリング: 一定間隔未満の更新はスキップ
+            if (DateTime.Now - _lastSpectrumUpdateTime < _spectrumUpdateInterval) return;
+            _lastSpectrumUpdateTime = DateTime.Now;
+
+            // Capture current generation
+            int currentGen = _spectrumGeneration;
+
+            int barCount = SpectrumBarCount;
+            var newValues = new double[barCount];
+
+            // FFT parameters (40Hz to 18kHz for rich musical responsiveness)
+            double minFreq = 30;
+            double maxFreq = 18000;
+            double logMin = Math.Log10(minFreq);
+            double logMax = Math.Log10(maxFreq);
+            double logStep = (logMax - logMin) / barCount;
+
+            for (int i = 0; i < barCount; i++)
+            {
+                // Calculate frequency range for this bar (Log scale)
+                double fStart = Math.Pow(10, logMin + i * logStep);
+                double fEnd = Math.Pow(10, logMin + (i + 1) * logStep);
+
+                int iStart = (int)(fStart * 512 / 22050);
+                int iEnd = (int)(fEnd * 512 / 22050);
+
+                if (iStart < 0) iStart = 0;
+                if (iEnd >= 512) iEnd = 511;
+                if (iEnd < iStart) iEnd = iStart;
+
+                double sum = 0;
+                int count = 0;
+
+                for (int index = iStart; index <= iEnd; index++)
+                {
+                    // Skip DC offset (index 0)
+                    if (index < 1) continue;
+
+                    if (index < e.Result.Length)
+                    {
+                        var c = e.Result[index];
+                        double mag = Math.Sqrt(c.X * c.X + c.Y * c.Y);
+                        sum += mag;
+                        count++;
+                    }
+                }
+
+                double avg = count > 0 ? sum / count : 0;
+                double db = (avg > 1e-6) ? 20 * Math.Log10(avg) : -120;
+
+                // Center frequency of this bar (Hz)
+                double centerFreq = Math.Sqrt(fStart * fEnd);
+
+                // High frequency tilt: compensate physical sound rolloff (+8.5dB per octave above 250Hz)
+                // 高音域（250Hz以上）の周波数減衰をオクターブ単位で大幅補正
+                double trebleTilt = (centerFreq > 250) ? Math.Log2(centerFreq / 250.0) * SpectrumTrebleTiltDb : 0.0;
+
+                // Dynamic range mapping (-65dB floor threshold)
+                double adjustedDb = db + 65 + trebleTilt;
+                double val = Math.Max(0, adjustedDb) * SpectrumSensitivity;
+
+                // Apply frequency band scaling coefficients (Bass / Mid / Treble)
+                if (centerFreq < 250)
+                {
+                    // Smooth transition from sub-bass to upper bass
+                    double bassRatio = Math.Min(1.0, centerFreq / 250.0);
+                    double bassMultiplier = 0.45 + (SpectrumBassScale - 0.45) * bassRatio;
+                    val *= bassMultiplier;
+                }
+                else if (centerFreq < 2500)
+                {
+                    val *= SpectrumMidScale;
+                }
+                else
+                {
+                    // Smooth progressive treble boost for >2.5kHz up to 18kHz
+                    double trebleRatio = Math.Min(1.0, (centerFreq - 2500.0) / 12000.0);
+                    double trebleMultiplier = SpectrumMidScale + (SpectrumTrebleScale - SpectrumMidScale) * Math.Pow(trebleRatio, 0.85);
+                    val *= trebleMultiplier;
+                }
+
+                // Glitch Prevention: Handle NaN/Infinity
+                if (double.IsNaN(val) || double.IsInfinity(val)) val = 0;
+
+                newValues[i] = val;
+            }
+
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                // Check if generation has changed (track changed)
+                if (currentGen != _spectrumGeneration) return;
+
+                // Enforce Bar Count
+                int targetCount = SpectrumBarCount;
+                int currentCount = SpectrumValues.Count;
+
+                if (currentCount < targetCount)
+                {
+                    for (int i = currentCount; i < targetCount; i++)
+                    {
+                        SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
+                    }
+                }
+                else if (currentCount > targetCount)
+                {
+                    for (int i = currentCount; i > targetCount; i--)
+                    {
+                        SpectrumValues.RemoveAt(SpectrumValues.Count - 1);
+                    }
+                }
+
+                // Update with high-speed attack & liquid decay smoothing + floating neon peak dots
+                for (int i = 0; i < targetCount; i++)
+                {
+                    var item = SpectrumValues[i];
+                    double current = item.Value;
+                    double target = Math.Min(78, newValues[i]);
+
+                    // Fast attack (0.45) and smooth decay (0.075)
+                    if (target > current)
+                    {
+                        item.Value = current + (target - current) * 0.45;
+                    }
+                    else
+                    {
+                        item.Value = current - (current - target) * 0.075;
+                    }
+
+                    // Floating Peak Hold Logic
+                    if (item.Value >= item.PeakValue)
+                    {
+                        item.PeakValue = item.Value;
+                        item.PeakHoldCount = 14; // Hold at top for ~14 frames
+                    }
+                    else
+                    {
+                        if (item.PeakHoldCount > 0)
+                        {
+                            item.PeakHoldCount--;
+                        }
+                        else
+                        {
+                            // Gravity fall
+                            item.PeakValue = Math.Max(item.Value, item.PeakValue - 1.3);
+                        }
+                    }
+                }
+            });
         }
 
         private void UpdatePlaylistThumbnails(UserPlaylist playlist)
         {
-            Playlist?.UpdatePlaylistThumbnails(playlist);
+            if (playlist == null) return;
+
+            var distinctAlbumPaths = new List<string>();
+            var processedAlbums = new HashSet<string>();
+
+            // Only take up to 4 distinct albums
+            foreach (var path in playlist.TrackPaths)
+            {
+                if (distinctAlbumPaths.Count >= 4) break;
+
+                try
+                {
+                    var directory = System.IO.Path.GetDirectoryName(path);
+                    if (!string.IsNullOrEmpty(directory) && !processedAlbums.Contains(directory))
+                    {
+                        processedAlbums.Add(directory);
+                        distinctAlbumPaths.Add(path);
+                    }
+                }
+                catch { }
+            }
+
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                playlist.ThumbnailTrackPaths.Clear();
+                foreach (var p in distinctAlbumPaths)
+                {
+                    playlist.ThumbnailTrackPaths.Add(p);
+                }
+            });
         }
 
         private void ShowDeviceManager()

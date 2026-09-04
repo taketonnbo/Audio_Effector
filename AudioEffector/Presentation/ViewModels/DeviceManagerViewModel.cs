@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -17,7 +17,7 @@ namespace AudioEffector.Presentation.ViewModels;
 public class DeviceManagerViewModel : ViewModelBase
 {
     private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
-    private DeviceViewModel _currentDevice;
+    private MainViewModel.DeviceViewModel _currentDevice;
     private string _basePath;
     private List<Album> _pcAlbums;
 
@@ -57,7 +57,7 @@ public class DeviceManagerViewModel : ViewModelBase
     /// <param name="device">対象の外部デバイス情報</param>
     /// <param name="basePath">同期ベースパス</param>
     /// <param name="pcAlbums">PC側のアルバム一覧</param>
-    public DeviceManagerViewModel(DeviceViewModel device, string basePath, List<Album> pcAlbums)
+    public DeviceManagerViewModel(MainViewModel.DeviceViewModel device, string basePath, List<Album> pcAlbums)
     {
         _currentDevice = device;
         _basePath = basePath;
@@ -85,12 +85,12 @@ public class DeviceManagerViewModel : ViewModelBase
             try
             {
                 Logger.Info($"LoadAlbumsAsync started. DeviceType: {_currentDevice.Type}, BasePath: {_basePath}");
-                if (_currentDevice.Type == DeviceType.FileSystem && _currentDevice.Drive != null)
+                if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem && _currentDevice.Drive != null)
                 {
                     string targetPath = string.IsNullOrEmpty(_basePath) ? _currentDevice.Drive.RootDirectory.FullName : _basePath;
                     ScanFileSystemDirectory(targetPath, loadedAlbums);
                 }
-                else if (_currentDevice.Type == DeviceType.MTP && _currentDevice.MtpDevice != null && _currentDevice.MtpDevice.IsConnected)
+                else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null && _currentDevice.MtpDevice.IsConnected)
                 {
                     string targetPath = string.IsNullOrEmpty(_basePath) ? @"\" : _basePath;
                     Logger.Info($"Scanning MTP targetPath: {targetPath}");
@@ -253,12 +253,12 @@ public class DeviceManagerViewModel : ViewModelBase
                 {
                     try
                     {
-                        if (_currentDevice.Type == DeviceType.FileSystem)
+                        if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem)
                         {
                             if (File.Exists(track.Path))
                                 File.Delete(track.Path);
                         }
-                        else if (_currentDevice.Type == DeviceType.MTP && _currentDevice.MtpDevice != null)
+                        else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null)
                         {
                             _currentDevice.MtpDevice.DeleteFile(track.Path);
                         }
@@ -311,7 +311,7 @@ public class DeviceManagerViewModel : ViewModelBase
             {
                 try
                 {
-                    if (_currentDevice.Type == DeviceType.FileSystem)
+                    if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem)
                     {
                         var artistPaths = album.Tracks.Select(t => Path.GetDirectoryName(t.Path)).Distinct().ToList();
                         foreach (var path in artistPaths)
@@ -326,7 +326,7 @@ public class DeviceManagerViewModel : ViewModelBase
                             }
                         }
                     }
-                    else if (_currentDevice.Type == DeviceType.MTP && _currentDevice.MtpDevice != null)
+                    else if (_currentDevice.Type == MainViewModel.DeviceType.MTP && _currentDevice.MtpDevice != null)
                     {
                         var artistPaths = album.Tracks.Select(t => GetParentDirectory(t.Path)).Distinct().ToList();
                         foreach (var path in artistPaths)
