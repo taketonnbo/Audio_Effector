@@ -1,4 +1,4 @@
-﻿using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Presentation.Views;
@@ -101,24 +101,24 @@ namespace AudioEffector.Presentation.ViewModels
         private List<string> _favoritePaths;
         private ObservableCollection<UserPlaylist> _userPlaylists = new ObservableCollection<UserPlaylist>();
         private ObservableCollection<Track> _playlistTracks = new ObservableCollection<Track>();
-        private const int SpectrumBarCount = 64;
-        private int _spectrumGeneration;
-
         #region Spectrum Analyzer Tuning Coefficients
+        /// <summary>スペクトラムアナライザのバー数</summary>
+        public const int SpectrumBarCount = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_BAR_COUNT;
+
         /// <summary>スペクトラムアナライザ: 低音域（〜250Hz）のスケーリング係数（低音の過度な頭打ちを抑制）</summary>
-        public const double SpectrumBassScale = 0.55;
+        public const double SpectrumBassScale = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_BASS_SCALE;
 
         /// <summary>スペクトラムアナライザ: 中音域（250Hz〜2.5kHz）のスケーリング係数</summary>
-        public const double SpectrumMidScale = 0.90;
+        public const double SpectrumMidScale = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_MID_SCALE;
 
         /// <summary>スペクトラムアナライザ: 高音域（2.5kHz〜18kHz）のスケーリング係数（高音の躍動感を大幅強化）</summary>
-        public const double SpectrumTrebleScale = 2.90;
+        public const double SpectrumTrebleScale = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_TREBLE_SCALE;
 
         /// <summary>スペクトラムアナライザ: 高音域のオクターブあたりdB補正（チルト）係数</summary>
-        public const double SpectrumTrebleTiltDb = 8.5;
+        public const double SpectrumTrebleTiltDb = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_TREBLE_TILT_DB;
 
         /// <summary>スペクトラムアナライザ: 全体感度（ゲイン）係数</summary>
-        public const double SpectrumSensitivity = 1.65;
+        public const double SpectrumSensitivity = Presentation.ViewModels.EqualizerViewModel.SPECTRUM_SENSITIVITY;
         #endregion
 
         private ViewType _currentViewType = ViewType.Albums;
@@ -364,6 +364,7 @@ namespace AudioEffector.Presentation.ViewModels
                 _audioService = LoggingProxy<IAudioService>.Create(_fallbackAudioService);
             }
             _equalizerApplicationService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<EqualizerApplicationService>(App.ServiceProvider) : null;
+            Equalizer ??= new Presentation.ViewModels.EqualizerViewModel(_equalizerApplicationService);
             _libraryService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<LibraryApplicationService>(App.ServiceProvider) : null;
             _playlistService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<PlaylistApplicationService>(App.ServiceProvider) : null;
             if (App.ServiceProvider != null)
@@ -413,34 +414,10 @@ namespace AudioEffector.Presentation.ViewModels
 
             LoadDefaultImages();
             NowPlayingImage = _defaultNowPlayingImage;
-            SpectrumBackgroundImage = _defaultSpectrumImage;
 
-            Bands = new ObservableCollection<BandViewModel>();
-            for (int i = 0; i < _audioService.Frequencies.Length; i++)
+            if (!string.IsNullOrEmpty(appSettings.LastUsedEffectPreset) && Equalizer != null)
             {
-                Bands.Add(new BandViewModel
-                {
-                    Index = i,
-                    Frequency = _audioService.Frequencies[i],
-                    OnGainChanged = (idx, gain) => _audioService.SetGain(idx, gain)
-                });
-            }
-
-            // Pre-populate SpectrumValues to avoid layout glitches
-            // レイアウト崩れを防ぐためにスペクトラム値を初期化
-            for (int i = 0; i < SpectrumBarCount; i++)
-            {
-                SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
-            }
-
-            Presets = new ObservableCollection<EqualizerPreset>(_equalizerApplicationService?.LoadPresets() ?? new List<EqualizerPreset>());
-            if (!string.IsNullOrEmpty(appSettings.LastUsedEffectPreset))
-            {
-                SelectedPreset = Presets.FirstOrDefault(p => p.Name == appSettings.LastUsedEffectPreset) ?? Presets.FirstOrDefault();
-            }
-            else
-            {
-                SelectedPreset = Presets.FirstOrDefault();
+                Equalizer.SelectedPreset = Presets.FirstOrDefault(p => p.Name == appSettings.LastUsedEffectPreset) ?? Presets.FirstOrDefault();
             }
 
             OpenFolderCommand = new RelayCommand(OpenFolder);
@@ -448,9 +425,6 @@ namespace AudioEffector.Presentation.ViewModels
             StopCommand = new RelayCommand(o => _audioService.Stop(false));
             NextCommand = new RelayCommand(o => _audioService.Next());
             PreviousCommand = new RelayCommand(o => _audioService.Previous());
-            SavePresetCommand = new RelayCommand(SavePreset);
-            DeletePresetCommand = new RelayCommand(DeletePreset);
-            ResetPresetCommand = new RelayCommand(Reset);
 
             PlayTrackCommand = new RelayCommand(o =>
             {
@@ -557,8 +531,6 @@ namespace AudioEffector.Presentation.ViewModels
 
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => CurrentViewType = ViewType.DeviceSync);
-            SwitchToSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = true);
-            ToggleSpectrumCommand = new RelayCommand(o => IsSpectrumVisible = !IsSpectrumVisible);
 
             RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
             TransferSelectedCommand = new RelayCommand(o => TransferSelected());
@@ -780,12 +752,12 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// イコライザー周波数バンドのViewModelコレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<BandViewModel> Bands { get; set; }
+        public ObservableCollection<BandViewModel> Bands => Equalizer?.Bands ?? [];
 
         /// <summary>
         /// イコライザープリセットのコレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<EqualizerPreset> Presets { get; set; }
+        public ObservableCollection<EqualizerPreset> Presets => Equalizer?.Presets ?? [];
 
         /// <summary>
         /// ライブラリ内のアルバムコレクションを取得または設定します
@@ -1056,16 +1028,19 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public EqualizerPreset? SelectedPreset
         {
-            get => _selectedPreset;
+            get => Equalizer?.SelectedPreset ?? _selectedPreset;
             set
             {
+                if (Equalizer != null)
+                {
+                    Equalizer.SelectedPreset = value;
+                }
                 if (_selectedPreset != value)
                 {
                     _selectedPreset = value;
                     OnPropertyChanged();
                     if (_selectedPreset != null)
                     {
-                        ApplyPreset(_selectedPreset);
                         var settings = _settingsService.LoadSettings();
                         settings.LastUsedEffectPreset = _selectedPreset.Name;
                         _settingsService.SaveSettings(settings);
@@ -1125,17 +1100,17 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// イコライザープリセットを保存するコマンドを取得します
         /// </summary>
-        public ICommand SavePresetCommand { get; }
+        public ICommand SavePresetCommand => Equalizer?.SavePresetCommand ?? new RelayCommand(_ => { });
 
         /// <summary>
         /// イコライザープリセットを削除するコマンドを取得します
         /// </summary>
-        public ICommand DeletePresetCommand { get; }
+        public ICommand DeletePresetCommand => Equalizer?.DeletePresetCommand ?? new RelayCommand(_ => { });
 
         /// <summary>
         /// イコライザー設定をリセットするコマンドを取得します
         /// </summary>
-        public ICommand ResetPresetCommand { get; }
+        public ICommand ResetPresetCommand => Equalizer?.ResetPresetCommand ?? new RelayCommand(_ => { });
 
         /// <summary>
         /// 指定したトラックを再生するコマンドを取得します
@@ -2199,17 +2174,8 @@ namespace AudioEffector.Presentation.ViewModels
         /// <param name="track">新しいトラック。</param>
         private void OnTrackChanged(Track track)
         {
-            // Increment generation to invalidate pending FFT updates
-            System.Threading.Interlocked.Increment(ref _spectrumGeneration);
-
             // Reset Spectrum immediately to prevent glitches
-            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                foreach (var item in SpectrumValues)
-                {
-                    item.Value = 0;
-                }
-            });
+            Equalizer?.ResetSpectrum();
 
             if (CurrentTrack != null)
             {
@@ -2293,8 +2259,8 @@ namespace AudioEffector.Presentation.ViewModels
                                     SpectrumBackgroundImageGray = grayImage;
                                     IsDefaultSpectrumImage = false;
 
-                                    // Update Spectrum Bar Color
-                                    UpdateSpectrumBrush(image);
+                                    // Update Spectrum Art
+                                    Equalizer?.UpdateSpectrumArt(image);
                                 });
                             }
                             else
@@ -2302,15 +2268,7 @@ namespace AudioEffector.Presentation.ViewModels
                                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
                                     NowPlayingImage = _defaultNowPlayingImage;
-                                    SpectrumBackgroundImage = _defaultSpectrumImage;
-                                    SpectrumBackgroundImageGray = null;
-
-                                    // Border: Brighter (Lower Saturation), 100% Opacity
-                                    var borderColor = Color.FromRgb(204, 249, 255);
-                                    borderColor.A = 255;
-                                    var solidBorderBrush = new SolidColorBrush(borderColor);
-                                    solidBorderBrush.Freeze();
-                                    SpectrumBorderBrush = solidBorderBrush;
+                                    Equalizer?.ResetSpectrumArt();
                                 });
                             }
                         }
@@ -2319,24 +2277,7 @@ namespace AudioEffector.Presentation.ViewModels
                     {
                         System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                         {
-                            // Default Gradient
-                            // Default Gradient: Right to Left
-                            var brush = new LinearGradientBrush();
-                            brush.StartPoint = new Point(1, 0.5);
-                            brush.EndPoint = new Point(0, 0.5);
-                            brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
-                            brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
-                            brush.Freeze();
-                            SpectrumBarBrush = brush;
-                            SpectrumShadowColor = Color.FromRgb(0, 229, 255);
-
-                            // Border: Brighter (Lower Saturation), 100% Opacity
-                            // Reduced Saturation: S=0.2 (Very White)
-                            var borderColor = Color.FromRgb(204, 249, 255); // Approx for H186 S0.2 V1.0
-                            borderColor.A = 255;
-                            var solidBorderBrush = new SolidColorBrush(borderColor);
-                            solidBorderBrush.Freeze();
-                            SpectrumBorderBrush = solidBorderBrush;
+                            Equalizer?.ResetSpectrumArt();
                         });
                     }
                 });
@@ -2989,76 +2930,6 @@ namespace AudioEffector.Presentation.ViewModels
             dialog.ShowDialog();
         }
 
-        private void SavePreset(object? obj)
-        {
-            try
-            {
-                var inputBox = new Views.InputBox("Enter Preset Name:", $"User Preset {DateTime.Now:MM-dd HH:mm}");
-                if (inputBox.ShowDialog() == true)
-                {
-                    string name = inputBox.InputText;
-                    if (string.IsNullOrWhiteSpace(name)) name = "Untitled Preset";
-
-                    var newPreset = new EqualizerPreset
-                    {
-                        Name = name,
-                        Gains = Bands.Select(b => b.Gain).ToList()
-                    };
-                    Presets.Add(newPreset);
-                    _equalizerApplicationService?.SavePresets(Presets.ToList());
-                    SelectedPreset = newPreset;
-                    MessageBox.Show("プリセットを保存しました。\nPreset Saved.", "保存完了");
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error saving preset: {ex.Message}", "Error");
-            }
-        }
-
-        private void DeletePreset(object? obj)
-        {
-            if (SelectedPreset != null && Presets.Contains(SelectedPreset))
-            {
-                // Prevent deletion of default presets
-                var defaultPresets = new[] { "フラット (Flat)", "ロック (Rock)", "ポップ (Pop)" }; // Corrected literals to match potential JP names if localized, but keeping safe
-                if (defaultPresets.Contains(SelectedPreset.Name) || SelectedPreset.Name.Contains("Flat") || SelectedPreset.Name.Contains("Rock") || SelectedPreset.Name.Contains("Pop"))
-                {
-                    MessageBox.Show($"'{SelectedPreset.Name}' is a default preset and cannot be deleted.", "Cannot Delete", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                if (MessageBox.Show($"Are you sure you want to delete '{SelectedPreset.Name}'?", "Delete Preset", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-                {
-                    try
-                    {
-                        Presets.Remove(SelectedPreset);
-                        _equalizerApplicationService?.SavePresets(Presets.ToList());
-                        SelectedPreset = Presets.FirstOrDefault();
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show($"Error saving presets: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                        // Optionally reload presets to ensure UI is in sync with file
-                        // Presets = new ObservableCollection<Preset>(_presetService.LoadPresets());
-                    }
-                }
-            }
-        }
-
-
-
-
-
-        private void Reset(object? obj)
-        {
-            foreach (var band in Bands)
-            {
-                band.Gain = 0;
-            }
-            // Set preset display to "Flat" (match default preset name)
-            SelectedPreset = Presets.FirstOrDefault(p => p.Name.Contains("Flat"));
-        }
 
         /// <summary>
         /// リソースのクリーンアップを行います
@@ -3547,20 +3418,17 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
-        // Spectrum Analyzer Logic
-        private bool _isSpectrumVisible = true; // Default to true as requested
-
         /// <summary>
         /// スペクトラムアナライザーが表示されているかどうかを示す値を取得または設定します
         /// </summary>
         public bool IsSpectrumVisible
         {
-            get => _isSpectrumVisible;
+            get => Equalizer?.IsSpectrumVisible ?? false;
             set
             {
-                if (_isSpectrumVisible != value)
+                if (Equalizer != null && Equalizer.IsSpectrumVisible != value)
                 {
-                    _isSpectrumVisible = value;
+                    Equalizer.IsSpectrumVisible = value;
                     OnPropertyChanged();
                     if (value && CurrentViewType == ViewType.DeviceSync)
                     {
@@ -3573,176 +3441,24 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// スペクトラムアナライザー表示へ切り替えるコマンドを取得します
         /// </summary>
-        public ICommand SwitchToSpectrumCommand { get; }
+        public ICommand SwitchToSpectrumCommand => Equalizer?.SwitchToSpectrumCommand ?? new RelayCommand(_ => { });
 
         /// <summary>
         /// スペクトラムアナライザーの表示/非表示を切り替えるコマンドを取得します
         /// </summary>
-        public ICommand ToggleSpectrumCommand { get; }
+        public ICommand ToggleSpectrumCommand => Equalizer?.ToggleSpectrumCommand ?? new RelayCommand(_ => { });
 
         /// <summary>
         /// スペクトラムアナライザーの各周波数バーのViewModelコレクションを取得します
         /// </summary>
-        public ObservableCollection<SpectrumBarItem> SpectrumValues { get; } = new ObservableCollection<SpectrumBarItem>();
-
-        private readonly TimeSpan _spectrumUpdateInterval = TimeSpan.FromMilliseconds(1000.0 / 30.0); // 約33ms (30fps)
-        private DateTime _lastSpectrumUpdateTime = DateTime.MinValue;
+        public ObservableCollection<SpectrumBarItem> SpectrumValues => Equalizer?.SpectrumValues ?? [];
 
         /// <summary>
         /// FFT（高速フーリエ変換）の計算結果を受け取り、スペクトラムアナライザーのバーの高さを更新します
         /// </summary>
         private void OnFftCalculated(object? sender, FftEventArgs e)
         {
-            if (!IsSpectrumVisible) return;
-
-            // スロットリング: 一定間隔未満の更新はスキップ
-            if (DateTime.Now - _lastSpectrumUpdateTime < _spectrumUpdateInterval) return;
-            _lastSpectrumUpdateTime = DateTime.Now;
-
-            // Capture current generation
-            int currentGen = _spectrumGeneration;
-
-            int barCount = SpectrumBarCount;
-            var newValues = new double[barCount];
-
-            // FFT parameters (40Hz to 18kHz for rich musical responsiveness)
-            double minFreq = 30;
-            double maxFreq = 18000;
-            double logMin = Math.Log10(minFreq);
-            double logMax = Math.Log10(maxFreq);
-            double logStep = (logMax - logMin) / barCount;
-
-            for (int i = 0; i < barCount; i++)
-            {
-                // Calculate frequency range for this bar (Log scale)
-                double fStart = Math.Pow(10, logMin + i * logStep);
-                double fEnd = Math.Pow(10, logMin + (i + 1) * logStep);
-
-                int iStart = (int)(fStart * 512 / 22050);
-                int iEnd = (int)(fEnd * 512 / 22050);
-
-                if (iStart < 0) iStart = 0;
-                if (iEnd >= 512) iEnd = 511;
-                if (iEnd < iStart) iEnd = iStart;
-
-                double sum = 0;
-                int count = 0;
-
-                for (int index = iStart; index <= iEnd; index++)
-                {
-                    // Skip DC offset (index 0)
-                    if (index < 1) continue;
-
-                    if (index < e.Result.Length)
-                    {
-                        var c = e.Result[index];
-                        double mag = Math.Sqrt(c.X * c.X + c.Y * c.Y);
-                        sum += mag;
-                        count++;
-                    }
-                }
-
-                double avg = count > 0 ? sum / count : 0;
-                double db = (avg > 1e-6) ? 20 * Math.Log10(avg) : -120;
-
-                // Center frequency of this bar (Hz)
-                double centerFreq = Math.Sqrt(fStart * fEnd);
-
-                // High frequency tilt: compensate physical sound rolloff (+8.5dB per octave above 250Hz)
-                // 高音域（250Hz以上）の周波数減衰をオクターブ単位で大幅補正
-                double trebleTilt = (centerFreq > 250) ? Math.Log2(centerFreq / 250.0) * SpectrumTrebleTiltDb : 0.0;
-
-                // Dynamic range mapping (-65dB floor threshold)
-                double adjustedDb = db + 65 + trebleTilt;
-                double val = Math.Max(0, adjustedDb) * SpectrumSensitivity;
-
-                // Apply frequency band scaling coefficients (Bass / Mid / Treble)
-                if (centerFreq < 250)
-                {
-                    // Smooth transition from sub-bass to upper bass
-                    double bassRatio = Math.Min(1.0, centerFreq / 250.0);
-                    double bassMultiplier = 0.45 + (SpectrumBassScale - 0.45) * bassRatio;
-                    val *= bassMultiplier;
-                }
-                else if (centerFreq < 2500)
-                {
-                    val *= SpectrumMidScale;
-                }
-                else
-                {
-                    // Smooth progressive treble boost for >2.5kHz up to 18kHz
-                    double trebleRatio = Math.Min(1.0, (centerFreq - 2500.0) / 12000.0);
-                    double trebleMultiplier = SpectrumMidScale + (SpectrumTrebleScale - SpectrumMidScale) * Math.Pow(trebleRatio, 0.85);
-                    val *= trebleMultiplier;
-                }
-
-                // Glitch Prevention: Handle NaN/Infinity
-                if (double.IsNaN(val) || double.IsInfinity(val)) val = 0;
-
-                newValues[i] = val;
-            }
-
-            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                // Check if generation has changed (track changed)
-                if (currentGen != _spectrumGeneration) return;
-
-                // Enforce Bar Count
-                int targetCount = SpectrumBarCount;
-                int currentCount = SpectrumValues.Count;
-
-                if (currentCount < targetCount)
-                {
-                    for (int i = currentCount; i < targetCount; i++)
-                    {
-                        SpectrumValues.Add(new SpectrumBarItem { Value = 0 });
-                    }
-                }
-                else if (currentCount > targetCount)
-                {
-                    for (int i = currentCount; i > targetCount; i--)
-                    {
-                        SpectrumValues.RemoveAt(SpectrumValues.Count - 1);
-                    }
-                }
-
-                // Update with high-speed attack & liquid decay smoothing + floating neon peak dots
-                for (int i = 0; i < targetCount; i++)
-                {
-                    var item = SpectrumValues[i];
-                    double current = item.Value;
-                    double target = Math.Min(78, newValues[i]);
-
-                    // Fast attack (0.45) and smooth decay (0.075)
-                    if (target > current)
-                    {
-                        item.Value = current + (target - current) * 0.45;
-                    }
-                    else
-                    {
-                        item.Value = current - (current - target) * 0.075;
-                    }
-
-                    // Floating Peak Hold Logic
-                    if (item.Value >= item.PeakValue)
-                    {
-                        item.PeakValue = item.Value;
-                        item.PeakHoldCount = 14; // Hold at top for ~14 frames
-                    }
-                    else
-                    {
-                        if (item.PeakHoldCount > 0)
-                        {
-                            item.PeakHoldCount--;
-                        }
-                        else
-                        {
-                            // Gravity fall
-                            item.PeakValue = Math.Max(item.Value, item.PeakValue - 1.3);
-                        }
-                    }
-                }
-            });
+            Equalizer?.OnFftCalculated(sender, e);
         }
 
         private void UpdatePlaylistThumbnails(UserPlaylist playlist)
