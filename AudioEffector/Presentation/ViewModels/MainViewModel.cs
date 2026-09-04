@@ -77,6 +77,11 @@ namespace AudioEffector.Presentation.ViewModels
         public Presentation.ViewModels.NowPlayingViewModel? NowPlaying { get; }
 
         /// <summary>
+        /// フォルダーナビゲーション専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.FolderViewModel Folder { get; }
+
+        /// <summary>
         /// コードビハインドからAudioServiceへアクセスするためのプロパティ
         /// </summary>
         public IAudioService AudioService => _audioService; // Public accessor for code-behind
@@ -385,6 +390,7 @@ namespace AudioEffector.Presentation.ViewModels
                 _fallbackSettings = new SettingsApplicationService();
                 _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
             }
+            Folder = new Presentation.ViewModels.FolderViewModel(_settingsService, path => LoadLibrary(path));
             _favoritePaths = _libraryService?.LoadFavorites() ?? new List<string>();
 
             var appSettings = _settingsService.LoadSettings();
@@ -420,7 +426,6 @@ namespace AudioEffector.Presentation.ViewModels
                 Equalizer.SelectedPreset = Presets.FirstOrDefault(p => p.Name == appSettings.LastUsedEffectPreset) ?? Presets.FirstOrDefault();
             }
 
-            OpenFolderCommand = new RelayCommand(OpenFolder);
             TogglePlayPauseCommand = new RelayCommand(o => _audioService.TogglePlayPause());
             StopCommand = new RelayCommand(o => _audioService.Stop(false));
             NextCommand = new RelayCommand(o => _audioService.Next());
@@ -1054,7 +1059,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 音楽フォルダーを開くコマンドを取得します
         /// </summary>
-        public ICommand OpenFolderCommand { get; }
+        public ICommand OpenFolderCommand => Folder.OpenFolderCommand;
 
         private bool _isDeviceConnected;
 
@@ -1410,27 +1415,6 @@ namespace AudioEffector.Presentation.ViewModels
         /// 音量のパーセント表示文字列を取得します
         /// </summary>
         public string VolumePercent => $"{(int)(Volume * 100)}%";
-
-        /// <summary>
-        /// 外部デバイス上のディレクトリまたはファイルアイテムを表すクラス
-        /// </summary>
-        public class DirectoryItem
-        {
-            /// <summary>
-            /// アイテム名を取得または設定します
-            /// </summary>
-            public string Name { get; set; } = string.Empty;
-
-            /// <summary>
-            /// アイテムのフルパスを取得または設定します
-            /// </summary>
-            public string FullPath { get; set; } = string.Empty;
-
-            /// <summary>
-            /// フォルダーかどうかを示す値を取得または設定します
-            /// </summary>
-            public bool IsFolder { get; set; }
-        }
 
         /// <summary>
         /// デバイス内のディレクトリアイテム一覧を取得または設定します
@@ -2437,24 +2421,6 @@ namespace AudioEffector.Presentation.ViewModels
                 {
                     Progress = (current.TotalSeconds / total.TotalSeconds) * 100;
                 }
-            }
-        }
-
-        /// <summary>
-        /// フォルダー選択ダイアログを開き、新しいライブラリパスを設定します。
-        /// </summary>
-        private void OpenFolder(object? obj)
-        {
-            var dialog = new OpenFolderDialog();
-            if (dialog.ShowDialog() == true)
-            {
-                string selectedPath = dialog.FolderName;
-
-                var settings = _settingsService.LoadSettings();
-                settings.LastLibraryPath = selectedPath;
-                _settingsService.SaveSettings(settings);
-
-                LoadLibrary(selectedPath);
             }
         }
 
