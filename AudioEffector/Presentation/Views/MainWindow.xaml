@@ -212,7 +212,7 @@
                 </Grid.ColumnDefinitions>
 
                 <!-- Track Info -->
-                <Grid Grid.Column="0" Margin="10,0,10,0" VerticalAlignment="Center" HorizontalAlignment="Left">
+                <Grid x:Name="TopPlayerTrackInfoGrid" Grid.Column="0" Margin="10,0,10,0" VerticalAlignment="Center" HorizontalAlignment="Left" Background="Transparent">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
@@ -225,8 +225,10 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" Foreground="{DynamicResource TextForegroundBrush}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Grid.Row="1" Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                        <controls:MarqueeTextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" Foreground="{DynamicResource TextForegroundBrush}" FontWeight="SemiBold" FontSize="14"
+                                                   IsHovered="{Binding IsMouseOver, ElementName=TopPlayerTrackInfoGrid}"/>
+                        <controls:MarqueeTextBlock Grid.Row="1" Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12"
+                                                   IsHovered="{Binding IsMouseOver, ElementName=TopPlayerTrackInfoGrid}"/>
                     </Grid>
                 </Grid>
 
@@ -729,8 +731,8 @@
 
                         <!-- Album Info (Font Size ~1.5x) -->
                         <StackPanel Grid.Row="1" Margin="4,4,4,12">
-                            <TextBlock Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" FontFamily="Segoe UI" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding PlaybackListSubtitle, FallbackValue=''}" FontSize="13" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                            <controls:MarqueeTextBlock Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" FontFamily="Segoe UI"/>
+                            <controls:MarqueeTextBlock Text="{Binding PlaybackListSubtitle, FallbackValue=''}" FontSize="13" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,4,0,0"/>
                             
                             <!-- Quality Info (Hi-Res Text Badge without extra icons) -->
                             <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
@@ -767,9 +769,9 @@
                                 </Grid.RowDefinitions>
 
                                 <!-- Row 0: Current Track Title (1.2x Font: 16pt, Full Width with Ellipsis) -->
-                                <TextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" 
-                                           FontWeight="SemiBold" FontSize="16" Foreground="{StaticResource NeonCyanBrush}" 
-                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                                <controls:MarqueeTextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" 
+                                                           FontWeight="SemiBold" FontSize="16" Foreground="{StaticResource NeonCyanBrush}" 
+                                                           VerticalAlignment="Center" Margin="0,0,0,8"/>
 
                                 <!-- Row 1: Quick Actions (Queue, Add to Playlist, Favorite - Right Aligned below Track Title with 1.5x spacing) -->
                                 <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,0,14">
@@ -1042,9 +1044,10 @@
                                                         </Path>
 
                                                         <!-- Track Title -->
-                                                        <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                                            <TextBlock.Style>
-                                                                <Style TargetType="TextBlock">
+                                                        <controls:MarqueeTextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" VerticalAlignment="Center"
+                                                                                   IsHovered="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}">
+                                                            <controls:MarqueeTextBlock.Style>
+                                                                <Style TargetType="controls:MarqueeTextBlock">
                                                                     <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
                                                                     <Style.Triggers>
                                                                         <DataTrigger Binding="{Binding IsPlaying}" Value="True">
@@ -1056,8 +1059,8 @@
                                                                         </DataTrigger>
                                                                     </Style.Triggers>
                                                                 </Style>
-                                                            </TextBlock.Style>
-                                                        </TextBlock>
+                                                            </controls:MarqueeTextBlock.Style>
+                                                        </controls:MarqueeTextBlock>
 
                                                         <!-- Duration -->
                                                         <TextBlock Grid.Column="2" Text="{Binding DurationString}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right"/>
@@ -1090,7 +1093,7 @@
                     </Grid.RowDefinitions>
 
                     <!-- Top Info Row -->
-                    <Grid Grid.Row="0" Margin="0,0,35,8">
+                    <Grid x:Name="RightPanelCompactInfoGrid" Grid.Row="0" Margin="0,0,35,8" Background="Transparent">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/> <!-- Small Thumbnail -->
                             <ColumnDefinition Width="*"/>    <!-- Track Title & Artist & Quality -->
@@ -1101,8 +1104,10 @@
                         </Border>
 
                         <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextForegroundBrush}" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" FontSize="11" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                            <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextForegroundBrush}"
+                                                       IsHovered="{Binding IsMouseOver, ElementName=RightPanelCompactInfoGrid}"/>
+                            <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" FontSize="11" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,2,0,0"
+                                                       IsHovered="{Binding IsMouseOver, ElementName=RightPanelCompactInfoGrid}"/>
                             
                             <!-- Quality Info -->
                             <StackPanel Orientation="Horizontal" Margin="0,3,0,0">

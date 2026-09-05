@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+        xmlns:controls="clr-namespace:AudioEffector.Presentation.Controls"
         mc:Ignorable="d" 
         Title="Mini Player" Height="100" Width="350"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
@@ -63,20 +64,28 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             
-            <!-- Album Art -->
-            <Border CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundHighlightBrush}">
-                <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
-            </Border>
+            <!-- Album Art & Track Info (Hover Linked) -->
+            <Grid Grid.Column="0" Grid.ColumnSpan="2" x:Name="MiniPlayerInfoArea" Background="Transparent">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="80"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-            <!-- Track Info -->
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
-                <TextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" 
-                           Foreground="{DynamicResource TextForegroundBrush}" FontWeight="Bold" FontSize="14" 
-                           TextTrimming="CharacterEllipsis"/>
-                <TextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" 
-                           Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" Margin="0,4,0,0"
-                           TextTrimming="CharacterEllipsis"/>
-            </StackPanel>
+                <!-- Album Art -->
+                <Border Grid.Column="0" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundHighlightBrush}">
+                    <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
+                </Border>
+
+                <!-- Track Info -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                    <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" 
+                                               Foreground="{DynamicResource TextForegroundBrush}" FontWeight="Bold" FontSize="14"
+                                               IsHovered="{Binding IsMouseOver, ElementName=MiniPlayerInfoArea}"/>
+                    <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" 
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" Margin="0,4,0,0"
+                                               IsHovered="{Binding IsMouseOver, ElementName=MiniPlayerInfoArea}"/>
+                </StackPanel>
+            </Grid>
 
             <!-- Controls -->
             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
@@ -84,7 +93,7 @@
                     <TextBlock Text="⏮" Foreground="{DynamicResource TextForegroundBrush}" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Button>
                 <Button Command="{Binding TogglePlayPauseCommand}" Style="{StaticResource IconButtonStyle}" Width="36" Height="36" Margin="2">
-                    <TextBlock Text="⏯" Foreground="{StaticResource NeonCyanBrush}" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <TextBlock Text="⏯" Foreground="{DynamicResource NeonCyanBrush}" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Button>
                 <Button Command="{Binding NextCommand}" Style="{StaticResource IconButtonStyle}" Width="30" Height="30" Margin="2">
                     <TextBlock Text="⏭" Foreground="{DynamicResource TextForegroundBrush}" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
