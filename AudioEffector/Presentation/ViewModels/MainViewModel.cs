@@ -1640,11 +1640,17 @@ namespace AudioEffector.Presentation.ViewModels
             if (track != null)
             {
                 track.IsPlaying = true;
-                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            }
+
+            PlayerControl?.SyncTrackPlayingStates(track);
+
+            if (track != null)
+            {
+                RunOnUiThread(() =>
                 {
-                    if (!IsPlaylistTracksVisible && PlaybackListTracks != null && !PlaybackListTracks.Contains(track))
+                    if (!IsPlaylistTracksVisible && PlaybackListTracks != null && !PlaybackListTracks.Any(t => PlayerControlViewModel.IsSameTrack(t, track)))
                     {
-                        var album = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
+                        var album = Albums.FirstOrDefault(a => a.Tracks.Any(t => PlayerControlViewModel.IsSameTrack(t, track)));
                         if (album != null)
                         {
                             PlaybackListName = album.Title;
@@ -1652,6 +1658,7 @@ namespace AudioEffector.Presentation.ViewModels
                             PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(album.Tracks);
                         }
                     }
+                    PlayerControl?.SyncTrackPlayingStates(track);
                 });
             }
 
@@ -2080,6 +2087,19 @@ namespace AudioEffector.Presentation.ViewModels
             }
             settingsDialog.ShowDialog();
             SettingsUpdated?.Invoke();
+        }
+
+        private static void RunOnUiThread(Action action)
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished || dispatcher.CheckAccess())
+            {
+                action();
+            }
+            else
+            {
+                dispatcher.InvokeAsync(action);
+            }
         }
 
         /// <summary>
