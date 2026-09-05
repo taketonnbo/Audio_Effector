@@ -136,14 +136,14 @@
                                                     </Style>
                                                 </Button.Style>
                                                 <Grid Background="#80000000">
-                                                    <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{StaticResource NeonCyanBrush}" Stretch="Uniform" Width="20" Height="20">
+                                                    <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{DynamicResource AlwaysNeonCyanBrush}" Stretch="Uniform" Width="20" Height="20">
                                                         <Path.Effect>
-                                                            <DropShadowEffect Color="{StaticResource NeonCyanColor}" BlurRadius="10" ShadowDepth="0" Opacity="0.8"/>
+                                                            <DropShadowEffect Color="{DynamicResource AlwaysNeonCyanColor}" BlurRadius="10" ShadowDepth="0" Opacity="0.8"/>
                                                         </Path.Effect>
                                                     </Path>
-                                                    <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Stroke="{StaticResource NeonCyanBrush}" StrokeThickness="2" Stretch="Uniform" Width="20" Height="20">
+                                                    <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Stroke="{DynamicResource AlwaysNeonCyanBrush}" StrokeThickness="2" Stretch="Uniform" Width="20" Height="20">
                                                         <Path.Effect>
-                                                            <DropShadowEffect Color="{StaticResource NeonCyanColor}" BlurRadius="5" ShadowDepth="0" Opacity="0.5"/>
+                                                            <DropShadowEffect Color="{DynamicResource AlwaysNeonCyanColor}" BlurRadius="5" ShadowDepth="0" Opacity="0.5"/>
                                                         </Path.Effect>
                                                     </Path>
                                                 </Grid>
@@ -288,12 +288,12 @@
                                                             </Style>
                                                         </Button.Style>
                                                         <Grid Background="#60000000">
-                                                            <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="Transparent" Stroke="{StaticResource NeonCyanBrush}" StrokeThickness="3" Stretch="Uniform" Width="50" Height="50">
+                                                            <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="Transparent" Stroke="{DynamicResource AlwaysNeonCyanBrush}" StrokeThickness="3" Stretch="Uniform" Width="50" Height="50">
                                                                 <Path.Effect>
-                                                                    <DropShadowEffect Color="{StaticResource NeonCyanColor}" BlurRadius="15" ShadowDepth="0" Opacity="1"/>
+                                                                    <DropShadowEffect Color="{DynamicResource AlwaysNeonCyanColor}" BlurRadius="15" ShadowDepth="0" Opacity="1"/>
                                                                 </Path.Effect>
                                                             </Path>
-                                                            <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{StaticResource NeonCyanBrush}" Opacity="0.2" Stretch="Uniform" Width="50" Height="50"/>
+                                                            <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{DynamicResource AlwaysNeonCyanBrush}" Opacity="0.2" Stretch="Uniform" Width="50" Height="50"/>
                                                         </Grid>
                                                     </Button>
                                                     

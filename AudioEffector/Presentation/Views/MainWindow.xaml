@@ -15,9 +15,6 @@
         x:Name="MainWindowRoot"
         d:DataContext="{d:DesignInstance vm:MainViewModel}">
     <Window.Resources>
-        
-        <Color x:Key="NeonCyanColor">#00FFFF</Color>
-        <SolidColorBrush x:Key="NeonCyanBrush" Color="{StaticResource NeonCyanColor}"/>
 
         
         <!-- ScrollBar Style (Simplified) -->

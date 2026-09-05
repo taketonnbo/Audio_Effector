@@ -28,6 +28,11 @@ public class ThemeResourceTests
             Assert.NotNull(dict);
             Assert.True(dict.Contains("WindowBackgroundBrush"));
             Assert.True(dict.Contains("NeonCyanBrush"));
+            Assert.True(dict.Contains("AlwaysNeonCyanBrush"));
+            Assert.True(dict.Contains("AlwaysNeonCyanColor"));
+
+            var alwaysColor = (System.Windows.Media.Color)dict["AlwaysNeonCyanColor"];
+            Assert.Equal(System.Windows.Media.Color.FromRgb(0, 255, 255), alwaysColor);
         });
     }
 
@@ -49,6 +54,11 @@ public class ThemeResourceTests
             Assert.NotNull(dict);
             Assert.True(dict.Contains("WindowBackgroundBrush"));
             Assert.True(dict.Contains("NeonCyanBrush"));
+            Assert.True(dict.Contains("AlwaysNeonCyanBrush"));
+            Assert.True(dict.Contains("AlwaysNeonCyanColor"));
+
+            var alwaysColor = (System.Windows.Media.Color)dict["AlwaysNeonCyanColor"];
+            Assert.Equal(System.Windows.Media.Color.FromRgb(0, 255, 255), alwaysColor);
         });
     }
 
