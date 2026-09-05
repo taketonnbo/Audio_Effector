@@ -302,6 +302,188 @@ public class MarqueeTextBlockTests
         });
     }
 
+    /// <summary>
+    /// スクロール実行中、静止用TextBlockがVisibility.Hidden（Collapsedではなく領域維持）になり、スクロールCanvasが表示され2連TextBlockが正しく配置されることを検証します。
+    /// </summary>
+    [Fact]
+    public void スクロール開始時_静止用TextBlockはHiddenでレイアウト維持され_スクロールCanvasが表示されること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var sut = new MarqueeTextBlock
+            {
+                Text = "Very long title to trigger marquee scrolling animation",
+                HoverDelay = TimeSpan.FromMilliseconds(50),
+                FontSize = 14
+            };
+            sut.Measure(new Size(100, 30));
+            sut.Arrange(new Rect(0, 0, 100, 30));
+
+            // Act: ホバー開始
+            sut.IsHovered = true;
+
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            timer.Tick += (s, e) => { timer.Stop(); frame.Continue = false; };
+            timer.Start();
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+            // Assert: スクロール中
+            Assert.True(sut.IsScrolling);
+
+            var grid = Assert.IsType<System.Windows.Controls.Grid>(sut.Content);
+            var staticTb = Assert.IsType<System.Windows.Controls.TextBlock>(grid.Children[0]);
+            var scrollCanvas = Assert.IsType<System.Windows.Controls.Canvas>(grid.Children[1]);
+
+            // Collapsed ではなく Hidden であること（サイズを保持しチャタリングを防止）
+            Assert.Equal(Visibility.Hidden, staticTb.Visibility);
+            Assert.Equal(Visibility.Visible, scrollCanvas.Visibility);
+
+            // 2連TextBlockの配置検証（先頭は0、後続はtextWidth以降）
+            var tb1 = Assert.IsType<System.Windows.Controls.TextBlock>(scrollCanvas.Children[0]);
+            var tb2 = Assert.IsType<System.Windows.Controls.TextBlock>(scrollCanvas.Children[1]);
+
+            var left1 = System.Windows.Controls.Canvas.GetLeft(tb1);
+            var left2 = System.Windows.Controls.Canvas.GetLeft(tb2);
+            var top1 = System.Windows.Controls.Canvas.GetTop(tb1);
+            var top2 = System.Windows.Controls.Canvas.GetTop(tb2);
+
+            Assert.Equal(0.0, left1);
+            Assert.True(left2 > 100.0, "後続の頭テキストは表示枠（100px）の外側右側に配置されていること");
+            Assert.Equal(top1, top2); // 垂直中央位置が完全に一致
+
+            // Act: ホバー終了
+            sut.IsHovered = false;
+
+            // Assert: 通常表示に復帰
+            Assert.False(sut.IsScrolling);
+            Assert.Equal(Visibility.Visible, staticTb.Visibility);
+            Assert.Equal(Visibility.Collapsed, scrollCanvas.Visibility);
+        });
+    }
+
+    /// <summary>
+    /// MiniPlayerWindow 内にタイトルおよびアーティスト表示用の MarqueeTextBlock が適用されていることを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerWindow_トラック情報_MarqueeTextBlockが適用されていること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange & Act
+            var window = new AudioEffector.Presentation.Views.MiniPlayerWindow();
+
+            // Assert
+            Assert.NotNull(window);
+            var marqueeControls = FindLogicalChildren<MarqueeTextBlock>(window);
+            Assert.True(marqueeControls.Count >= 2, "MiniPlayerWindow内にタイトルおよびアーティスト用のMarqueeTextBlockが配置されていること");
+        });
+    }
+
+    /// <summary>
+    /// スクロールアニメーションが逆再生（巻き戻し）を含まず、一貫して左方向へ移動し、末尾および復帰位置で1.2秒静止することを検証します。
+    /// </summary>
+    [Fact]
+    public void スクロールアニメーション_逆再生なし_等速シームレスループおよび一時静止が正しく設定されること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var sut = new MarqueeTextBlock
+            {
+                Text = "Very long title to trigger marquee scrolling animation",
+                HoverDelay = TimeSpan.FromMilliseconds(50),
+                EndDelay = TimeSpan.FromMilliseconds(1200),
+                FontSize = 14
+            };
+            sut.Measure(new Size(100, 30));
+            sut.Arrange(new Rect(0, 0, 100, 30));
+
+            // Act: ホバー開始してアニメーション起動
+            sut.IsHovered = true;
+
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            timer.Tick += (s, e) => { timer.Stop(); frame.Continue = false; };
+            timer.Start();
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+            // Assert
+            Assert.True(sut.IsScrolling);
+
+            var grid = Assert.IsType<System.Windows.Controls.Grid>(sut.Content);
+            var scrollCanvas = Assert.IsType<System.Windows.Controls.Canvas>(grid.Children[1]);
+            var transform = Assert.IsType<TranslateTransform>(scrollCanvas.RenderTransform);
+
+            // アニメーションが適用されていること
+            Assert.True(transform.HasAnimatedProperties);
+
+            // Act: ホバー解除で安全に停止・リセットされること
+            sut.IsHovered = false;
+            Assert.False(sut.IsScrolling);
+            Assert.False(transform.HasAnimatedProperties);
+            Assert.Equal(0.0, transform.X);
+        });
+    }
+
+    /// <summary>
+    /// スクロール用TextBlockが親コンテナの幅（狭い幅）に制限されず、テキスト全文の描画幅を保持していることを検証します。
+    /// </summary>
+    [Fact]
+    public void スクロール用TextBlock_親コンテナ幅による制限を受けず_全文の描画幅を保持すること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var sut = new MarqueeTextBlock
+            {
+                Text = "Very long title that exceeds the narrow container width definitely and clearly",
+                HoverDelay = TimeSpan.FromMilliseconds(50),
+                FontSize = 14
+            };
+            // 狭いコンテナ（50px）
+            sut.Measure(new Size(50, 30));
+            sut.Arrange(new Rect(0, 0, 50, 30));
+
+            // Act: ホバー開始
+            sut.IsHovered = true;
+
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            timer.Tick += (s, e) => { timer.Stop(); frame.Continue = false; };
+            timer.Start();
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+            // Assert
+            var grid = Assert.IsType<System.Windows.Controls.Grid>(sut.Content);
+            var scrollCanvas = Assert.IsType<System.Windows.Controls.Canvas>(grid.Children[1]);
+            var tb1 = Assert.IsType<System.Windows.Controls.TextBlock>(scrollCanvas.Children[0]);
+
+            // tb1 の幅は 50px に縮小されず、テキスト全文の幅（> 200px）を保持していること
+            Assert.True(tb1.DesiredSize.Width > 200.0, "スクロール用TextBlockの描画幅は親の50pxに切り捨てられず全文幅を保持していること");
+        });
+    }
+
+    private static System.Collections.Generic.List<T> FindLogicalChildren<T>(DependencyObject depObj) where T : DependencyObject
+    {
+        var list = new System.Collections.Generic.List<T>();
+        if (depObj == null) return list;
+
+        foreach (var child in LogicalTreeHelper.GetChildren(depObj))
+        {
+            if (child is DependencyObject depChild)
+            {
+                if (depChild is T t)
+                {
+                    list.Add(t);
+                }
+                list.AddRange(FindLogicalChildren<T>(depChild));
+            }
+        }
+        return list;
+    }
+
     private static void RunInStaThread(Action action)
     {
         Exception? threadEx = null;
