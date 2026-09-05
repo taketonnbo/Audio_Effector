@@ -381,7 +381,7 @@
                                                             <Setter Property="IsChecked" Value="False"/>
                                                             <Setter Property="Opacity" Value="0.5"/>
                                                         </DataTrigger>
-                                                        <DataTrigger Binding="{Binding DataContext.IsTransferring, ElementName=MainWindowRoot}" Value="True">
+                                                        <DataTrigger Binding="{Binding DataContext.DeviceBrowser.IsTransferring, ElementName=MainWindowRoot}" Value="True">
                                                             <Setter Property="IsEnabled" Value="False"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
@@ -490,7 +490,7 @@
                                                     </Grid.ColumnDefinitions>
                                                     <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
                                                               Visibility="{Binding DataContext.IsSelectionMode, ElementName=MainWindowRoot, Converter={StaticResource BoolToVis}}"
-                                                              IsEnabled="{Binding DataContext.IsTransferring, ElementName=MainWindowRoot, Converter={StaticResource InvertBool}}"/>
+                                                              IsEnabled="{Binding DataContext.DeviceBrowser.IsTransferring, ElementName=MainWindowRoot, Converter={StaticResource InvertBool}}"/>
                                                     <TextBlock Grid.Column="1" Text="{Binding Title}" Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" TextTrimming="CharacterEllipsis"/>
                                                     <Path Grid.Column="2" Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
                                                           Fill="#FF4081" Width="10" Height="10" Stretch="Uniform" Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVis}}" Margin="0,0,5,0"/>
@@ -624,7 +624,7 @@
                                                                         <Setter Property="IsChecked" Value="False"/>
                                                                         <Setter Property="Opacity" Value="0.5"/>
                                                                     </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding DataContext.IsTransferring, ElementName=MainWindowRoot}" Value="True">
+                                                                    <DataTrigger Binding="{Binding DataContext.DeviceBrowser.IsTransferring, ElementName=MainWindowRoot}" Value="True">
                                                                         <Setter Property="IsEnabled" Value="False"/>
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
@@ -707,7 +707,7 @@
                                                             </Grid.ColumnDefinitions>
                                                             <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,4,0"
                                                                       Visibility="{Binding DataContext.IsSelectionMode, ElementName=MainWindowRoot, Converter={StaticResource BoolToVis}}"
-                                                                      IsEnabled="{Binding DataContext.IsTransferring, ElementName=MainWindowRoot, Converter={StaticResource InvertBool}}"/>
+                                                                      IsEnabled="{Binding DataContext.DeviceBrowser.IsTransferring, ElementName=MainWindowRoot, Converter={StaticResource InvertBool}}"/>
                                                             <TextBlock Grid.Column="1"
                                                                        Text="{Binding Tag, ElementName=SocketTrackRowRoot, Converter={StaticResource IndexConverter}, StringFormat='{}{0:00}.'}"
                                                                        Foreground="{DynamicResource AlwaysNeonCyanBrush}"
