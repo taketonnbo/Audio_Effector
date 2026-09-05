@@ -1042,9 +1042,10 @@
                                                         </Path>
 
                                                         <!-- Track Title -->
-                                                        <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                                            <TextBlock.Style>
-                                                                <Style TargetType="TextBlock">
+                                                        <controls:MarqueeTextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" VerticalAlignment="Center"
+                                                                                   IsHovered="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}">
+                                                            <controls:MarqueeTextBlock.Style>
+                                                                <Style TargetType="controls:MarqueeTextBlock">
                                                                     <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
                                                                     <Style.Triggers>
                                                                         <DataTrigger Binding="{Binding IsPlaying}" Value="True">
@@ -1056,8 +1057,8 @@
                                                                         </DataTrigger>
                                                                     </Style.Triggers>
                                                                 </Style>
-                                                            </TextBlock.Style>
-                                                        </TextBlock>
+                                                            </controls:MarqueeTextBlock.Style>
+                                                        </controls:MarqueeTextBlock>
 
                                                         <!-- Duration -->
                                                         <TextBlock Grid.Column="2" Text="{Binding DurationString}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Right"/>

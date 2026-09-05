@@ -159,6 +159,92 @@ public class MarqueeTextBlockTests
         });
     }
 
+    /// <summary>
+    /// テキストが見切れている状態で IsHovered を true にし、HoverDelay が経過した際に IsScrolling が true になることを検証します。
+    /// </summary>
+    [Fact]
+    public void IsHovered_見切れ状態でホバー時_スクロールが開始されIsScrollingがTrueになること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var sut = new MarqueeTextBlock
+            {
+                Text = "Very long long text to cause overflow and scrolling animation",
+                HoverDelay = TimeSpan.FromMilliseconds(50),
+                FontSize = 14
+            };
+            sut.Measure(new Size(50, 30));
+            sut.Arrange(new Rect(0, 0, 50, 30));
+
+            // Act
+            sut.IsHovered = true;
+
+            // DispatcherTimer の発火を待機
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            var timer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(150)
+            };
+            timer.Tick += (s, e) =>
+            {
+                timer.Stop();
+                frame.Continue = false;
+            };
+            timer.Start();
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+            // Assert
+            Assert.True(sut.IsScrolling);
+
+            // Act: ホバー解除
+            sut.IsHovered = false;
+
+            // Assert
+            Assert.False(sut.IsScrolling);
+        });
+    }
+
+    /// <summary>
+    /// テキストが見切れていない状態で IsHovered を true にしても、IsScrolling は false のままであることを検証します。
+    /// </summary>
+    [Fact]
+    public void IsHovered_見切れていない状態でホバー時_スクロールは開始されずIsScrollingがFalseであること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var sut = new MarqueeTextBlock
+            {
+                Text = "Short",
+                HoverDelay = TimeSpan.FromMilliseconds(50),
+                FontSize = 14
+            };
+            sut.Measure(new Size(500, 30));
+            sut.Arrange(new Rect(0, 0, 500, 30));
+
+            // Act
+            sut.IsHovered = true;
+
+            // DispatcherTimer の発火待機
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            var timer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(150)
+            };
+            timer.Tick += (s, e) =>
+            {
+                timer.Stop();
+                frame.Continue = false;
+            };
+            timer.Start();
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+
+            // Assert
+            Assert.False(sut.IsScrolling);
+        });
+    }
+
     private static void RunInStaThread(Action action)
     {
         Exception? threadEx = null;

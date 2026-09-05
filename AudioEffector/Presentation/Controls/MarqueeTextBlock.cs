@@ -15,7 +15,6 @@ public class MarqueeTextBlock : ContentControl
     private readonly Grid _container;
     private readonly TextBlock _textBlock;
     private readonly TranslateTransform _transform;
-    private Storyboard? _storyboard;
     private DispatcherTimer? _hoverTimer;
 
     #region Dependency Properties
@@ -379,15 +378,16 @@ public class MarqueeTextBlock : ContentControl
             return;
         }
 
-        // スクロール中は文字を省略せず左揃えで表示
+        // スクロール中は文字を省略せず全幅を確保して左揃えで表示
+        _textBlock.Width = textWidth + 10.0;
         _textBlock.TextTrimming = TextTrimming.None;
         _textBlock.HorizontalAlignment = HorizontalAlignment.Left;
 
-        var overflowDistance = textWidth - availableWidth + 15.0; // 少し余白を持たせる
+        var overflowDistance = textWidth - availableWidth + 20.0; // 末尾まで確実に表示するため少し余白を持たせる
         var scrollDuration = TimeSpan.FromSeconds(Math.Max(0.5, overflowDistance / Math.Max(10.0, ScrollSpeed)));
         var pauseDuration = EndDelay;
         var resetDuration = TimeSpan.FromMilliseconds(200);
-        var loopWaitDuration = TimeSpan.FromMilliseconds(600);
+        var loopWaitDuration = TimeSpan.FromMilliseconds(800);
 
         var totalDuration = scrollDuration + pauseDuration + resetDuration + loopWaitDuration;
 
@@ -412,13 +412,8 @@ public class MarqueeTextBlock : ContentControl
         // 5. 先頭位置で待機して再ループ
         animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(0.0, KeyTime.FromTimeSpan(totalDuration)));
 
-        _storyboard = new Storyboard();
-        _storyboard.Children.Add(animation);
-
-        Storyboard.SetTarget(_storyboard, _transform);
-        Storyboard.SetTargetProperty(_storyboard, new PropertyPath(TranslateTransform.XProperty));
-
-        _storyboard.Begin();
+        // TranslateTransform に直接アニメーションを適用（確実なGPUレンダリング再描画）
+        _transform.BeginAnimation(TranslateTransform.XProperty, animation);
         IsScrolling = true;
     }
 
@@ -427,18 +422,15 @@ public class MarqueeTextBlock : ContentControl
         _hoverTimer?.Stop();
         _hoverTimer = null;
 
-        if (_storyboard != null)
-        {
-            _storyboard.Stop();
-            _storyboard = null;
-        }
-
+        _transform.BeginAnimation(TranslateTransform.XProperty, null);
         IsScrolling = false;
     }
 
     private void ResetToStaticView()
     {
+        _transform.BeginAnimation(TranslateTransform.XProperty, null);
         _transform.X = 0;
+        _textBlock.Width = double.NaN;
         _textBlock.TextTrimming = TextTrimming.CharacterEllipsis;
         _textBlock.HorizontalAlignment = HorizontalContentAlignment;
     }
