@@ -137,4 +137,20 @@ public sealed class LibraryViewModelTests
         Assert.False(album.IsTracksExpanded);
         Assert.Null(vm.ExpandedAlbum);
     }
+
+    [Fact]
+    public void ShowAlbumInfoCommand_正常に初期化されアルバムを渡して実行できる()
+    {
+        // Arrange
+        using var vm = CreateViewModel();
+        var album = new Album("Test Album", "Test Artist");
+
+        // Assert 1: コマンドが初期化されている
+        Assert.NotNull(vm.ShowAlbumInfoCommand);
+        Assert.True(vm.ShowAlbumInfoCommand.CanExecute(album));
+
+        // Act & Assert 2: 例外なく実行できる
+        var exception = Record.Exception(() => vm.ShowAlbumInfoCommand.Execute(album));
+        Assert.Null(exception);
+    }
 }

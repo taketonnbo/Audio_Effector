@@ -231,6 +231,71 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Album Info Button Style (#168) Hover-only Neon Cyan style matching Play button -->
+        <Style x:Key="AlbumInfoButtonStyle" TargetType="Button">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Width" Value="22"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid x:Name="IconRoot" Background="Transparent" RenderTransformOrigin="0.5,0.5">
+                            <Grid.RenderTransform>
+                                <ScaleTransform x:Name="ButtonScale" ScaleX="1.0" ScaleY="1.0"/>
+                            </Grid.RenderTransform>
+
+                            <!-- 同心円（レコード盤・CDイメージ）ネオンシアンライン＆グロー -->
+                            <Path x:Name="ConcentricGlowPath"
+                                  Data="M12,2 A10,10 0 1 0 12,22 A10,10 0 1 0 12,2 Z M12,6 A6,6 0 1 0 12,18 A6,6 0 1 0 12,6 Z M12,10 A2,2 0 1 0 12,14 A2,2 0 1 0 12,10 Z"
+                                  Stroke="{DynamicResource AlwaysNeonCyanBrush}"
+                                  StrokeThickness="1.5"
+                                  Fill="Transparent"
+                                  Stretch="Uniform"
+                                  Width="16" Height="16"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Path.Effect>
+                                    <DropShadowEffect x:Name="GlowEffect" Color="{DynamicResource AlwaysNeonCyanColor}" BlurRadius="8" ShadowDepth="0" Opacity="0.85"/>
+                                </Path.Effect>
+                            </Path>
+
+                            <!-- 半透明シアン塗りアクセント（再生ボタンの三角Fillと同調） -->
+                            <Path Data="F1 M12,2 A10,10 0 1 0 12,22 A10,10 0 1 0 12,2 Z M12,6 A6,6 0 1 0 12,18 A6,6 0 1 0 12,6 Z M12,10 A2,2 0 1 0 12,14 A2,2 0 1 0 12,10 Z"
+                                  Fill="{DynamicResource AlwaysNeonCyanBrush}"
+                                  Opacity="0.2"
+                                  Stretch="Uniform"
+                                  Width="16" Height="16"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <!-- ボタン自身にマウスオーバー時: 発光強調とストローク強調 -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ConcentricGlowPath" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect Color="{DynamicResource AlwaysNeonCyanColor}" BlurRadius="14" ShadowDepth="0" Opacity="1.0"/>
+                                    </Setter.Value>
+                                </Setter>
+                                <Setter TargetName="ConcentricGlowPath" Property="StrokeThickness" Value="2.0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <!-- アルバムアートホバー時にフェードイン表示 (通常時は完全非表示 Opacity=0) -->
+                <DataTrigger Binding="{Binding IsMouseOver, ElementName=AlbumArtBorder}" Value="True">
+                    <Setter Property="Opacity" Value="0.9"/>
+                </DataTrigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="1.0"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
@@ -494,7 +559,7 @@
                                                 <RowDefinition Height="Auto"/>
                                                 <RowDefinition Height="Auto"/>
                                             </Grid.RowDefinitions>
-                                            <Border Grid.Row="0" CornerRadius="8" Background="{DynamicResource ControlBackgroundBrush}" Margin="5" ClipToBounds="True">
+                                            <Border x:Name="AlbumArtBorder" Grid.Row="0" CornerRadius="8" Background="{DynamicResource ControlBackgroundBrush}" Margin="5" ClipToBounds="True">
                                                 <Grid>
                                                     <!-- Use AlbumArtLoader attached property -->
                                                     <Image services:AlbumArtLoader.SourcePath="{Binding Tracks[0].FilePath}" Stretch="UniformToFill"/>
@@ -544,6 +609,16 @@
                                                                   Margin="4,0,0,4"
                                                                   Panel.ZIndex="15"
                                                                   ToolTip="収録曲を表示/非表示"/>
+
+                                                    <!-- Album Info Button (#168) Hover-only Neon Cyan style -->
+                                                    <Button x:Name="AlbumInfoButton"
+                                                            Style="{StaticResource AlbumInfoButtonStyle}"
+                                                            Command="{Binding DataContext.ShowAlbumInfoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"
+                                                            VerticalAlignment="Bottom" HorizontalAlignment="Right"
+                                                            Margin="0,0,4,4"
+                                                            Panel.ZIndex="15"
+                                                            ToolTip="アルバム詳細情報を表示"/>
                                                     
                                                     <!-- Album Selection CheckBox -->
                                                     <CheckBox IsChecked="{Binding IsSelected}" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"
