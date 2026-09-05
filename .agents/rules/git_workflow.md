@@ -21,7 +21,7 @@ When performing Git operations or interacting with GitHub (e.g., creating Pull R
    - Use standard prefix conventions like `feat:`, `fix:`, `chore:`, etc., followed by a descriptive Japanese message.
    - Example: `feat: プレイリストの右クリックメニューを実装 (#23)`
 
-4. **Adherence to Project Documentation**:
-   - Respect and follow the project's documentation located in the `rule_docs/` directory.
-   - Specifically, follow the guidelines in `rule_docs/issue_pr_rules.md` when structuring your PR body and titles.
+4. **Adherence to Project Rules & Guidelines**:
+   - Respect and follow the project rules located in this directory (`.agents/rules/`).
+   - Specifically, follow the guidelines in `branch_operation_rules.md`, `git_operation_rules.md`, and `issue_pr_rules.md` when managing branches, structuring commit messages, and authoring PR titles/bodies.
    - **Performance Checklist**: Before creating any Pull Request, you MUST review `設計/詳細設計/パフォーマンス最適化.md` to ensure your implementation does not violate the performance guidelines (e.g., UI throttling, high-load effect usage, memory freeze rules).

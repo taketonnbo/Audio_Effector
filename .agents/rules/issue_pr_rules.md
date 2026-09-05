@@ -1,3 +1,7 @@
+---
+description: 本プロジェクトにおけるIssueおよびPull Request (PR) 作成基準、必須項目、フォーマットルール
+---
+
 # IssueおよびPull Request (PR) 作成ルール
 
 本プロジェクトにおけるIssueとPull Requestの作成基準、および記載すべき内容についてのルールを定めます。

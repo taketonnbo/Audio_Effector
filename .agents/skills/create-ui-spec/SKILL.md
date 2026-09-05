@@ -33,4 +33,4 @@ description: >-
 - プロジェクトの `README.md` またはそれに準ずるドキュメント目次に、作成した仕様書へのリンク（相対パス）を追記します。
 
 ### 5. Git操作 (任意)
-- ユーザーから「対応を進めて」「PRを作成して」などの指示がある場合は、`create-pr-from-issue` スキルや `rule_docs/git_operation_rules.md` のコミットルールに従い、コミットとPR作成を行ってください。
+- ユーザーから「対応を進めて」「PRを作成して」などの指示がある場合は、`create-pr-from-issue` スキルや `.agents/rules/git_operation_rules.md` のコミットルールに従い、コミットとPR作成を行ってください。

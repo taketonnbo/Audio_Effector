@@ -1,3 +1,7 @@
+---
+description: 本プロジェクト（Audio Effector）におけるGit操作ルール（コミットメッセージフォーマット、コミット粒度、.gitignore等）
+---
+
 # Git操作ルール
 
 本プロジェクト（Audio Effector）における Git 操作の統一ルールを定めます。

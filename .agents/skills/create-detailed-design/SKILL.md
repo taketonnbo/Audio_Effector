@@ -81,4 +81,4 @@ flowchart LR
 ---
 
 ### 4. Git操作 (任意)
-- ユーザーから指示があった場合は、`rule_docs/git_operation_rules.md` に従い、コミット（`docs: #<Issue番号> <機能名>の詳細設計書を作成`）とプッシュを行ってください。
+- ユーザーから指示があった場合は、`.agents/rules/git_operation_rules.md` に従い、コミット（`docs: #<Issue番号> <機能名>の詳細設計書を作成`）とプッシュを行ってください。
