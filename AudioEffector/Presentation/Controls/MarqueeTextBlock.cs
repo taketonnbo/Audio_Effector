@@ -13,7 +13,10 @@ namespace AudioEffector.Presentation.Controls;
 public class MarqueeTextBlock : ContentControl
 {
     private readonly Grid _container;
-    private readonly TextBlock _textBlock;
+    private readonly TextBlock _staticTextBlock;
+    private readonly StackPanel _scrollPanel;
+    private readonly TextBlock _scrollTextBlock1;
+    private readonly TextBlock _scrollTextBlock2;
     private readonly TranslateTransform _transform;
     private DispatcherTimer? _hoverTimer;
 
@@ -117,7 +120,7 @@ public class MarqueeTextBlock : ContentControl
     }
 
     /// <summary>
-    /// スクロールが末尾に達した後の待機時間を取得または設定します。
+    /// スクロールが末尾に達した後の待機時間（既定値: 1200ms）を取得または設定します。
     /// </summary>
     public TimeSpan EndDelay
     {
@@ -154,19 +157,42 @@ public class MarqueeTextBlock : ContentControl
         IsTabStop = false;
 
         _transform = new TranslateTransform();
-        _textBlock = new TextBlock
+
+        _staticTextBlock = new TextBlock
         {
             TextTrimming = TextTrimming.CharacterEllipsis,
-            RenderTransform = _transform,
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        _scrollTextBlock1 = new TextBlock
+        {
+            TextTrimming = TextTrimming.None,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        _scrollTextBlock2 = new TextBlock
+        {
+            TextTrimming = TextTrimming.None,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        _scrollPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            RenderTransform = _transform,
+            Visibility = Visibility.Collapsed
+        };
+        _scrollPanel.Children.Add(_scrollTextBlock1);
+        _scrollPanel.Children.Add(_scrollTextBlock2);
 
         _container = new Grid
         {
             ClipToBounds = true,
             Background = Brushes.Transparent // マウスイベントを確実に受信するため透明背景
         };
-        _container.Children.Add(_textBlock);
+        _container.Children.Add(_staticTextBlock);
+        _container.Children.Add(_scrollPanel);
 
         Content = _container;
 
@@ -229,7 +255,11 @@ public class MarqueeTextBlock : ContentControl
     {
         if (d is MarqueeTextBlock control)
         {
-            control._textBlock.Text = e.NewValue as string ?? string.Empty;
+            var text = e.NewValue as string ?? string.Empty;
+            control._staticTextBlock.Text = text;
+            control._scrollTextBlock1.Text = text;
+            control._scrollTextBlock2.Text = text;
+
             if (control.IsActiveHover())
             {
                 control.RestartMarqueeIfOverflowing();
@@ -246,40 +276,32 @@ public class MarqueeTextBlock : ContentControl
     {
         base.OnPropertyChanged(e);
 
-        if (e.Property == ForegroundProperty)
+        if (e.Property == ForegroundProperty ||
+            e.Property == FontSizeProperty ||
+            e.Property == FontWeightProperty ||
+            e.Property == FontFamilyProperty ||
+            e.Property == FontStyleProperty ||
+            e.Property == HorizontalContentAlignmentProperty)
         {
-            _textBlock.Foreground = Foreground;
-        }
-        else if (e.Property == FontSizeProperty)
-        {
-            _textBlock.FontSize = FontSize;
-        }
-        else if (e.Property == FontWeightProperty)
-        {
-            _textBlock.FontWeight = FontWeight;
-        }
-        else if (e.Property == FontFamilyProperty)
-        {
-            _textBlock.FontFamily = FontFamily;
-        }
-        else if (e.Property == FontStyleProperty)
-        {
-            _textBlock.FontStyle = FontStyle;
-        }
-        else if (e.Property == HorizontalContentAlignmentProperty)
-        {
-            _textBlock.HorizontalAlignment = HorizontalContentAlignment;
+            UpdateTextBlockStyle();
         }
     }
 
     private void UpdateTextBlockStyle()
     {
-        _textBlock.Foreground = Foreground;
-        _textBlock.FontSize = FontSize;
-        _textBlock.FontWeight = FontWeight;
-        _textBlock.FontFamily = FontFamily;
-        _textBlock.FontStyle = FontStyle;
-        _textBlock.HorizontalAlignment = HorizontalContentAlignment;
+        ApplyStyleToTextBlock(_staticTextBlock);
+        ApplyStyleToTextBlock(_scrollTextBlock1);
+        ApplyStyleToTextBlock(_scrollTextBlock2);
+        _staticTextBlock.HorizontalAlignment = HorizontalContentAlignment;
+    }
+
+    private void ApplyStyleToTextBlock(TextBlock textBlock)
+    {
+        textBlock.Foreground = Foreground;
+        textBlock.FontSize = FontSize;
+        textBlock.FontWeight = FontWeight;
+        textBlock.FontFamily = FontFamily;
+        textBlock.FontStyle = FontStyle;
     }
 
     #endregion
@@ -378,41 +400,52 @@ public class MarqueeTextBlock : ContentControl
             return;
         }
 
-        // スクロール中は文字を省略せず全幅を確保して左揃えで表示
-        _textBlock.Width = textWidth + 10.0;
-        _textBlock.TextTrimming = TextTrimming.None;
-        _textBlock.HorizontalAlignment = HorizontalAlignment.Left;
+        // テキスト間の余白（約60pxまたは表示幅の35%）
+        var gap = Math.Max(60.0, availableWidth * 0.35);
+        _scrollTextBlock2.Margin = new Thickness(gap, 0, 0, 0);
 
-        var overflowDistance = textWidth - availableWidth + 20.0; // 末尾まで確実に表示するため少し余白を持たせる
-        var scrollDuration = TimeSpan.FromSeconds(Math.Max(0.5, overflowDistance / Math.Max(10.0, ScrollSpeed)));
-        var pauseDuration = EndDelay;
-        var resetDuration = TimeSpan.FromMilliseconds(200);
-        var loopWaitDuration = TimeSpan.FromMilliseconds(800);
+        // 静止用テキストを非表示にし、スクロールパネルを表示
+        _staticTextBlock.Visibility = Visibility.Collapsed;
+        _scrollPanel.Visibility = Visibility.Visible;
 
-        var totalDuration = scrollDuration + pauseDuration + resetDuration + loopWaitDuration;
+        var overflowDistance = textWidth - availableWidth + 10.0;
+        var scrollSpeed = Math.Max(10.0, ScrollSpeed);
+
+        // 1. 先頭から末尾までのスクロール時間
+        var tScroll1 = TimeSpan.FromSeconds(Math.Max(0.5, overflowDistance / scrollSpeed));
+        // 2. 末尾での静止時間（1.2秒）
+        var endPause = EndDelay;
+        // 3. 末尾から頭（TextBlock2）が初期位置 X=0 に到達するまでのスクロール時間（同じ速度）
+        var returnDistance = (textWidth + gap) - overflowDistance;
+        var tScroll2 = TimeSpan.FromSeconds(Math.Max(0.5, returnDistance / scrollSpeed));
+        // 4. 頭（初期位置 X=0）に復帰した状態での静止時間（1.2秒）
+        var returnPause = EndDelay;
+
+        var t0 = TimeSpan.Zero;
+        var t1 = tScroll1;
+        var t2 = t1 + endPause;
+        var t3 = t2 + tScroll2;
+        var t4 = t3 + returnPause;
 
         var animation = new DoubleAnimationUsingKeyFrames
         {
-            Duration = new Duration(totalDuration),
+            Duration = new Duration(t4),
             RepeatBehavior = RepeatBehavior.Forever
         };
 
-        // 1. 開始位置 (0)
-        animation.KeyFrames.Add(new LinearDoubleKeyFrame(0.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        // 1. 開始: X=0 から末尾 (-overflowDistance) まで等速スクロール
+        animation.KeyFrames.Add(new LinearDoubleKeyFrame(0.0, KeyTime.FromTimeSpan(t0)));
+        animation.KeyFrames.Add(new LinearDoubleKeyFrame(-overflowDistance, KeyTime.FromTimeSpan(t1)));
 
-        // 2. 左へスクロール完了位置 (-(overflowDistance))
-        animation.KeyFrames.Add(new LinearDoubleKeyFrame(-overflowDistance, KeyTime.FromTimeSpan(scrollDuration)));
+        // 2. 末尾で 1.2 秒間静止
+        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(-overflowDistance, KeyTime.FromTimeSpan(t2)));
 
-        // 3. 末尾表示位置で一時静止
-        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(-overflowDistance, KeyTime.FromTimeSpan(scrollDuration + pauseDuration)));
+        // 3. 速度はそのままで、頭（TextBlock2）が X=0 に到達する位置 (-(textWidth + gap)) まで右から左へスクロール
+        animation.KeyFrames.Add(new LinearDoubleKeyFrame(-(textWidth + gap), KeyTime.FromTimeSpan(t3)));
 
-        // 4. 先頭位置 (0) へリセット
-        animation.KeyFrames.Add(new LinearDoubleKeyFrame(0.0, KeyTime.FromTimeSpan(scrollDuration + pauseDuration + resetDuration)));
+        // 4. 頭が初期表示 (X=0) に戻った位置で 1.2 秒間静止して次周回へループ
+        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(-(textWidth + gap), KeyTime.FromTimeSpan(t4)));
 
-        // 5. 先頭位置で待機して再ループ
-        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(0.0, KeyTime.FromTimeSpan(totalDuration)));
-
-        // TranslateTransform に直接アニメーションを適用（確実なGPUレンダリング再描画）
         _transform.BeginAnimation(TranslateTransform.XProperty, animation);
         IsScrolling = true;
     }
@@ -430,9 +463,8 @@ public class MarqueeTextBlock : ContentControl
     {
         _transform.BeginAnimation(TranslateTransform.XProperty, null);
         _transform.X = 0;
-        _textBlock.Width = double.NaN;
-        _textBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-        _textBlock.HorizontalAlignment = HorizontalContentAlignment;
+        _scrollPanel.Visibility = Visibility.Collapsed;
+        _staticTextBlock.Visibility = Visibility.Visible;
     }
 
     #endregion

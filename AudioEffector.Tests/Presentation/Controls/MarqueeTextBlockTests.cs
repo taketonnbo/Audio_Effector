@@ -245,6 +245,64 @@ public class MarqueeTextBlockTests
         });
     }
 
+    /// <summary>
+    /// コンストラクタ初期化時に、通常表示用TextBlockとスクロール用StackPanel（2連TextBlock構造）が正しく配置されることを検証します。
+    /// </summary>
+    [Fact]
+    public void Constructor_ビジュアルツリー構造_静止用TextBlockと2連スクロール用パネルが配置されること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange & Act
+            var sut = new MarqueeTextBlock();
+
+            // Assert
+            var grid = Assert.IsType<System.Windows.Controls.Grid>(sut.Content);
+            Assert.True(grid.ClipToBounds);
+            Assert.Equal(2, grid.Children.Count);
+
+            var staticTb = Assert.IsType<System.Windows.Controls.TextBlock>(grid.Children[0]);
+            Assert.Equal(TextTrimming.CharacterEllipsis, staticTb.TextTrimming);
+
+            var scrollPanel = Assert.IsType<System.Windows.Controls.StackPanel>(grid.Children[1]);
+            Assert.Equal(System.Windows.Controls.Orientation.Horizontal, scrollPanel.Orientation);
+            Assert.Equal(Visibility.Collapsed, scrollPanel.Visibility);
+            Assert.Equal(2, scrollPanel.Children.Count);
+
+            var scrollTb1 = Assert.IsType<System.Windows.Controls.TextBlock>(scrollPanel.Children[0]);
+            var scrollTb2 = Assert.IsType<System.Windows.Controls.TextBlock>(scrollPanel.Children[1]);
+            Assert.Equal(TextTrimming.None, scrollTb1.TextTrimming);
+            Assert.Equal(TextTrimming.None, scrollTb2.TextTrimming);
+        });
+    }
+
+    /// <summary>
+    /// Text プロパティ更新時、静止用およびスクロール用の全TextBlockに値が反映されることを検証します。
+    /// </summary>
+    [Fact]
+    public void Text変更時_全内部TextBlock_新しいテキストが反映されること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var sut = new MarqueeTextBlock();
+
+            // Act
+            sut.Text = "TECHNOPOLIS (2018 Bob Ludwig Remaster)";
+
+            // Assert
+            var grid = Assert.IsType<System.Windows.Controls.Grid>(sut.Content);
+            var staticTb = Assert.IsType<System.Windows.Controls.TextBlock>(grid.Children[0]);
+            var scrollPanel = Assert.IsType<System.Windows.Controls.StackPanel>(grid.Children[1]);
+            var scrollTb1 = Assert.IsType<System.Windows.Controls.TextBlock>(scrollPanel.Children[0]);
+            var scrollTb2 = Assert.IsType<System.Windows.Controls.TextBlock>(scrollPanel.Children[1]);
+
+            Assert.Equal("TECHNOPOLIS (2018 Bob Ludwig Remaster)", staticTb.Text);
+            Assert.Equal("TECHNOPOLIS (2018 Bob Ludwig Remaster)", scrollTb1.Text);
+            Assert.Equal("TECHNOPOLIS (2018 Bob Ludwig Remaster)", scrollTb2.Text);
+        });
+    }
+
     private static void RunInStaThread(Action action)
     {
         Exception? threadEx = null;
