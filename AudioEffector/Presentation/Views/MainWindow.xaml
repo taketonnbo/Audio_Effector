@@ -411,7 +411,7 @@
                 <!-- Controls -->
                 <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,5">
-                        <ToggleButton Command="{Binding PlayerControl.ToggleShuffleCommand}" IsChecked="{Binding IsShuffleEnabled}" Width="24" Height="24" Background="Transparent" BorderThickness="0" Margin="0,0,15,0" ToolTip="Shuffle">
+                        <ToggleButton IsChecked="{Binding IsShuffleEnabled}" Width="24" Height="24" Background="Transparent" BorderThickness="0" Margin="0,0,15,0" ToolTip="Shuffle">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
                                     <Grid Background="Transparent">
