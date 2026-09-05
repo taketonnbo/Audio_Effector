@@ -92,6 +92,25 @@ class ClassInfo:
     def get_public_events(self) -> Dict[str, MemberInfo]:
         return {k: v for k, v in self.members.items() if v.member_type == 'event' and v.is_public}
 
+    def get_all_members(self, classes_map: Dict[str, 'ClassInfo'], visited: Optional[Set[str]] = None) -> Dict[str, MemberInfo]:
+        """基底クラスを含めたすべてのメンバーを取得します"""
+        if visited is None:
+            visited = set()
+        if self.name in visited:
+            return dict(self.members)
+        visited.add(self.name)
+
+        all_m = dict(self.members)
+        for base in self.base_classes:
+            clean_base = base.split('<')[0].strip()
+            base_cls = classes_map.get(clean_base)
+            if base_cls:
+                base_m = base_cls.get_all_members(classes_map, visited)
+                for k, v in base_m.items():
+                    if k not in all_m:
+                        all_m[k] = v
+        return all_m
+
 
 @dataclass
 class XamlBinding:
@@ -506,14 +525,32 @@ class EquivalenceAuditor:
             bindings = XamlParser.parse_file(xaml_path)
             self.xaml_bindings.extend(bindings)
 
+    VIEW_MODEL_MAPPINGS = {
+        "MainWindow": "MainViewModel",
+        "LibraryView": "LibraryViewModel",
+        "PlaylistTracksView": "PlaylistViewModel",
+        "PlaylistSelectorView": "PlaylistViewModel",
+        "EqualizerView": "EqualizerViewModel",
+        "DeviceSyncView": "DeviceBrowserViewModel",
+        "FolderView": "FolderViewModel",
+        "SettingsDialog": "SettingsViewModel",
+        "DeviceManagerDialog": "DeviceManagerViewModel",
+        "AllSongsView": "MainViewModel",
+        "ArtistsView": "MainViewModel",
+        "RecentView": "MainViewModel",
+        "MiniPlayerWindow": "MainViewModel",
+        "PlayQueueDialog": "MainViewModel",
+        "PlaylistSelectionDialog": "PlaylistViewModel",
+        "SidebarControl": "MainViewModel",
+    }
+
     # --------------------------------------------------------------------------
-    # 1. XAML バインディング網羅性検証
+    # 1. XAML バインディング網羅性 & スコープ検証
     # --------------------------------------------------------------------------
     def verify_xaml_bindings(self) -> List[AuditResult]:
         results: List[AuditResult] = []
 
         all_known_members: Set[str] = set()
-
         for cls in self.all_classes:
             all_known_members.update(cls.members.keys())
 
@@ -524,23 +561,82 @@ class EquivalenceAuditor:
             "Foreground", "Background", "BorderBrush", "FontSize", "FontWeight",
             "HorizontalAlignment", "VerticalAlignment", "Margin", "Padding", "Width", "Height",
             "Children", "Items", "Header", "Title", "Source", "PlacementTarget", "IsOpen",
-            "Fill", "Stroke", "StrokeThickness", "Opacity", "ToolTip", "Cursor"
+            "Fill", "Stroke", "StrokeThickness", "Opacity", "ToolTip", "Cursor",
+            "WindowState", "WindowStartupLocation"
         }
+
+        main_vm = self.classes.get("MainViewModel")
+        main_vm_members = main_vm.get_all_members(self.classes) if main_vm else {}
 
         checked_bindings = 0
         unresolved_bindings = 0
+        scope_warnings = 0
 
         for b in self.xaml_bindings:
             checked_bindings += 1
             root_prop = b.root_property
+            rel_path = os.path.relpath(b.file_path, self.root_dir)
 
+            # --- スコープ追跡検証: MainWindowRoot または AncestorType=Window の DataContext 参照 ---
+            is_window_ref = (b.element_name == "MainWindowRoot") or (
+                b.relative_source and ("AncestorType=Window" in b.relative_source or "x:Type Window" in b.relative_source)
+            )
+
+            if is_window_ref and "DataContext." in b.path:
+                # Window の DataContext (MainViewModel) へのプロパティチェーン検証
+                subpath = b.path.split("DataContext.", 1)[1]
+                parts = [re.split(r'\[', p)[0] for p in subpath.split('.') if p]
+                if parts:
+                    first_prop = parts[0]
+                    if main_vm and first_prop not in main_vm_members and first_prop not in wpf_builtin_props:
+                        scope_warnings += 1
+                        results.append(AuditResult(
+                            category="XAML Binding Scope",
+                            item_name=f"DataContext.{first_prop} ({b.target_property})",
+                            status="WARN",
+                            message=f"スコープ不整合: MainViewModel にプロパティ '{first_prop}' は存在しません in {rel_path}:{b.line_number}",
+                            details=[
+                                f"式: {b.raw_binding}",
+                                f"参照先: {b.element_name or b.relative_source}",
+                                f"完全パス: {b.path}"
+                            ],
+                            file_path=b.file_path,
+                            line_number=b.line_number
+                        ))
+                        continue
+                    elif main_vm and len(parts) > 1:
+                        # 2段階目以降のプロパティチェーン追跡
+                        curr_member = main_vm_members.get(first_prop)
+                        if curr_member:
+                            target_type = curr_member.data_type.rstrip('?').strip()
+                            gen_match = re.search(r'<([A-Za-z0-9_.]+)>', target_type)
+                            if gen_match:
+                                target_type = gen_match.group(1).split('.')[-1]
+                            next_cls = self.classes.get(target_type)
+                            if next_cls:
+                                next_members = next_cls.get_all_members(self.classes)
+                                second_prop = parts[1]
+                                if second_prop not in next_members and second_prop not in wpf_builtin_props:
+                                    scope_warnings += 1
+                                    results.append(AuditResult(
+                                        category="XAML Binding Scope",
+                                        item_name=f"{first_prop}.{second_prop} ({b.target_property})",
+                                        status="WARN",
+                                        message=f"スコープ不整合: {next_cls.name} にプロパティ '{second_prop}' は存在しません in {rel_path}:{b.line_number}",
+                                        details=[f"式: {b.raw_binding}", f"親プロパティ型: {next_cls.name}"],
+                                        file_path=b.file_path,
+                                        line_number=b.line_number
+                                    ))
+                                    continue
+
+            # --- 一般プロパティの網羅性チェック ---
             if root_prop in wpf_builtin_props:
                 continue
-            if b.element_name:
+            if b.element_name and not is_window_ref:
                 continue
             if b.relative_source and not ("DataContext" in b.path):
                 continue
-            if b.relative_source and "DataContext" in b.path:
+            if b.relative_source and "DataContext" in b.path and not is_window_ref:
                 clean_prop = re.split(r'[.\[]', b.path.split("DataContext.")[-1])[0]
                 if clean_prop in all_known_members or clean_prop in wpf_builtin_props:
                     continue
@@ -549,7 +645,6 @@ class EquivalenceAuditor:
 
             if not found:
                 unresolved_bindings += 1
-                rel_path = os.path.relpath(b.file_path, self.root_dir)
                 results.append(AuditResult(
                     category="XAML Binding",
                     item_name=f"{root_prop} ({b.target_property})",
@@ -560,12 +655,53 @@ class EquivalenceAuditor:
                     line_number=b.line_number
                 ))
 
-        if unresolved_bindings == 0:
+        if unresolved_bindings == 0 and scope_warnings == 0:
             results.append(AuditResult(
                 category="XAML Binding",
                 item_name="All Active XAML Bindings",
                 status="PASS",
-                message=f"全 {checked_bindings} 件のアクティブXAMLバインディングの対象プロパティ/コマンドがすべて定義済みであることを確認しました。"
+                message=f"全 {checked_bindings} 件のアクティブXAMLバインディングの対象プロパティ/コマンドがすべて定義済みかつスコープ整合していることを確認しました。"
+            ))
+
+        return results
+
+    # --------------------------------------------------------------------------
+    # 1.5 固定インデクサ境界検証 (Indexer Boundary Audit)
+    # --------------------------------------------------------------------------
+    def verify_indexer_bindings(self) -> List[AuditResult]:
+        results: List[AuditResult] = []
+        indexer_pattern = re.compile(r'\[(\d+)\]')
+
+        detected_count = 0
+        for b in self.xaml_bindings:
+            match = indexer_pattern.search(b.path)
+            if not match:
+                continue
+
+            detected_count += 1
+            rel_path = os.path.relpath(b.file_path, self.root_dir)
+            index_val = match.group(1)
+
+            results.append(AuditResult(
+                category="XAML Indexer Boundary",
+                item_name=f"{b.path} ({b.target_property})",
+                status="WARN",
+                message=f"固定インデクサバインディング検出: '{b.path}' [index={index_val}] in {rel_path}:{b.line_number} (コレクション要素数不足時の実行時例外リスクに留意)",
+                details=[
+                    f"バインディング式: {b.raw_binding}",
+                    f"ターゲット属性: {b.target_property}",
+                    f"対象ファイル: {rel_path}:{b.line_number}"
+                ],
+                file_path=b.file_path,
+                line_number=b.line_number
+            ))
+
+        if detected_count == 0:
+            results.append(AuditResult(
+                category="XAML Indexer Boundary",
+                item_name="Indexer Bindings",
+                status="PASS",
+                message="固定インデクサバインディングは検出されませんでした。"
             ))
 
         return results
@@ -710,7 +846,7 @@ class EquivalenceAuditor:
     # --------------------------------------------------------------------------
     # 全検証の実行
     # --------------------------------------------------------------------------
-    def run_all(self, xaml: bool = True, vm: bool = True, models: bool = True) -> List[AuditResult]:
+    def run_all(self, xaml: bool = True, vm: bool = True, models: bool = True, indexer: bool = True) -> List[AuditResult]:
         all_results: List[AuditResult] = []
         if models:
             all_results.extend(self.verify_models_and_entities())
@@ -718,6 +854,8 @@ class EquivalenceAuditor:
             all_results.extend(self.verify_viewmodels())
         if xaml:
             all_results.extend(self.verify_xaml_bindings())
+        if indexer:
+            all_results.extend(self.verify_indexer_bindings())
         return all_results
 
 
@@ -828,6 +966,7 @@ def main():
     parser.add_argument("--xaml", action="store_true", help="XAMLバインディング網羅性検証のみ実行")
     parser.add_argument("--vm", action="store_true", help="ViewModel / 公開API等価性検証のみ実行")
     parser.add_argument("--models", action="store_true", help="モデル・エンティティ等価性検証のみ実行")
+    parser.add_argument("--indexer", action="store_true", help="固定インデクサ境界検証のみ実行")
     parser.add_argument("--report", type=str, help="Markdownレポートの出力先パス")
     parser.add_argument("--json", action="store_true", help="結果をJSON形式で出力")
     parser.add_argument("--no-color", action="store_true", help="ANSIカラー出力を無効化")
@@ -835,16 +974,17 @@ def main():
 
     args = parser.parse_args()
 
-    run_all = args.all or not (args.xaml or args.vm or args.models)
+    run_all = args.all or not (args.xaml or args.vm or args.models or args.indexer)
     do_xaml = run_all or args.xaml
     do_vm = run_all or args.vm
     do_models = run_all or args.models
+    do_indexer = run_all or args.indexer
 
     current_dir = Path(__file__).resolve().parent
     root_dir = current_dir.parent if current_dir.name == "tools" else current_dir
 
     auditor = EquivalenceAuditor(root_dir=root_dir, verbose=args.verbose)
-    results = auditor.run_all(xaml=do_xaml, vm=do_vm, models=do_models)
+    results = auditor.run_all(xaml=do_xaml, vm=do_vm, models=do_models, indexer=do_indexer)
 
     if args.json:
         json_data = [asdict(r) for r in results]
