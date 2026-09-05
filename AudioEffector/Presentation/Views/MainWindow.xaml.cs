@@ -178,4 +178,35 @@ public partial class MainWindow : Window
             }
         }
     }
+
+    /// <summary>
+    /// タイトルバーの最小化ボタンクリック時の処理を行います
+    /// </summary>
+    private void TitleBarMinimizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        SystemCommands.MinimizeWindow(this);
+    }
+
+    /// <summary>
+    /// タイトルバーの最大化/元に戻すボタンクリック時の処理を行います
+    /// </summary>
+    private void TitleBarMaximizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (this.WindowState == WindowState.Maximized)
+        {
+            SystemCommands.RestoreWindow(this);
+        }
+        else
+        {
+            SystemCommands.MaximizeWindow(this);
+        }
+    }
+
+    /// <summary>
+    /// タイトルバーの閉じるボタンクリック時の処理を行います
+    /// </summary>
+    private void TitleBarCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        SystemCommands.CloseWindow(this);
+    }
 }
