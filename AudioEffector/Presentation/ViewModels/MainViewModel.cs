@@ -557,6 +557,7 @@ namespace AudioEffector.Presentation.ViewModels
             EnqueueTrackCommand = PlayerControl!.EnqueueTrackCommand;
             PlayFromQueueCommand = PlayerControl!.PlayFromQueueCommand;
             ShowQueueDialogCommand = PlayerControl!.ShowQueueDialogCommand;
+            ToggleShuffleCommand = PlayerControl!.ToggleShuffleCommand;
             ToggleRepeatCommand = PlayerControl!.ToggleRepeatCommand;
             IncreaseVolumeCommand = PlayerControl!.IncreaseVolumeCommand;
             DecreaseVolumeCommand = PlayerControl!.DecreaseVolumeCommand;
@@ -1223,6 +1224,11 @@ namespace AudioEffector.Presentation.ViewModels
         /// トラック選択モードの有効/無効を切り替えるコマンドを取得します
         /// </summary>
         public ICommand ToggleSelectionModeCommand { get; }
+
+        /// <summary>
+        /// シャッフル再生の有効/無効を切り替えるコマンドを取得します
+        /// </summary>
+        public ICommand ToggleShuffleCommand { get; }
 
         /// <summary>
         /// リピート再生の有効/無効を切り替えるコマンドを取得します
