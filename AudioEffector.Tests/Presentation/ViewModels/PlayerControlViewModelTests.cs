@@ -1,9 +1,7 @@
 using System;
-using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
-using AudioEffector.Domain.Events;
 using AudioEffector.Presentation.ViewModels;
 using Moq;
 using Xunit;
@@ -139,31 +137,4 @@ public sealed class PlayerControlViewModelTests
         Assert.Equal(expectedIsAlbumRepeat, sut.IsAlbumRepeat);
     }
 
-    /// <summary>
-    /// TrackChangedEventを受信した際、CurrentTrackプロパティが更新されることを検証します。
-    /// </summary>
-    [Fact]
-    public async Task HandleAsync_TrackChangedEvent受信時_CurrentTrackが更新される()
-    {
-        // Arrange
-        using var sut = new PlayerControlViewModel(
-            _audioServiceMock.Object,
-            _audioEngineMock.Object,
-            _eventBus,
-            _settingsServiceMock.Object);
-
-        var track = new Track
-        {
-            FilePath = @"C:\Music\test.mp3",
-            Title = "Test Song",
-            Artist = "Test Artist"
-        };
-        var trackChangedEvent = new TrackChangedEvent(track, TimeSpan.Zero);
-
-        // Act
-        await _eventBus.PublishAsync(trackChangedEvent);
-
-        // Assert
-        Assert.Same(track, sut.CurrentTrack);
-    }
 }

@@ -164,7 +164,12 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
             Bands.Add(bandVm);
         }
 
-        ResetPresetCommand = new RelayCommand(async _ => await ResetPresetAsync());
+        ResetPresetCommand = new RelayCommand(async _ =>
+        {
+            var flat = EqualizerPreset.CreateFlat();
+            await ApplyPresetAsync(flat);
+            SelectedPreset = Presets.FirstOrDefault(p => !p.IsCustom && p.Name.Contains("Flat", StringComparison.OrdinalIgnoreCase));
+        });
 
         SavePresetCommand = new RelayCommand(async name => await SavePresetAsync(name as string));
         DeletePresetCommand = new RelayCommand(async _ => await DeleteSelectedPresetAsync());
@@ -175,17 +180,6 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
         _eventBus.Subscribe<VolumeChangedEvent>(HandleAsync);
         _legacyAudioService.VolumeChanged += OnLegacyVolumeChanged;
         _ = LoadPresetsAsync();
-    }
-
-    /// <summary>
-    /// イコライザーをフラット（全帯域0dB）にリセットします
-    /// </summary>
-    /// <returns>非同期タスク</returns>
-    public async Task ResetPresetAsync()
-    {
-        var flat = EqualizerPreset.CreateFlat();
-        await ApplyPresetAsync(flat);
-        SelectedPreset = Presets.FirstOrDefault(p => !p.IsCustom && p.Name.Contains("Flat", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -343,7 +337,7 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
     private static void RunOnUiThread(Action action)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher == null || dispatcher.HasShutdownStarted || !dispatcher.Thread.IsAlive || dispatcher.CheckAccess())
+        if (dispatcher == null || dispatcher.CheckAccess())
         {
             action();
         }

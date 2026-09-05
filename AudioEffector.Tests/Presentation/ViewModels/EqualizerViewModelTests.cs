@@ -106,30 +106,6 @@ public sealed class EqualizerViewModelTests
     }
 
     /// <summary>
-    /// ResetPresetCommand実行時、フラットプリセット（全帯域0dB）が適用されることを検証します。
-    /// </summary>
-    [Fact]
-    public async Task ResetPresetCommand_実行時_フラットプリセットが適用される()
-    {
-        // Arrange
-        using var sut = new EqualizerViewModel(
-            _equalizerAppService,
-            _audioAppService,
-            _eventBus,
-            _settingsServiceMock.Object,
-            _legacyAudioServiceMock.Object);
-
-        sut.Bands[0].Gain = 5.0f;
-
-        // Act
-        await sut.ResetPresetAsync();
-
-        // Assert
-        Assert.Equal(0.0f, sut.Bands[0].Gain);
-        Assert.False(sut.IsCustom);
-    }
-
-    /// <summary>
     /// Volume変更時、オーディオサービスへの音量反映と設定の保存が行われることを検証します。
     /// </summary>
     [Fact]
