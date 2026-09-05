@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
@@ -137,4 +138,112 @@ public sealed class PlayerControlViewModelTests
         Assert.Equal(expectedIsAlbumRepeat, sut.IsAlbumRepeat);
     }
 
+    /// <summary>
+    /// CurrentTrack変更時、PlaybackListTracks内の該当トラックのみIsPlayingがtrueになり他はfalseに排他同期されることを検証します。
+    /// </summary>
+    [Fact]
+    public void CurrentTrack_変更時_PlaybackListTracks内の該当トラックのみIsPlayingがTrueになり他はFalseになる()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1", IsPlaying = true };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2", IsPlaying = true };
+        var track3 = new Track { FilePath = @"C:\Music\song3.mp3", Title = "Song 3", IsPlaying = true };
+
+        sut.PlaybackListTracks = new ObservableCollection<Track> { track1, track2, track3 };
+
+        // Act - track2を再生中トラックに指定
+        sut.CurrentTrack = track2;
+
+        // Assert
+        Assert.False(track1.IsPlaying);
+        Assert.True(track2.IsPlaying);
+        Assert.False(track3.IsPlaying);
+    }
+
+    /// <summary>
+    /// 別インスタンスだが同一FilePathのトラックがCurrentTrackに設定された場合でも正しく排他同期されることを検証します。
+    /// </summary>
+    [Fact]
+    public void CurrentTrack_別インスタンスだが同一FilePathの場合_正しく排他同期される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1", IsPlaying = false };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2", IsPlaying = false };
+        var track1DifferentInstance = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1 Different Instance" };
+
+        sut.PlaybackListTracks = new ObservableCollection<Track> { track1, track2 };
+
+        // Act
+        sut.CurrentTrack = track1DifferentInstance;
+
+        // Assert
+        Assert.True(track1.IsPlaying);
+        Assert.False(track2.IsPlaying);
+    }
+
+    /// <summary>
+    /// CurrentTrackがnullの場合、PlaybackListTracks内の全トラックのIsPlayingがfalseになることを検証します。
+    /// </summary>
+    [Fact]
+    public void CurrentTrack_Null設定時_PlaybackListTracks内の全トラックのIsPlayingがFalseになる()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1", IsPlaying = true };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2", IsPlaying = true };
+
+        sut.PlaybackListTracks = new ObservableCollection<Track> { track1, track2 };
+
+        // Act
+        sut.CurrentTrack = null;
+
+        // Assert
+        Assert.False(track1.IsPlaying);
+        Assert.False(track2.IsPlaying);
+    }
+
+    /// <summary>
+    /// SetPlaybackList呼び出し時、現在再生中のトラックが正しく反映されて排他同期されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SetPlaybackList_呼び出し時_CurrentTrackの状態が排他同期される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1", IsPlaying = true };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2", IsPlaying = false };
+        var track3 = new Track { FilePath = @"C:\Music\song3.mp3", Title = "Song 3", IsPlaying = true };
+
+        sut.CurrentTrack = track2;
+
+        // Act
+        sut.SetPlaybackList(new[] { track1, track2, track3 }, "Test Album", "Test Artist");
+
+        // Assert
+        Assert.False(sut.PlaybackListTracks[0].IsPlaying);
+        Assert.True(sut.PlaybackListTracks[1].IsPlaying);
+        Assert.False(sut.PlaybackListTracks[2].IsPlaying);
+    }
 }

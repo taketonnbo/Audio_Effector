@@ -128,6 +128,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
             if (SetProperty(ref _currentTrack, value))
             {
                 UpdateTrackDisplays(value);
+                SyncTrackPlayingStates(value);
                 TrackChanged?.Invoke(value);
             }
         }
@@ -405,6 +406,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         {
             if (SetProperty(ref _playbackListTracks, value))
             {
+                SyncTrackPlayingStates(_currentTrack);
                 OnPropertyChanged(nameof(PlaybackListTracksCountText));
             }
         }
@@ -605,6 +607,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         PlaybackListTracks = new ObservableCollection<Track>(trackList);
         PlayQueue = new ObservableCollection<Track>(trackList);
         _audioService.SetPlaylist(trackList);
+        SyncTrackPlayingStates(_currentTrack);
     }
 
     #endregion
@@ -943,6 +946,46 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         {
             NowPlayingImage = null;
         }
+    }
+
+    /// <summary>
+    /// PlaybackListTracks 内のトラックの再生中状態（IsPlaying）を同期します。
+    /// 現在の再生中トラックのみを true にし、それ以外を false に排他制御します。
+    /// プロパティ値に変更がある場合のみ代入することで、不要な PropertyChanged 通知を抑止します。
+    /// </summary>
+    /// <param name="currentTrack">現在再生中のトラック（未再生または停止時は null）</param>
+    public void SyncTrackPlayingStates(Track? currentTrack)
+    {
+        var tracks = PlaybackListTracks;
+        if (tracks == null) return;
+
+        foreach (var track in tracks)
+        {
+            if (track == null) continue;
+            bool shouldBePlaying = currentTrack != null && IsSameTrack(track, currentTrack);
+            if (track.IsPlaying != shouldBePlaying)
+            {
+                track.IsPlaying = shouldBePlaying;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 2つのトラックが同一の楽曲であるかを判定します。
+    /// オブジェクト参照、ファイルパス、トラックIDの順で判定します。
+    /// </summary>
+    /// <param name="a">比較対象のトラックA</param>
+    /// <param name="b">比較対象のトラックB</param>
+    /// <returns>同一楽曲と判定された場合は true、それ以外は false</returns>
+    public static bool IsSameTrack(Track? a, Track? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a == null || b == null) return false;
+        if (!string.IsNullOrEmpty(a.FilePath) && !string.IsNullOrEmpty(b.FilePath))
+        {
+            return string.Equals(a.FilePath, b.FilePath, StringComparison.OrdinalIgnoreCase);
+        }
+        return a.Id == b.Id;
     }
 
     private static void RunOnUiThread(Action action)

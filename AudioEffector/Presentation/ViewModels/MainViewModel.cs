@@ -1640,11 +1640,17 @@ namespace AudioEffector.Presentation.ViewModels
             if (track != null)
             {
                 track.IsPlaying = true;
+            }
+
+            PlayerControl?.SyncTrackPlayingStates(track);
+
+            if (track != null)
+            {
                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    if (!IsPlaylistTracksVisible && PlaybackListTracks != null && !PlaybackListTracks.Contains(track))
+                    if (!IsPlaylistTracksVisible && PlaybackListTracks != null && !PlaybackListTracks.Any(t => PlayerControlViewModel.IsSameTrack(t, track)))
                     {
-                        var album = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
+                        var album = Albums.FirstOrDefault(a => a.Tracks.Any(t => PlayerControlViewModel.IsSameTrack(t, track)));
                         if (album != null)
                         {
                             PlaybackListName = album.Title;
@@ -1652,6 +1658,7 @@ namespace AudioEffector.Presentation.ViewModels
                             PlaybackListTracks = new System.Collections.ObjectModel.ObservableCollection<Track>(album.Tracks);
                         }
                     }
+                    PlayerControl?.SyncTrackPlayingStates(track);
                 });
             }
 
