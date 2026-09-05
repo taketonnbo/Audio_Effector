@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Windows;
 using AudioEffector.Domain.Entities;
@@ -31,7 +31,7 @@ public class ThemeManager
         Uri themeUri = new Uri($"pack://application:,,,/AudioEffector;component/Presentation/Themes/{themeFileName}");
 
         var existingThemeDict = System.Windows.Application.Current.Resources.MergedDictionaries
-            .FirstOrDefault(d => d.Source != null && d.Source.OriginalString.Contains("Themes/"));
+            .FirstOrDefault(d => d.Source != null && (d.Source.OriginalString.EndsWith("DarkTheme.xaml") || d.Source.OriginalString.EndsWith("LightTheme.xaml")));
 
         if (existingThemeDict != null)
         {

@@ -26,6 +26,12 @@
     <Color x:Key="TitleBarCloseButtonHoverColor">#E81123</Color>
     <Color x:Key="TitleBarCloseButtonPressedColor">#C4101E</Color>
 
+    <!-- ScrollBar Colors -->
+    <Color x:Key="ScrollBarTrackColor">#00000000</Color>
+    <Color x:Key="ScrollBarThumbColor">#CBD5E1</Color>
+    <Color x:Key="ScrollBarThumbHoverColor">#94A3B8</Color>
+    <Color x:Key="ScrollBarThumbDraggingColor">#0078D7</Color>
+
     <!-- Brushes -->
     <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{StaticResource WindowBackgroundColor}"/>
     <SolidColorBrush x:Key="PanelBackgroundBrush" Color="{StaticResource PanelBackgroundColor}"/>
@@ -49,6 +55,12 @@
     <SolidColorBrush x:Key="TitleBarButtonPressedBrush" Color="{StaticResource TitleBarButtonPressedColor}"/>
     <SolidColorBrush x:Key="TitleBarCloseButtonHoverBrush" Color="{StaticResource TitleBarCloseButtonHoverColor}"/>
     <SolidColorBrush x:Key="TitleBarCloseButtonPressedBrush" Color="{StaticResource TitleBarCloseButtonPressedColor}"/>
+
+    <!-- ScrollBar Brushes -->
+    <SolidColorBrush x:Key="ScrollBarTrackBrush" Color="{StaticResource ScrollBarTrackColor}"/>
+    <SolidColorBrush x:Key="ScrollBarThumbBrush" Color="{StaticResource ScrollBarThumbColor}"/>
+    <SolidColorBrush x:Key="ScrollBarThumbHoverBrush" Color="{StaticResource ScrollBarThumbHoverColor}"/>
+    <SolidColorBrush x:Key="ScrollBarThumbDraggingBrush" Color="{StaticResource ScrollBarThumbDraggingColor}"/>
 
     <!-- Constant Accent Colors (for Dark Surfaces like Album Art Overlay) -->
     <Color x:Key="AlwaysNeonCyanColor">#00FFFF</Color>
