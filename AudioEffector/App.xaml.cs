@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Windows;
 using AudioEffector.Application;
 using AudioEffector.Infrastructure;
@@ -22,6 +22,10 @@ public partial class App : System.Windows.Application
     /// </summary>
     public static IServiceProvider? ServiceProvider { get; private set; }
 
+#if DEBUG
+    private AudioEffector.Presentation.Diagnostics.BindingErrorDebugListener? _bindingErrorListener;
+#endif
+
     /// <summary>
     /// コンストラクタ。未処理の例外イベントハンドラを登録します
     /// </summary>
@@ -38,6 +42,10 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+#if DEBUG
+        _bindingErrorListener = AudioEffector.Presentation.Diagnostics.BindingErrorDebugListener.StartListening();
+#endif
 
         var services = new ServiceCollection();
 
@@ -67,6 +75,10 @@ public partial class App : System.Windows.Application
     {
         Logger.Info("アプリケーションを終了します。");
         LogManager.Shutdown();
+#if DEBUG
+        _bindingErrorListener?.Dispose();
+        _bindingErrorListener = null;
+#endif
         base.OnExit(e);
     }
 
