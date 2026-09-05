@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -17,6 +17,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     private uint _year;
     private bool _isSelected;
     private bool _isOnDevice;
+    private bool _isTracksExpanded;
     private BitmapImage? _coverImage;
     private List<Track> _tracks = new();
 
@@ -164,6 +165,22 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             if (_isOnDevice != value)
             {
                 _isOnDevice = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>
+    /// アルバム収録曲トレイ（ソケット）が展開されているかどうか
+    /// </summary>
+    public bool IsTracksExpanded
+    {
+        get => _isTracksExpanded;
+        set
+        {
+            if (_isTracksExpanded != value)
+            {
+                _isTracksExpanded = value;
                 OnPropertyChanged();
             }
         }
