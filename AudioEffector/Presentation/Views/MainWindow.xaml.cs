@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls.Primitives;
 using AudioEffector.Application.ApplicationServices;
@@ -114,7 +114,7 @@ public partial class MainWindow : Window
     /// <param name="e">キャンセル可能なイベントデータ</param>
     protected override void OnClosing(CancelEventArgs e)
     {
-        if (DataContext is MainViewModel vm && vm.IsTransferring)
+        if (DataContext is MainViewModel vm && vm.DeviceBrowser.IsTransferring)
         {
             var result = MessageBox.Show("現在データ転送中です。本当にアプリを終了してよろしいですか？\n（終了すると転送が中断されます）", "終了確認", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (result == MessageBoxResult.No)
@@ -147,7 +147,14 @@ public partial class MainWindow : Window
         if (vm != null)
         {
             vm.IsDraggingProgress = true;
-            vm.AudioService.PauseForSeek(); // シーク中は再生を一時停止する
+            if (vm.PlayerControl != null)
+            {
+                vm.PlayerControl.StartDragging();
+            }
+            else
+            {
+                vm.AudioService.PauseForSeek(); // シーク中は再生を一時停止する
+            }
         }
     }
 
@@ -161,7 +168,14 @@ public partial class MainWindow : Window
         if (vm != null)
         {
             vm.IsDraggingProgress = false;
-            vm.AudioService.ResumeAfterSeek(); // シーク後に再生を再開する
+            if (vm.PlayerControl != null)
+            {
+                vm.PlayerControl.StopDragging();
+            }
+            else
+            {
+                vm.AudioService.ResumeAfterSeek(); // シーク後に再生を再開する
+            }
         }
     }
 }

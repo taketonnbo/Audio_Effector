@@ -19,6 +19,7 @@ public class EqualizerApplicationService
 {
     private const string CUSTOM_PRESETS_SETTINGS_KEY = "Equalizer_CustomPresets";
     private readonly IAudioEngine _audioEngine;
+    private readonly IAudioService? _legacyAudioService;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IEventBus _eventBus;
     private readonly string _presetsFilePath;
@@ -43,14 +44,17 @@ public class EqualizerApplicationService
     /// <param name="audioEngine">オーディオ再生エンジン</param>
     /// <param name="settingsRepository">設定リポジトリ</param>
     /// <param name="eventBus">イベントバス</param>
+    /// <param name="legacyAudioService">移行期間中の既存再生サービス</param>
     public EqualizerApplicationService(
         IAudioEngine audioEngine,
         ISettingsRepository settingsRepository,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        IAudioService? legacyAudioService = null)
     {
         _audioEngine = audioEngine ?? throw new ArgumentNullException(nameof(audioEngine));
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
+        _legacyAudioService = legacyAudioService;
         _currentPreset = EqualizerPreset.CreateFlat();
 
         string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -119,6 +123,14 @@ public class EqualizerApplicationService
 
         var gains = preset.Bands.Select(b => b.Gain.Value).ToArray();
         await _audioEngine.SetEqualizerAllGainsAsync(gains, cancellationToken);
+        if (_legacyAudioService != null)
+        {
+            for (int i = 0; i < gains.Length; i++)
+            {
+                _legacyAudioService.SetGain(i, gains[i]);
+            }
+        }
+
         await _eventBus.PublishAsync(new EqualizerPresetChangedEvent(preset), cancellationToken);
     }
 
@@ -137,6 +149,7 @@ public class EqualizerApplicationService
         }
 
         await _audioEngine.SetEqualizerBandGainAsync(bandIndex, gain.Value, cancellationToken);
+        _legacyAudioService?.SetGain(bandIndex, gain.Value);
         await _eventBus.PublishAsync(new EqualizerPresetChangedEvent(_currentPreset), cancellationToken);
     }
 
@@ -208,6 +221,33 @@ public class EqualizerApplicationService
         var dtos = presets.Select(PresetDto.FromEntity).ToList();
         string json = JsonSerializer.Serialize(dtos);
         await _settingsRepository.SetValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, json, cancellationToken);
+    }
+
+    /// <summary>
+    /// カスタムプリセットを削除します。
+    /// </summary>
+    /// <param name="presetName">削除対象のプリセット名</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>削除対象が存在した場合はtrue</returns>
+    public async Task<bool> DeleteCustomPresetAsync(string presetName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(presetName))
+        {
+            return false;
+        }
+
+        var customPresets = (await GetPresetsAsync(cancellationToken)).Where(p => p.IsCustom).ToList();
+        int removedCount = customPresets.RemoveAll(
+            p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
+        if (removedCount == 0)
+        {
+            return false;
+        }
+
+        var dtos = customPresets.Select(PresetDto.FromEntity).ToList();
+        string json = JsonSerializer.Serialize(dtos);
+        await _settingsRepository.SetValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, json, cancellationToken);
+        return true;
     }
 
     private static EqualizerPreset CreatePreset(string name, params float[] gainsDb)

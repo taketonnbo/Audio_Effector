@@ -47,7 +47,7 @@
                             </Style>
                         </MenuItem.Style>
                     </MenuItem>
-                    <MenuItem Header="プレイリストに追加..." Command="{Binding ShowAddToPlaylistDialogCommand}" CommandParameter="{Binding CurrentTrack}" />
+                    <MenuItem Header="プレイリストに追加..." Command="{Binding Playlist.ShowAddToPlaylistDialogCommand}" CommandParameter="{Binding CurrentTrack}" />
                     <Separator />
                     <MenuItem Header="プロパティ表示" Command="{Binding ShowTrackPropertiesCommand}" CommandParameter="{Binding CurrentTrack}" />
                     <MenuItem Header="ファイルの場所を開く" Command="{Binding OpenFileLocationCommand}" CommandParameter="{Binding CurrentTrack}" />

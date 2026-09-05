@@ -23,3 +23,6 @@ toc.yml
 
 # Misc
 objects.txt
+.agent_build/
+.agent_test_build/
+PowerShell/

@@ -112,7 +112,7 @@
                                                     </Style>
                                                 </MenuItem.Style>
                                             </MenuItem>
-                                            <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                             <Separator/>
                                             <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                             <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
@@ -156,7 +156,7 @@
                                         <!-- Heart Removed -->
 
                                         <Button Grid.Column="4" Content="-" ToolTip="Remove from Playlist" 
-                                                Command="{Binding DataContext.RemoveFromPlaylistCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                Command="{Binding DataContext.RemoveFromPlaylistCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                 CommandParameter="{Binding}"
                                                 Width="40" Height="40" FontSize="24" FontWeight="Bold"
                                                 Background="Transparent" Foreground="#FF4040" BorderThickness="0" Padding="0" Margin="0"/>

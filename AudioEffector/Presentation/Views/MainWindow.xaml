@@ -12,10 +12,8 @@
         Icon="pack://application:,,,/Audio_Effector_icon_1.0.1.ico"
         Background="{DynamicResource WindowBackgroundBrush}"
         WindowStartupLocation="CenterScreen"
-        x:Name="MainWindowRoot">
-    <Window.DataContext>
-        <vm:MainViewModel/>
-    </Window.DataContext>
+        x:Name="MainWindowRoot"
+        d:DataContext="{d:DesignInstance vm:MainViewModel}">
     <Window.Resources>
         
         <Color x:Key="NeonCyanColor">#00FFFF</Color>
@@ -424,7 +422,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:LibraryView />
+                                            <views:LibraryView DataContext="{Binding Library}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
@@ -442,7 +440,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:FolderView />
+                                            <views:FolderView DataContext="{Binding Folder}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
@@ -451,7 +449,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:PlaylistTracksView />
+                                            <views:PlaylistTracksView DataContext="{Binding Playlist}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
@@ -460,7 +458,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:PlaylistSelectorView />
+                                            <views:PlaylistSelectorView DataContext="{Binding Playlist}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
@@ -469,7 +467,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:PlaylistTracksView />
+                                            <views:PlaylistTracksView DataContext="{Binding Playlist}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
@@ -487,7 +485,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:EqualizerView />
+                                            <views:EqualizerView DataContext="{Binding Equalizer}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
@@ -496,7 +494,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:DeviceSyncView />
+                                            <views:DeviceSyncView DataContext="{Binding DeviceBrowser}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
@@ -640,7 +638,7 @@
                             <Style TargetType="Grid">
                                 <Setter Property="Width" Value="340"/>
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                                    <DataTrigger Binding="{Binding PlayerControl.IsSpectrumVisible}" Value="False">
                                         <DataTrigger.EnterActions>
                                             <BeginStoryboard>
                                                 <Storyboard>
@@ -685,7 +683,7 @@
                                     <Setter Property="Width" Value="260"/>
                                     <Setter Property="Height" Value="260"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                                        <DataTrigger Binding="{Binding PlayerControl.IsSpectrumVisible}" Value="False">
                                             <DataTrigger.EnterActions>
                                                 <BeginStoryboard>
                                                     <Storyboard>
@@ -781,7 +779,7 @@
                                         <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{DynamicResource MutedTextForegroundBrush}" Stretch="Uniform" Width="14" Height="14"/>
                                     </Button>
                                     <!-- Add to Playlist -->
-                                    <Button Command="{Binding ShowAddToPlaylistDialogCommand}" CommandParameter="{Binding CurrentTrack}" Margin="0,0,10,0" Background="Transparent" BorderThickness="0" ToolTip="Add to Playlist">
+                                    <Button Command="{Binding Playlist.ShowAddToPlaylistDialogCommand}" CommandParameter="{Binding CurrentTrack}" Margin="0,0,10,0" Background="Transparent" BorderThickness="0" ToolTip="Add to Playlist">
                                         <Path Data="M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6V13z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="14" Height="14" Stretch="Uniform"/>
                                     </Button>
                                     <!-- Favorite -->
@@ -978,7 +976,7 @@
                                                             <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                                             <Separator/>
                                                             <MenuItem Header="お気に入りに追加/解除" Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                            <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                                             <Separator/>
                                                             <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
                                                             <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
@@ -1226,7 +1224,7 @@
 
                         <!-- Right Group: Fav & Add -->
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button Command="{Binding ShowAddToPlaylistDialogCommand}" CommandParameter="{Binding CurrentTrack}" Margin="0,0,8,0" Background="Transparent" BorderThickness="0" ToolTip="Add to Playlist">
+                            <Button Command="{Binding Playlist.ShowAddToPlaylistDialogCommand}" CommandParameter="{Binding CurrentTrack}" Margin="0,0,8,0" Background="Transparent" BorderThickness="0" ToolTip="Add to Playlist">
                                 <Path Data="M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6V13z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="14" Height="14" Stretch="Uniform"/>
                             </Button>
                             <Button Command="{Binding ToggleFavoriteCommand}" CommandParameter="{Binding CurrentTrack}" Background="Transparent" BorderThickness="0" ToolTip="Favorite">
@@ -1264,7 +1262,7 @@
 
             <!-- Toggle Handle Bar -->
             <Border Grid.Row="0" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Height="22">
-                <Button Command="{Binding ToggleSpectrumCommand}" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="12,2" HorizontalAlignment="Center">
+                <Button Command="{Binding PlayerControl.ToggleSpectrumCommand}" Background="Transparent" BorderThickness="0" Cursor="Hand" Padding="12,2" HorizontalAlignment="Center">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
@@ -1278,7 +1276,7 @@
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
                                 </Trigger>
-                                <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                                <DataTrigger Binding="{Binding PlayerControl.IsSpectrumVisible}" Value="False">
                                     <Setter TargetName="ArrowIcon" Property="Data" Value="M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z"/>
                                 </DataTrigger>
                             </ControlTemplate.Triggers>
@@ -1293,7 +1291,7 @@
                     <Style TargetType="Grid">
                         <Setter Property="Height" Value="140"/>
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsSpectrumVisible}" Value="False">
+                            <DataTrigger Binding="{Binding PlayerControl.IsSpectrumVisible}" Value="False">
                                 <DataTrigger.EnterActions>
                                     <BeginStoryboard>
                                         <Storyboard>
@@ -1382,7 +1380,7 @@
                     </Border>
 
                     <!-- Spectrum Bars (64 High-Density Bars with Fixed 6px Width) -->
-                    <ItemsControl x:Name="SpectrumBarsControl" Grid.Row="1" ItemsSource="{Binding SpectrumValues}" Margin="0,0,0,22" RenderOptions.EdgeMode="Aliased"
+                    <ItemsControl x:Name="SpectrumBarsControl" Grid.Row="1" ItemsSource="{Binding PlayerControl.SpectrumValues}" Margin="0,0,0,22" RenderOptions.EdgeMode="Aliased"
                                   VerticalAlignment="Bottom" Height="90" Width="768" HorizontalAlignment="Center"
                                   Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
                         <ItemsControl.ItemsPanel>
