@@ -14,7 +14,7 @@ public class MarqueeTextBlock : ContentControl
 {
     private readonly Grid _container;
     private readonly TextBlock _staticTextBlock;
-    private readonly StackPanel _scrollPanel;
+    private readonly Canvas _scrollCanvas;
     private readonly TextBlock _scrollTextBlock1;
     private readonly TextBlock _scrollTextBlock2;
     private readonly TranslateTransform _transform;
@@ -166,25 +166,23 @@ public class MarqueeTextBlock : ContentControl
 
         _scrollTextBlock1 = new TextBlock
         {
-            TextTrimming = TextTrimming.None,
-            VerticalAlignment = VerticalAlignment.Center
+            TextTrimming = TextTrimming.None
         };
 
         _scrollTextBlock2 = new TextBlock
         {
-            TextTrimming = TextTrimming.None,
-            VerticalAlignment = VerticalAlignment.Center
+            TextTrimming = TextTrimming.None
         };
 
-        _scrollPanel = new StackPanel
+        _scrollCanvas = new Canvas
         {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Stretch,
             RenderTransform = _transform,
             Visibility = Visibility.Collapsed
         };
-        _scrollPanel.Children.Add(_scrollTextBlock1);
-        _scrollPanel.Children.Add(_scrollTextBlock2);
+        _scrollCanvas.Children.Add(_scrollTextBlock1);
+        _scrollCanvas.Children.Add(_scrollTextBlock2);
 
         _container = new Grid
         {
@@ -192,7 +190,7 @@ public class MarqueeTextBlock : ContentControl
             Background = Brushes.Transparent // マウスイベントを確実に受信するため透明背景
         };
         _container.Children.Add(_staticTextBlock);
-        _container.Children.Add(_scrollPanel);
+        _container.Children.Add(_scrollCanvas);
 
         Content = _container;
 
@@ -400,23 +398,39 @@ public class MarqueeTextBlock : ContentControl
             return;
         }
 
+        // 実際の TextBlock の描画サイズを計測
+        _scrollTextBlock1.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var measuredWidth = Math.Max(textWidth, _scrollTextBlock1.DesiredSize.Width);
+
+        // 垂直中央揃えのための Y 座標計算
+        var containerHeight = ActualHeight > 0 ? ActualHeight : _staticTextBlock.ActualHeight;
+        var textHeight = _scrollTextBlock1.DesiredSize.Height;
+        var top = Math.Max(0.0, (containerHeight - textHeight) / 2.0);
+
         // テキスト間の余白（約60pxまたは表示幅の35%）
         var gap = Math.Max(60.0, availableWidth * 0.35);
-        _scrollTextBlock2.Margin = new Thickness(gap, 0, 0, 0);
 
-        // 静止用テキストを非表示にし、スクロールパネルを表示
+        // Canvas 内に 2 つの TextBlock を配置（親の幅に制限されず全文字が確実にレンダリングされる）
+        Canvas.SetLeft(_scrollTextBlock1, 0.0);
+        Canvas.SetTop(_scrollTextBlock1, top);
+
+        Canvas.SetLeft(_scrollTextBlock2, measuredWidth + gap);
+        Canvas.SetTop(_scrollTextBlock2, top);
+
+        // 静止用テキストを非表示にし、スクロール Canvas を表示
         _staticTextBlock.Visibility = Visibility.Collapsed;
-        _scrollPanel.Visibility = Visibility.Visible;
+        _scrollCanvas.Visibility = Visibility.Visible;
 
-        var overflowDistance = textWidth - availableWidth + 10.0;
+        // 末尾まで確実に表示するためのスクロール距離（少し余裕を持たせる）
+        var overflowDistance = (measuredWidth - availableWidth) + 15.0;
         var scrollSpeed = Math.Max(10.0, ScrollSpeed);
 
         // 1. 先頭から末尾までのスクロール時間
         var tScroll1 = TimeSpan.FromSeconds(Math.Max(0.5, overflowDistance / scrollSpeed));
         // 2. 末尾での静止時間（1.2秒）
         var endPause = EndDelay;
-        // 3. 末尾から頭（TextBlock2）が初期位置 X=0 に到達するまでのスクロール時間（同じ速度）
-        var returnDistance = (textWidth + gap) - overflowDistance;
+        // 3. 末尾から頭（_scrollTextBlock2）が初期位置 X=0 に到達するまでのスクロール時間（同じ速度）
+        var returnDistance = (measuredWidth + gap) - overflowDistance;
         var tScroll2 = TimeSpan.FromSeconds(Math.Max(0.5, returnDistance / scrollSpeed));
         // 4. 頭（初期位置 X=0）に復帰した状態での静止時間（1.2秒）
         var returnPause = EndDelay;
@@ -440,11 +454,11 @@ public class MarqueeTextBlock : ContentControl
         // 2. 末尾で 1.2 秒間静止
         animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(-overflowDistance, KeyTime.FromTimeSpan(t2)));
 
-        // 3. 速度はそのままで、頭（TextBlock2）が X=0 に到達する位置 (-(textWidth + gap)) まで右から左へスクロール
-        animation.KeyFrames.Add(new LinearDoubleKeyFrame(-(textWidth + gap), KeyTime.FromTimeSpan(t3)));
+        // 3. 速度はそのままで、頭（_scrollTextBlock2）が X=0 に到達する位置 (-(measuredWidth + gap)) まで右から左へスクロール
+        animation.KeyFrames.Add(new LinearDoubleKeyFrame(-(measuredWidth + gap), KeyTime.FromTimeSpan(t3)));
 
         // 4. 頭が初期表示 (X=0) に戻った位置で 1.2 秒間静止して次周回へループ
-        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(-(textWidth + gap), KeyTime.FromTimeSpan(t4)));
+        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame(-(measuredWidth + gap), KeyTime.FromTimeSpan(t4)));
 
         _transform.BeginAnimation(TranslateTransform.XProperty, animation);
         IsScrolling = true;
@@ -463,7 +477,7 @@ public class MarqueeTextBlock : ContentControl
     {
         _transform.BeginAnimation(TranslateTransform.XProperty, null);
         _transform.X = 0;
-        _scrollPanel.Visibility = Visibility.Collapsed;
+        _scrollCanvas.Visibility = Visibility.Collapsed;
         _staticTextBlock.Visibility = Visibility.Visible;
     }
 
