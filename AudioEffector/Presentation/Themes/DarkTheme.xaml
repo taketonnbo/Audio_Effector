@@ -32,6 +32,10 @@
     <SolidColorBrush x:Key="NeonCyanBrush" Color="{StaticResource NeonCyanColor}"/>
     <SolidColorBrush x:Key="DarkNeonCyanBrush" Color="{StaticResource DarkNeonCyanColor}"/>
 
+    <!-- Constant Accent Colors (for Dark Surfaces like Album Art Overlay) -->
+    <Color x:Key="AlwaysNeonCyanColor">#00FFFF</Color>
+    <SolidColorBrush x:Key="AlwaysNeonCyanBrush" Color="{StaticResource AlwaysNeonCyanColor}"/>
+
     <!-- Metallic Card Background & Border Brushes (Top-Left Light, Bottom-Right Dark) -->
     <LinearGradientBrush x:Key="MetallicCardBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
         <GradientStop Color="#2C3545" Offset="0.0"/>
