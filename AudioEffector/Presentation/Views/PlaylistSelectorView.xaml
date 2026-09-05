@@ -78,13 +78,13 @@
                                                     </Grid.ColumnDefinitions>
                                                     
                                                     <!-- Index 0: TL -->
-                                                    <Image Grid.Row="0" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding ThumbnailTrackPaths[0]}" Stretch="UniformToFill"/>
+                                                    <Image Grid.Row="0" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding Thumbnail1}" Stretch="UniformToFill"/>
                                                     <!-- Index 1: TR -->
-                                                    <Image Grid.Row="0" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding ThumbnailTrackPaths[1]}" Stretch="UniformToFill"/>
+                                                    <Image Grid.Row="0" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding Thumbnail2}" Stretch="UniformToFill"/>
                                                     <!-- Index 2: BR -->
-                                                    <Image Grid.Row="1" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding ThumbnailTrackPaths[2]}" Stretch="UniformToFill"/>
+                                                    <Image Grid.Row="1" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding Thumbnail3}" Stretch="UniformToFill"/>
                                                     <!-- Index 3: BL -->
-                                                    <Image Grid.Row="1" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding ThumbnailTrackPaths[3]}" Stretch="UniformToFill"/>
+                                                    <Image Grid.Row="1" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding Thumbnail4}" Stretch="UniformToFill"/>
                                                  </Grid>
 
                                                  <!-- Info Area -->

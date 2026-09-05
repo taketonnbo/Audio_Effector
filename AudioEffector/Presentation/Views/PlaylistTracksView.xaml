@@ -47,10 +47,10 @@
                                      <ColumnDefinition Width="*"/>
                                  </Grid.ColumnDefinitions>
                                  
-                                 <Image Grid.Row="0" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.ThumbnailTrackPaths[0]}" Stretch="UniformToFill"/>
-                                 <Image Grid.Row="0" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.ThumbnailTrackPaths[1]}" Stretch="UniformToFill"/>
-                                 <Image Grid.Row="1" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.ThumbnailTrackPaths[2]}" Stretch="UniformToFill"/>
-                                 <Image Grid.Row="1" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.ThumbnailTrackPaths[3]}" Stretch="UniformToFill"/>
+                                 <Image Grid.Row="0" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.Thumbnail1}" Stretch="UniformToFill"/>
+                                 <Image Grid.Row="0" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.Thumbnail2}" Stretch="UniformToFill"/>
+                                 <Image Grid.Row="1" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.Thumbnail3}" Stretch="UniformToFill"/>
+                                 <Image Grid.Row="1" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.Thumbnail4}" Stretch="UniformToFill"/>
                             </Grid>
                         </Border>
                         
