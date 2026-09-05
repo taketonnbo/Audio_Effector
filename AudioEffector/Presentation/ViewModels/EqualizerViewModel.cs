@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
@@ -164,12 +164,7 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
             Bands.Add(bandVm);
         }
 
-        ResetPresetCommand = new RelayCommand(async _ =>
-        {
-            var flat = EqualizerPreset.CreateFlat();
-            await ApplyPresetAsync(flat);
-            SelectedPreset = Presets.FirstOrDefault(p => !p.IsCustom && p.Name.Contains("Flat", StringComparison.OrdinalIgnoreCase));
-        });
+        ResetPresetCommand = new RelayCommand(async _ => await ResetPresetAsync());
 
         SavePresetCommand = new RelayCommand(async name => await SavePresetAsync(name as string));
         DeletePresetCommand = new RelayCommand(async _ => await DeleteSelectedPresetAsync());
@@ -183,6 +178,17 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
     }
 
     /// <summary>
+    /// イコライザーをフラット（全帯域0dB）にリセットします
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    public async Task ResetPresetAsync()
+    {
+        var flat = EqualizerPreset.CreateFlat();
+        await ApplyPresetAsync(flat);
+        SelectedPreset = Presets.FirstOrDefault(p => !p.IsCustom && p.Name.Contains("Flat", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// プリセット一覧を読み込みます
     /// </summary>
     /// <returns>非同期タスク</returns>
@@ -190,7 +196,7 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
     {
         var presets = await _equalizerService.GetPresetsAsync();
         string? lastUsedPreset = _settingsService.LoadSettings().LastUsedEffectPreset;
-        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        RunOnUiThread(() =>
         {
             Presets.Clear();
             foreach (var p in presets)
@@ -205,7 +211,7 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
     private async Task ApplyPresetAsync(EqualizerPreset preset)
     {
         await _equalizerService.ApplyPresetAsync(preset);
-        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+        RunOnUiThread(() =>
         {
             _isApplyingPreset = true;
             try
@@ -299,7 +305,7 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
     /// <returns>非同期タスク</returns>
     public Task HandleAsync(EqualizerPresetChangedEvent domainEvent, CancellationToken cancellationToken = default)
     {
-        System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+        RunOnUiThread(() =>
         {
             IsCustom = domainEvent.Preset.IsCustom;
         });
@@ -331,14 +337,19 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
             OnPropertyChanged(nameof(Volume));
         }
 
+        RunOnUiThread(UpdateVolume);
+    }
+
+    private static void RunOnUiThread(Action action)
+    {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher == null || dispatcher.CheckAccess())
+        if (dispatcher == null || dispatcher.HasShutdownStarted || !dispatcher.Thread.IsAlive || dispatcher.CheckAccess())
         {
-            UpdateVolume();
+            action();
         }
         else
         {
-            dispatcher.InvokeAsync(UpdateVolume);
+            dispatcher.Invoke(action);
         }
     }
 
