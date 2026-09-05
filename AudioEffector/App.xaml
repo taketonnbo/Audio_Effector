@@ -7,6 +7,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/AudioEffector;component/Presentation/Themes/DarkTheme.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/AudioEffector;component/Presentation/Themes/ScrollBarResources.xaml" />
             </ResourceDictionary.MergedDictionaries>
             
             <!-- Global Converters -->
