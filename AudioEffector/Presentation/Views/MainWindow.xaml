@@ -14,7 +14,127 @@
         WindowStartupLocation="CenterScreen"
         x:Name="MainWindowRoot"
         d:DataContext="{d:DesignInstance vm:MainViewModel}">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="32"
+                      ResizeBorderThickness="6"
+                      CornerRadius="0"
+                      GlassFrameThickness="0"
+                      UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
+
     <Window.Resources>
+        <!-- Window Root Border Style (Handles Maximized Margin and Window Border) -->
+        <Style x:Key="MainWindowRootBorderStyle" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{DynamicResource TitleBarBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized">
+                    <Setter Property="BorderThickness" Value="0"/>
+                    <Setter Property="Margin" Value="7"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Title Bar Base Button Style -->
+        <Style x:Key="TitleBarButtonStyle" TargetType="Button">
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
+            <Setter Property="Width" Value="46"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TitleBarForegroundBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource TitleBarButtonHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource TitleBarButtonPressedBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Title Bar Minimize Button Style -->
+        <Style x:Key="TitleBarMinimizeButtonStyle" TargetType="Button" BasedOn="{StaticResource TitleBarButtonStyle}">
+            <Setter Property="ToolTip" Value="最小化"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Border" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                            <Line X1="0" Y1="0" X2="10" Y2="0" Stroke="{TemplateBinding Foreground}" StrokeThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{DynamicResource TitleBarButtonHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{DynamicResource TitleBarButtonPressedBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Title Bar Maximize / Restore Button Style -->
+        <Style x:Key="TitleBarMaximizeButtonStyle" TargetType="Button" BasedOn="{StaticResource TitleBarButtonStyle}">
+            <Setter Property="ToolTip" Value="最大化"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Border" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                            <Path x:Name="Icon" Data="M1,1 L9,1 L9,9 L1,9 Z" Stroke="{TemplateBinding Foreground}" StrokeThickness="1" Stretch="None" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{DynamicResource TitleBarButtonHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{DynamicResource TitleBarButtonPressedBrush}"/>
+                            </Trigger>
+                            <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}" Value="Maximized">
+                                <Setter TargetName="Icon" Property="Data" Value="M3,1 L9,1 L9,7 M1,3 L7,3 L7,9 L1,9 Z"/>
+                                <Setter Property="ToolTip" Value="元に戻す"/>
+                            </DataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Title Bar Close Button Style -->
+        <Style x:Key="TitleBarCloseButtonStyle" TargetType="Button" BasedOn="{StaticResource TitleBarButtonStyle}">
+            <Setter Property="ToolTip" Value="閉じる"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Border" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                            <Path x:Name="Icon" Data="M1,1 L9,9 M9,1 L1,9" Stroke="{TemplateBinding Foreground}" StrokeThickness="1" Stretch="None" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{DynamicResource TitleBarCloseButtonHoverBrush}"/>
+                                <Setter TargetName="Icon" Property="Stroke" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{DynamicResource TitleBarCloseButtonPressedBrush}"/>
+                                <Setter TargetName="Icon" Property="Stroke" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         
         <Color x:Key="NeonCyanColor">#00FFFF</Color>
         <SolidColorBrush x:Key="NeonCyanBrush" Color="{StaticResource NeonCyanColor}"/>
@@ -158,8 +278,69 @@
 
     </Window.Resources>
 
-    <Grid>
-        <views:SidebarControl HorizontalAlignment="Left" Panel.ZIndex="10"/>
+    <Border x:Name="WindowRootBorder" Style="{StaticResource MainWindowRootBorderStyle}" Background="{DynamicResource WindowBackgroundBrush}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> <!-- Row 0: Custom Title Bar -->
+                <RowDefinition Height="*"/>    <!-- Row 1: Main Client Area -->
+            </Grid.RowDefinitions>
+
+            <!-- Row 0: Custom Title Bar (Height: 32) -->
+            <Grid Grid.Row="0" Height="32" Background="{DynamicResource TitleBarBackgroundBrush}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/> <!-- Left: App Icon -->
+                    <ColumnDefinition Width="*"/>    <!-- Center & Right Extension Space -->
+                    <ColumnDefinition Width="Auto"/> <!-- Right: Window Control Buttons -->
+                </Grid.ColumnDefinitions>
+
+                <!-- Left: App Icon Only -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
+                    <Image Source="pack://application:,,,/Audio_Effector_icon_1.0.1.ico"
+                           Width="18" Height="18"
+                           VerticalAlignment="Center"
+                           IsHitTestVisible="False"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
+                </StackPanel>
+
+                <!-- Center: App Title (Window Centered Overlay) -->
+                <TextBlock Grid.Column="0" Grid.ColumnSpan="3"
+                           Text="AudioEffector"
+                           Foreground="{DynamicResource TitleBarForegroundBrush}"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           IsHitTestVisible="False"/>
+
+                <!-- Extension Space for Future Action Buttons (Between Center and Window Control Buttons) -->
+                <StackPanel x:Name="TitleBarExtensionArea"
+                            Grid.Column="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Center"
+                            Margin="0,0,12,0"
+                            WindowChrome.IsHitTestVisibleInChrome="True">
+                    <!-- 将来の機能ボタン（検索、通知、クイックアクション等）用の配置スペース -->
+                </StackPanel>
+
+                <!-- Right: Window Control Buttons (Minimize, Maximize/Restore, Close) -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Stretch"
+                            WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Button x:Name="TitleBarMinimizeButton"
+                            Style="{StaticResource TitleBarMinimizeButtonStyle}"
+                            Click="TitleBarMinimizeButton_Click"/>
+                    <Button x:Name="TitleBarMaximizeButton"
+                            Style="{StaticResource TitleBarMaximizeButtonStyle}"
+                            Click="TitleBarMaximizeButton_Click"/>
+                    <Button x:Name="TitleBarCloseButton"
+                            Style="{StaticResource TitleBarCloseButtonStyle}"
+                            Click="TitleBarCloseButton_Click"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Row 1: Main Client Area -->
+            <Grid Grid.Row="1">
+                <views:SidebarControl HorizontalAlignment="Left" Panel.ZIndex="10"/>
 
         <Grid Margin="50,0,0,0">
             <Grid.RowDefinitions>
@@ -1410,6 +1591,8 @@
                 </Grid>
             </Grid>
         </Grid>
+            </Grid>
         </Grid>
-    </Grid>
+        </Grid>
+    </Border>
 </Window>
