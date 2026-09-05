@@ -139,11 +139,6 @@
         <Color x:Key="NeonCyanColor">#00FFFF</Color>
         <SolidColorBrush x:Key="NeonCyanBrush" Color="{StaticResource NeonCyanColor}"/>
 
-        <!-- ScrollBar Style (Simplified) -->
-        <Style TargetType="ScrollBar">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#404040"/>
-        </Style>
 
         <!-- Button Style -->
         <Style TargetType="Button">
