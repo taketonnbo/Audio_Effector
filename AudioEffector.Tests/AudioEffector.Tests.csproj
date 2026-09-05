@@ -26,4 +26,9 @@
     <ProjectReference Include="..\AudioEffector\AudioEffector.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Resource Include="..\AudioEffector\Audio_Effector_icon_1.0.1.ico" Link="audio_effector_icon_1.0.1.ico" />
+    <Resource Include="..\AudioEffector\Audio_Effector_icon_1.0.1.ico" Link="Audio_Effector_icon_1.0.1.ico" />
+  </ItemGroup>
+
 </Project>
