@@ -17,6 +17,15 @@
     <Color x:Key="NeonCyanColor">#0078D7</Color>
     <Color x:Key="DarkNeonCyanColor">#005A9E</Color>
 
+    <!-- Title Bar Colors -->
+    <Color x:Key="TitleBarBackgroundColor">#F5F5F5</Color>
+    <Color x:Key="TitleBarForegroundColor">#1E1E1E</Color>
+    <Color x:Key="TitleBarBorderColor">#E2E8F0</Color>
+    <Color x:Key="TitleBarButtonHoverColor">#E5E5E5</Color>
+    <Color x:Key="TitleBarButtonPressedColor">#CCCCCC</Color>
+    <Color x:Key="TitleBarCloseButtonHoverColor">#E81123</Color>
+    <Color x:Key="TitleBarCloseButtonPressedColor">#C4101E</Color>
+
     <!-- Brushes -->
     <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{StaticResource WindowBackgroundColor}"/>
     <SolidColorBrush x:Key="PanelBackgroundBrush" Color="{StaticResource PanelBackgroundColor}"/>
@@ -31,6 +40,15 @@
     
     <SolidColorBrush x:Key="NeonCyanBrush" Color="{StaticResource NeonCyanColor}"/>
     <SolidColorBrush x:Key="DarkNeonCyanBrush" Color="{StaticResource DarkNeonCyanColor}"/>
+
+    <!-- Title Bar Brushes -->
+    <SolidColorBrush x:Key="TitleBarBackgroundBrush" Color="{StaticResource TitleBarBackgroundColor}"/>
+    <SolidColorBrush x:Key="TitleBarForegroundBrush" Color="{StaticResource TitleBarForegroundColor}"/>
+    <SolidColorBrush x:Key="TitleBarBorderBrush" Color="{StaticResource TitleBarBorderColor}"/>
+    <SolidColorBrush x:Key="TitleBarButtonHoverBrush" Color="{StaticResource TitleBarButtonHoverColor}"/>
+    <SolidColorBrush x:Key="TitleBarButtonPressedBrush" Color="{StaticResource TitleBarButtonPressedColor}"/>
+    <SolidColorBrush x:Key="TitleBarCloseButtonHoverBrush" Color="{StaticResource TitleBarCloseButtonHoverColor}"/>
+    <SolidColorBrush x:Key="TitleBarCloseButtonPressedBrush" Color="{StaticResource TitleBarCloseButtonPressedColor}"/>
 
     <!-- Constant Accent Colors (for Dark Surfaces like Album Art Overlay) -->
     <Color x:Key="AlwaysNeonCyanColor">#00FFFF</Color>
