@@ -120,7 +120,7 @@ public class MarqueeTextBlock : ContentControl
     }
 
     /// <summary>
-    /// スクロールが末尾に達した後の待機時間（既定値: 1200ms）を取得または設定します。
+    /// スクロールが末尾に達した後の待機時間を取得または設定します。
     /// </summary>
     public TimeSpan EndDelay
     {
@@ -398,13 +398,17 @@ public class MarqueeTextBlock : ContentControl
             return;
         }
 
+        // 最新のスタイル（Foreground, FontSize等）を確実に全TextBlockへ適用
+        UpdateTextBlockStyle();
+
         // 実際の TextBlock の描画サイズを計測
         _scrollTextBlock1.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        _scrollTextBlock2.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var measuredWidth = Math.Max(textWidth, _scrollTextBlock1.DesiredSize.Width);
 
-        // 垂直中央揃えのための Y 座標計算
+        // 垂直中央揃えのための Y 座標計算（_staticTextBlock の高さを基準にして完全に一致させる）
         var containerHeight = ActualHeight > 0 ? ActualHeight : _staticTextBlock.ActualHeight;
-        var textHeight = _scrollTextBlock1.DesiredSize.Height;
+        var textHeight = _scrollTextBlock1.DesiredSize.Height > 0 ? _scrollTextBlock1.DesiredSize.Height : _staticTextBlock.ActualHeight;
         var top = Math.Max(0.0, (containerHeight - textHeight) / 2.0);
 
         // テキスト間の余白（約60pxまたは表示幅の35%）
@@ -417,12 +421,12 @@ public class MarqueeTextBlock : ContentControl
         Canvas.SetLeft(_scrollTextBlock2, measuredWidth + gap);
         Canvas.SetTop(_scrollTextBlock2, top);
 
-        // 静止用テキストを非表示にし、スクロール Canvas を表示
-        _staticTextBlock.Visibility = Visibility.Collapsed;
+        // 静止用テキストは Hidden（非表示にするがレイアウトサイズは維持して親コンテナの縮小・チャタリングを防止）
+        _staticTextBlock.Visibility = Visibility.Hidden;
         _scrollCanvas.Visibility = Visibility.Visible;
 
         // 末尾まで確実に表示するためのスクロール距離（少し余裕を持たせる）
-        var overflowDistance = (measuredWidth - availableWidth) + 15.0;
+        var overflowDistance = (measuredWidth - availableWidth) + 30.0;
         var scrollSpeed = Math.Max(10.0, ScrollSpeed);
 
         // 1. 先頭から末尾までのスクロール時間
