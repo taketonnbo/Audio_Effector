@@ -198,10 +198,14 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string PlaybackListName
         {
-            get => _playbackListName;
+            get => PlayerControl?.PlaybackListName ?? _playbackListName;
             set
             {
                 _playbackListName = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.PlaybackListName = value;
+                }
                 OnPropertyChanged();
             }
         }
@@ -213,10 +217,14 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string PlaybackListSubtitle
         {
-            get => _playbackListSubtitle;
+            get => PlayerControl?.PlaybackListSubtitle ?? _playbackListSubtitle;
             set
             {
                 _playbackListSubtitle = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.PlaybackListSubtitle = value;
+                }
                 OnPropertyChanged();
             }
         }
@@ -228,10 +236,14 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ObservableCollection<Track> PlaybackListTracks
         {
-            get => _playbackListTracks;
+            get => PlayerControl?.PlaybackListTracks ?? _playbackListTracks;
             set
             {
                 _playbackListTracks = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.PlaybackListTracks = value;
+                }
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(PlaybackListTracksCountText));
             }
@@ -240,14 +252,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// トラックリストの総曲数表示文字列（例: "Tracklist (9 tracks)"）。
         /// </summary>
-        public string PlaybackListTracksCountText
-        {
-            get
-            {
-                int count = PlaybackListTracks?.Count ?? 0;
-                return count == 1 ? "Tracklist (1 track)" : $"Tracklist ({count} tracks)";
-            }
-        }
+        public string PlaybackListTracksCountText => PlayerControl?.PlaybackListTracksCountText ?? ((PlaybackListTracks?.Count ?? 0) == 1 ? "Tracklist (1 track)" : $"Tracklist ({PlaybackListTracks?.Count ?? 0} tracks)");
 
         private ObservableCollection<Track> _playQueue = new ObservableCollection<Track>();
 
@@ -256,10 +261,14 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ObservableCollection<Track> PlayQueue
         {
-            get => _playQueue;
+            get => PlayerControl?.PlayQueue ?? _playQueue;
             set
             {
                 _playQueue = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.PlayQueue = value;
+                }
                 OnPropertyChanged();
             }
         }
@@ -335,6 +344,7 @@ namespace AudioEffector.Presentation.ViewModels
                     PlaybackListName = name;
                     PlaybackListSubtitle = subtitle;
                     PlaybackListTracks = new ObservableCollection<Track>(tracks);
+                    PlayerControl?.SetPlaybackList(tracks, name, subtitle);
                 };
                 Playlist.FavoriteRemovalRequested += track =>
                 {
@@ -365,6 +375,55 @@ namespace AudioEffector.Presentation.ViewModels
             }
             _favoritePaths = _libraryService?.LoadFavorites() ?? new List<string>();
 
+            if (PlayerControl == null)
+            {
+#pragma warning disable CA2000 // オブジェクトの破棄
+                PlayerControl = new Presentation.ViewModels.PlayerControlViewModel(
+                    _audioService,
+                    new Infrastructure.Audio.NAudioPlaybackEngine(),
+                    new Application.Common.InMemoryEventBus(),
+                    _settingsService);
+#pragma warning restore CA2000 // オブジェクトの破棄
+            }
+
+            if (PlayerControl != null)
+            {
+                PlayerControl.PropertyChanged += (s, e) =>
+                {
+                    if (e.PropertyName != null)
+                    {
+                        OnPropertyChanged(e.PropertyName);
+                    }
+                };
+                PlayerControl.TrackPlayHandler = track =>
+                {
+                    if (IsPlaylistTracksVisible && Playlist is { PlaylistTracks.Count: > 0 } playlistViewModel && playlistViewModel.PlaylistTracks.Contains(track))
+                    {
+                        PlayerControl.SetPlaybackList(playlistViewModel.PlaylistTracks, playlistViewModel.CurrentPlaylistName, playlistViewModel.IsFavoritesView ? "Selected You" : "Playlist");
+                        return false;
+                    }
+                    var album = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
+                    if (album != null)
+                    {
+                        PlayerControl.SetPlaybackList(album.Tracks, album.Title, album.Artist);
+                        return false;
+                    }
+                    return false;
+                };
+                PlayerControl.FavoriteToggleRequested = track => ToggleFavorite(track);
+                PlayerControl.TrackChanged += track =>
+                {
+                    if (track != null)
+                    {
+                        CurrentAlbum = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
+                    }
+                    else
+                    {
+                        CurrentAlbum = null;
+                    }
+                };
+            }
+
             if (Library == null)
             {
 #pragma warning disable CA2000 // オブジェクトの破棄
@@ -388,6 +447,7 @@ namespace AudioEffector.Presentation.ViewModels
                     PlaybackListName = name;
                     PlaybackListSubtitle = subtitle;
                     PlaybackListTracks = new ObservableCollection<Track>(tracks);
+                    PlayerControl?.SetPlaybackList(tracks, name, subtitle);
                 };
                 Library.EnqueueRequested += (tracks, playNext) =>
                 {
@@ -487,99 +547,49 @@ namespace AudioEffector.Presentation.ViewModels
             SpectrumBackgroundImage = _defaultSpectrumImage;
 
             Folder = new FolderViewModel(_settingsService, path => LoadLibrary(path));
-            TogglePlayPauseCommand = new RelayCommand(o => _audioService.TogglePlayPause());
-            StopCommand = new RelayCommand(o => _audioService.Stop(false));
-            NextCommand = new RelayCommand(o => _audioService.Next());
-            PreviousCommand = new RelayCommand(o => _audioService.Previous());
+            // 再生制御系コマンド（PlayerControlViewModelへ完全委譲）
+            TogglePlayPauseCommand = PlayerControl!.TogglePlayPauseCommand;
+            StopCommand = PlayerControl!.StopCommand;
+            NextCommand = PlayerControl!.NextCommand;
+            PreviousCommand = PlayerControl!.PreviousCommand;
+            PlayTrackCommand = PlayerControl!.PlayTrackCommand;
+            PlayNextCommand = PlayerControl!.PlayNextCommand;
+            EnqueueTrackCommand = PlayerControl!.EnqueueTrackCommand;
+            PlayFromQueueCommand = PlayerControl!.PlayFromQueueCommand;
+            ShowQueueDialogCommand = PlayerControl!.ShowQueueDialogCommand;
+            ToggleRepeatCommand = PlayerControl!.ToggleRepeatCommand;
+            IncreaseVolumeCommand = PlayerControl!.IncreaseVolumeCommand;
+            DecreaseVolumeCommand = PlayerControl!.DecreaseVolumeCommand;
+            ToggleMuteCommand = PlayerControl!.ToggleMuteCommand;
 
-            PlayTrackCommand = new RelayCommand(o =>
-            {
-                if (o is Track t)
-                {
-                    // If clicking the currently playing track, toggle play/pause instead of restarting
-                    if (CurrentTrack != null && CurrentTrack.Equals(t))
-                    {
-                        _audioService.TogglePlayPause();
-                        return;
-                    }
+            // ライブラリ・アルバム系コマンド（LibraryViewModelへ完全委譲）
+            PlayAlbumCommand = Library!.PlayAlbumCommand;
+            PlayNextAlbumCommand = Library!.PlayNextAlbumCommand;
+            EnqueueAlbumCommand = Library!.EnqueueAlbumCommand;
+            DeleteAlbumCommand = Library!.DeleteAlbumCommand;
+            DeleteTrackCommand = Library!.DeleteTrackCommand;
+            ShowTrackPropertiesCommand = Library!.ShowTrackPropertiesCommand;
+            OpenFileLocationCommand = Library!.OpenFileLocationCommand;
+            ToggleViewCommand = Library!.ToggleViewCommand;
+            ToggleSortDirectionCommand = Library!.ToggleSortDirectionCommand;
+            ToggleFavoriteCommand = Library!.ToggleFavoriteCommand;
 
-                    // Check if playing from playlist/favorites view
-                    // プレイリストまたはお気に入りビューからの再生かどうかを確認
-                    if (IsPlaylistTracksVisible && Playlist is { PlaylistTracks.Count: > 0 } playlistViewModel && playlistViewModel.PlaylistTracks.Contains(t))
-                    {
-                        PlayQueue = new ObservableCollection<Track>(playlistViewModel.PlaylistTracks);
-                        _audioService.SetPlaylist(PlayQueue.ToList());
-                        PlaybackListName = playlistViewModel.CurrentPlaylistName;
-                        PlaybackListSubtitle = playlistViewModel.IsFavoritesView ? "Selected You" : "Playlist";
-                        PlaybackListTracks = new ObservableCollection<Track>(playlistViewModel.PlaylistTracks);
-                    }
-                    else
-                    {
-                        var album = Albums.FirstOrDefault(a => a.Tracks.Contains(t));
-                        if (album != null)
-                        {
-                            PlayQueue = new ObservableCollection<Track>(album.Tracks);
-                            _audioService.SetPlaylist(PlayQueue.ToList());
-                            PlaybackListName = album.Title;
-                            PlaybackListSubtitle = album.Artist;
-                            PlaybackListTracks = new ObservableCollection<Track>(album.Tracks);
-                        }
-                    }
-                    _audioService.PlayTrack(t);
-                }
-            });
-
-            ToggleFavoriteCommand = new RelayCommand(ToggleFavorite);
-            PlayNextCommand = new RelayCommand(PlayNext);
-            EnqueueTrackCommand = new RelayCommand(EnqueueTrack);
-            ShowTrackPropertiesCommand = new RelayCommand(ShowTrackProperties);
-            OpenFileLocationCommand = new RelayCommand(OpenFileLocation);
-            DeleteTrackCommand = new RelayCommand(DeleteTrack);
-            ShowQueueDialogCommand = new RelayCommand(o => ShowQueueDialog());
-            PlayFromQueueCommand = new RelayCommand(o =>
-            {
-                if (o is Track t)
-                {
-                    if (t == CurrentTrack)
-                    {
-                        _audioService.TogglePlayPause();
-                    }
-                    else
-                    {
-                        _audioService.PlayTrack(t);
-                    }
-                }
-            });
-            ToggleViewCommand = new RelayCommand(o => IsGridView = !IsGridView);
-            ToggleSortDirectionCommand = new RelayCommand(o => IsAscending = !IsAscending);
-
+            // ナビゲーション・表示切り替えコマンド
             ShowFavoritesCommand = new RelayCommand(o => ShowFavorites());
-
             SwitchViewCommand = new RelayCommand(param =>
             {
                 if (param is ViewType viewType)
                 {
                     CurrentViewType = viewType;
-                    // Handle special cases
                     if (viewType == ViewType.Favorites)
                     {
                         ShowFavorites();
                     }
                 }
             });
-
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
             ShowFolderCommand = new RelayCommand(o => ShowFolder());
             ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
-            ToggleRepeatCommand = new RelayCommand(ToggleRepeat);
-            PlayAlbumCommand = new RelayCommand(PlayAlbum);
-            PlayNextAlbumCommand = new RelayCommand(PlayNextAlbum);
-            EnqueueAlbumCommand = new RelayCommand(EnqueueAlbum);
-            DeleteAlbumCommand = new RelayCommand(DeleteAlbum);
-
-            IncreaseVolumeCommand = new RelayCommand(o => Volume = Math.Min(1.0f, Volume + 0.05f));
-            DecreaseVolumeCommand = new RelayCommand(o => Volume = Math.Max(0.0f, Volume - 0.05f));
-            ToggleMuteCommand = new RelayCommand(o => ToggleMute());
 
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => CurrentViewType = ViewType.DeviceSync);
@@ -840,10 +850,17 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsShuffleEnabled
         {
-            get => _audioService.IsShuffleEnabled;
+            get => PlayerControl?.IsShuffleEnabled ?? _audioService.IsShuffleEnabled;
             set
             {
-                _audioService.IsShuffleEnabled = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.IsShuffleEnabled = value;
+                }
+                else
+                {
+                    _audioService.IsShuffleEnabled = value;
+                }
                 OnPropertyChanged();
             }
         }
@@ -868,15 +885,19 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public Track? CurrentTrack
         {
-            get => _currentTrack;
+            get => PlayerControl?.CurrentTrack ?? _currentTrack;
             set
             {
                 _currentTrack = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.CurrentTrack = value;
+                }
                 OnPropertyChanged();
 
-                if (_currentTrack != null)
+                if (value != null)
                 {
-                    CurrentAlbum = Albums.FirstOrDefault(a => a.Tracks.Contains(_currentTrack));
+                    CurrentAlbum = Albums.FirstOrDefault(a => a.Tracks.Contains(value));
                 }
                 else
                 {
@@ -890,10 +911,14 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsPlaying
         {
-            get => _isPlaying;
+            get => PlayerControl?.IsPlaying ?? _isPlaying;
             set
             {
                 _isPlaying = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.IsPlaying = value;
+                }
                 OnPropertyChanged();
             }
         }
@@ -903,10 +928,14 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string CurrentTimeDisplay
         {
-            get => _currentTimeDisplay;
+            get => PlayerControl?.CurrentTimeDisplay ?? _currentTimeDisplay;
             set
             {
                 _currentTimeDisplay = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.CurrentTimeDisplay = value;
+                }
                 OnPropertyChanged();
             }
         }
@@ -916,10 +945,14 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public string TotalTimeDisplay
         {
-            get => _totalTimeDisplay;
+            get => PlayerControl?.TotalTimeDisplay ?? _totalTimeDisplay;
             set
             {
                 _totalTimeDisplay = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.TotalTimeDisplay = value;
+                }
                 OnPropertyChanged();
             }
         }
@@ -931,15 +964,19 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public double Progress
         {
-            get => _progress;
+            get => PlayerControl?.Progress ?? _progress;
             set
             {
                 _progress = value;
-                OnPropertyChanged();
-                if (_isDraggingProgress)
+                if (PlayerControl != null)
+                {
+                    PlayerControl.Progress = value;
+                }
+                else if (_isDraggingProgress)
                 {
                     _audioService.SeekTo(value);
                 }
+                OnPropertyChanged();
             }
         }
 
@@ -948,8 +985,33 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsDraggingProgress
         {
-            get => _isDraggingProgress;
-            set => _isDraggingProgress = value;
+            get => PlayerControl?.IsDraggingProgress ?? _isDraggingProgress;
+            set
+            {
+                _isDraggingProgress = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.IsDraggingProgress = value;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 指定パーセント位置へシークします
+        /// </summary>
+        /// <param name="percentage">シーク位置（0-100）</param>
+        public void Seek(double percentage)
+        {
+            if (PlayerControl != null)
+            {
+                PlayerControl.Seek(percentage);
+            }
+            else
+            {
+                _progress = percentage;
+                OnPropertyChanged(nameof(Progress));
+                _audioService.SeekTo(percentage);
+            }
         }
 
         /// <summary>
@@ -1136,11 +1198,18 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsAlbumRepeat
         {
-            get => _isAlbumRepeat;
+            get => PlayerControl?.IsAlbumRepeat ?? _isAlbumRepeat;
             set
             {
-                _isAlbumRepeat = value;
-                _audioService.IsRepeatEnabled = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.IsAlbumRepeat = value;
+                }
+                else
+                {
+                    _isAlbumRepeat = value;
+                    _audioService.IsRepeatEnabled = value;
+                }
                 OnPropertyChanged();
             }
         }
@@ -1181,21 +1250,30 @@ namespace AudioEffector.Presentation.ViewModels
         public ICommand ToggleMuteCommand { get; }
 
         private bool _isMuted;
-        private float _preMuteVolume = 1.0f;
+
+        /// <summary>
+        /// ミュート状態
+        /// </summary>
+        public bool IsMuted
+        {
+            get => PlayerControl?.IsMuted ?? _isMuted;
+            set
+            {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.IsMuted = value;
+                }
+                else
+                {
+                    _isMuted = value;
+                }
+                OnPropertyChanged();
+            }
+        }
 
         private void ToggleMute()
         {
-            if (_isMuted)
-            {
-                Volume = _preMuteVolume;
-                _isMuted = false;
-            }
-            else
-            {
-                _preMuteVolume = Volume > 0 ? Volume : 1.0f; // Save reasonable previous volume
-                Volume = 0;
-                _isMuted = true;
-            }
+            PlayerControl?.ToggleMute();
         }
 
         /// <summary>
@@ -1204,10 +1282,14 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public float Volume
         {
-            get => _audioService.Volume;
+            get => PlayerControl?.Volume ?? _audioService.Volume;
             set
             {
-                if (_audioService.Volume != value)
+                if (PlayerControl != null)
+                {
+                    PlayerControl.Volume = value;
+                }
+                else if (_audioService.Volume != value)
                 {
                     _audioService.Volume = value;
                     OnPropertyChanged();
@@ -1219,13 +1301,15 @@ namespace AudioEffector.Presentation.ViewModels
                     settings.Volume = value;
                     _settingsService.SaveSettings(settings);
                 }
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(VolumePercent));
             }
         }
 
         /// <summary>
         /// 音量のパーセント表示文字列を取得します
         /// </summary>
-        public string VolumePercent => $"{(int)(Volume * 100)}%";
+        public string VolumePercent => PlayerControl?.VolumePercent ?? $"{(int)(Volume * 100)}%";
 
         /// <summary>
         /// 外部デバイス上のディレクトリまたはファイルアイテムを表すクラス
@@ -1277,27 +1361,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         private void SortLibrary()
         {
-            if (Library != null)
-            {
-                Library.SortLibrary();
-                return;
-            }
-
-            if (!Albums.Any()) return;
-
-            var sorted = Albums.ToList();
-            switch (SelectedSortOption)
-            {
-                case "Artist":
-                    sorted = IsAscending ? sorted.OrderBy(a => a.Artist).ToList() : sorted.OrderByDescending(a => a.Artist).ToList();
-                    break;
-                case "Album":
-                    sorted = IsAscending ? sorted.OrderBy(a => a.Title).ToList() : sorted.OrderByDescending(a => a.Title).ToList();
-                    break;
-            }
-
-            Albums.Clear();
-            foreach (var album in sorted) Albums.Add(album);
+            Library?.SortLibrary();
         }
 
 
@@ -1837,20 +1901,6 @@ namespace AudioEffector.Presentation.ViewModels
                     });
                 });
             }
-
-            if (_audioService != null)
-            {
-                var current = _audioService.CurrentTime;
-                var total = _audioService.TotalTime;
-
-                CurrentTimeDisplay = current.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
-                TotalTimeDisplay = total.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
-
-                if (total.TotalSeconds > 0 && !_isDraggingProgress)
-                {
-                    Progress = (current.TotalSeconds / total.TotalSeconds) * 100;
-                }
-            }
         }
 
 
@@ -1868,137 +1918,27 @@ namespace AudioEffector.Presentation.ViewModels
             var targetTrack = obj as Track ?? CurrentTrack;
             if (targetTrack != null)
             {
-                targetTrack.IsFavorite = !targetTrack.IsFavorite;
-                if (targetTrack == CurrentTrack)
+                if (Library != null)
                 {
-                    OnPropertyChanged(nameof(CurrentTrack)); // Refresh UI
-                }
-
-                if (targetTrack.IsFavorite)
-                {
-                    if (!_favoritePaths.Contains(targetTrack.FilePath))
-                    {
-                        _favoritePaths.Add(targetTrack.FilePath);
-                        // Immediate update if viewing favorites
-                        if (IsFavoritesView)
-                        {
-                            Playlist?.AddFavoriteTrack(targetTrack);
-                        }
-                    }
+                    Library.ToggleFavorite(targetTrack);
                 }
                 else
                 {
-                    _favoritePaths.Remove(targetTrack.FilePath);
-                    // Immediate update if viewing favorites
-                    if (IsFavoritesView)
+                    targetTrack.IsFavorite = !targetTrack.IsFavorite;
+                    if (targetTrack.IsFavorite)
                     {
-                        Playlist?.RemoveDisplayedTrack(targetTrack);
-                    }
-                }
-                _libraryService?.SaveFavorites(_favoritePaths);
-            }
-        }
-
-        private void PlayNext(object? obj)
-        {
-            if (obj is Track track)
-            {
-                if (CurrentTrack != null && PlayQueue.Contains(CurrentTrack))
-                {
-                    int currentIndex = PlayQueue.IndexOf(CurrentTrack);
-                    PlayQueue.Insert(currentIndex + 1, track);
-                }
-                else
-                {
-                    PlayQueue.Insert(0, track);
-                }
-                _audioService.SetPlaylist(PlayQueue.ToList());
-            }
-        }
-
-        private void EnqueueTrack(object? obj)
-        {
-            if (obj is Track track)
-            {
-                PlayQueue.Add(track);
-                _audioService.SetPlaylist(PlayQueue.ToList());
-            }
-        }
-
-        private void ShowTrackProperties(object? obj)
-        {
-            if (obj is Track track)
-            {
-                var info = $"Title: {track.Title}\n" +
-                           $"Artist: {track.Artist}\n" +
-                           $"Album: {track.Album}\n" +
-                           $"Duration: {track.Duration}\n" +
-                           $"File Size: {new System.IO.FileInfo(track.FilePath).Length / 1024 / 1024.0:F2} MB\n\n" +
-                           $"File Path:\n{track.FilePath}";
-                System.Windows.MessageBox.Show(info, "Track Properties", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
-            }
-        }
-
-        private PlayQueueDialog? _playQueueDialog;
-
-        private void ShowQueueDialog()
-        {
-            if (_playQueueDialog == null || !_playQueueDialog.IsLoaded)
-            {
-                _playQueueDialog = new PlayQueueDialog
-                {
-                    Owner = App.Current.MainWindow,
-                    DataContext = this
-                };
-                _playQueueDialog.Closed += (s, e) => _playQueueDialog = null;
-                _playQueueDialog.Show();
-            }
-            else
-            {
-                if (_playQueueDialog.WindowState == WindowState.Minimized)
-                {
-                    _playQueueDialog.WindowState = WindowState.Normal;
-                }
-                _playQueueDialog.Activate();
-            }
-        }
-
-        private void OpenFileLocation(object? obj)
-        {
-            if (obj is Track track && System.IO.File.Exists(track.FilePath))
-            {
-                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{track.FilePath}\"");
-            }
-        }
-
-        private void DeleteTrack(object? obj)
-        {
-            if (obj is Track track)
-            {
-                var result = System.Windows.MessageBox.Show($"Remove '{track.Title}' from Library?\n(File will NOT be deleted from disk)", "Confirm", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
-                if (result == System.Windows.MessageBoxResult.Yes)
-                {
-                    // Remove from Albums
-                    var album = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
-                    if (album != null)
-                    {
-                        album.Tracks.Remove(track);
-                        if (album.Tracks.Count == 0)
+                        if (!_favoritePaths.Contains(targetTrack.FilePath))
                         {
-                            Albums.Remove(album);
+                            _favoritePaths.Add(targetTrack.FilePath);
                         }
                     }
-
-                    // Remove from Playlists and views
-                    Playlist?.RemoveDisplayedTrack(track);
-                    PlaybackListTracks.Remove(track);
+                    else
+                    {
+                        _favoritePaths.Remove(targetTrack.FilePath);
+                    }
+                    _libraryService?.SaveFavorites(_favoritePaths);
                 }
             }
-        }
-
-        private void ToggleRepeat(object? obj)
-        {
-            IsAlbumRepeat = !IsAlbumRepeat;
         }
 
         private void OnPlaylistEnded(object? sender, EventArgs e)
@@ -2130,86 +2070,6 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
-        /// <summary>
-        /// 指定されたアルバム全体を再生キューに設定し、再生を開始します。
-        /// </summary>
-        private void PlayAlbum(object? parameter)
-        {
-            if (parameter is Album album && album.Tracks.Count > 0)
-            {
-                PlayQueue = new ObservableCollection<Track>(album.Tracks);
-                _audioService.SetPlaylist(PlayQueue.ToList());
-
-                PlaybackListName = album.Title;
-                PlaybackListSubtitle = album.Artist;
-                PlaybackListTracks = new ObservableCollection<Track>(album.Tracks);
-
-                _audioService.PlayTrack(album.Tracks.First());
-            }
-        }
-
-        private void PlayNextAlbum(object? parameter)
-        {
-            if (parameter is Album album && album.Tracks.Count > 0)
-            {
-                if (CurrentTrack != null && PlayQueue.Contains(CurrentTrack))
-                {
-                    int currentIndex = PlayQueue.IndexOf(CurrentTrack);
-                    for (int i = 0; i < album.Tracks.Count; i++)
-                    {
-                        PlayQueue.Insert(currentIndex + 1 + i, album.Tracks[i]);
-                    }
-                }
-                else
-                {
-                    for (int i = 0; i < album.Tracks.Count; i++)
-                    {
-                        PlayQueue.Insert(i, album.Tracks[i]);
-                    }
-                }
-                _audioService.SetPlaylist(PlayQueue.ToList());
-            }
-        }
-
-        private void EnqueueAlbum(object? parameter)
-        {
-            if (parameter is Album album && album.Tracks.Count > 0)
-            {
-                foreach (var track in album.Tracks)
-                {
-                    PlayQueue.Add(track);
-                }
-                _audioService.SetPlaylist(PlayQueue.ToList());
-            }
-        }
-
-        private void DeleteAlbum(object? parameter)
-        {
-            if (parameter is Album album)
-            {
-                var result = System.Windows.MessageBox.Show($"Remove album '{album.Title}' from Library?\n(Files will NOT be deleted from disk)", "Confirm", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
-                if (result == System.Windows.MessageBoxResult.Yes)
-                {
-                    var tracksToRemove = album.Tracks.ToList();
-
-                    Albums.Remove(album);
-
-                    foreach (var track in tracksToRemove)
-                    {
-                        Playlist?.RemoveDisplayedTrack(track);
-                        PlaybackListTracks.Remove(track);
-
-                        if (_favoritePaths.Contains(track.FilePath))
-                        {
-                            _favoritePaths.Remove(track.FilePath);
-                        }
-                    }
-
-                    _libraryService?.SaveFavorites(_favoritePaths);
-                }
-            }
-        }
-
         private void ShowSettings()
         {
             var settingsViewModel = new SettingsViewModel(_settingsService, _audioService);
@@ -2242,7 +2102,6 @@ namespace AudioEffector.Presentation.ViewModels
                 if (disposing)
                 {
                     _timer?.Stop();
-                    _playQueueDialog?.Close();
                     _fallbackAudioService?.Dispose();
                     _fallbackSettings?.Dispose();
                     (_audioService as IDisposable)?.Dispose();

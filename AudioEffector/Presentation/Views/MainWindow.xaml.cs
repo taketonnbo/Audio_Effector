@@ -147,7 +147,14 @@ public partial class MainWindow : Window
         if (vm != null)
         {
             vm.IsDraggingProgress = true;
-            vm.AudioService.PauseForSeek(); // シーク中は再生を一時停止する
+            if (vm.PlayerControl != null)
+            {
+                vm.PlayerControl.StartDragging();
+            }
+            else
+            {
+                vm.AudioService.PauseForSeek(); // シーク中は再生を一時停止する
+            }
         }
     }
 
@@ -161,7 +168,14 @@ public partial class MainWindow : Window
         if (vm != null)
         {
             vm.IsDraggingProgress = false;
-            vm.AudioService.ResumeAfterSeek(); // シーク後に再生を再開する
+            if (vm.PlayerControl != null)
+            {
+                vm.PlayerControl.StopDragging();
+            }
+            else
+            {
+                vm.AudioService.ResumeAfterSeek(); // シーク後に再生を再開する
+            }
         }
     }
 }
