@@ -365,6 +365,110 @@ namespace AudioEffector.Presentation.ViewModels
             }
             _favoritePaths = _libraryService?.LoadFavorites() ?? new List<string>();
 
+            if (Library == null)
+            {
+#pragma warning disable CA2000 // オブジェクトの破棄
+                Library = new Presentation.ViewModels.LibraryViewModel(
+                    _libraryService ?? new LibraryApplicationService(
+                        new Infrastructure.Repository.JsonTrackRepository(),
+                        new Infrastructure.Repository.JsonFavoriteRepository(),
+                        new Infrastructure.Library.TagLibMetadataExtractor(),
+                        new InMemoryEventBus()),
+                    _audioService,
+                    _settingsService,
+                    Playlist);
+#pragma warning restore CA2000 // オブジェクトの破棄
+            }
+
+            if (Library != null)
+            {
+                Library.PlaybackRequested += (tracks, startTrack, name, subtitle) =>
+                {
+                    PlayQueue = new ObservableCollection<Track>(tracks);
+                    PlaybackListName = name;
+                    PlaybackListSubtitle = subtitle;
+                    PlaybackListTracks = new ObservableCollection<Track>(tracks);
+                };
+                Library.EnqueueRequested += (tracks, playNext) =>
+                {
+                    if (playNext)
+                    {
+                        if (CurrentTrack != null && PlayQueue.Contains(CurrentTrack))
+                        {
+                            int currentIndex = PlayQueue.IndexOf(CurrentTrack);
+                            for (int i = 0; i < tracks.Count; i++)
+                            {
+                                PlayQueue.Insert(currentIndex + 1 + i, tracks[i]);
+                            }
+                        }
+                        else
+                        {
+                            for (int i = 0; i < tracks.Count; i++)
+                            {
+                                PlayQueue.Insert(i, tracks[i]);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        foreach (var track in tracks)
+                        {
+                            PlayQueue.Add(track);
+                        }
+                    }
+                    _audioService.SetPlaylist(PlayQueue.ToList());
+                };
+                Library.FavoriteToggled += track =>
+                {
+                    if (track == CurrentTrack)
+                    {
+                        OnPropertyChanged(nameof(CurrentTrack));
+                    }
+                    if (track.IsFavorite)
+                    {
+                        if (!_favoritePaths.Contains(track.FilePath))
+                        {
+                            _favoritePaths.Add(track.FilePath);
+                            if (IsFavoritesView)
+                            {
+                                Playlist?.AddFavoriteTrack(track);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (_favoritePaths.Contains(track.FilePath))
+                        {
+                            _favoritePaths.Remove(track.FilePath);
+                            if (IsFavoritesView)
+                            {
+                                Playlist?.RemoveDisplayedTrack(track);
+                            }
+                        }
+                    }
+                };
+                Library.TrackRemoved += track =>
+                {
+                    Playlist?.RemoveDisplayedTrack(track);
+                    PlaybackListTracks.Remove(track);
+                };
+                Library.AlbumRemoved += album =>
+                {
+                    foreach (var track in album.Tracks)
+                    {
+                        Playlist?.RemoveDisplayedTrack(track);
+                        PlaybackListTracks.Remove(track);
+                    }
+                };
+                Library.PropertyChanged += (s, e) =>
+                {
+                    if (e.PropertyName == nameof(Library.IsLoading))
+                    {
+                        OnPropertyChanged(nameof(IsLoading));
+                    }
+                };
+            }
+
             var appSettings = _settingsService.LoadSettings();
             _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
 
@@ -616,10 +720,25 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        private ObservableCollection<Album> _albums = new ObservableCollection<Album>();
+
         /// <summary>
         /// ライブラリ内のアルバムコレクションを取得または設定します
         /// </summary>
-        public ObservableCollection<Album> Albums { get; set; } = new ObservableCollection<Album>();
+        public ObservableCollection<Album> Albums
+        {
+            get => Library?.Albums ?? _albums;
+            set
+            {
+                if (Library != null)
+                {
+                    Library.Albums.Clear();
+                    foreach (var a in value) Library.Albums.Add(a);
+                }
+                _albums = value;
+                OnPropertyChanged();
+            }
+        }
 
         /// <summary>
         /// ライブラリビューが表示されているかどうかを示す値を取得または設定します
@@ -662,7 +781,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public bool IsLoading
         {
-            get => _isLoading;
+            get => _isLoading || (Library?.IsLoading ?? false);
             set
             {
                 _isLoading = value;
@@ -1158,6 +1277,12 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         private void SortLibrary()
         {
+            if (Library != null)
+            {
+                Library.SortLibrary();
+                return;
+            }
+
             if (!Albums.Any()) return;
 
             var sorted = Albums.ToList();
@@ -1732,97 +1857,10 @@ namespace AudioEffector.Presentation.ViewModels
 
         /// <summary>
         /// 指定されたフォルダー（または設定された最後のパス）からライブラリを非同期でロードします。
-        /// サポートされている音声ファイルを検索し、メタデータを読み取ってアルバムごとにグループ化します。
         /// </summary>
-        private async void LoadLibrary(string? rootFolder = null)
+        private void LoadLibrary(string? rootFolder = null)
         {
-            if (string.IsNullOrEmpty(rootFolder))
-            {
-                var settings = _settingsService.LoadSettings();
-                rootFolder = settings.LastLibraryPath;
-            }
-
-            if (string.IsNullOrEmpty(rootFolder) || !Directory.Exists(rootFolder)) return;
-
-            IsLoading = true;
-            Albums.Clear();
-
-            await Task.Run(() =>
-            {
-                var files = Directory.GetFiles(rootFolder, "*.*", SearchOption.AllDirectories)
-                                     .Where(f => SupportedAudioExtensions.Contains(Path.GetExtension(f).ToLower(System.Globalization.CultureInfo.InvariantCulture)))
-                                     .ToList();
-
-                // _albumArtCache is no longer used here for bulk loading
-                var tracks = new System.Collections.Concurrent.ConcurrentBag<Track>();
-
-                Parallel.ForEach(files, file =>
-                {
-                    var track = new Track
-                    {
-                        FilePath = file,
-                        Title = Path.GetFileNameWithoutExtension(file),
-                        Artist = "Unknown Artist",
-                        Album = "Unknown Album"
-                    };
-
-                    try
-                    {
-                        using (var tfile = TagLib.File.Create(file))
-                        {
-                            track.Title = tfile.Tag.Title ?? track.Title;
-                            track.Artist = tfile.Tag.FirstPerformer ?? "Unknown Artist";
-                            track.Album = tfile.Tag.Album ?? "Unknown Album";
-                            track.Duration = tfile.Properties.Duration;
-                            track.Year = tfile.Tag.Year;
-                            track.TrackNumber = tfile.Tag.Track;
-
-                            track.Bitrate = tfile.Properties.AudioBitrate;
-                            track.SampleRate = tfile.Properties.AudioSampleRate;
-                            track.BitsPerSample = tfile.Properties.BitsPerSample;
-                            string ext = Path.GetExtension(file).ToLower(System.Globalization.CultureInfo.InvariantCulture);
-                            track.Format = ext.TrimStart('.').ToUpper(System.Globalization.CultureInfo.InvariantCulture);
-
-                            track.IsLossless = LosslessAudioExtensions.Contains(ext);
-                            track.IsHiRes = track.SampleRate > 48000 || track.BitsPerSample > 16;
-
-                            // Image loading removed to save memory. 
-                            // Images will be loaded on-demand via AlbumArtLoader in the UI.
-                        }
-                    }
-                    catch { }
-
-                    if (_favoritePaths.Contains(track.FilePath))
-                    {
-                        track.IsFavorite = true;
-                    }
-
-                    tracks.Add(track);
-                });
-
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                {
-                    var grouped = tracks.GroupBy(t => t.Album);
-                    foreach (var g in grouped)
-                    {
-                        // Find most common year in album or take first
-                        uint albumYear = g.Select(t => t.Year).Where(y => y > 0).GroupBy(y => y).OrderByDescending(z => z.Count()).FirstOrDefault()?.Key ?? 0;
-
-                        Albums.Add(new Album
-                        {
-                            Title = g.Key,
-                            Artist = g.First().Artist,
-                            CoverImage = null, // Will be loaded by UI
-                            Tracks = g.OrderBy(t => t.TrackNumber).ThenBy(t => t.Title).ToList(),
-                            Year = albumYear
-                        });
-                    }
-                    SortLibrary();
-                    _audioService.SetPlaylist(tracks.ToList());
-                });
-            });
-
-            IsLoading = false;
+            Library?.LoadLibrary(rootFolder);
         }
 
         private void ToggleFavorite(object? obj)

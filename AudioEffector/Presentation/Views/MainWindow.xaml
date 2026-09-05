@@ -12,10 +12,8 @@
         Icon="pack://application:,,,/Audio_Effector_icon_1.0.1.ico"
         Background="{DynamicResource WindowBackgroundBrush}"
         WindowStartupLocation="CenterScreen"
-        x:Name="MainWindowRoot">
-    <Window.DataContext>
-        <vm:MainViewModel/>
-    </Window.DataContext>
+        x:Name="MainWindowRoot"
+        d:DataContext="{d:DesignInstance vm:MainViewModel}">
     <Window.Resources>
         
         <Color x:Key="NeonCyanColor">#00FFFF</Color>
@@ -424,7 +422,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:LibraryView />
+                                            <views:LibraryView DataContext="{Binding Library}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
