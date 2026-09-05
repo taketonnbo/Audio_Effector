@@ -212,7 +212,7 @@
                 </Grid.ColumnDefinitions>
 
                 <!-- Track Info -->
-                <Grid Grid.Column="0" Margin="10,0,10,0" VerticalAlignment="Center" HorizontalAlignment="Left">
+                <Grid x:Name="TopPlayerTrackInfoGrid" Grid.Column="0" Margin="10,0,10,0" VerticalAlignment="Center" HorizontalAlignment="Left" Background="Transparent">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
@@ -225,8 +225,10 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <controls:MarqueeTextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" Foreground="{DynamicResource TextForegroundBrush}" FontWeight="SemiBold" FontSize="14"/>
-                        <controls:MarqueeTextBlock Grid.Row="1" Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12"/>
+                        <controls:MarqueeTextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" Foreground="{DynamicResource TextForegroundBrush}" FontWeight="SemiBold" FontSize="14"
+                                                   IsHovered="{Binding IsMouseOver, ElementName=TopPlayerTrackInfoGrid}"/>
+                        <controls:MarqueeTextBlock Grid.Row="1" Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12"
+                                                   IsHovered="{Binding IsMouseOver, ElementName=TopPlayerTrackInfoGrid}"/>
                     </Grid>
                 </Grid>
 
@@ -1091,7 +1093,7 @@
                     </Grid.RowDefinitions>
 
                     <!-- Top Info Row -->
-                    <Grid Grid.Row="0" Margin="0,0,35,8">
+                    <Grid x:Name="RightPanelCompactInfoGrid" Grid.Row="0" Margin="0,0,35,8" Background="Transparent">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/> <!-- Small Thumbnail -->
                             <ColumnDefinition Width="*"/>    <!-- Track Title & Artist & Quality -->
@@ -1102,8 +1104,10 @@
                         </Border>
 
                         <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                            <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextForegroundBrush}"/>
-                            <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" FontSize="11" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,2,0,0"/>
+                            <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextForegroundBrush}"
+                                                       IsHovered="{Binding IsMouseOver, ElementName=RightPanelCompactInfoGrid}"/>
+                            <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" FontSize="11" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,2,0,0"
+                                                       IsHovered="{Binding IsMouseOver, ElementName=RightPanelCompactInfoGrid}"/>
                             
                             <!-- Quality Info -->
                             <StackPanel Orientation="Horizontal" Margin="0,3,0,0">

@@ -64,18 +64,28 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             
-            <!-- Album Art -->
-            <Border CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundHighlightBrush}">
-                <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
-            </Border>
+            <!-- Album Art & Track Info (Hover Linked) -->
+            <Grid Grid.Column="0" Grid.ColumnSpan="2" x:Name="MiniPlayerInfoArea" Background="Transparent">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="80"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-            <!-- Track Info -->
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
-                <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" 
-                                           Foreground="{DynamicResource TextForegroundBrush}" FontWeight="Bold" FontSize="14"/>
-                <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" 
-                                           Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" Margin="0,4,0,0"/>
-            </StackPanel>
+                <!-- Album Art -->
+                <Border Grid.Column="0" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundHighlightBrush}">
+                    <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
+                </Border>
+
+                <!-- Track Info -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                    <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" 
+                                               Foreground="{DynamicResource TextForegroundBrush}" FontWeight="Bold" FontSize="14"
+                                               IsHovered="{Binding IsMouseOver, ElementName=MiniPlayerInfoArea}"/>
+                    <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" 
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" Margin="0,4,0,0"
+                                               IsHovered="{Binding IsMouseOver, ElementName=MiniPlayerInfoArea}"/>
+                </StackPanel>
+            </Grid>
 
             <!-- Controls -->
             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
