@@ -225,8 +225,8 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" Foreground="{DynamicResource TextForegroundBrush}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Grid.Row="1" Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                        <controls:MarqueeTextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}" Foreground="{DynamicResource TextForegroundBrush}" FontWeight="SemiBold" FontSize="14"/>
+                        <controls:MarqueeTextBlock Grid.Row="1" Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12"/>
                     </Grid>
                 </Grid>
 
@@ -729,8 +729,8 @@
 
                         <!-- Album Info (Font Size ~1.5x) -->
                         <StackPanel Grid.Row="1" Margin="4,4,4,12">
-                            <TextBlock Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" FontFamily="Segoe UI" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding PlaybackListSubtitle, FallbackValue=''}" FontSize="13" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                            <controls:MarqueeTextBlock Text="{Binding PlaybackListName, FallbackValue='No Album Selected'}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" FontFamily="Segoe UI"/>
+                            <controls:MarqueeTextBlock Text="{Binding PlaybackListSubtitle, FallbackValue=''}" FontSize="13" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,4,0,0"/>
                             
                             <!-- Quality Info (Hi-Res Text Badge without extra icons) -->
                             <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
@@ -767,9 +767,9 @@
                                 </Grid.RowDefinitions>
 
                                 <!-- Row 0: Current Track Title (1.2x Font: 16pt, Full Width with Ellipsis) -->
-                                <TextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" 
-                                           FontWeight="SemiBold" FontSize="16" Foreground="{StaticResource NeonCyanBrush}" 
-                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,0,8"/>
+                                <controls:MarqueeTextBlock Grid.Row="0" Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" 
+                                                           FontWeight="SemiBold" FontSize="16" Foreground="{StaticResource NeonCyanBrush}" 
+                                                           VerticalAlignment="Center" Margin="0,0,0,8"/>
 
                                 <!-- Row 1: Quick Actions (Queue, Add to Playlist, Favorite - Right Aligned below Track Title with 1.5x spacing) -->
                                 <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,0,14">
@@ -1101,8 +1101,8 @@
                         </Border>
 
                         <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextForegroundBrush}" TextTrimming="CharacterEllipsis"/>
-                            <TextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" FontSize="11" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                            <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track Selected'}" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextForegroundBrush}"/>
+                            <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}" FontSize="11" Foreground="{DynamicResource SecondaryTextForegroundBrush}" Margin="0,2,0,0"/>
                             
                             <!-- Quality Info -->
                             <StackPanel Orientation="Horizontal" Margin="0,3,0,0">

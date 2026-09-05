@@ -5,6 +5,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:local="clr-namespace:AudioEffector.Presentation.Views"
              xmlns:services="clr-namespace:AudioEffector.Presentation.AttachedProperties"
+             xmlns:controls="clr-namespace:AudioEffector.Presentation.Controls"
              mc:Ignorable="d" 
              d:DesignHeight="450" d:DesignWidth="800">
     <Grid>
@@ -150,8 +151,8 @@
                                             </Button>
                                         </Grid>
                                         <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0">
-                                            <TextBlock Text="{Binding Title}" Foreground="{DynamicResource TextForegroundBrush}" FontSize="14" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding Artist}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                            <controls:MarqueeTextBlock Text="{Binding Title}" Foreground="{DynamicResource TextForegroundBrush}" FontSize="14"/>
+                                            <controls:MarqueeTextBlock Text="{Binding Artist}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11"/>
                                         </StackPanel>
                                     </Grid>
                                 </Expander.Header>
@@ -322,8 +323,8 @@
                                                     </CheckBox>
                                                 </Grid>
                                             </Border>
-                                            <TextBlock Grid.Row="1" Text="{Binding Title}" Foreground="{DynamicResource TextForegroundBrush}" FontSize="12" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="5,2,5,0"/>
-                                            <TextBlock Grid.Row="2" Text="{Binding Artist}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" Margin="5,0,5,5"/>
+                                             <controls:MarqueeTextBlock Grid.Row="1" Text="{Binding Title}" Foreground="{DynamicResource TextForegroundBrush}" FontSize="12" HorizontalContentAlignment="Center" Margin="5,2,5,0"/>
+                                             <controls:MarqueeTextBlock Grid.Row="2" Text="{Binding Artist}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" HorizontalContentAlignment="Center" Margin="5,0,5,5"/>
                                         </Grid>
                                     </Expander.Header>
                                     <ItemsControl ItemsSource="{Binding Tracks}" Margin="5,0,0,0">
