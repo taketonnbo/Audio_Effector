@@ -19,7 +19,7 @@
                           Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
                      <ListBox.ContextMenu>
                          <ContextMenu>
-                             <MenuItem Header="新規プレイリスト作成" Command="{Binding PlacementTarget.Tag.CreatePlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                             <MenuItem Header="新規プレイリスト作成" Command="{Binding PlacementTarget.Tag.CreatePlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"/>
                          </ContextMenu>
                      </ListBox.ContextMenu>
                      <ListBox.ItemsPanel>
@@ -49,12 +49,12 @@
                                      Width="160" Height="200" Background="{DynamicResource ControlBackgroundBrush}" BorderThickness="0" Margin="0">
                                  <Button.ContextMenu>
                                      <ContextMenu>
-                                         <MenuItem Header="再生" Command="{Binding PlacementTarget.Tag.PlayPlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                         <MenuItem Header="シャッフル再生" Command="{Binding PlacementTarget.Tag.ShufflePlayPlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                         <MenuItem Header="再生" Command="{Binding PlacementTarget.Tag.PlayPlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                         <MenuItem Header="シャッフル再生" Command="{Binding PlacementTarget.Tag.ShufflePlayPlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                          <Separator/>
-                                         <MenuItem Header="名前の変更" Command="{Binding PlacementTarget.Tag.RenamePlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                         <MenuItem Header="名前の変更" Command="{Binding PlacementTarget.Tag.RenamePlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                          <Separator/>
-                                         <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeletePlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                         <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeletePlaylistCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                      </ContextMenu>
                                  </Button.ContextMenu>
                                  <Button.Template>

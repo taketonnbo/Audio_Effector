@@ -1148,17 +1148,17 @@
                                                     </Button.Template>
                                                     <Button.ContextMenu>
                                                         <ContextMenu>
-                                                            <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}" Header="再生"/>
-                                                            <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                            <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}" Header="再生"/>
+                                                            <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                             <Separator/>
-                                                            <MenuItem Header="お気に入りに追加/解除" Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                            <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="お気に入りに追加/解除" Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                             <Separator/>
-                                                            <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                            <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                             <Separator/>
-                                                            <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                         </ContextMenu>
                                                     </Button.ContextMenu>
                                                     <Grid HorizontalAlignment="Stretch">
