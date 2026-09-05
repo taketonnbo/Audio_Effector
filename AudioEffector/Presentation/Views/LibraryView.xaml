@@ -16,32 +16,27 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ScrollViewer">
                         <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
                             <ScrollContentPresenter x:Name="PART_ScrollContentPresenter"
-                                                   Grid.Column="0"
                                                    CanContentScroll="{TemplateBinding CanContentScroll}"/>
                             <ScrollBar x:Name="PART_VerticalScrollBar"
-                                       Grid.Column="1"
+                                       HorizontalAlignment="Right"
                                        Value="{TemplateBinding VerticalOffset}"
                                        Maximum="{TemplateBinding ScrollableHeight}"
                                        ViewportSize="{TemplateBinding ViewportHeight}"
                                        Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
-                                       Width="3"
-                                       Margin="0,2,2,2"
+                                       Width="3" MinWidth="3" MaxWidth="3"
+                                       Margin="0,1,1,1"
                                        Background="Transparent"
                                        BorderThickness="0">
                                 <ScrollBar.Template>
                                     <ControlTemplate TargetType="ScrollBar">
                                         <Track x:Name="PART_Track" IsDirectionReversed="True">
                                             <Track.Thumb>
-                                                <Thumb>
+                                                <Thumb Width="3" MinWidth="3" MaxWidth="3">
                                                     <Thumb.Template>
                                                         <ControlTemplate>
-                                                            <Border Background="{DynamicResource AlwaysNeonCyanBrush}"
-                                                                    Opacity="0.6"
+                                                            <Border Width="3" Background="{DynamicResource AlwaysNeonCyanBrush}"
+                                                                    Opacity="0.7"
                                                                     CornerRadius="1.5"/>
                                                         </ControlTemplate>
                                                     </Thumb.Template>
@@ -75,7 +70,7 @@
 
                             <!-- 非破壊フロー用 Canvas（Height="0" で親グリッドのレイアウトサイズを拡張させない） -->
                             <Canvas ClipToBounds="False" HorizontalAlignment="Center" VerticalAlignment="Top" Width="140" Height="0">
-                                <!-- ソケット風収録曲オーバーレイコンテナ (#167 B案: グラスモフィズム調) -->
+                                <!-- ソケット風収録曲オーバーレイコンテナ (#167 B案: グラスモフィズム調 5曲ジャスト表示) -->
                                 <Border x:Name="SocketTray"
                                         Canvas.Top="140"
                                         Canvas.Left="0"
@@ -103,21 +98,23 @@
                                         </Grid.RowDefinitions>
 
                                         <!-- ヘッダー: 曲数表示（B案・TrackListテキスト不要） -->
-                                        <Border Grid.Row="0" Margin="6,6,6,4" Padding="0,0,0,3" BorderThickness="0,0,0,1" BorderBrush="#3000FFFF">
+                                        <Border Grid.Row="0" Height="24" Margin="6,2,6,2" Padding="0" BorderThickness="0,0,0,1" BorderBrush="#3000FFFF">
                                             <TextBlock Text="{Binding TrackCount, StringFormat='{}{0} Tracks'}"
                                                        Foreground="{DynamicResource AlwaysNeonCyanBrush}"
                                                        FontSize="10"
                                                        FontWeight="SemiBold"
                                                        HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
                                                        Opacity="0.85"/>
                                         </Border>
 
-                                        <!-- 収録曲リストコンテナ (スリムスクロールバー) -->
+                                        <!-- 収録曲リストコンテナ (ぴったり5曲分: 22px × 5 = 110px) -->
                                         <ScrollViewer Grid.Row="1"
+                                                      Height="110"
                                                       Style="{StaticResource SocketTrayScrollViewerStyle}"
                                                       VerticalScrollBarVisibility="Auto"
                                                       HorizontalScrollBarVisibility="Disabled"
-                                                      Padding="2,0,2,4">
+                                                      Padding="2,0,2,0">
                                             <ContentPresenter x:Name="PART_Content" ContentSource="Content"/>
                                         </ScrollViewer>
                                     </Grid>
@@ -573,81 +570,95 @@
                                                     </CheckBox>
                                                 </Grid>
                                             </Border>
-                                             <controls:MarqueeTextBlock Grid.Row="1" Text="{Binding Title}" Foreground="{DynamicResource TextForegroundBrush}" FontSize="12" HorizontalContentAlignment="Center" Margin="5,2,5,0" IsHovered="{Binding IsMouseOver, ElementName=AlbumCardGrid}"/>
-                                             <controls:MarqueeTextBlock Grid.Row="2" Text="{Binding Artist}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" HorizontalContentAlignment="Center" Margin="5,0,5,5" IsHovered="{Binding IsMouseOver, ElementName=AlbumCardGrid}"/>
+                                            <controls:MarqueeTextBlock Grid.Row="1" Text="{Binding Title}" Foreground="{DynamicResource TextForegroundBrush}" FontSize="12" HorizontalContentAlignment="Center" Margin="5,2,5,0" IsHovered="{Binding IsMouseOver, ElementName=AlbumCardGrid}"/>
+                                            <controls:MarqueeTextBlock Grid.Row="2" Text="{Binding Artist}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="10" HorizontalContentAlignment="Center" Margin="5,0,5,5" IsHovered="{Binding IsMouseOver, ElementName=AlbumCardGrid}"/>
                                         </Grid>
                                     </Expander.Header>
-                                    <ItemsControl ItemsSource="{Binding Tracks}" Margin="2,0,2,0">
+                                    <ItemsControl ItemsSource="{Binding Tracks}" AlternationCount="999" Margin="2,0,2,0">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Button Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                        Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
-                                                        HorizontalContentAlignment="Stretch" Margin="2,1" Background="Transparent" BorderThickness="0" Padding="4,2">
-                                                    <Button.Style>
-                                                        <Style TargetType="Button">
-                                                            <Setter Property="Background" Value="Transparent"/>
-                                                            <Setter Property="Template">
-                                                                <Setter.Value>
-                                                                    <ControlTemplate TargetType="Button">
-                                                                        <Border x:Name="TrackRowBorder" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
-                                                                            <ContentPresenter/>
-                                                                        </Border>
-                                                                        <ControlTemplate.Triggers>
-                                                                            <Trigger Property="IsMouseOver" Value="True">
-                                                                                <Setter TargetName="TrackRowBorder" Property="Background" Value="#2500FFFF"/>
-                                                                            </Trigger>
-                                                                        </ControlTemplate.Triggers>
-                                                                    </ControlTemplate>
-                                                                </Setter.Value>
-                                                            </Setter>
-                                                        </Style>
-                                                    </Button.Style>
-                                                    <Button.ContextMenu>
-                                                        <ContextMenu>
-                                                            <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}">
-                                                                <MenuItem.Style>
-                                                                    <Style TargetType="MenuItem">
-                                                                        <Setter Property="Header" Value="再生" />
-                                                                        <Style.Triggers>
-                                                                            <MultiDataTrigger>
-                                                                                <MultiDataTrigger.Conditions>
-                                                                                    <Condition Binding="{Binding IsPlaying}" Value="True" />
-                                                                                    <Condition Binding="{Binding PlacementTarget.Tag.IsPlaying, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Value="True" />
-                                                                                </MultiDataTrigger.Conditions>
-                                                                                <Setter Property="Header" Value="停止" />
-                                                                            </MultiDataTrigger>
-                                                                        </Style.Triggers>
-                                                                    </Style>
-                                                                </MenuItem.Style>
-                                                            </MenuItem>
-                                                            <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                            <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                            <Separator/>
-                                                            <MenuItem Header="お気に入りに追加/解除" Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                            <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                            <Separator/>
-                                                            <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                            <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                            <Separator/>
-                                                            <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                                        </ContextMenu>
-                                                    </Button.ContextMenu>
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
-                                                                  Visibility="{Binding DataContext.IsSelectionMode, ElementName=MainWindowRoot, Converter={StaticResource BoolToVis}}"
-                                                                  IsEnabled="{Binding DataContext.IsTransferring, ElementName=MainWindowRoot, Converter={StaticResource InvertBool}}"/>
-                                                        <controls:MarqueeTextBlock Grid.Column="1"
-                                                                                   Text="{Binding Title}"
-                                                                                   Foreground="{DynamicResource SecondaryTextForegroundBrush}"
-                                                                                   FontSize="11"
-                                                                                   VerticalAlignment="Center"
-                                                                                   IsHovered="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                                                    </Grid>
-                                                </Button>
+                                                <Grid x:Name="SocketTrackRowRoot"
+                                                      Tag="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter}, Path=(ItemsControl.AlternationIndex)}">
+                                                    <Button Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
+                                                            Height="22"
+                                                            HorizontalContentAlignment="Stretch" Margin="0" Background="Transparent" BorderThickness="0" Padding="4,0">
+                                                        <Button.Style>
+                                                            <Style TargetType="Button">
+                                                                <Setter Property="Background" Value="Transparent"/>
+                                                                <Setter Property="Template">
+                                                                    <Setter.Value>
+                                                                        <ControlTemplate TargetType="Button">
+                                                                            <Border x:Name="TrackRowBorder" Background="{TemplateBinding Background}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                                                                <ContentPresenter VerticalAlignment="Center"/>
+                                                                            </Border>
+                                                                            <ControlTemplate.Triggers>
+                                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                                    <Setter TargetName="TrackRowBorder" Property="Background" Value="#2500FFFF"/>
+                                                                                </Trigger>
+                                                                            </ControlTemplate.Triggers>
+                                                                        </ControlTemplate>
+                                                                    </Setter.Value>
+                                                                </Setter>
+                                                            </Style>
+                                                        </Button.Style>
+                                                        <Button.ContextMenu>
+                                                            <ContextMenu>
+                                                                <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}">
+                                                                    <MenuItem.Style>
+                                                                        <Style TargetType="MenuItem">
+                                                                            <Setter Property="Header" Value="再生" />
+                                                                            <Style.Triggers>
+                                                                                <MultiDataTrigger>
+                                                                                    <MultiDataTrigger.Conditions>
+                                                                                        <Condition Binding="{Binding IsPlaying}" Value="True" />
+                                                                                        <Condition Binding="{Binding PlacementTarget.Tag.IsPlaying, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Value="True" />
+                                                                                    </MultiDataTrigger.Conditions>
+                                                                                    <Setter Property="Header" Value="停止" />
+                                                                                </MultiDataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </MenuItem.Style>
+                                                                </MenuItem>
+                                                                <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                                <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                                <Separator/>
+                                                                <MenuItem Header="お気に入りに追加/解除" Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                                <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                                <Separator/>
+                                                                <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                                <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                                <Separator/>
+                                                                <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                                            </ContextMenu>
+                                                        </Button.ContextMenu>
+
+                                                        <Grid VerticalAlignment="Center">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="24"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,4,0"
+                                                                      Visibility="{Binding DataContext.IsSelectionMode, ElementName=MainWindowRoot, Converter={StaticResource BoolToVis}}"
+                                                                      IsEnabled="{Binding DataContext.IsTransferring, ElementName=MainWindowRoot, Converter={StaticResource InvertBool}}"/>
+                                                            <TextBlock Grid.Column="1"
+                                                                       Text="{Binding Tag, ElementName=SocketTrackRowRoot, Converter={StaticResource IndexConverter}, StringFormat='{}{0:00}.'}"
+                                                                       Foreground="{DynamicResource AlwaysNeonCyanBrush}"
+                                                                       FontSize="11"
+                                                                       FontWeight="SemiBold"
+                                                                       VerticalAlignment="Center"
+                                                                       HorizontalAlignment="Left"
+                                                                       Opacity="0.85"/>
+                                                            <controls:MarqueeTextBlock Grid.Column="2"
+                                                                                       Text="{Binding Title}"
+                                                                                       Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                                                                       FontSize="11"
+                                                                                       VerticalAlignment="Center"
+                                                                                       IsHovered="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                                        </Grid>
+                                                    </Button>
+                                                </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
