@@ -231,6 +231,56 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Album Info Button Style (#168) Three-dots icon matching AlbumTracksToggleButtonStyle -->
+        <Style x:Key="AlbumInfoButtonStyle" TargetType="Button">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Background" Value="#80000000"/>
+            <Setter Property="BorderBrush" Value="#30FFFFFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Width" Value="20"/>
+            <Setter Property="Height" Value="20"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="InfoBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10">
+                            <!-- 三点リーダーアイコン（通常時: 白 / ホバー時: 水色ハイライト） -->
+                            <Path x:Name="DotsIcon"
+                                  Data="M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z"
+                                  Fill="{DynamicResource TextForegroundBrush}"
+                                  Stretch="Uniform"
+                                  Width="11" Height="11"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <!-- ボタンホバー時: 左下収録曲リストボタンと同調した水色ハイライト＆ネオングロー -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="InfoBorder" Property="Background" Value="#B3000000"/>
+                                <Setter TargetName="InfoBorder" Property="BorderBrush" Value="{DynamicResource AlwaysNeonCyanBrush}"/>
+                                <Setter TargetName="DotsIcon" Property="Fill" Value="{DynamicResource AlwaysNeonCyanBrush}"/>
+                                <Setter TargetName="InfoBorder" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect Color="{DynamicResource AlwaysNeonCyanColor}" BlurRadius="8" ShadowDepth="0" Opacity="0.8"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <!-- アルバムアートホバー時にフェードイン表示 (通常時は非表示 Opacity=0) -->
+                <DataTrigger Binding="{Binding IsMouseOver, ElementName=AlbumArtBorder}" Value="True">
+                    <Setter Property="Opacity" Value="1"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
@@ -494,7 +544,7 @@
                                                 <RowDefinition Height="Auto"/>
                                                 <RowDefinition Height="Auto"/>
                                             </Grid.RowDefinitions>
-                                            <Border Grid.Row="0" CornerRadius="8" Background="{DynamicResource ControlBackgroundBrush}" Margin="5" ClipToBounds="True">
+                                            <Border x:Name="AlbumArtBorder" Grid.Row="0" CornerRadius="8" Background="{DynamicResource ControlBackgroundBrush}" Margin="5" ClipToBounds="True">
                                                 <Grid>
                                                     <!-- Use AlbumArtLoader attached property -->
                                                     <Image services:AlbumArtLoader.SourcePath="{Binding Tracks[0].FilePath}" Stretch="UniformToFill"/>
@@ -518,9 +568,9 @@
                                                                     </Setter.Value>
                                                                 </Setter>
                                                                 <Style.Triggers>
-                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                    <DataTrigger Binding="{Binding IsMouseOver, ElementName=AlbumArtBorder}" Value="True">
                                                                         <Setter Property="Opacity" Value="1"/>
-                                                                    </Trigger>
+                                                                    </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
                                                         </Button.Style>
@@ -544,6 +594,16 @@
                                                                   Margin="4,0,0,4"
                                                                   Panel.ZIndex="15"
                                                                   ToolTip="収録曲を表示/非表示"/>
+
+                                                    <!-- Album Info Button (#168) Hover-only Neon Cyan style -->
+                                                    <Button x:Name="AlbumInfoButton"
+                                                            Style="{StaticResource AlbumInfoButtonStyle}"
+                                                            Command="{Binding DataContext.ShowAlbumInfoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"
+                                                            VerticalAlignment="Bottom" HorizontalAlignment="Right"
+                                                            Margin="0,0,4,4"
+                                                            Panel.ZIndex="15"
+                                                            ToolTip="アルバム詳細情報を表示"/>
                                                     
                                                     <!-- Album Selection CheckBox -->
                                                     <CheckBox IsChecked="{Binding IsSelected}" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,8,0"

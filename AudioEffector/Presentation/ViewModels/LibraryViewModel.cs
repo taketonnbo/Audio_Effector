@@ -215,6 +215,9 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     /// <summary>トラック削除コマンド</summary>
     public ICommand DeleteTrackCommand { get; }
 
+    /// <summary>アルバム詳細情報表示コマンド（#168）</summary>
+    public ICommand ShowAlbumInfoCommand { get; }
+
     /// <summary>トラックプロパティ表示コマンド</summary>
     public ICommand ShowTrackPropertiesCommand { get; }
 
@@ -293,6 +296,13 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
 
         ShowTrackPropertiesCommand = new RelayCommand(ShowTrackProperties);
         OpenFileLocationCommand = new RelayCommand(OpenFileLocation);
+        ShowAlbumInfoCommand = new RelayCommand(param =>
+        {
+            if (param is Album album)
+            {
+                ShowAlbumInfo(album);
+            }
+        });
     }
 
     /// <summary>
@@ -527,6 +537,16 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             _expandedAlbum.IsTracksExpanded = false;
             ExpandedAlbum = null;
         }
+    }
+
+    /// <summary>
+    /// アルバムの詳細情報を表示します（#168: 後続Issueにてアルバム詳細画面遷移を実装）。
+    /// </summary>
+    /// <param name="album">対象アルバム</param>
+    public void ShowAlbumInfo(Album album)
+    {
+        ArgumentNullException.ThrowIfNull(album);
+        // TODO: 後続Issueにてアルバム詳細画面への遷移・表示を実装
     }
 
     private void DeleteAlbum(object? parameter)
