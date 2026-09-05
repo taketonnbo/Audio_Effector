@@ -232,68 +232,53 @@
             </Setter>
         </Style>
 
-        <!-- Album Info Button Style (#168) Hover-only Neon Cyan style matching Play button -->
+        <!-- Album Info Button Style (#168) Three-dots icon matching AlbumTracksToggleButtonStyle -->
         <Style x:Key="AlbumInfoButtonStyle" TargetType="Button">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Width" Value="22"/>
-            <Setter Property="Height" Value="22"/>
+            <Setter Property="Background" Value="#80000000"/>
+            <Setter Property="BorderBrush" Value="#30FFFFFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Width" Value="20"/>
+            <Setter Property="Height" Value="20"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Opacity" Value="0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Grid x:Name="IconRoot" Background="Transparent" RenderTransformOrigin="0.5,0.5">
-                            <Grid.RenderTransform>
-                                <ScaleTransform x:Name="ButtonScale" ScaleX="1.0" ScaleY="1.0"/>
-                            </Grid.RenderTransform>
-
-                            <!-- 同心円（レコード盤・CDイメージ）ネオンシアンライン＆グロー -->
-                            <Path x:Name="ConcentricGlowPath"
-                                  Data="M12,2 A10,10 0 1 0 12,22 A10,10 0 1 0 12,2 Z M12,6 A6,6 0 1 0 12,18 A6,6 0 1 0 12,6 Z M12,10 A2,2 0 1 0 12,14 A2,2 0 1 0 12,10 Z"
-                                  Stroke="{DynamicResource AlwaysNeonCyanBrush}"
-                                  StrokeThickness="1.5"
-                                  Fill="Transparent"
+                        <Border x:Name="InfoBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10">
+                            <!-- 三点リーダーアイコン（通常時: 白 / ホバー時: 水色ハイライト） -->
+                            <Path x:Name="DotsIcon"
+                                  Data="M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z"
+                                  Fill="{DynamicResource TextForegroundBrush}"
                                   Stretch="Uniform"
-                                  Width="16" Height="16"
-                                  HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Path.Effect>
-                                    <DropShadowEffect x:Name="GlowEffect" Color="{DynamicResource AlwaysNeonCyanColor}" BlurRadius="8" ShadowDepth="0" Opacity="0.85"/>
-                                </Path.Effect>
-                            </Path>
-
-                            <!-- 半透明シアン塗りアクセント（再生ボタンの三角Fillと同調） -->
-                            <Path Data="F1 M12,2 A10,10 0 1 0 12,22 A10,10 0 1 0 12,2 Z M12,6 A6,6 0 1 0 12,18 A6,6 0 1 0 12,6 Z M12,10 A2,2 0 1 0 12,14 A2,2 0 1 0 12,10 Z"
-                                  Fill="{DynamicResource AlwaysNeonCyanBrush}"
-                                  Opacity="0.2"
-                                  Stretch="Uniform"
-                                  Width="16" Height="16"
+                                  Width="11" Height="11"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Grid>
+                        </Border>
                         <ControlTemplate.Triggers>
-                            <!-- ボタン自身にマウスオーバー時: 発光強調とストローク強調 -->
+                            <!-- ボタンホバー時: 左下収録曲リストボタンと同調した水色ハイライト＆ネオングロー -->
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ConcentricGlowPath" Property="Effect">
+                                <Setter TargetName="InfoBorder" Property="Background" Value="#B3000000"/>
+                                <Setter TargetName="InfoBorder" Property="BorderBrush" Value="{DynamicResource AlwaysNeonCyanBrush}"/>
+                                <Setter TargetName="DotsIcon" Property="Fill" Value="{DynamicResource AlwaysNeonCyanBrush}"/>
+                                <Setter TargetName="InfoBorder" Property="Effect">
                                     <Setter.Value>
-                                        <DropShadowEffect Color="{DynamicResource AlwaysNeonCyanColor}" BlurRadius="14" ShadowDepth="0" Opacity="1.0"/>
+                                        <DropShadowEffect Color="{DynamicResource AlwaysNeonCyanColor}" BlurRadius="8" ShadowDepth="0" Opacity="0.8"/>
                                     </Setter.Value>
                                 </Setter>
-                                <Setter TargetName="ConcentricGlowPath" Property="StrokeThickness" Value="2.0"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
             <Style.Triggers>
-                <!-- アルバムアートホバー時にフェードイン表示 (通常時は完全非表示 Opacity=0) -->
+                <!-- アルバムアートホバー時にフェードイン表示 (通常時は非表示 Opacity=0) -->
                 <DataTrigger Binding="{Binding IsMouseOver, ElementName=AlbumArtBorder}" Value="True">
-                    <Setter Property="Opacity" Value="0.9"/>
+                    <Setter Property="Opacity" Value="1"/>
                 </DataTrigger>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Opacity" Value="1.0"/>
-                </Trigger>
             </Style.Triggers>
         </Style>
     </UserControl.Resources>
@@ -583,9 +568,9 @@
                                                                     </Setter.Value>
                                                                 </Setter>
                                                                 <Style.Triggers>
-                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                    <DataTrigger Binding="{Binding IsMouseOver, ElementName=AlbumArtBorder}" Value="True">
                                                                         <Setter Property="Opacity" Value="1"/>
-                                                                    </Trigger>
+                                                                    </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
                                                         </Button.Style>
