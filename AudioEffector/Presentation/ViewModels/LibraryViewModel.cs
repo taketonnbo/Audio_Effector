@@ -26,6 +26,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
 
     private Track? _selectedTrack;
     private Album? _selectedAlbum;
+    private Album? _expandedAlbum;
     private string _searchKeyword = string.Empty;
     private bool _isLoading;
     private double _scanProgress;
@@ -65,6 +66,15 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     {
         get => _selectedAlbum;
         set => SetProperty(ref _selectedAlbum, value);
+    }
+
+    /// <summary>
+    /// 現在収録曲トレイを展開しているアルバム
+    /// </summary>
+    public Album? ExpandedAlbum
+    {
+        get => _expandedAlbum;
+        set => SetProperty(ref _expandedAlbum, value);
     }
 
     /// <summary>
@@ -120,6 +130,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             if (SetProperty(ref _isGridView, value))
             {
                 OnPropertyChanged(nameof(IsListView));
+                CloseExpandedAlbum();
             }
         }
     }
@@ -176,6 +187,9 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
 
     /// <summary>アルバム全体再生コマンド</summary>
     public ICommand PlayAlbumCommand { get; }
+
+    /// <summary>アルバム収録曲トレイ展開切り替えコマンド（排他制御）</summary>
+    public ICommand ToggleAlbumTracksCommand { get; }
 
     /// <summary>アルバムを次に再生するコマンド</summary>
     public ICommand PlayNextAlbumCommand { get; }
@@ -260,6 +274,13 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         ToggleSortDirectionCommand = new RelayCommand(_ => IsAscending = !IsAscending);
 
         PlayAlbumCommand = new RelayCommand(PlayAlbum);
+        ToggleAlbumTracksCommand = new RelayCommand(param =>
+        {
+            if (param is Album album)
+            {
+                ToggleAlbumTracks(album);
+            }
+        });
         PlayNextAlbumCommand = new RelayCommand(PlayNextAlbum);
         EnqueueAlbumCommand = new RelayCommand(EnqueueAlbum);
         DeleteAlbumCommand = new RelayCommand(DeleteAlbum);
@@ -413,6 +434,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     /// </summary>
     public void SortLibrary()
     {
+        CloseExpandedAlbum();
         if (!Albums.Any()) return;
 
         var sorted = Albums.ToList();
@@ -471,6 +493,42 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// アルバムをライブラリから削除します
     /// </summary>
+    /// <summary>
+    /// アルバム収録曲トレイの展開・折りたたみを切り替えます（排他制御）。
+    /// </summary>
+    /// <param name="album">対象のアルバム</param>
+    public void ToggleAlbumTracks(Album album)
+    {
+        ArgumentNullException.ThrowIfNull(album);
+
+        if (_expandedAlbum == album)
+        {
+            album.IsTracksExpanded = false;
+            ExpandedAlbum = null;
+        }
+        else
+        {
+            if (_expandedAlbum != null)
+            {
+                _expandedAlbum.IsTracksExpanded = false;
+            }
+            album.IsTracksExpanded = true;
+            ExpandedAlbum = album;
+        }
+    }
+
+    /// <summary>
+    /// 展開中のアルバム収録曲トレイを安全に閉じます。
+    /// </summary>
+    public void CloseExpandedAlbum()
+    {
+        if (_expandedAlbum != null)
+        {
+            _expandedAlbum.IsTracksExpanded = false;
+            ExpandedAlbum = null;
+        }
+    }
+
     private void DeleteAlbum(object? parameter)
     {
         if (parameter is Album album)
