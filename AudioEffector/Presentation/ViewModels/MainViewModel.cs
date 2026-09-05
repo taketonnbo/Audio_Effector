@@ -1646,7 +1646,7 @@ namespace AudioEffector.Presentation.ViewModels
 
             if (track != null)
             {
-                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                RunOnUiThread(() =>
                 {
                     if (!IsPlaylistTracksVisible && PlaybackListTracks != null && !PlaybackListTracks.Any(t => PlayerControlViewModel.IsSameTrack(t, track)))
                     {
@@ -2087,6 +2087,19 @@ namespace AudioEffector.Presentation.ViewModels
             }
             settingsDialog.ShowDialog();
             SettingsUpdated?.Invoke();
+        }
+
+        private static void RunOnUiThread(Action action)
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished || dispatcher.CheckAccess())
+            {
+                action();
+            }
+            else
+            {
+                dispatcher.InvokeAsync(action);
+            }
         }
 
         /// <summary>

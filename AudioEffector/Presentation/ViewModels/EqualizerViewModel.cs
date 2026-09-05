@@ -337,13 +337,20 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
     private static void RunOnUiThread(Action action)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher == null || dispatcher.CheckAccess())
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished || dispatcher.CheckAccess())
         {
             action();
         }
         else
         {
-            dispatcher.Invoke(action);
+            try
+            {
+                dispatcher.Invoke(action);
+            }
+            catch (TaskCanceledException)
+            {
+                action();
+            }
         }
     }
 

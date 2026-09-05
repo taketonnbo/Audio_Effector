@@ -991,7 +991,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     private static void RunOnUiThread(Action action)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher == null || dispatcher.CheckAccess())
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished || dispatcher.CheckAccess())
         {
             action();
         }
