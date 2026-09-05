@@ -47,10 +47,10 @@
                                      <ColumnDefinition Width="*"/>
                                  </Grid.ColumnDefinitions>
                                  
-                                 <Image Grid.Row="0" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.ThumbnailTrackPaths[0]}" Stretch="UniformToFill"/>
-                                 <Image Grid.Row="0" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.ThumbnailTrackPaths[1]}" Stretch="UniformToFill"/>
-                                 <Image Grid.Row="1" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.ThumbnailTrackPaths[2]}" Stretch="UniformToFill"/>
-                                 <Image Grid.Row="1" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.ThumbnailTrackPaths[3]}" Stretch="UniformToFill"/>
+                                 <Image Grid.Row="0" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.Thumbnail1}" Stretch="UniformToFill"/>
+                                 <Image Grid.Row="0" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.Thumbnail2}" Stretch="UniformToFill"/>
+                                 <Image Grid.Row="1" Grid.Column="1" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.Thumbnail3}" Stretch="UniformToFill"/>
+                                 <Image Grid.Row="1" Grid.Column="0" services:AlbumArtLoader.SourcePath="{Binding CurrentViewingPlaylist.Thumbnail4}" Stretch="UniformToFill"/>
                             </Grid>
                         </Border>
                         
@@ -81,7 +81,7 @@
                                         HorizontalContentAlignment="Stretch" Margin="0,2" Background="Transparent" BorderThickness="0">
                                     <Button.ContextMenu>
                                         <ContextMenu>
-                                            <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}">
+                                            <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
                                                 <MenuItem.Style>
                                                     <Style TargetType="MenuItem">
                                                         <Setter Property="Header" Value="再生" />
@@ -89,7 +89,7 @@
                                                             <MultiDataTrigger>
                                                                 <MultiDataTrigger.Conditions>
                                                                     <Condition Binding="{Binding IsPlaying}" Value="True" />
-                                                                    <Condition Binding="{Binding PlacementTarget.Tag.IsPlaying, RelativeSource={RelativeSource AncestorType=ContextMenu}}" Value="True" />
+                                                                    <Condition Binding="{Binding PlacementTarget.Tag.IsPlaying, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue=False}" Value="True" />
                                                                 </MultiDataTrigger.Conditions>
                                                                 <Setter Property="Header" Value="停止" />
                                                             </MultiDataTrigger>
@@ -97,10 +97,10 @@
                                                     </Style>
                                                 </MenuItem.Style>
                                             </MenuItem>
-                                            <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                            <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                             <Separator/>
-                                            <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}">
+                                            <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
                                                 <MenuItem.Style>
                                                     <Style TargetType="MenuItem">
                                                         <Setter Property="Header" Value="お気に入りに追加" />
@@ -112,12 +112,12 @@
                                                     </Style>
                                                 </MenuItem.Style>
                                             </MenuItem>
-                                            <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                             <Separator/>
-                                            <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
-                                            <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                             <Separator/>
-                                            <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding}"/>
+                                            <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                         </ContextMenu>
                                     </Button.ContextMenu>
                                     <Button.Template>
@@ -138,7 +138,7 @@
                                         
                                         <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
                                                   Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"
-                                                  IsEnabled="{Binding DataContext.IsTransferring, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvertBool}}"/>
+                                                  IsEnabled="{Binding DataContext.DeviceBrowser.IsTransferring, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvertBool}}"/>
 
                                         <!-- Album Art (Moved to Left, Rounded Corners) -->
                                         <Border Grid.Column="1" Width="40" Height="40" Margin="0,0,10,0" CornerRadius="4" ClipToBounds="True">

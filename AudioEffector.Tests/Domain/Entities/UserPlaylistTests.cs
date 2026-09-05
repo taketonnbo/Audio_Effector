@@ -299,4 +299,65 @@ public class UserPlaylistTests
         Assert.True(sut1.Equals(sut2));
         Assert.Equal(sut1.GetHashCode(), sut2.GetHashCode());
     }
+
+    /// <summary>
+    /// ThumbnailTrackPaths の要素数が0件の場合、Thumbnail1〜Thumbnail4 が例外をスローせずすべて null を返却することを検証します。
+    /// </summary>
+    [Fact]
+    public void Thumbnail_要素数0件_すべてnullを返却すること()
+    {
+        // Arrange
+        var sut = new UserPlaylist();
+
+        // Act & Assert
+        Assert.Null(sut.Thumbnail1);
+        Assert.Null(sut.Thumbnail2);
+        Assert.Null(sut.Thumbnail3);
+        Assert.Null(sut.Thumbnail4);
+    }
+
+    /// <summary>
+    /// ThumbnailTrackPaths の要素数が2曲の場合、Thumbnail1とThumbnail2はパスを返し、Thumbnail3とThumbnail4は例外をスローせずnullを返却することを検証します。
+    /// </summary>
+    [Fact]
+    public void Thumbnail_要素数2件_1と2はパスを返し3と4はnullを返却すること()
+    {
+        // Arrange
+        var sut = new UserPlaylist();
+        sut.ThumbnailTrackPaths.Add(@"C:\music\track1.mp3");
+        sut.ThumbnailTrackPaths.Add(@"C:\music\track2.mp3");
+
+        // Act & Assert
+        Assert.Equal(@"C:\music\track1.mp3", sut.Thumbnail1);
+        Assert.Equal(@"C:\music\track2.mp3", sut.Thumbnail2);
+        Assert.Null(sut.Thumbnail3);
+        Assert.Null(sut.Thumbnail4);
+    }
+
+    /// <summary>
+    /// ThumbnailTrackPaths に要素が追加された際、Thumbnail1〜Thumbnail4 の PropertyChanged イベントが発生することを検証します。
+    /// </summary>
+    [Fact]
+    public void ThumbnailTrackPaths_要素追加時_ThumbnailプロパティのPropertyChangedが発生すること()
+    {
+        // Arrange
+        var sut = new UserPlaylist();
+        var notifiedProperties = new List<string>();
+        sut.PropertyChanged += (sender, e) =>
+        {
+            if (e.PropertyName != null)
+            {
+                notifiedProperties.Add(e.PropertyName);
+            }
+        };
+
+        // Act
+        sut.ThumbnailTrackPaths.Add(@"C:\music\track1.mp3");
+
+        // Assert
+        Assert.Contains(nameof(UserPlaylist.Thumbnail1), notifiedProperties);
+        Assert.Contains(nameof(UserPlaylist.Thumbnail2), notifiedProperties);
+        Assert.Contains(nameof(UserPlaylist.Thumbnail3), notifiedProperties);
+        Assert.Contains(nameof(UserPlaylist.Thumbnail4), notifiedProperties);
+    }
 }

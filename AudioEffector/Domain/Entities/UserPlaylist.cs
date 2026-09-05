@@ -1,5 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using AudioEffector.Domain.ValueObjects;
 
 namespace AudioEffector.Domain.Entities;
@@ -7,9 +10,15 @@ namespace AudioEffector.Domain.Entities;
 /// <summary>
 /// ユーザー作成プレイリストを表すドメインエンティティ
 /// </summary>
-public class UserPlaylist : IEquatable<UserPlaylist>
+public class UserPlaylist : INotifyPropertyChanged, IEquatable<UserPlaylist>
 {
     private readonly List<TrackId> _trackIds;
+    private ObservableCollection<string> _thumbnailTrackPaths = [];
+
+    /// <summary>
+    /// プロパティ変更時に発生するイベント
+    /// </summary>
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>
     /// 一意のプレイリストID
@@ -31,7 +40,62 @@ public class UserPlaylist : IEquatable<UserPlaylist>
     /// サムネイル表示用のトラックパリスト（シリアライズ対象外・UIバインディング用）
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public System.Collections.ObjectModel.ObservableCollection<string> ThumbnailTrackPaths { get; set; } = [];
+    public ObservableCollection<string> ThumbnailTrackPaths
+    {
+        get => _thumbnailTrackPaths;
+        set
+        {
+            if (_thumbnailTrackPaths != null)
+            {
+                _thumbnailTrackPaths.CollectionChanged -= OnThumbnailTrackPathsChanged;
+            }
+            _thumbnailTrackPaths = value ?? [];
+            _thumbnailTrackPaths.CollectionChanged += OnThumbnailTrackPathsChanged;
+            OnThumbnailTrackPathsChanged(this, EventArgs.Empty);
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// サムネイル1曲目のファイルパス（存在しない場合はnull）
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? Thumbnail1 => _thumbnailTrackPaths.Count > 0 ? _thumbnailTrackPaths[0] : null;
+
+    /// <summary>
+    /// サムネイル2曲目のファイルパス（存在しない場合はnull）
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? Thumbnail2 => _thumbnailTrackPaths.Count > 1 ? _thumbnailTrackPaths[1] : null;
+
+    /// <summary>
+    /// サムネイル3曲目のファイルパス（存在しない場合はnull）
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? Thumbnail3 => _thumbnailTrackPaths.Count > 2 ? _thumbnailTrackPaths[2] : null;
+
+    /// <summary>
+    /// サムネイル4曲目のファイルパス（存在しない場合はnull）
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? Thumbnail4 => _thumbnailTrackPaths.Count > 3 ? _thumbnailTrackPaths[3] : null;
+
+    private void OnThumbnailTrackPathsChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(Thumbnail1));
+        OnPropertyChanged(nameof(Thumbnail2));
+        OnPropertyChanged(nameof(Thumbnail3));
+        OnPropertyChanged(nameof(Thumbnail4));
+    }
+
+    /// <summary>
+    /// プロパティ変更通知を発行します
+    /// </summary>
+    /// <param name="propertyName">プロパティ名</param>
+    protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
 
     /// <summary>
     /// プレイリストに含まれるトラックIDのコレクション（順序保持）
@@ -84,6 +148,7 @@ public class UserPlaylist : IEquatable<UserPlaylist>
         _trackIds = trackIds != null ? new List<TrackId>(trackIds) : [];
         CreatedAt = createdAt ?? DateTime.UtcNow;
         UpdatedAt = updatedAt ?? DateTime.UtcNow;
+        _thumbnailTrackPaths.CollectionChanged += OnThumbnailTrackPathsChanged;
     }
 
     /// <summary>
