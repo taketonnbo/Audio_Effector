@@ -29,7 +29,8 @@
    - **閉じるボタン**: 右端に「×」アイコン（Tooltip: 「再生キューを閉じる」）。クリックで `ClosePlayQueuePanelCommand` を実行してパネルを格納。
 
 2. **キューリスト領域**:
-   - `ScrollViewer` 内に `PlayQueue` を `ItemsControl` で縦方向に一覧表示。
+   - `ListBox` 内に `PlayQueue` を縦方向に一覧表示（UI仮想化を適用）。
+   - **UI仮想化（Virtualization）**: `VirtualizingPanel.IsVirtualizing="True"`、`VirtualizationMode="Recycling"`、`ScrollUnit="Pixel"` により、画面内に表示される数曲分のみをオンデマンドで生成。大量のキュー項目が存在する場合でも、メモリ消費を最小限に抑え、滑らかなスクロールと高速なレンダリングを両立。
    - **空状態（Empty State）**: キューが0件の場合は、音符アイコンと「再生キューは空です」「楽曲を右クリックして『再生キューに追加』できます」というガイドメッセージを中央に淡く表示。
    - **各トラックアイテムカード**:
      - **アルバムアートサムネイル**: 36x36px（角丸 4px）。クリックで即時再生。
@@ -50,22 +51,24 @@
 
 ## 4. アニメーションとインタラクション
 
-### パネル開閉アニメーション
+### パネル開閉アニメーションと非表示時描画抑止
+- **初期状態（アプリ起動時）**:
+  - パネルは `Visibility="Collapsed"` かつ `IsHitTestVisible="False"`、`RenderTransform.X="380"` で初期化されます。これにより、アプリ起動時にキューのアイテム生成やアルバムアートの読み込み等の描画処理が一切実行されず、起動時間の短縮（1〜2秒）を実現します。
 - **展開時（Slide-in）**:
   - メインウィンドウ上の「Play Queue」ボタン（コンパクトプレイヤー、マキシマイズプレイヤー、ミニマライズプレイヤー）をクリックすると `TogglePlayQueuePanelCommand` が発火し、`IsPlayQueuePanelOpen` が `True` に切り替わります。
-  - パネルの `RenderTransform.X` が `380`（画面外）から `0`（画面内）へ、`0.35秒` の `DoubleAnimation`（`CubicEase EasingMode="EaseOut"`）で滑らかにスライドインします。
-  - パネル展開と同時に `IsHitTestVisible` が `True` に設定され、パネル内の各種操作が可能になります。
+  - 即座に `Visibility="Visible"` かつ `IsHitTestVisible="True"` に切り替わり、パネルの `RenderTransform.X` が `380`（画面外）から `0`（画面内）へ、`0.35秒` の `DoubleAnimation`（`CubicEase EasingMode="EaseOut"`）で滑らかにスライドインします。
 - **格納時（Slide-out）**:
   - パネル右上の閉じるボタン（×）、または再度「Play Queue」ボタンをクリックすると `IsPlayQueuePanelOpen` が `False` に切り替わります。
   - パネルの `RenderTransform.X` が `0` から `380` へ、`0.30秒` の `DoubleAnimation`（`CubicEase EasingMode="EaseIn"`）で滑らかにスライドアウトします。
-  - 格納後は `IsHitTestVisible` が `False` に切り替わるため、背後のライブラリ操作を阻害しません。
+  - スライドアウトアニメーション完了時、パネルは自動的に `Visibility="Collapsed"` かつ `IsHitTestVisible="False"` に切り替わり、非表示時の描画オーバーヘッドを完全抑止するとともに、背後の操作を阻害しません。
   - メインクライアント領域の `ClipToBounds="True"` により、画面外に退避したパネルがウィンドウ外に不自然にはみ出して描画されることを完全に防止しています。
 
 ### ホバー・クリック挙動
 - リストの各アイテムカードにマウスホバーすると、背景が `{DynamicResource ControlBackgroundBrush}` にハイライトされ、クリック可能であることを示します。
-- 操作ボタン（▲、▼、×、ゴミ箱）にホバーすると、各ボタンの背景がハイライトされます。
-- 曲の並び替え・削除操作時は、`ObservableCollection<Track>` の更新と同時に `IAudioService.SetPlaylist` を同期呼び出しするため、再生順序や次曲の自動遷移に即座に反映されます。
+- 操作ボタン（×、ゴミ箱）にホバーすると、各ボタンの背景がハイライトされます。
+- 曲の削除・クリア操作時は、`ObservableCollection<Track>` の更新と同時に `IAudioService.SetPlaylist` を同期呼び出しするため、再生順序や次曲の自動遷移に即座に反映されます。
 
 ## 5. 関連Issue
+- [Issue #204: [パフォーマンス] 再生キュースライドパネルのUI仮想化と起動遅延の解消](https://github.com/taketonnbo/Audio_Effector/issues/204)
 - [Issue #66: [UI変更] 再生キュー画面の右側スライドアウト化](https://github.com/taketonnbo/Audio_Effector/issues/66)
 - [Issue #51: [UI変更] アプリ画面表示の調整対応 (Epic)](https://github.com/taketonnbo/Audio_Effector/issues/51)

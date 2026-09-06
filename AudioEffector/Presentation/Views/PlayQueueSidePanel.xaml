@@ -20,40 +20,6 @@
         <TranslateTransform x:Name="PanelTransform" X="380" />
     </UserControl.RenderTransform>
 
-    <UserControl.Style>
-        <Style TargetType="UserControl">
-            <Setter Property="IsHitTestVisible" Value="False"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsPlayQueuePanelOpen}" Value="True">
-                    <Setter Property="IsHitTestVisible" Value="True"/>
-                    <DataTrigger.EnterActions>
-                        <BeginStoryboard>
-                            <Storyboard>
-                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
-                                                 To="0" Duration="0:0:0.35">
-                                    <DoubleAnimation.EasingFunction>
-                                        <CubicEase EasingMode="EaseOut"/>
-                                    </DoubleAnimation.EasingFunction>
-                                </DoubleAnimation>
-                            </Storyboard>
-                        </BeginStoryboard>
-                    </DataTrigger.EnterActions>
-                    <DataTrigger.ExitActions>
-                        <BeginStoryboard>
-                            <Storyboard>
-                                <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
-                                                 To="380" Duration="0:0:0.3">
-                                    <DoubleAnimation.EasingFunction>
-                                        <CubicEase EasingMode="EaseIn"/>
-                                    </DoubleAnimation.EasingFunction>
-                                </DoubleAnimation>
-                            </Storyboard>
-                        </BeginStoryboard>
-                    </DataTrigger.ExitActions>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-    </UserControl.Style>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -125,39 +91,51 @@
         </Border>
 
         <!-- Queue List -->
-        <ScrollViewer Grid.Row="1"
-                      VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
-                      CanContentScroll="True"
-                      Padding="8,6">
-            <Grid>
-                <!-- Empty State Message -->
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,40">
-                    <StackPanel.Style>
-                        <Style TargetType="StackPanel">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding PlayQueue.Count}" Value="0">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </StackPanel.Style>
-                    <Path Data="M12,3V13.55A4,4 0 1,0 14,17V7H18V3H12Z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="36" Height="36" Stretch="Uniform" HorizontalAlignment="Center" Opacity="0.4" Margin="0,0,0,10"/>
-                    <TextBlock Text="再生キューは空です" FontSize="14" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center"/>
-                    <TextBlock Text="楽曲を右クリックして「再生キューに追加」できます" FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Margin="0,4,0,0" Opacity="0.7"/>
-                </StackPanel>
+        <Grid Grid.Row="1">
+            <!-- Empty State Message -->
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,40">
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding PlayQueue.Count}" Value="0">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
+                <Path Data="M12,3V13.55A4,4 0 1,0 14,17V7H18V3H12Z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="36" Height="36" Stretch="Uniform" HorizontalAlignment="Center" Opacity="0.4" Margin="0,0,0,10"/>
+                <TextBlock Text="再生キューは空です" FontSize="14" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center"/>
+                <TextBlock Text="楽曲を右クリックして「再生キューに追加」できます" FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Margin="0,4,0,0" Opacity="0.7"/>
+            </StackPanel>
 
-                <ItemsControl ItemsSource="{Binding PlayQueue}"
-                              VirtualizingPanel.IsVirtualizing="True"
-                              VirtualizingPanel.VirtualizationMode="Recycling"
-                              ScrollViewer.CanContentScroll="True">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <VirtualizingStackPanel/>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
+            <ListBox ItemsSource="{Binding PlayQueue}"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Padding="8,6"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.CanContentScroll="True"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling"
+                     VirtualizingPanel.ScrollUnit="Pixel">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <ContentPresenter/>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Border x:Name="ItemBorder" Background="Transparent" CornerRadius="6" Margin="0,2" Padding="6,5">
                                 <Border.ContextMenu>
@@ -289,9 +267,8 @@
                                 </Trigger>
                             </DataTemplate.Triggers>
                         </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </Grid>
-        </ScrollViewer>
     </Grid>
 </UserControl>
