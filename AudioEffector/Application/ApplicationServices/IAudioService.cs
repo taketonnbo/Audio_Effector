@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
@@ -12,9 +12,9 @@ namespace AudioEffector.Application.ApplicationServices;
 public interface IAudioService : IDisposable
 {
     /// <summary>
-    /// 再生トラックが変更された際に発生するイベント
+    /// 再生トラックが変更された際に発生するイベント（未選択・キュー空時は null）
     /// </summary>
-    event Action<Track> TrackChanged;
+    event Action<Track?> TrackChanged;
 
     /// <summary>
     /// 再生状態（再生中/一時停止）が変更された際に発生するイベント
@@ -85,8 +85,24 @@ public interface IAudioService : IDisposable
     /// プレイリストを設定します
     /// </summary>
     /// <param name="tracks">設定するトラックのリスト</param>
+    /// <param name="startTrack">最初に再生対象とするトラック（省略可）</param>
     [LogDescription("プレイリストを設定します")]
-    void SetPlaylist(List<Track> tracks);
+    void SetPlaylist(List<Track> tracks, Track? startTrack = null);
+
+    /// <summary>
+    /// トラックコレクションをキューに追加します（単曲またはアルバム）
+    /// </summary>
+    /// <param name="tracks">追加するトラックコレクション</param>
+    /// <param name="playNext">trueの場合、現在再生中の楽曲の直後に追加（次に再生）。falseの場合、キュー末尾に追加。</param>
+    [LogDescription("トラックコレクションをキューに追加します")]
+    void EnqueueTracks(IReadOnlyList<Track> tracks, bool playNext);
+
+    /// <summary>
+    /// 指定されたトラックをキューから削除します
+    /// </summary>
+    /// <param name="track">削除対象のトラック</param>
+    [LogDescription("指定されたトラックをキューから削除します")]
+    void RemoveTrack(Track track);
 
     /// <summary>
     /// 指定された楽曲を再生します

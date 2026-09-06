@@ -486,32 +486,7 @@ namespace AudioEffector.Presentation.ViewModels
                 };
                 Library.EnqueueRequested += (tracks, playNext) =>
                 {
-                    if (playNext)
-                    {
-                        if (CurrentTrack != null && PlayQueue.Contains(CurrentTrack))
-                        {
-                            int currentIndex = PlayQueue.IndexOf(CurrentTrack);
-                            for (int i = 0; i < tracks.Count; i++)
-                            {
-                                PlayQueue.Insert(currentIndex + 1 + i, tracks[i]);
-                            }
-                        }
-                        else
-                        {
-                            for (int i = 0; i < tracks.Count; i++)
-                            {
-                                PlayQueue.Insert(i, tracks[i]);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        foreach (var track in tracks)
-                        {
-                            PlayQueue.Add(track);
-                        }
-                    }
-                    _audioService.SetPlaylist(PlayQueue.ToList());
+                    _audioService.EnqueueTracks(tracks, playNext);
                 };
                 Library.FavoriteToggled += track =>
                 {
@@ -1672,7 +1647,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// スペクトラムの更新、アルバムアートの読み込み、背景画像の更新を行います。
         /// </summary>
         /// <param name="track">新しいトラック。</param>
-        private void OnTrackChanged(Track track)
+        private void OnTrackChanged(Track? track)
         {
             if (CurrentTrack != null)
             {
@@ -1682,10 +1657,24 @@ namespace AudioEffector.Presentation.ViewModels
             CurrentTrack = track;
             Progress = 0;
 
-            if (track != null)
+            if (track == null)
             {
-                track.IsPlaying = true;
+                CurrentAlbum = null;
+                PlaybackListTracks = new ObservableCollection<Track>();
+                PlaybackListName = "No Album Selected";
+                PlaybackListSubtitle = string.Empty;
+                PlayerControl?.SyncTrackPlayingStates(null);
+                RunOnUiThread(() =>
+                {
+                    NowPlayingImage = _defaultNowPlayingImage;
+                    SpectrumBackgroundImage = _defaultSpectrumImage;
+                    SpectrumBackgroundImageGray = null;
+                    IsDefaultSpectrumImage = true;
+                });
+                return;
             }
+
+            track.IsPlaying = true;
 
             PlayerControl?.SyncTrackPlayingStates(track);
 
@@ -1730,57 +1719,74 @@ namespace AudioEffector.Presentation.ViewModels
                                 var bin = tfile.Tag.Pictures[0].Data.Data;
                                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
-                                    var image = new BitmapImage();
-                                    using (var mem = new MemoryStream(bin))
+                                    try
                                     {
-                                        mem.Position = 0;
-                                        image.BeginInit();
-                                        image.DecodePixelWidth = 500;
-                                        image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                                        image.CacheOption = BitmapCacheOption.OnLoad;
-                                        image.UriSource = null;
-                                        image.StreamSource = mem;
-                                        image.EndInit();
-                                    }
-                                    image.Freeze();
-                                    NowPlayingImage = image;
-                                    SpectrumBackgroundImage = image; // Keep Color
+                                        var image = new BitmapImage();
+                                        using (var mem = new MemoryStream(bin))
+                                        {
+                                            mem.Position = 0;
+                                            image.BeginInit();
+                                            image.DecodePixelWidth = 500;
+                                            image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                                            image.CacheOption = BitmapCacheOption.OnLoad;
+                                            image.UriSource = null;
+                                            image.StreamSource = mem;
+                                            image.EndInit();
+                                        }
+                                        image.Freeze();
+                                        NowPlayingImage = image;
+                                        SpectrumBackgroundImage = image; // Keep Color
 
-                                    // Phase 9: Update PlaylistBackgroundImage if NOT favorites view
-                                    if (!IsFavoritesView)
+                                        // Phase 9: Update PlaylistBackgroundImage if NOT favorites view
+                                        if (!IsFavoritesView)
+                                        {
+                                            Playlist?.SetBackgroundImage(image);
+                                        }
+
+                                        // Create Grayscale version for Spectrum Background Overlay
+                                        var grayImage = new FormatConvertedBitmap();
+                                        grayImage.BeginInit();
+                                        grayImage.Source = image;
+                                        grayImage.DestinationFormat = PixelFormats.Gray8;
+                                        grayImage.EndInit();
+                                        grayImage.Freeze();
+
+                                        SpectrumBackgroundImageGray = grayImage;
+                                        IsDefaultSpectrumImage = false;
+
+                                        // Update Spectrum Bar Color
+                                        UpdateSpectrumBrush(image);
+                                    }
+                                    catch
                                     {
-                                        Playlist?.SetBackgroundImage(image);
+                                        // 画像デコード中断 (COMException E_ABORT) 等の例外を安全に無視・フォールバック
+                                        NowPlayingImage = _defaultNowPlayingImage;
+                                        SpectrumBackgroundImage = _defaultSpectrumImage;
+                                        SpectrumBackgroundImageGray = null;
                                     }
-
-                                    // Create Grayscale version for Spectrum Background Overlay
-                                    var grayImage = new FormatConvertedBitmap();
-                                    grayImage.BeginInit();
-                                    grayImage.Source = image;
-                                    grayImage.DestinationFormat = PixelFormats.Gray8;
-                                    grayImage.EndInit();
-                                    grayImage.Freeze();
-
-                                    SpectrumBackgroundImageGray = grayImage;
-                                    IsDefaultSpectrumImage = false;
-
-                                    // Update Spectrum Bar Color
-                                    UpdateSpectrumBrush(image);
                                 });
                             }
                             else
                             {
                                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
-                                    NowPlayingImage = _defaultNowPlayingImage;
-                                    SpectrumBackgroundImage = _defaultSpectrumImage;
-                                    SpectrumBackgroundImageGray = null;
+                                    try
+                                    {
+                                        NowPlayingImage = _defaultNowPlayingImage;
+                                        SpectrumBackgroundImage = _defaultSpectrumImage;
+                                        SpectrumBackgroundImageGray = null;
 
-                                    // Border: Brighter (Lower Saturation), 100% Opacity
-                                    var borderColor = Color.FromRgb(204, 249, 255);
-                                    borderColor.A = 255;
-                                    var solidBorderBrush = new SolidColorBrush(borderColor);
-                                    solidBorderBrush.Freeze();
-                                    SpectrumBorderBrush = solidBorderBrush;
+                                        // Border: Brighter (Lower Saturation), 100% Opacity
+                                        var borderColor = Color.FromRgb(204, 249, 255);
+                                        borderColor.A = 255;
+                                        var solidBorderBrush = new SolidColorBrush(borderColor);
+                                        solidBorderBrush.Freeze();
+                                        SpectrumBorderBrush = solidBorderBrush;
+                                    }
+                                    catch
+                                    {
+                                        // 例外無視
+                                    }
                                 });
                             }
                         }
@@ -1998,7 +2004,7 @@ namespace AudioEffector.Presentation.ViewModels
             // If repeat is OFF, try to play next album
             if (!IsAlbumRepeat && CurrentTrack != null)
             {
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                Action action = () =>
                 {
                     var currentAlbum = Albums.FirstOrDefault(a => a.Tracks.Any(t => t.FilePath == CurrentTrack.FilePath));
                     if (currentAlbum != null)
@@ -2009,12 +2015,46 @@ namespace AudioEffector.Presentation.ViewModels
                             var nextAlbum = Albums[index + 1];
                             if (nextAlbum.Tracks.Count > 0)
                             {
-                                _audioService.SetPlaylist(nextAlbum.Tracks);
-                                _audioService.PlayTrack(nextAlbum.Tracks.First());
+                                if (Library != null)
+                                {
+                                    Library.PlayAlbum(nextAlbum);
+                                }
+                                else
+                                {
+                                    var tracks = nextAlbum.Tracks.ToList();
+                                    Track startTrack;
+                                    if (_audioService.IsShuffleEnabled)
+                                    {
+                                        var rng = new Random();
+                                        startTrack = tracks[rng.Next(tracks.Count)];
+                                    }
+                                    else
+                                    {
+                                        startTrack = tracks.First();
+                                    }
+
+                                    PlayQueue = new ObservableCollection<Track>(tracks);
+                                    PlaybackListName = nextAlbum.Title;
+                                    PlaybackListSubtitle = nextAlbum.Artist;
+                                    PlaybackListTracks = new ObservableCollection<Track>(tracks);
+                                    PlayerControl?.SetPlaybackList(tracks, nextAlbum.Title, nextAlbum.Artist);
+
+                                    _audioService.SetPlaylist(tracks, startTrack);
+                                    _audioService.PlayTrack(startTrack);
+                                }
                             }
                         }
                     }
-                });
+                };
+
+                if (System.Windows.Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+                {
+                    dispatcher.Invoke(action);
+                }
+                else
+                {
+                    action();
+                }
             }
         }
 

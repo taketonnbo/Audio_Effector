@@ -1106,10 +1106,38 @@
                                 <!-- Right: Track Count (e.g. "14 Tracks") -->
                                 <TextBlock Grid.Column="1" Text="{Binding PlaybackListTracks.Count, StringFormat='{}{0} Tracks'}" 
                                            FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource MutedTextForegroundBrush}" 
-                                           VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,28,0"/>
+                                           VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,28,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PlaybackListTracks.Count}" Value="0">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </Grid>
 
-                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <Grid Grid.Row="1">
+                                <!-- Empty State: PlaybackListTracks.Count == 0 -->
+                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,40">
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PlaybackListTracks.Count}" Value="0">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+                                    <Path Data="M12,3V13.55A4,4 0 1,0 14,17V7H18V3H12Z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="36" Height="36" Stretch="Uniform" HorizontalAlignment="Center" Opacity="0.4" Margin="0,0,0,10"/>
+                                    <TextBlock Text="プレイリストは空です" FontSize="13" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center"/>
+                                </StackPanel>
+
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <ItemsControl ItemsSource="{Binding PlaybackListTracks}" AlternationCount="999" HorizontalContentAlignment="Stretch">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
@@ -1246,7 +1274,8 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                            </ScrollViewer>
+                                </ScrollViewer>
+                            </Grid>
                         </Grid>
                     </Border>
                 </Grid>

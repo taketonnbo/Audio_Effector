@@ -270,7 +270,7 @@ public sealed class PlayerControlViewModelTests
         // Assert
         Assert.Single(sut.PlayQueue);
         Assert.Equal("Song 2", sut.PlayQueue[0].Title);
-        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 1 && l[0].Title == "Song 2")), Times.Once);
+        _audioServiceMock.Verify(a => a.RemoveTrack(track1), Times.Once);
     }
 
     /// <summary>
@@ -295,7 +295,184 @@ public sealed class PlayerControlViewModelTests
 
         // Assert
         Assert.Empty(sut.PlayQueue);
-        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 0)), Times.Once);
+        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 0), It.IsAny<Track?>()), Times.Once);
+    }
+
+    /// <summary>
+    /// AudioServiceのPlaylistChangedイベント発火時、PlayQueueの要素が更新されることを検証します。
+    /// </summary>
+    [Fact]
+    public void PlaylistChanged_発火時_PlayQueueが更新される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" };
+        var newPlaylist = new List<Track> { track2, track1 };
+
+        // Act - イベントを発火
+        _audioServiceMock.Raise(a => a.PlaylistChanged += null, newPlaylist);
+
+        // Assert
+        Assert.Equal(2, sut.PlayQueue.Count);
+        Assert.Equal("Song 2", sut.PlayQueue[0].Title);
+        Assert.Equal("Song 1", sut.PlayQueue[1].Title);
+    }
+
+    /// <summary>
+    /// CurrentTrackに実体のないファイルパスを持つトラックを設定した際、画像読み込みで例外が発生せず安全にフォールバックされることを検証します。
+    /// </summary>
+    [Fact]
+    public void CurrentTrack_画像読み込み失敗時_例外が発生せず安全にフォールバックされる()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track = new Track
+        {
+            FilePath = @"C:\NonExistent\non_existent_song.mp3",
+            Title = "Non Existent Song",
+            Duration = TimeSpan.FromMinutes(3),
+            CoverImage = null
+        };
+
+        // Act & Assert - 例外が発生しないこと
+        var ex = Record.Exception(() => sut.CurrentTrack = track);
+        Assert.Null(ex);
+        Assert.Equal("03:00", sut.TotalTimeDisplay);
+    }
+
+    /// <summary>
+    /// PreviousCommand実行時、例外が発生せずAudioServiceのPreviousが呼び出されることを検証します。
+    /// </summary>
+    [Fact]
+    public void PreviousCommand_実行時_例外が発生せずAudioServiceのPreviousが呼び出される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        // Act
+        var ex = Record.Exception(() => sut.PreviousCommand.Execute(null));
+
+        // Assert
+        Assert.Null(ex);
+        _audioServiceMock.Verify(a => a.Previous(), Times.Once);
+    }
+
+    /// <summary>
+    /// ClearQueue実行時、AudioServiceのStopが呼ばれ、CurrentTrackおよび再生中表示がクリアされることを検証します。
+    /// </summary>
+    [Fact]
+    public void ClearQueue_実行時_再生が停止され再生中情報がクリアされる()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track = new Track
+        {
+            FilePath = @"C:\Music\song1.mp3",
+            Title = "Song 1",
+            Duration = TimeSpan.FromMinutes(4)
+        };
+        sut.SetPlaybackList(new[] { track }, "Test Album", "Test Artist");
+        sut.CurrentTrack = track;
+        sut.Progress = 50.0;
+
+        // Act
+        sut.ClearQueue();
+
+        // Assert
+        Assert.Empty(sut.PlayQueue);
+        Assert.Empty(sut.PlaybackListTracks);
+        Assert.Equal("No Album Selected", sut.PlaybackListName);
+        Assert.Equal(string.Empty, sut.PlaybackListSubtitle);
+        Assert.Null(sut.CurrentTrack);
+        Assert.Equal("00:00", sut.TotalTimeDisplay);
+        Assert.Equal("00:00", sut.CurrentTimeDisplay);
+        Assert.Equal(0.0, sut.Progress);
+        Assert.Null(sut.NowPlayingImage);
+        _audioServiceMock.Verify(a => a.Stop(false), Times.Once);
+        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 0), null), Times.Once);
+    }
+
+    /// <summary>
+    /// RemoveFromQueueで最後の1曲を削除した際、ClearQueueが実行され再生停止・情報クリアが行われることを検証します。
+    /// </summary>
+    [Fact]
+    public void RemoveFromQueue_最後の1曲を削除時_ClearQueueが実行され再生中情報がクリアされる()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track = new Track
+        {
+            FilePath = @"C:\Music\song1.mp3",
+            Title = "Song 1",
+            Duration = TimeSpan.FromMinutes(3)
+        };
+        sut.SetPlaybackList(new[] { track }, "Test Album", "Test Artist");
+        sut.CurrentTrack = track;
+
+        // Act
+        sut.RemoveFromQueue(track);
+
+        // Assert
+        Assert.Empty(sut.PlayQueue);
+        Assert.Empty(sut.PlaybackListTracks);
+        Assert.Equal("No Album Selected", sut.PlaybackListName);
+        Assert.Null(sut.CurrentTrack);
+        Assert.Equal("00:00", sut.TotalTimeDisplay);
+        Assert.Equal("00:00", sut.CurrentTimeDisplay);
+        _audioServiceMock.Verify(a => a.Stop(false), Times.Once);
+    }
+
+    /// <summary>
+    /// RemoveFromQueueで複数曲ある状態で現在再生中の曲を削除した際、後続の曲へ再生が遷移することを検証します。
+    /// </summary>
+    [Fact]
+    public void RemoveFromQueue_再生中の曲を削除時_後続曲へ遷移する()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" };
+        sut.PlayQueue.Add(track1);
+        sut.PlayQueue.Add(track2);
+        sut.CurrentTrack = track1;
+
+        // Act - 現在再生中のtrack1を削除
+        sut.RemoveFromQueue(track1);
+
+        // Assert
+        Assert.Single(sut.PlayQueue);
+        Assert.Equal("Song 2", sut.PlayQueue[0].Title);
+        _audioServiceMock.Verify(a => a.PlayTrack(track2), Times.Once);
     }
 }
 

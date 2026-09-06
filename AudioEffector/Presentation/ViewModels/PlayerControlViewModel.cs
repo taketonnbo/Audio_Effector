@@ -730,17 +730,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public void PlayNext(object? obj)
     {
         if (obj is not Track track) return;
-
-        if (CurrentTrack != null && PlayQueue.Contains(CurrentTrack))
-        {
-            int currentIndex = PlayQueue.IndexOf(CurrentTrack);
-            PlayQueue.Insert(currentIndex + 1, track);
-        }
-        else
-        {
-            PlayQueue.Insert(0, track);
-        }
-        _audioService.SetPlaylist(PlayQueue.ToList());
+        _audioService.EnqueueTracks(new[] { track }, playNext: true);
     }
 
     /// <summary>
@@ -750,9 +740,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public void EnqueueTrack(object? obj)
     {
         if (obj is not Track track) return;
-
-        PlayQueue.Add(track);
-        _audioService.SetPlaylist(PlayQueue.ToList());
+        _audioService.EnqueueTracks(new[] { track }, playNext: false);
     }
 
     /// <summary>
@@ -781,9 +769,23 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     {
         if (obj is not Track track) return;
 
-        if (PlayQueue.Remove(track))
+        bool isCurrent = CurrentTrack != null && IsSameTrack(CurrentTrack, track);
+        int oldIndex = PlayQueue.IndexOf(track);
+
+        if (PlayQueue.Count <= 1 && PlayQueue.Contains(track))
         {
-            _audioService.SetPlaylist(PlayQueue.ToList());
+            ClearQueue();
+            return;
+        }
+
+        PlayQueue.Remove(track);
+        _audioService.RemoveTrack(track);
+
+        if (isCurrent && PlayQueue.Count > 0)
+        {
+            int nextIndex = Math.Clamp(oldIndex, 0, PlayQueue.Count - 1);
+            var nextTrack = PlayQueue[nextIndex];
+            _audioService.PlayTrack(nextTrack);
         }
     }
 
@@ -793,6 +795,15 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public void ClearQueue()
     {
         PlayQueue.Clear();
+        PlaybackListTracks = new ObservableCollection<Track>();
+        PlaybackListName = "No Album Selected";
+        PlaybackListSubtitle = string.Empty;
+        _audioService.Stop(false);
+        CurrentTrack = null;
+        TotalTimeDisplay = "00:00";
+        CurrentTimeDisplay = "00:00";
+        Progress = 0.0;
+        NowPlayingImage = null;
         _audioService.SetPlaylist(new List<Track>());
     }
 
@@ -867,6 +878,19 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     {
         if (_audioService == null) return;
 
+        if (CurrentTrack == null)
+        {
+            CurrentTimeDisplay = "00:00";
+            TotalTimeDisplay = "00:00";
+            Progress = 0.0;
+            return;
+        }
+
+        if (!_audioService.IsPlaying && !_isDraggingProgress)
+        {
+            return;
+        }
+
         var current = _audioService.CurrentTime;
         var total = _audioService.TotalTime;
 
@@ -891,13 +915,20 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
 
     #region イベント受信・UI反映
 
-    private void OnAudioServiceTrackChanged(Track track)
+    private void OnAudioServiceTrackChanged(Track? track)
     {
         RunOnUiThread(() =>
         {
             ResetSpectrum();
             CurrentTrack = track;
             Progress = 0.0;
+            if (track == null)
+            {
+                UpdateTrackDisplays(null);
+                PlaybackListTracks = new ObservableCollection<Track>();
+                PlaybackListName = "No Album Selected";
+                PlaybackListSubtitle = string.Empty;
+            }
         });
     }
 
@@ -914,6 +945,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         RunOnUiThread(() =>
         {
             PlayQueue = new ObservableCollection<Track>(playlist);
+            SyncTrackPlayingStates(CurrentTrack);
         });
     }
 
@@ -959,17 +991,24 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
                         var bin = tfile.Tag.Pictures[0].Data.Data;
                         RunOnUiThread(() =>
                         {
-                            var image = new BitmapImage();
-                            using var mem = new MemoryStream(bin);
-                            mem.Position = 0;
-                            image.BeginInit();
-                            image.DecodePixelWidth = 500;
-                            image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                            image.CacheOption = BitmapCacheOption.OnLoad;
-                            image.StreamSource = mem;
-                            image.EndInit();
-                            image.Freeze();
-                            NowPlayingImage = image;
+                            try
+                            {
+                                var image = new BitmapImage();
+                                using var mem = new MemoryStream(bin);
+                                mem.Position = 0;
+                                image.BeginInit();
+                                image.DecodePixelWidth = 500;
+                                image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                                image.CacheOption = BitmapCacheOption.OnLoad;
+                                image.StreamSource = mem;
+                                image.EndInit();
+                                image.Freeze();
+                                NowPlayingImage = image;
+                            }
+                            catch
+                            {
+                                NowPlayingImage = null;
+                            }
                         });
                     }
                 }
