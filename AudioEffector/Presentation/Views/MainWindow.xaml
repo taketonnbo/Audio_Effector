@@ -334,7 +334,7 @@
             </Grid>
 
             <!-- Row 1: Main Client Area -->
-            <Grid Grid.Row="1" ClipToBounds="True">
+            <Grid Grid.Row="1">
                 <views:SidebarControl HorizontalAlignment="Left" Panel.ZIndex="10"/>
 
         <Grid Margin="50,0,0,0">
@@ -1586,11 +1586,13 @@
                 </Grid>
             </Grid>
         </Grid>
+        </Grid>
 
-                <!-- Right Slideout Panel: Play Queue (Overlay) -->
-                <views:PlayQueueSidePanel HorizontalAlignment="Right" Panel.ZIndex="30"/>
-            </Grid>
+        <!-- Right Slideout Panel: Play Queue (Overlay) -->
+        <Grid HorizontalAlignment="Right" Width="360" ClipToBounds="True" Panel.ZIndex="30">
+            <views:PlayQueueSidePanel HorizontalAlignment="Right"/>
         </Grid>
-        </Grid>
+    </Grid>
+    </Grid>
     </Border>
 </Window>
