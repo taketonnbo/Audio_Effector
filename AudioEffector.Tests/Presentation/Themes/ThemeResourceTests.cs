@@ -230,6 +230,56 @@ public class ThemeResourceTests
         }
     }
 
+    /// <summary>
+    /// PlayQueueSidePanel.xamlのヘッダー（タイトルおよびアイコン）において、AlwaysNeonCyanBrushが参照されていることを検証します。
+    /// （Issue #202 再発防止）
+    /// </summary>
+    [Fact]
+    public void PlayQueueSidePanel_ヘッダー確認_AlwaysNeonCyanリソースを参照していること()
+    {
+        // Arrange
+        var rootDir = FindWorkspaceRoot();
+        var xamlPath = Path.Combine(rootDir, "AudioEffector", "Presentation", "Views", "PlayQueueSidePanel.xaml");
+        Assert.True(File.Exists(xamlPath), $"PlayQueueSidePanel.xaml が見つかりません: {xamlPath}");
+
+        // Act
+        var xamlContent = File.ReadAllText(xamlPath);
+        var sut = XDocument.Parse(xamlContent);
+
+        // Assert
+        var titleBlock = sut.Descendants()
+            .FirstOrDefault(e => e.Name.LocalName == "TextBlock" &&
+                e.Attributes().Any(a => a.Name.LocalName == "Text" && a.Value == "再生キュー"));
+
+        Assert.NotNull(titleBlock);
+        Assert.Equal("{DynamicResource AlwaysNeonCyanBrush}", titleBlock.Attribute("Foreground")?.Value);
+    }
+
+    /// <summary>
+    /// PlayQueueDialog.xamlのヘッダータイトルにおいて、AlwaysNeonCyanBrushが参照されていることを検証します。
+    /// （Issue #202 再発防止）
+    /// </summary>
+    [Fact]
+    public void PlayQueueDialog_ヘッダー確認_AlwaysNeonCyanリソースを参照していること()
+    {
+        // Arrange
+        var rootDir = FindWorkspaceRoot();
+        var xamlPath = Path.Combine(rootDir, "AudioEffector", "Presentation", "Views", "PlayQueueDialog.xaml");
+        Assert.True(File.Exists(xamlPath), $"PlayQueueDialog.xaml が見つかりません: {xamlPath}");
+
+        // Act
+        var xamlContent = File.ReadAllText(xamlPath);
+        var sut = XDocument.Parse(xamlContent);
+
+        // Assert
+        var titleBlock = sut.Descendants()
+            .FirstOrDefault(e => e.Name.LocalName == "TextBlock" &&
+                e.Attributes().Any(a => a.Name.LocalName == "Text" && a.Value.Contains("再生キュー")));
+
+        Assert.NotNull(titleBlock);
+        Assert.Equal("{DynamicResource AlwaysNeonCyanBrush}", titleBlock.Attribute("Foreground")?.Value);
+    }
+
     private static string FindWorkspaceRoot()
     {
         var current = AppDomain.CurrentDomain.BaseDirectory;
