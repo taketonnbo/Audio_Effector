@@ -5,6 +5,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:local="clr-namespace:AudioEffector.Presentation.Views"
              xmlns:vm="clr-namespace:AudioEffector.Presentation.ViewModels"
+             xmlns:ap="clr-namespace:AudioEffector.Presentation.AttachedProperties"
              mc:Ignorable="d" 
              d:DesignHeight="600" d:DesignWidth="360"
              d:DataContext="{d:DesignInstance vm:MainViewModel}"
@@ -124,7 +125,11 @@
         </Border>
 
         <!-- Queue List -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="8,6">
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      CanContentScroll="True"
+                      Padding="8,6">
             <Grid>
                 <!-- Empty State Message -->
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,40">
@@ -143,7 +148,15 @@
                     <TextBlock Text="楽曲を右クリックして「再生キューに追加」できます" FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Margin="0,4,0,0" Opacity="0.7"/>
                 </StackPanel>
 
-                <ItemsControl ItemsSource="{Binding PlayQueue}">
+                <ItemsControl ItemsSource="{Binding PlayQueue}"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              ScrollViewer.CanContentScroll="True">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Border x:Name="ItemBorder" Background="Transparent" CornerRadius="6" Margin="0,2" Padding="6,5">
@@ -213,7 +226,7 @@
                                             <ControlTemplate TargetType="Button">
                                                 <Grid Width="36" Height="36">
                                                     <Border CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundBrush}">
-                                                        <Image Source="{Binding AlbumArt}" Stretch="UniformToFill"/>
+                                                        <Image ap:AlbumArtLoader.SourcePath="{Binding FilePath}" Stretch="UniformToFill"/>
                                                     </Border>
                                                     <Border Background="#80000000" CornerRadius="4" Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
                                                         <Grid>
