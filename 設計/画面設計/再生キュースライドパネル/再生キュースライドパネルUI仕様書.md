@@ -57,7 +57,7 @@
        - プレイリストに追加...
        - プロパティ
        - ファイルの場所を開く
-       - *(※PlacementTargetのDataContext参照を確実に設定し、全メニューが正常に動作する構造)*
+       - *(※ItemBorder自身に `Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"` を設定し、`PlacementTarget.Tag` 経由で親DataContextの各コマンドが確実に発火する構造)*
 
    #### B. 履歴リスト表示時
    - **空状態（Empty State）**: 履歴が0件の場合は、時計/履歴アイコンと「再生履歴はありません」「再生が終了した楽曲がここに表示されます」というガイドメッセージを中央に淡く表示。
