@@ -468,25 +468,36 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// アルバム全体を再生します
     /// </summary>
+    /// <param name="album">再生対象のアルバム</param>
+    public void PlayAlbum(Album album)
+    {
+        if (album == null || album.Tracks.Count == 0) return;
+
+        var tracks = album.Tracks.ToList();
+        Track startTrack;
+        if (_audioService.IsShuffleEnabled)
+        {
+            var rng = new Random();
+            startTrack = tracks[rng.Next(tracks.Count)];
+        }
+        else
+        {
+            startTrack = tracks.First();
+        }
+
+        PlaybackRequested?.Invoke(tracks, startTrack, album.Title, album.Artist);
+        _audioService.SetPlaylist(tracks, startTrack);
+        _audioService.PlayTrack(startTrack);
+    }
+
+    /// <summary>
+    /// アルバム全体を再生します（コマンドパラメータ用）
+    /// </summary>
     private void PlayAlbum(object? parameter)
     {
-        if (parameter is Album album && album.Tracks.Count > 0)
+        if (parameter is Album album)
         {
-            var tracks = album.Tracks.ToList();
-            Track startTrack;
-            if (_audioService.IsShuffleEnabled)
-            {
-                var rng = new Random();
-                startTrack = tracks[rng.Next(tracks.Count)];
-            }
-            else
-            {
-                startTrack = tracks.First();
-            }
-
-            PlaybackRequested?.Invoke(tracks, startTrack, album.Title, album.Artist);
-            _audioService.SetPlaylist(tracks, startTrack);
-            _audioService.PlayTrack(startTrack);
+            PlayAlbum(album);
         }
     }
 

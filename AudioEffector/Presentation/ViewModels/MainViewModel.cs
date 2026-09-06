@@ -2004,7 +2004,7 @@ namespace AudioEffector.Presentation.ViewModels
             // If repeat is OFF, try to play next album
             if (!IsAlbumRepeat && CurrentTrack != null)
             {
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                Action action = () =>
                 {
                     var currentAlbum = Albums.FirstOrDefault(a => a.Tracks.Any(t => t.FilePath == CurrentTrack.FilePath));
                     if (currentAlbum != null)
@@ -2015,12 +2015,46 @@ namespace AudioEffector.Presentation.ViewModels
                             var nextAlbum = Albums[index + 1];
                             if (nextAlbum.Tracks.Count > 0)
                             {
-                                _audioService.SetPlaylist(nextAlbum.Tracks);
-                                _audioService.PlayTrack(nextAlbum.Tracks.First());
+                                if (Library != null)
+                                {
+                                    Library.PlayAlbum(nextAlbum);
+                                }
+                                else
+                                {
+                                    var tracks = nextAlbum.Tracks.ToList();
+                                    Track startTrack;
+                                    if (_audioService.IsShuffleEnabled)
+                                    {
+                                        var rng = new Random();
+                                        startTrack = tracks[rng.Next(tracks.Count)];
+                                    }
+                                    else
+                                    {
+                                        startTrack = tracks.First();
+                                    }
+
+                                    PlayQueue = new ObservableCollection<Track>(tracks);
+                                    PlaybackListName = nextAlbum.Title;
+                                    PlaybackListSubtitle = nextAlbum.Artist;
+                                    PlaybackListTracks = new ObservableCollection<Track>(tracks);
+                                    PlayerControl?.SetPlaybackList(tracks, nextAlbum.Title, nextAlbum.Artist);
+
+                                    _audioService.SetPlaylist(tracks, startTrack);
+                                    _audioService.PlayTrack(startTrack);
+                                }
                             }
                         }
                     }
-                });
+                };
+
+                if (System.Windows.Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+                {
+                    dispatcher.Invoke(action);
+                }
+                else
+                {
+                    action();
+                }
             }
         }
 

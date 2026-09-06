@@ -153,4 +153,82 @@ public sealed class LibraryViewModelTests
         var exception = Record.Exception(() => vm.ShowAlbumInfoCommand.Execute(album));
         Assert.Null(exception);
     }
+
+    /// <summary>
+    /// シャッフルON時にPlayAlbumを実行した際、アルバム収録曲の中からランダムな1曲が
+    /// startTrackとして選定されてSetPlaylistおよびPlayTrackに渡されることを検証します。
+    /// </summary>
+    [Fact]
+    public void PlayAlbum_シャッフルON時_収録曲からランダムな1曲がstartTrackとして選ばれSetPlaylistとPlayTrackに渡される()
+    {
+        // Arrange
+        using var vm = CreateViewModel();
+        _audioServiceMock.Setup(a => a.IsShuffleEnabled).Returns(true);
+
+        var album = new Album("Album Shuffle", "Artist Shuffle");
+        var track1 = new Track { FilePath = @"C:\Music\s1.mp3", Title = "S1" };
+        var track2 = new Track { FilePath = @"C:\Music\s2.mp3", Title = "S2" };
+        var track3 = new Track { FilePath = @"C:\Music\s3.mp3", Title = "S3" };
+        album.Tracks.Add(track1);
+        album.Tracks.Add(track2);
+        album.Tracks.Add(track3);
+
+        Track? passedStartTrack = null;
+        _audioServiceMock
+            .Setup(a => a.SetPlaylist(It.IsAny<List<Track>>(), It.IsAny<Track?>()))
+            .Callback<List<Track>, Track?>((tracks, start) => passedStartTrack = start);
+
+        Track? playedTrack = null;
+        _audioServiceMock
+            .Setup(a => a.PlayTrack(It.IsAny<Track>()))
+            .Callback<Track>(t => playedTrack = t);
+
+        // Act
+        vm.PlayAlbum(album);
+
+        // Assert
+        Assert.NotNull(passedStartTrack);
+        Assert.Contains(passedStartTrack, album.Tracks);
+        Assert.Same(passedStartTrack, playedTrack);
+        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 3), passedStartTrack), Times.Once);
+        _audioServiceMock.Verify(a => a.PlayTrack(passedStartTrack), Times.Once);
+    }
+
+    /// <summary>
+    /// シャッフルOFF時にPlayAlbumを実行した際、先頭トラックがstartTrackとして選定されて
+    /// SetPlaylistおよびPlayTrackに渡されることを検証します。
+    /// </summary>
+    [Fact]
+    public void PlayAlbum_シャッフルOFF時_先頭トラックがstartTrackとして選ばれSetPlaylistとPlayTrackに渡される()
+    {
+        // Arrange
+        using var vm = CreateViewModel();
+        _audioServiceMock.Setup(a => a.IsShuffleEnabled).Returns(false);
+
+        var album = new Album("Album Normal", "Artist Normal");
+        var track1 = new Track { FilePath = @"C:\Music\n1.mp3", Title = "N1" };
+        var track2 = new Track { FilePath = @"C:\Music\n2.mp3", Title = "N2" };
+        album.Tracks.Add(track1);
+        album.Tracks.Add(track2);
+
+        Track? passedStartTrack = null;
+        _audioServiceMock
+            .Setup(a => a.SetPlaylist(It.IsAny<List<Track>>(), It.IsAny<Track?>()))
+            .Callback<List<Track>, Track?>((tracks, start) => passedStartTrack = start);
+
+        Track? playedTrack = null;
+        _audioServiceMock
+            .Setup(a => a.PlayTrack(It.IsAny<Track>()))
+            .Callback<Track>(t => playedTrack = t);
+
+        // Act
+        vm.PlayAlbum(album);
+
+        // Assert
+        Assert.NotNull(passedStartTrack);
+        Assert.Same(track1, passedStartTrack);
+        Assert.Same(track1, playedTrack);
+        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 2), track1), Times.Once);
+        _audioServiceMock.Verify(a => a.PlayTrack(track1), Times.Once);
+    }
 }
