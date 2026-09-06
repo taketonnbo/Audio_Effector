@@ -137,7 +137,8 @@
                 </ListBox.ItemContainerStyle>
                 <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Border x:Name="ItemBorder" Background="Transparent" CornerRadius="6" Margin="0,2" Padding="6,5">
+                            <Border x:Name="ItemBorder" Background="Transparent" CornerRadius="6" Margin="0,2" Padding="6,5"
+                                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
                                 <Border.ContextMenu>
                                     <ContextMenu>
                                         <MenuItem Command="{Binding PlacementTarget.Tag.PlayFromQueueCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
@@ -180,7 +181,7 @@
                                     </ContextMenu>
                                 </Border.ContextMenu>
 
-                                <Grid Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                                <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/> <!-- Play Button / Album Art -->
                                         <ColumnDefinition Width="*"/>    <!-- Track Details -->
