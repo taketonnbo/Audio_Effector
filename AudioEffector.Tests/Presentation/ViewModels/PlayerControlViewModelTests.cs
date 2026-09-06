@@ -391,7 +391,7 @@ public sealed class PlayerControlViewModelTests
             Title = "Song 1",
             Duration = TimeSpan.FromMinutes(4)
         };
-        sut.PlayQueue.Add(track);
+        sut.SetPlaybackList(new[] { track }, "Test Album", "Test Artist");
         sut.CurrentTrack = track;
         sut.Progress = 50.0;
 
@@ -400,6 +400,9 @@ public sealed class PlayerControlViewModelTests
 
         // Assert
         Assert.Empty(sut.PlayQueue);
+        Assert.Empty(sut.PlaybackListTracks);
+        Assert.Equal("No Album Selected", sut.PlaybackListName);
+        Assert.Equal(string.Empty, sut.PlaybackListSubtitle);
         Assert.Null(sut.CurrentTrack);
         Assert.Equal("00:00", sut.TotalTimeDisplay);
         Assert.Equal("00:00", sut.CurrentTimeDisplay);
@@ -428,7 +431,7 @@ public sealed class PlayerControlViewModelTests
             Title = "Song 1",
             Duration = TimeSpan.FromMinutes(3)
         };
-        sut.PlayQueue.Add(track);
+        sut.SetPlaybackList(new[] { track }, "Test Album", "Test Artist");
         sut.CurrentTrack = track;
 
         // Act
@@ -436,6 +439,8 @@ public sealed class PlayerControlViewModelTests
 
         // Assert
         Assert.Empty(sut.PlayQueue);
+        Assert.Empty(sut.PlaybackListTracks);
+        Assert.Equal("No Album Selected", sut.PlaybackListName);
         Assert.Null(sut.CurrentTrack);
         Assert.Equal("00:00", sut.TotalTimeDisplay);
         Assert.Equal("00:00", sut.CurrentTimeDisplay);

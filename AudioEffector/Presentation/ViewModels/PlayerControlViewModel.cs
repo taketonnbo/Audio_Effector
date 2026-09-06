@@ -809,6 +809,9 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public void ClearQueue()
     {
         PlayQueue.Clear();
+        PlaybackListTracks = new ObservableCollection<Track>();
+        PlaybackListName = "No Album Selected";
+        PlaybackListSubtitle = string.Empty;
         _audioService.Stop(false);
         CurrentTrack = null;
         TotalTimeDisplay = "00:00";
@@ -936,6 +939,9 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
             if (track == null)
             {
                 UpdateTrackDisplays(null);
+                PlaybackListTracks = new ObservableCollection<Track>();
+                PlaybackListName = "No Album Selected";
+                PlaybackListSubtitle = string.Empty;
             }
         });
     }

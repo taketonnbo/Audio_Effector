@@ -1660,6 +1660,9 @@ namespace AudioEffector.Presentation.ViewModels
             if (track == null)
             {
                 CurrentAlbum = null;
+                PlaybackListTracks = new ObservableCollection<Track>();
+                PlaybackListName = "No Album Selected";
+                PlaybackListSubtitle = string.Empty;
                 PlayerControl?.SyncTrackPlayingStates(null);
                 RunOnUiThread(() =>
                 {
