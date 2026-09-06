@@ -486,32 +486,7 @@ namespace AudioEffector.Presentation.ViewModels
                 };
                 Library.EnqueueRequested += (tracks, playNext) =>
                 {
-                    if (playNext)
-                    {
-                        if (CurrentTrack != null && PlayQueue.Contains(CurrentTrack))
-                        {
-                            int currentIndex = PlayQueue.IndexOf(CurrentTrack);
-                            for (int i = 0; i < tracks.Count; i++)
-                            {
-                                PlayQueue.Insert(currentIndex + 1 + i, tracks[i]);
-                            }
-                        }
-                        else
-                        {
-                            for (int i = 0; i < tracks.Count; i++)
-                            {
-                                PlayQueue.Insert(i, tracks[i]);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        foreach (var track in tracks)
-                        {
-                            PlayQueue.Add(track);
-                        }
-                    }
-                    _audioService.SetPlaylist(PlayQueue.ToList());
+                    _audioService.EnqueueTracks(tracks, playNext);
                 };
                 Library.FavoriteToggled += track =>
                 {

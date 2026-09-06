@@ -158,6 +158,123 @@ public class AudioService : IAudioService
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
     }
 
+    /// <summary>
+    /// トラックコレクションをキューに追加します（単曲またはアルバム）
+    /// </summary>
+    /// <param name="tracks">追加するトラックコレクション</param>
+    /// <param name="playNext">trueの場合、現在再生中の楽曲の直後に追加（次に再生）。falseの場合、キュー末尾に追加。</param>
+    public void EnqueueTracks(IReadOnlyList<Track> tracks, bool playNext)
+    {
+        if (tracks == null || tracks.Count == 0) return;
+
+        lock (_lock)
+        {
+            // 元の順序リスト（_originalPlaylist）には、アルバムを追加した順（各アルバム内はトラック順）で末尾に追加
+            _originalPlaylist.AddRange(tracks);
+
+            if (_playlist.Count == 0)
+            {
+                if (_isShuffleEnabled)
+                {
+                    var shuffled = new List<Track>(tracks);
+                    var rng = new Random();
+                    int n = shuffled.Count;
+                    while (n > 1)
+                    {
+                        n--;
+                        int k = rng.Next(n + 1);
+                        (shuffled[k], shuffled[n]) = (shuffled[n], shuffled[k]);
+                    }
+
+                    _playlist = shuffled;
+                }
+                else
+                {
+                    _playlist = new List<Track>(tracks);
+                }
+
+                _currentIndex = 0;
+            }
+            else
+            {
+                if (_isShuffleEnabled)
+                {
+                    if (playNext)
+                    {
+                        // 仕様: シャッフル再生中にアルバム単位で「次に再生」を行うと、
+                        // アルバムの順番がランダムな状態で、まとめて現在再生中の曲の直後に追加される。
+                        var tracksToAdd = new List<Track>(tracks);
+                        if (tracksToAdd.Count > 1)
+                        {
+                            var rng = new Random();
+                            int n = tracksToAdd.Count;
+                            while (n > 1)
+                            {
+                                n--;
+                                int k = rng.Next(n + 1);
+                                (tracksToAdd[k], tracksToAdd[n]) = (tracksToAdd[n], tracksToAdd[k]);
+                            }
+                        }
+
+                        int insertIndex = (_currentIndex >= 0 && _currentIndex < _playlist.Count)
+                            ? _currentIndex + 1
+                            : _playlist.Count;
+
+                        _playlist.InsertRange(insertIndex, tracksToAdd);
+                    }
+                    else
+                    {
+                        // 仕様: 「キューに追加」は現状通り（現在再生中以外の全キューリストと再シャッフル）
+                        Track? currentTrack = (_currentIndex >= 0 && _currentIndex < _playlist.Count)
+                            ? _playlist[_currentIndex] : null;
+
+                        var others = new List<Track>(_playlist);
+                        if (currentTrack != null)
+                        {
+                            others.RemoveAt(_currentIndex);
+                        }
+
+                        others.AddRange(tracks);
+
+                        var rng = new Random();
+                        int n = others.Count;
+                        while (n > 1)
+                        {
+                            n--;
+                            int k = rng.Next(n + 1);
+                            (others[k], others[n]) = (others[n], others[k]);
+                        }
+
+                        if (currentTrack != null)
+                        {
+                            others.Insert(0, currentTrack);
+                            _currentIndex = 0;
+                        }
+
+                        _playlist = others;
+                    }
+                }
+                else
+                {
+                    // シャッフルOFF時
+                    if (playNext)
+                    {
+                        int insertIndex = (_currentIndex >= 0 && _currentIndex < _playlist.Count)
+                            ? _currentIndex + 1
+                            : _playlist.Count;
+                        _playlist.InsertRange(insertIndex, tracks);
+                    }
+                    else
+                    {
+                        _playlist.AddRange(tracks);
+                    }
+                }
+            }
+        }
+
+        PlaylistChanged?.Invoke(new List<Track>(_playlist));
+    }
+
     private void ShufflePlaylist(Track? keepFirstTrack = null)
     {
         if (_originalPlaylist.Count <= 1)

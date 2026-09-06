@@ -303,5 +303,116 @@ public sealed class AudioServicePlaylistTests
         Assert.Null(ex1);
         Assert.Null(ex2);
     }
+
+    /// <summary>
+    /// シャッフル再生中にアルバム単位で「次に再生」を実行した場合、アルバム内の曲順がランダムな状態で現在曲直後にまとめて追加されることを検証します。
+    /// </summary>
+    [Fact]
+    public void EnqueueTracks_シャッフルON時にアルバム単位で次に再生_アルバムの曲がランダムな順序で現在曲直後にまとめて追加される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var albumA = new List<Track>
+        {
+            new Track { FilePath = @"C:\Music\A1.mp3", Title = "A1" },
+            new Track { FilePath = @"C:\Music\A2.mp3", Title = "A2" },
+            new Track { FilePath = @"C:\Music\A3.mp3", Title = "A3" }
+        };
+        sut.SetPlaylist(albumA, albumA[0]);
+        sut.IsShuffleEnabled = true;
+
+        var albumB = new List<Track>
+        {
+            new Track { FilePath = @"C:\Music\B1.mp3", Title = "B1" },
+            new Track { FilePath = @"C:\Music\B2.mp3", Title = "B2" },
+            new Track { FilePath = @"C:\Music\B3.mp3", Title = "B3" },
+            new Track { FilePath = @"C:\Music\B4.mp3", Title = "B4" },
+            new Track { FilePath = @"C:\Music\B5.mp3", Title = "B5" }
+        };
+
+        List<Track>? receivedPlaylist = null;
+        sut.PlaylistChanged += p => receivedPlaylist = p;
+
+        // Act - アルバムBを「次に再生」
+        sut.EnqueueTracks(albumB, playNext: true);
+
+        // Assert
+        Assert.NotNull(receivedPlaylist);
+        Assert.Equal(8, receivedPlaylist.Count);
+
+        // 先頭は現在再生中の A1 であること
+        Assert.Equal("A1", receivedPlaylist[0].Title);
+
+        // インデックス 1〜5 はアルバムBの曲群（B1〜B5）がまとめて挿入されていること
+        var insertedChunk = receivedPlaylist.Skip(1).Take(5).Select(t => t.Title).ToList();
+        var expectedTitles = albumB.Select(t => t.Title).OrderBy(t => t).ToList();
+        Assert.Equal(expectedTitles, insertedChunk.OrderBy(t => t).ToList());
+
+        // インデックス 6, 7 は元の後続曲（A2, A3）であること
+        var tailChunk = receivedPlaylist.Skip(6).Take(2).Select(t => t.Title).OrderBy(t => t).ToList();
+        Assert.Equal(new[] { "A2", "A3" }, tailChunk);
+    }
+
+    /// <summary>
+    /// 複数アルバム混在時にシャッフルを解除した場合、追加したアルバム順かつ各アルバム内のトラック順に穴あき復元されることを検証します。
+    /// </summary>
+    [Fact]
+    public void IsShuffleEnabled_複数アルバム混在時にシャッフル解除_追加したアルバム順かつ各アルバムのトラック順に穴あき復元される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var albumA = new List<Track>
+        {
+            new Track { FilePath = @"C:\Music\A1.mp3", Title = "A1" },
+            new Track { FilePath = @"C:\Music\A2.mp3", Title = "A2" },
+            new Track { FilePath = @"C:\Music\A3.mp3", Title = "A3" }
+        };
+        sut.SetPlaylist(albumA, albumA[0]);
+        sut.IsShuffleEnabled = true;
+
+        var albumB = new List<Track>
+        {
+            new Track { FilePath = @"C:\Music\B1.mp3", Title = "B1" },
+            new Track { FilePath = @"C:\Music\B2.mp3", Title = "B2" },
+            new Track { FilePath = @"C:\Music\B3.mp3", Title = "B3" }
+        };
+        sut.EnqueueTracks(albumB, playNext: true);
+
+        var albumC = new List<Track>
+        {
+            new Track { FilePath = @"C:\Music\C1.mp3", Title = "C1" },
+            new Track { FilePath = @"C:\Music\C2.mp3", Title = "C2" },
+            new Track { FilePath = @"C:\Music\C3.mp3", Title = "C3" }
+        };
+        sut.EnqueueTracks(albumC, playNext: false);
+
+        // シャッフル再生の模擬:
+        // 1. C2 を過去に再生（履歴に入る）
+        sut.PlayTrack(albumC[1]); // C2
+        // 2. B2 を現在再生中とする
+        sut.PlayTrack(albumB[1]); // B2
+
+        List<Track>? receivedPlaylist = null;
+        sut.PlaylistChanged += p => receivedPlaylist = p;
+
+        // Act - シャッフル解除
+        sut.IsShuffleEnabled = false;
+
+        // Assert
+        Assert.NotNull(receivedPlaylist);
+
+        // 仕様ルール:
+        // 1. 現在再生中（B2）が先頭
+        // 2. B2 より前の曲（アルバムAのA1〜A3、アルバムBのB1）は未再生のためキューから除外
+        // 3. B2 より後の曲（アルバムBのB3、アルバムCのC1〜C3）
+        //    - B3: 未再生なのでB2の直後に配置
+        //    - アルバムC: C2は再生済みなので穴あき（除外）。未再生のC1, C3がアルバムCのトラック順で並ぶ
+        // 期待キュー: [ B2, B3, C1, C3 ]
+        Assert.Equal(4, receivedPlaylist.Count);
+        Assert.Equal("B2", receivedPlaylist[0].Title);
+        Assert.Equal("B3", receivedPlaylist[1].Title);
+        Assert.Equal("C1", receivedPlaylist[2].Title);
+        Assert.Equal("C3", receivedPlaylist[3].Title);
+    }
 }
 

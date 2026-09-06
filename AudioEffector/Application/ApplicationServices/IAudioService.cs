@@ -90,6 +90,14 @@ public interface IAudioService : IDisposable
     void SetPlaylist(List<Track> tracks, Track? startTrack = null);
 
     /// <summary>
+    /// トラックコレクションをキューに追加します（単曲またはアルバム）
+    /// </summary>
+    /// <param name="tracks">追加するトラックコレクション</param>
+    /// <param name="playNext">trueの場合、現在再生中の楽曲の直後に追加（次に再生）。falseの場合、キュー末尾に追加。</param>
+    [LogDescription("トラックコレクションをキューに追加します")]
+    void EnqueueTracks(IReadOnlyList<Track> tracks, bool playNext);
+
+    /// <summary>
     /// 指定された楽曲を再生します
     /// </summary>
     /// <param name="track">再生対象のトラック</param>
