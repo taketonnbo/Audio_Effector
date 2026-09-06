@@ -67,105 +67,124 @@
                             Foreground="{StaticResource NeonCyanBrush}" FontSize="18" FontWeight="Bold" ToolTip="Close Playlist"/>
                 </Grid>
 
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                     <ItemsControl ItemsSource="{Binding PlaylistTracks}">
-                         <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Vertical"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Button Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
-                                        Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
-                                        HorizontalContentAlignment="Stretch" Margin="0,2" Background="Transparent" BorderThickness="0">
-                                    <Button.ContextMenu>
-                                        <ContextMenu>
-                                            <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
-                                                <MenuItem.Style>
-                                                    <Style TargetType="MenuItem">
-                                                        <Setter Property="Header" Value="再生" />
-                                                        <Style.Triggers>
-                                                            <MultiDataTrigger>
-                                                                <MultiDataTrigger.Conditions>
-                                                                    <Condition Binding="{Binding IsPlaying}" Value="True" />
-                                                                    <Condition Binding="{Binding PlacementTarget.Tag.IsPlaying, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue=False}" Value="True" />
-                                                                </MultiDataTrigger.Conditions>
-                                                                <Setter Property="Header" Value="停止" />
-                                                            </MultiDataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </MenuItem.Style>
-                                            </MenuItem>
-                                            <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                            <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                            <Separator/>
-                                            <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
-                                                <MenuItem.Style>
-                                                    <Style TargetType="MenuItem">
-                                                        <Setter Property="Header" Value="お気に入りに追加" />
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsFavorite}" Value="True">
-                                                                <Setter Property="Header" Value="お気に入りから解除" />
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </MenuItem.Style>
-                                            </MenuItem>
-                                            <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                            <Separator/>
-                                            <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                            <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                            <Separator/>
-                                            <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                        </ContextMenu>
-                                    </Button.ContextMenu>
-                                    <Button.Template>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}">
-                                                <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Button.Template>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/> <!-- Checkbox -->
-                                            <ColumnDefinition Width="Auto"/> <!-- Album Art (Left) -->
-                                            <ColumnDefinition Width="*"/>    <!-- Title/Artist -->
-                                            <ColumnDefinition Width="Auto"/> <!-- Duration -->
-                                            <ColumnDefinition Width="Auto"/> <!-- Remove Button -->
-                                        </Grid.ColumnDefinitions>
-                                        
-                                        <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
-                                                  Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"
-                                                  IsEnabled="{Binding DataContext.DeviceBrowser.IsTransferring, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvertBool}}"/>
-
-                                        <!-- Album Art (Moved to Left, Rounded Corners) -->
-                                        <Border Grid.Column="1" Width="40" Height="40" Margin="0,0,10,0" CornerRadius="4" ClipToBounds="True">
-                                            <Image Source="{Binding AlbumArt}" Stretch="Uniform" VerticalAlignment="Center"/>
+                <ListBox Grid.Row="1"
+                         ItemsSource="{Binding PlaylistTracks}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.CanContentScroll="True"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         VirtualizingPanel.ScrollUnit="Pixel">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Button Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                    HorizontalContentAlignment="Stretch" Margin="0,2" Background="Transparent" BorderThickness="0">
+                                <Button.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
+                                            <MenuItem.Style>
+                                                <Style TargetType="MenuItem">
+                                                    <Setter Property="Header" Value="再生" />
+                                                    <Style.Triggers>
+                                                        <MultiDataTrigger>
+                                                            <MultiDataTrigger.Conditions>
+                                                                <Condition Binding="{Binding IsPlaying}" Value="True" />
+                                                                <Condition Binding="{Binding PlacementTarget.Tag.IsPlaying, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue=False}" Value="True" />
+                                                            </MultiDataTrigger.Conditions>
+                                                            <Setter Property="Header" Value="停止" />
+                                                        </MultiDataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </MenuItem.Style>
+                                        </MenuItem>
+                                        <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                        <MenuItem Header="キューに追加" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                        <Separator/>
+                                        <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
+                                            <MenuItem.Style>
+                                                <Style TargetType="MenuItem">
+                                                    <Setter Property="Header" Value="お気に入りに追加" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                            <Setter Property="Header" Value="お気に入りから解除" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </MenuItem.Style>
+                                        </MenuItem>
+                                        <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                        <Separator/>
+                                        <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                        <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                        <Separator/>
+                                        <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                    </ContextMenu>
+                                </Button.ContextMenu>
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}">
+                                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
                                         </Border>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/> <!-- Checkbox -->
+                                        <ColumnDefinition Width="Auto"/> <!-- Album Art (Left) -->
+                                        <ColumnDefinition Width="*"/>    <!-- Title/Artist -->
+                                        <ColumnDefinition Width="Auto"/> <!-- Duration -->
+                                        <ColumnDefinition Width="Auto"/> <!-- Remove Button -->
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
+                                              Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"
+                                              IsEnabled="{Binding DataContext.DeviceBrowser.IsTransferring, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvertBool}}"/>
 
-                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Title}" Foreground="{DynamicResource TextForegroundBrush}" FontSize="12"/>
-                                            <TextBlock Text="{Binding Artist}" Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="10"/>
-                                        </StackPanel>
-                                        
-                                        <!-- Duration -->
-                                        <TextBlock Grid.Column="3" Text="{Binding Duration, StringFormat='{}{0:mm\\:ss}'}" Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" VerticalAlignment="Center" Margin="10,0"/>
+                                    <!-- Album Art (Moved to Left, Rounded Corners, Asynchronous & Cached) -->
+                                    <Border Grid.Column="1" Width="40" Height="40" Margin="0,0,10,0" CornerRadius="4" ClipToBounds="True">
+                                        <Image services:AlbumArtLoader.SourcePath="{Binding FilePath}" Stretch="UniformToFill" VerticalAlignment="Center"/>
+                                    </Border>
 
-                                        <!-- Heart Removed -->
+                                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Title}" Foreground="{DynamicResource TextForegroundBrush}" FontSize="12"/>
+                                        <TextBlock Text="{Binding Artist}" Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="10"/>
+                                    </StackPanel>
+                                    
+                                    <!-- Duration -->
+                                    <TextBlock Grid.Column="3" Text="{Binding Duration, StringFormat='{}{0:mm\\:ss}'}" Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" VerticalAlignment="Center" Margin="10,0"/>
 
-                                        <Button Grid.Column="4" Content="-" ToolTip="Remove from Playlist" 
-                                                Command="{Binding DataContext.RemoveFromPlaylistCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                CommandParameter="{Binding}"
-                                                Width="40" Height="40" FontSize="24" FontWeight="Bold"
-                                                Background="Transparent" Foreground="#FF4040" BorderThickness="0" Padding="0" Margin="0"/>
-                                    </Grid>
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                     </ItemsControl>
-                </ScrollViewer>
+                                    <!-- Heart Removed -->
+
+                                    <Button Grid.Column="4" Content="-" ToolTip="Remove from Playlist" 
+                                            Command="{Binding DataContext.RemoveFromPlaylistCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"
+                                            Width="40" Height="40" FontSize="24" FontWeight="Bold"
+                                            Background="Transparent" Foreground="#FF4040" BorderThickness="0" Padding="0" Margin="0"/>
+                                </Grid>
+                            </Button>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </Grid>
 
 </UserControl>
