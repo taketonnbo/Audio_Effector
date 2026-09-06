@@ -120,10 +120,39 @@ public sealed class EqualizerViewModelTests
             _legacyAudioServiceMock.Object);
 
         // Act
-        sut.Volume = 0.8;
+        sut.Volume = 0.8;       
 
         // Assert
         Assert.Equal(0.8, sut.Volume, 2);
         _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => Math.Abs(st.Volume - 0.8f) < 0.01f)), Times.AtLeastOnce());
+    }
+
+    /// <summary>
+    /// STAスレッドでApplicationが初期化・シャットダウンされた後でも、Volume変更時に正常に音量反映と設定保存が行われることを検証します。
+    /// </summary>
+    [Fact(Timeout = 5000)]
+    public void Volume_STAスレッド終了後のシャットダウン済みDispatcher環境下_デッドロックせず音量反映と設定保存が行われる()
+    {
+        // Arrange
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                if (System.Windows.Application.Current == null)
+                {
+                    _ = new System.Windows.Application();
+                }
+            }
+            finally
+            {
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+
+        // Act & Assert
+        Volume_変更時_AudioServiceへの反映と設定保存が行われる();
     }
 }

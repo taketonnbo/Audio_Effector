@@ -31,6 +31,12 @@ public sealed class BindingErrorDetectionTests
             {
                 threadEx = ex;
             }
+            finally
+            {
+                // STAスレッド終了前にDispatcherをシャットダウンし、
+                // 後続テストでdispatcher.Invoke()がハングするのを防止する
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();
+            }
         });
 
         thread.SetApartmentState(ApartmentState.STA);
