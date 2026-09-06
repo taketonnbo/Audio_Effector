@@ -131,8 +131,12 @@ public void IsHiRes判定_サンプリングレートとビット深度の組み
    - 外部モックライブラリ（Moq等）に過度に依存せず、インメモリ実装（例: `InMemoryEventBus`, `DelayedTrackRepository`）を活用して軽量・高速かつ型安全なテストを維持します。
 2. **具象I/Oの分離**:
    - ファイルI/O、NAudio等の音声デバイス操作、TagLibSharpによるファイルパースなどの具象クラスは単体テストで直接触れず、インターフェースを介して差し替えます。
-3. **UI / WPFスレッドの取り扱い**:
-   - WPFリソースやコントロール等のテストでSTAスレッドが必要な場合は、STAスレッドヘルパー（`RunInStaThread`）を利用してテストを実行します。
+3. **UI / WPFスレッドの取り扱いとリソース解放・デッドロック防止（必須厳守）**:
+   - **プロダクションコード変更の禁止**:
+     テストを通しやすくする（テストの都合に合わせる）目的で、本体（プロダクションコード）を安易に変更してはなりません。テスト側でリソース管理・後始末を徹底してください。
+   - **STAスレッド終了時のDispatcherシャットダウン必須化**:
+     STAスレッド内で `System.Windows.Application` を生成・使用した場合、スレッド終了時に必ず `finally` 句で `System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();` を呼び出してDispatcherリソースを明示的に解放・シャットダウンすること。
+     これを怠ると、プロセス内に生存しないスレッドに紐づく `Application.Current` / `Dispatcher` が残留し、後続テストでの `dispatcher.Invoke()` が完了せず永久ハング・デッドロックを引き起こします。
 
 ---
 

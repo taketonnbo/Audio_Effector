@@ -40,6 +40,10 @@
                                         </MenuItem.Style>
                                     </MenuItem>
                                     <Separator/>
+                                    <MenuItem Header="上へ移動" Command="{Binding PlacementTarget.Tag.MoveQueueItemUpCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                    <MenuItem Header="下へ移動" Command="{Binding PlacementTarget.Tag.MoveQueueItemDownCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                    <MenuItem Header="キューから削除" Command="{Binding PlacementTarget.Tag.RemoveFromQueueCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                    <Separator/>
                                     <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
                                         <MenuItem.Style>
                                             <Style TargetType="MenuItem">

@@ -164,6 +164,50 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ICommand ToggleRightPanelCommand { get; }
 
+        private bool _isPlayQueuePanelOpen;
+        /// <summary>
+        /// 再生キュースライドパネルが開いているかどうかを示すプロパティ
+        /// </summary>
+        public bool IsPlayQueuePanelOpen
+        {
+            get => _isPlayQueuePanelOpen;
+            set
+            {
+                _isPlayQueuePanelOpen = value;
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>
+        /// 再生キュースライドパネルの開閉状態を切り替えるコマンドを取得します
+        /// </summary>
+        public ICommand TogglePlayQueuePanelCommand { get; }
+
+        /// <summary>
+        /// 再生キュースライドパネルを閉じるコマンドを取得します
+        /// </summary>
+        public ICommand ClosePlayQueuePanelCommand { get; }
+
+        /// <summary>
+        /// 再生キューからトラックを削除するコマンドを取得します
+        /// </summary>
+        public ICommand RemoveFromQueueCommand { get; }
+
+        /// <summary>
+        /// 再生キューを全クリアするコマンドを取得します
+        /// </summary>
+        public ICommand ClearQueueCommand { get; }
+
+        /// <summary>
+        /// 再生キュー内のトラックを1つ上に移動するコマンドを取得します
+        /// </summary>
+        public ICommand MoveQueueItemUpCommand { get; }
+
+        /// <summary>
+        /// 再生キュー内のトラックを1つ下に移動するコマンドを取得します
+        /// </summary>
+        public ICommand MoveQueueItemDownCommand { get; }
+
         private bool _isAlbumViewMaximized = true;
         /// <summary>
         /// 右側パネルのアルバム情報表示が最大化（全画面）モードかどうかを示すプロパティ
@@ -557,6 +601,10 @@ namespace AudioEffector.Presentation.ViewModels
             EnqueueTrackCommand = PlayerControl!.EnqueueTrackCommand;
             PlayFromQueueCommand = PlayerControl!.PlayFromQueueCommand;
             ShowQueueDialogCommand = PlayerControl!.ShowQueueDialogCommand;
+            RemoveFromQueueCommand = PlayerControl!.RemoveFromQueueCommand;
+            ClearQueueCommand = PlayerControl!.ClearQueueCommand;
+            MoveQueueItemUpCommand = PlayerControl!.MoveQueueItemUpCommand;
+            MoveQueueItemDownCommand = PlayerControl!.MoveQueueItemDownCommand;
             ToggleShuffleCommand = PlayerControl!.ToggleShuffleCommand;
             ToggleRepeatCommand = PlayerControl!.ToggleRepeatCommand;
             IncreaseVolumeCommand = PlayerControl!.IncreaseVolumeCommand;
@@ -601,6 +649,8 @@ namespace AudioEffector.Presentation.ViewModels
                 () => { });
             ShowSettingsCommand = new RelayCommand(o => ShowSettings());
             ToggleRightPanelCommand = new RelayCommand(o => IsRightPanelOpen = !IsRightPanelOpen);
+            TogglePlayQueuePanelCommand = new RelayCommand(o => IsPlayQueuePanelOpen = !IsPlayQueuePanelOpen);
+            ClosePlayQueuePanelCommand = new RelayCommand(o => IsPlayQueuePanelOpen = false);
             ToggleAlbumViewSizeModeCommand = new RelayCommand(o => IsAlbumViewMaximized = !IsAlbumViewMaximized);
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
