@@ -960,17 +960,24 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
                         var bin = tfile.Tag.Pictures[0].Data.Data;
                         RunOnUiThread(() =>
                         {
-                            var image = new BitmapImage();
-                            using var mem = new MemoryStream(bin);
-                            mem.Position = 0;
-                            image.BeginInit();
-                            image.DecodePixelWidth = 500;
-                            image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                            image.CacheOption = BitmapCacheOption.OnLoad;
-                            image.StreamSource = mem;
-                            image.EndInit();
-                            image.Freeze();
-                            NowPlayingImage = image;
+                            try
+                            {
+                                var image = new BitmapImage();
+                                using var mem = new MemoryStream(bin);
+                                mem.Position = 0;
+                                image.BeginInit();
+                                image.DecodePixelWidth = 500;
+                                image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                                image.CacheOption = BitmapCacheOption.OnLoad;
+                                image.StreamSource = mem;
+                                image.EndInit();
+                                image.Freeze();
+                                NowPlayingImage = image;
+                            }
+                            catch
+                            {
+                                NowPlayingImage = null;
+                            }
                         });
                     }
                 }

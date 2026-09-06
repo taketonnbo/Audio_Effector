@@ -18,6 +18,7 @@ namespace AudioEffector.Infrastructure.Audio;
 public class AudioService : IAudioService
 {
     private readonly object _lock = new();
+    private readonly HashSet<string> _playedTrackPaths = new(StringComparer.OrdinalIgnoreCase);
 
     private WaveOutEvent? _outputDevice;
     private AudioFileReader? _audioFile;
@@ -34,6 +35,7 @@ public class AudioService : IAudioService
     private WdlResamplingSampleProvider? _resampler;
     private VolumeSampleProvider? _masterVolumeProvider;
 
+    private Track? _lastPlayingTrack;
     private bool _stopRequested;
 
     /// <summary>
@@ -128,6 +130,9 @@ public class AudioService : IAudioService
     {
         lock (_lock)
         {
+            _playedTrackPaths.Clear();
+            _lastPlayingTrack = null;
+
             var currentTrack = startTrack ?? (_currentIndex >= 0 && _currentIndex < _playlist.Count ? _playlist[_currentIndex] : null);
 
             _originalPlaylist = new List<Track>(tracks);
@@ -205,16 +210,40 @@ public class AudioService : IAudioService
             currentTrack = _playlist[_currentIndex];
         }
 
-        _playlist = new List<Track>(_originalPlaylist);
-
-        if (currentTrack != null)
+        if (currentTrack == null)
         {
-            _currentIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
-        }
-        else
-        {
+            _playlist = new List<Track>(_originalPlaylist);
             _currentIndex = _playlist.Count > 0 ? 0 : -1;
+            return;
         }
+
+        int originalIndex = _originalPlaylist.FindIndex(t => t.FilePath == currentTrack.FilePath);
+        if (originalIndex < 0)
+        {
+            _playlist = new List<Track>(_originalPlaylist);
+            _currentIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
+            if (_currentIndex < 0 && _playlist.Count > 0) _currentIndex = 0;
+            return;
+        }
+
+        // 仕様:
+        // ・アルバムの再生中に解除した場合、元のアルバム収録順に再生キューの順番を戻す。
+        // ・シャッフル再生により、再生中曲より収録順が後のものが履歴に入っている場合、履歴はそのままに、再生キューはその曲を穴あきとする
+        // ・現在再生している曲より前の曲は、再生前の場合履歴に入れず、キューから削除
+        // ・再生済みのものは、そのまま履歴タブに残す
+        var newPlaylist = new List<Track> { currentTrack };
+
+        for (int i = originalIndex + 1; i < _originalPlaylist.Count; i++)
+        {
+            var candidate = _originalPlaylist[i];
+            if (!_playedTrackPaths.Contains(candidate.FilePath))
+            {
+                newPlaylist.Add(candidate);
+            }
+        }
+
+        _playlist = newPlaylist;
+        _currentIndex = 0;
     }
 
     /// <summary>
@@ -256,6 +285,12 @@ public class AudioService : IAudioService
             {
                 trackToPlay = _playlist[_currentIndex];
             }
+
+            if (_lastPlayingTrack != null && trackToPlay != null && _lastPlayingTrack.FilePath != trackToPlay.FilePath)
+            {
+                _playedTrackPaths.Add(_lastPlayingTrack.FilePath);
+            }
+            _lastPlayingTrack = trackToPlay;
         }
 
         if (trackToPlay == null)
@@ -402,19 +437,27 @@ public class AudioService : IAudioService
 
     private void StopInternal()
     {
-        if (_outputDevice != null)
+        try
         {
-            _outputDevice.PlaybackStopped -= OnPlaybackStopped;
-            _outputDevice.Stop();
-            _outputDevice.Dispose();
-            _outputDevice = null;
+            if (_outputDevice != null)
+            {
+                _outputDevice.PlaybackStopped -= OnPlaybackStopped;
+                _outputDevice.Stop();
+                _outputDevice.Dispose();
+                _outputDevice = null;
+            }
         }
+        catch { }
 
-        if (_audioFile != null)
+        try
         {
-            _audioFile.Dispose();
-            _audioFile = null;
+            if (_audioFile != null)
+            {
+                _audioFile.Dispose();
+                _audioFile = null;
+            }
         }
+        catch { }
 
         _resampler = null;
         _masterVolumeProvider = null;
@@ -487,10 +530,27 @@ public class AudioService : IAudioService
     /// </summary>
     public async void Previous()
     {
-        if (_playlist.Count == 0) return;
-        _currentIndex--;
-        if (_currentIndex < 0) _currentIndex = _playlist.Count - 1;
-        PlayCurrent();
+        lock (_lock)
+        {
+            if (_playlist.Count == 0) return;
+            if (_currentIndex > 0)
+            {
+                _currentIndex--;
+            }
+            else
+            {
+                if (IsRepeatEnabled)
+                {
+                    _currentIndex = _playlist.Count - 1;
+                }
+                else
+                {
+                    _currentIndex = 0;
+                }
+            }
+            PlayCurrent();
+        }
+
         await Task.Delay(100);
         PlaybackStateChanged?.Invoke(IsPlaying);
     }

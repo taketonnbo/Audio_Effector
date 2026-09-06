@@ -131,9 +131,67 @@ public sealed class AudioServicePlaylistTests
 
         // Assert
         Assert.NotNull(receivedPlaylist);
+        Assert.Equal(5, receivedPlaylist.Count);
         for (int i = 0; i < tracks.Count; i++)
         {
             Assert.Equal(tracks[i].FilePath, receivedPlaylist[i].FilePath);
         }
     }
+
+    /// <summary>
+    /// シャッフル再生中に解除した場合、現在曲より前の曲は除外され、再生済み曲は穴あきとなり、未再生曲がアルバム順で復元されることを検証します。
+    /// </summary>
+    [Fact]
+    public void IsShuffleEnabled_再生中にシャッフル解除時_現在曲以降の未再生曲のみがアルバム順で復元される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var tracks = CreateSampleTracks(6); // Song 1, Song 2, Song 3, Song 4, Song 5, Song 6
+        sut.SetPlaylist(tracks);
+        sut.IsShuffleEnabled = true;
+
+        // シャッフル再生の模擬:
+        // Song 4 を再生（履歴に入る）
+        sut.PlayTrack(tracks[3]); // Song 4
+        // 次に Song 2 を再生（現在再生中曲とする）
+        sut.PlayTrack(tracks[1]); // Song 2
+
+        List<Track>? receivedPlaylist = null;
+        sut.PlaylistChanged += p => receivedPlaylist = p;
+
+        // Act - シャッフル解除
+        sut.IsShuffleEnabled = false;
+
+        // Assert
+        Assert.NotNull(receivedPlaylist);
+        // 仕様ルール:
+        // 1. 現在再生中（Song 2）が先頭
+        // 2. Song 2 より前の曲（Song 1）は未再生のためキューから除外
+        // 3. Song 2 より後の曲（Song 3, 4, 5, 6）のうち、既に再生済みの Song 4 は穴あき（除外）
+        // 4. 残る未再生曲（Song 3, 5, 6）がアルバム順で配置
+        // 期待キュー: [Song 2, Song 3, Song 5, Song 6]
+        Assert.Equal(4, receivedPlaylist.Count);
+        Assert.Equal("Song 2", receivedPlaylist[0].Title);
+        Assert.Equal("Song 3", receivedPlaylist[1].Title);
+        Assert.Equal("Song 5", receivedPlaylist[2].Title);
+        Assert.Equal("Song 6", receivedPlaylist[3].Title);
+    }
+
+    /// <summary>
+    /// Previous呼び出し時、例外が発生せず安全に動作することを検証します。
+    /// </summary>
+    [Fact]
+    public void Previous_実行時_例外が発生せず安全に動作する()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var tracks = CreateSampleTracks(3);
+        sut.SetPlaylist(tracks);
+        sut.IsShuffleEnabled = true;
+
+        // Act & Assert - 例外が発生しないこと
+        var ex = Record.Exception(() => sut.Previous());
+        Assert.Null(ex);
+    }
 }
+

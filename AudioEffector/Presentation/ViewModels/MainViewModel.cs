@@ -1730,57 +1730,74 @@ namespace AudioEffector.Presentation.ViewModels
                                 var bin = tfile.Tag.Pictures[0].Data.Data;
                                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
-                                    var image = new BitmapImage();
-                                    using (var mem = new MemoryStream(bin))
+                                    try
                                     {
-                                        mem.Position = 0;
-                                        image.BeginInit();
-                                        image.DecodePixelWidth = 500;
-                                        image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                                        image.CacheOption = BitmapCacheOption.OnLoad;
-                                        image.UriSource = null;
-                                        image.StreamSource = mem;
-                                        image.EndInit();
-                                    }
-                                    image.Freeze();
-                                    NowPlayingImage = image;
-                                    SpectrumBackgroundImage = image; // Keep Color
+                                        var image = new BitmapImage();
+                                        using (var mem = new MemoryStream(bin))
+                                        {
+                                            mem.Position = 0;
+                                            image.BeginInit();
+                                            image.DecodePixelWidth = 500;
+                                            image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                                            image.CacheOption = BitmapCacheOption.OnLoad;
+                                            image.UriSource = null;
+                                            image.StreamSource = mem;
+                                            image.EndInit();
+                                        }
+                                        image.Freeze();
+                                        NowPlayingImage = image;
+                                        SpectrumBackgroundImage = image; // Keep Color
 
-                                    // Phase 9: Update PlaylistBackgroundImage if NOT favorites view
-                                    if (!IsFavoritesView)
+                                        // Phase 9: Update PlaylistBackgroundImage if NOT favorites view
+                                        if (!IsFavoritesView)
+                                        {
+                                            Playlist?.SetBackgroundImage(image);
+                                        }
+
+                                        // Create Grayscale version for Spectrum Background Overlay
+                                        var grayImage = new FormatConvertedBitmap();
+                                        grayImage.BeginInit();
+                                        grayImage.Source = image;
+                                        grayImage.DestinationFormat = PixelFormats.Gray8;
+                                        grayImage.EndInit();
+                                        grayImage.Freeze();
+
+                                        SpectrumBackgroundImageGray = grayImage;
+                                        IsDefaultSpectrumImage = false;
+
+                                        // Update Spectrum Bar Color
+                                        UpdateSpectrumBrush(image);
+                                    }
+                                    catch
                                     {
-                                        Playlist?.SetBackgroundImage(image);
+                                        // 画像デコード中断 (COMException E_ABORT) 等の例外を安全に無視・フォールバック
+                                        NowPlayingImage = _defaultNowPlayingImage;
+                                        SpectrumBackgroundImage = _defaultSpectrumImage;
+                                        SpectrumBackgroundImageGray = null;
                                     }
-
-                                    // Create Grayscale version for Spectrum Background Overlay
-                                    var grayImage = new FormatConvertedBitmap();
-                                    grayImage.BeginInit();
-                                    grayImage.Source = image;
-                                    grayImage.DestinationFormat = PixelFormats.Gray8;
-                                    grayImage.EndInit();
-                                    grayImage.Freeze();
-
-                                    SpectrumBackgroundImageGray = grayImage;
-                                    IsDefaultSpectrumImage = false;
-
-                                    // Update Spectrum Bar Color
-                                    UpdateSpectrumBrush(image);
                                 });
                             }
                             else
                             {
                                 System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                                 {
-                                    NowPlayingImage = _defaultNowPlayingImage;
-                                    SpectrumBackgroundImage = _defaultSpectrumImage;
-                                    SpectrumBackgroundImageGray = null;
+                                    try
+                                    {
+                                        NowPlayingImage = _defaultNowPlayingImage;
+                                        SpectrumBackgroundImage = _defaultSpectrumImage;
+                                        SpectrumBackgroundImageGray = null;
 
-                                    // Border: Brighter (Lower Saturation), 100% Opacity
-                                    var borderColor = Color.FromRgb(204, 249, 255);
-                                    borderColor.A = 255;
-                                    var solidBorderBrush = new SolidColorBrush(borderColor);
-                                    solidBorderBrush.Freeze();
-                                    SpectrumBorderBrush = solidBorderBrush;
+                                        // Border: Brighter (Lower Saturation), 100% Opacity
+                                        var borderColor = Color.FromRgb(204, 249, 255);
+                                        borderColor.A = 255;
+                                        var solidBorderBrush = new SolidColorBrush(borderColor);
+                                        solidBorderBrush.Freeze();
+                                        SpectrumBorderBrush = solidBorderBrush;
+                                    }
+                                    catch
+                                    {
+                                        // 例外無視
+                                    }
                                 });
                             }
                         }
