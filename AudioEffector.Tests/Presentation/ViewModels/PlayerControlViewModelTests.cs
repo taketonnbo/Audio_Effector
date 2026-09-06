@@ -270,7 +270,7 @@ public sealed class PlayerControlViewModelTests
         // Assert
         Assert.Single(sut.PlayQueue);
         Assert.Equal("Song 2", sut.PlayQueue[0].Title);
-        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 1 && l[0].Title == "Song 2"), It.IsAny<Track?>()), Times.Once);
+        _audioServiceMock.Verify(a => a.RemoveTrack(track1), Times.Once);
     }
 
     /// <summary>

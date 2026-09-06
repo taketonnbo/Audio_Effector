@@ -294,6 +294,51 @@ public class AudioService : IAudioService
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
     }
 
+    /// <summary>
+    /// 指定されたトラックをキューから削除します
+    /// </summary>
+    /// <param name="track">削除対象のトラック</param>
+    public void RemoveTrack(Track track)
+    {
+        if (track == null) return;
+
+        lock (_lock)
+        {
+            _originalPlaylist.RemoveAll(t => t.FilePath == track.FilePath);
+            int index = _playlist.FindIndex(t => t.FilePath == track.FilePath);
+            if (index >= 0)
+            {
+                _playlist.RemoveAt(index);
+                if (_currentIndex == index)
+                {
+                    if (_playlist.Count == 0)
+                    {
+                        _currentIndex = -1;
+                    }
+                    else if (_currentIndex >= _playlist.Count)
+                    {
+                        _currentIndex = 0;
+                    }
+                }
+                else if (_currentIndex > index)
+                {
+                    _currentIndex--;
+                }
+            }
+        }
+
+        if (_playlist.Count == 0)
+        {
+            Stop();
+            TrackChanged?.Invoke(null);
+            PlaylistChanged?.Invoke(new List<Track>());
+        }
+        else
+        {
+            PlaylistChanged?.Invoke(new List<Track>(_playlist));
+        }
+    }
+
     private void ShufflePlaylist(Track? keepFirstTrack = null)
     {
         if (_originalPlaylist.Count <= 1)
@@ -303,11 +348,8 @@ public class AudioService : IAudioService
             return;
         }
 
-        Track? currentTrack = keepFirstTrack;
-        if (currentTrack == null && _currentIndex >= 0 && _currentIndex < _playlist.Count)
-        {
-            currentTrack = _playlist[_currentIndex];
-        }
+        Track? currentTrack = keepFirstTrack ?? ((_currentIndex >= 0 && _currentIndex < _playlist.Count)
+            ? _playlist[_currentIndex] : null);
 
         var rng = new Random();
         var shuffled = new List<Track>(_originalPlaylist);
@@ -346,41 +388,125 @@ public class AudioService : IAudioService
             currentTrack = _playlist[_currentIndex];
         }
 
-        if (currentTrack == null)
-        {
-            _playlist = new List<Track>(_originalPlaylist);
-            _currentIndex = _playlist.Count > 0 ? 0 : -1;
-            return;
-        }
-
-        int originalIndex = _originalPlaylist.FindIndex(t => t.FilePath == currentTrack.FilePath);
-        if (originalIndex < 0)
-        {
-            _playlist = new List<Track>(_originalPlaylist);
-            _currentIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
-            if (_currentIndex < 0 && _playlist.Count > 0) _currentIndex = 0;
-            return;
-        }
-
         // 仕様:
         // ・アルバムの再生中に解除した場合、元のアルバム収録順に再生キューの順番を戻す。
         // ・シャッフル再生により、既に再生済みのもの（_playedTrackPathsに含まれる曲）は履歴に残したまま、再生キューはその曲を穴あき（除外）とする。
-        // ・未再生の曲については除外せず、再生中の曲の上（現在曲より手前）および下に残す。
+        // ・未再生の曲については除外せず、再生中の曲の上（手前）および下に残す。
+        // ・複数アルバム混在時、シャッフルOFF時は「キューに追加した順」でアルバムごとにまとめる。
+        // ・各アルバム内はトラック番号順（TrackNumber昇順。同一または0の場合は元順序）に整列する。
         // ・現在再生中の曲のインデックス（_currentIndex）を復元後キュー内の位置に正しく設定する。
-        var newPlaylist = new List<Track>();
-        foreach (var track in _originalPlaylist)
+
+        var allTracks = new List<Track>(_originalPlaylist);
+        foreach (var t in _playlist)
         {
-            if (track.FilePath == currentTrack.FilePath || !_playedTrackPaths.Contains(track.FilePath))
+            if (!allTracks.Any(o => o.FilePath == t.FilePath))
             {
-                newPlaylist.Add(track);
+                allTracks.Add(t);
             }
         }
 
-        _playlist = newPlaylist;
-        _currentIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
-        if (_currentIndex < 0 && _playlist.Count > 0)
+        // 残す対象曲（現在再生中の曲、または未再生曲）
+        var remainingTracks = new List<Track>();
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var track in allTracks)
         {
-            _currentIndex = 0;
+            if (seenPaths.Add(track.FilePath))
+            {
+                bool isCurrent = currentTrack != null && string.Equals(track.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase);
+                bool isPlayed = _playedTrackPaths.Contains(track.FilePath);
+
+                if (isCurrent || !isPlayed)
+                {
+                    remainingTracks.Add(track);
+                }
+            }
+        }
+
+        if (remainingTracks.Count == 0)
+        {
+            if (currentTrack != null)
+            {
+                remainingTracks.Add(currentTrack);
+            }
+        }
+
+        // アルバムのキー決定関数
+        // track.Album が存在すれば Album名（大文字小文字無視）。
+        // track.Album が空なら、曲のディレクトリ名またはFilePathで単曲アルバムとして識別
+        static string GetAlbumKey(Track track)
+        {
+            if (!string.IsNullOrWhiteSpace(track.Album))
+            {
+                return track.Album.Trim();
+            }
+            string? dir = null;
+            try
+            {
+                dir = System.IO.Path.GetDirectoryName(track.FilePath);
+            }
+            catch { }
+
+            if (!string.IsNullOrWhiteSpace(dir))
+            {
+                return dir;
+            }
+            return !string.IsNullOrWhiteSpace(track.Title) ? track.Title : track.FilePath;
+        }
+
+        // キューに追加されたアルバムの出現順（allTracks に現れる順）
+        var albumOrder = new List<string>();
+        foreach (var track in allTracks)
+        {
+            string key = GetAlbumKey(track);
+            if (!albumOrder.Contains(key, StringComparer.OrdinalIgnoreCase))
+            {
+                albumOrder.Add(key);
+            }
+        }
+
+        // 残っている曲をアルバムごとにグループ化
+        var grouped = remainingTracks
+            .GroupBy(t => GetAlbumKey(t), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        var restoredPlaylist = new List<Track>();
+        foreach (var albumKey in albumOrder)
+        {
+            if (grouped.TryGetValue(albumKey, out var tracksInAlbum))
+            {
+                // 各アルバム内の曲をトラック番号順（TrackNumber > 0 なら昇順、同一番号または0ならallTracks内の元の出現インデックス順）
+                var sortedTracks = tracksInAlbum
+                    .OrderBy(t => t.TrackNumber > 0 ? (int)t.TrackNumber : int.MaxValue)
+                    .ThenBy(t => allTracks.FindIndex(o => string.Equals(o.FilePath, t.FilePath, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+
+                restoredPlaylist.AddRange(sortedTracks);
+            }
+        }
+
+        // 万が一グループ化から漏れた曲があれば末尾に配置
+        foreach (var t in remainingTracks)
+        {
+            if (!restoredPlaylist.Any(r => string.Equals(r.FilePath, t.FilePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                restoredPlaylist.Add(t);
+            }
+        }
+
+        _playlist = restoredPlaylist;
+
+        if (currentTrack != null)
+        {
+            _currentIndex = _playlist.FindIndex(t => string.Equals(t.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase));
+            if (_currentIndex < 0 && _playlist.Count > 0)
+            {
+                _currentIndex = 0;
+            }
+        }
+        else
+        {
+            _currentIndex = _playlist.Count > 0 ? 0 : -1;
         }
     }
 

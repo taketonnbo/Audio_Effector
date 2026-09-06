@@ -475,5 +475,123 @@ public sealed class AudioServicePlaylistTests
         Assert.True(trackChangedFired);
         Assert.Null(receivedTrack);
     }
+
+    /// <summary>
+    /// アルバム名およびトラック番号を持つ複数アルバムの楽曲がシャッフル再生された後、
+    /// シャッフルを解除した際にアルバム追加順かつトラック番号昇順にグループ化されて復元されることを検証します。
+    /// </summary>
+    [Fact]
+    public void IsShuffleEnabled_複数アルバム混在時にシャッフル解除_アルバム名とトラック番号に基づき追加順アルバムかつトラック昇順に復元される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var album1 = new List<Track>
+        {
+            new Track { FilePath = @"C:\Music\A1.mp3", Title = "A1", Album = "Album First", TrackNumber = 1 },
+            new Track { FilePath = @"C:\Music\A2.mp3", Title = "A2", Album = "Album First", TrackNumber = 2 },
+            new Track { FilePath = @"C:\Music\A3.mp3", Title = "A3", Album = "Album First", TrackNumber = 3 }
+        };
+        sut.SetPlaylist(album1, album1[0]);
+        sut.IsShuffleEnabled = true;
+
+        var album2 = new List<Track>
+        {
+            new Track { FilePath = @"C:\Music\B1.mp3", Title = "B1", Album = "Album Second", TrackNumber = 1 },
+            new Track { FilePath = @"C:\Music\B2.mp3", Title = "B2", Album = "Album Second", TrackNumber = 2 },
+            new Track { FilePath = @"C:\Music\B3.mp3", Title = "B3", Album = "Album Second", TrackNumber = 3 }
+        };
+        sut.EnqueueTracks(album2, playNext: true);
+
+        var album3 = new List<Track>
+        {
+            new Track { FilePath = @"C:\Music\C1.mp3", Title = "C1", Album = "Album Third", TrackNumber = 1 },
+            new Track { FilePath = @"C:\Music\C2.mp3", Title = "C2", Album = "Album Third", TrackNumber = 2 },
+            new Track { FilePath = @"C:\Music\C3.mp3", Title = "C3", Album = "Album Third", TrackNumber = 3 }
+        };
+        sut.EnqueueTracks(album3, playNext: false);
+
+        Track? activeTrack = null;
+        sut.TrackChanged += t => activeTrack = t;
+
+        // シャッフル再生の模擬:
+        // C2 を再生（履歴に入る）
+        sut.PlayTrack(album3[1]); // C2
+        // B2 を現在再生中とする
+        sut.PlayTrack(album2[1]); // B2
+
+        List<Track>? receivedPlaylist = null;
+        sut.PlaylistChanged += p => receivedPlaylist = p;
+
+        // Act - シャッフル解除
+        sut.IsShuffleEnabled = false;
+
+        // Assert
+        Assert.NotNull(receivedPlaylist);
+        Assert.Equal(8, receivedPlaylist.Count);
+
+        // アルバム追加順（Album First -> Album Second -> Album Third）に並び、
+        // かつ各アルバム内はTrackNumber昇順（1, 2, 3...）に並ぶこと
+        // Album First: A1(1), A2(2), A3(3)
+        Assert.Equal("A1", receivedPlaylist[0].Title);
+        Assert.Equal("Album First", receivedPlaylist[0].Album);
+        Assert.Equal(1u, receivedPlaylist[0].TrackNumber);
+
+        Assert.Equal("A2", receivedPlaylist[1].Title);
+        Assert.Equal("Album First", receivedPlaylist[1].Album);
+        Assert.Equal(2u, receivedPlaylist[1].TrackNumber);
+
+        Assert.Equal("A3", receivedPlaylist[2].Title);
+        Assert.Equal("Album First", receivedPlaylist[2].Album);
+        Assert.Equal(3u, receivedPlaylist[2].TrackNumber);
+
+        // Album Second: B1(1), B2(2), B3(3)
+        Assert.Equal("B1", receivedPlaylist[3].Title);
+        Assert.Equal("Album Second", receivedPlaylist[3].Album);
+        Assert.Equal(1u, receivedPlaylist[3].TrackNumber);
+
+        Assert.Equal("B2", receivedPlaylist[4].Title);
+        Assert.Equal("Album Second", receivedPlaylist[4].Album);
+        Assert.Equal(2u, receivedPlaylist[4].TrackNumber);
+
+        Assert.Equal("B3", receivedPlaylist[5].Title);
+        Assert.Equal("Album Second", receivedPlaylist[5].Album);
+        Assert.Equal(3u, receivedPlaylist[5].TrackNumber);
+
+        // Album Third: C1(1), C3(3) （※C2は再生済みのため穴あき除外）
+        Assert.Equal("C1", receivedPlaylist[6].Title);
+        Assert.Equal("Album Third", receivedPlaylist[6].Album);
+        Assert.Equal(1u, receivedPlaylist[6].TrackNumber);
+
+        Assert.Equal("C3", receivedPlaylist[7].Title);
+        Assert.Equal("Album Third", receivedPlaylist[7].Album);
+        Assert.Equal(3u, receivedPlaylist[7].TrackNumber);
+
+        // 現在再生中の B2 が維持されていること
+        Assert.Equal("B2", activeTrack?.Title);
+        Assert.Equal("B2", receivedPlaylist[4].Title);
+    }
+
+    /// <summary>
+    /// RemoveTrackを呼び出した際、キューおよび元プレイリストから対象トラックが削除されることを検証します。
+    /// </summary>
+    [Fact]
+    public void RemoveTrack_指定トラックが正常に削除されPlaylistChangedが発火する()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var tracks = CreateSampleTracks(3);
+        sut.SetPlaylist(tracks);
+
+        List<Track>? receivedPlaylist = null;
+        sut.PlaylistChanged += p => receivedPlaylist = p;
+
+        // Act
+        sut.RemoveTrack(tracks[1]);
+
+        // Assert
+        Assert.NotNull(receivedPlaylist);
+        Assert.Equal(2, receivedPlaylist.Count);
+        Assert.DoesNotContain(receivedPlaylist, t => t.FilePath == tracks[1].FilePath);
+    }
 }
 

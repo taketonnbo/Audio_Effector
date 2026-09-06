@@ -730,17 +730,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public void PlayNext(object? obj)
     {
         if (obj is not Track track) return;
-
-        if (CurrentTrack != null && PlayQueue.Contains(CurrentTrack))
-        {
-            int currentIndex = PlayQueue.IndexOf(CurrentTrack);
-            PlayQueue.Insert(currentIndex + 1, track);
-        }
-        else
-        {
-            PlayQueue.Insert(0, track);
-        }
-        _audioService.SetPlaylist(PlayQueue.ToList());
+        _audioService.EnqueueTracks(new[] { track }, playNext: true);
     }
 
     /// <summary>
@@ -750,9 +740,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public void EnqueueTrack(object? obj)
     {
         if (obj is not Track track) return;
-
-        PlayQueue.Add(track);
-        _audioService.SetPlaylist(PlayQueue.ToList());
+        _audioService.EnqueueTracks(new[] { track }, playNext: false);
     }
 
     /// <summary>
@@ -784,22 +772,20 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         bool isCurrent = CurrentTrack != null && IsSameTrack(CurrentTrack, track);
         int oldIndex = PlayQueue.IndexOf(track);
 
-        if (PlayQueue.Remove(track))
+        if (PlayQueue.Count <= 1 && PlayQueue.Contains(track))
         {
-            if (PlayQueue.Count == 0)
-            {
-                ClearQueue();
-                return;
-            }
+            ClearQueue();
+            return;
+        }
 
-            _audioService.SetPlaylist(PlayQueue.ToList());
+        PlayQueue.Remove(track);
+        _audioService.RemoveTrack(track);
 
-            if (isCurrent)
-            {
-                int nextIndex = Math.Clamp(oldIndex, 0, PlayQueue.Count - 1);
-                var nextTrack = PlayQueue[nextIndex];
-                _audioService.PlayTrack(nextTrack);
-            }
+        if (isCurrent && PlayQueue.Count > 0)
+        {
+            int nextIndex = Math.Clamp(oldIndex, 0, PlayQueue.Count - 1);
+            var nextTrack = PlayQueue[nextIndex];
+            _audioService.PlayTrack(nextTrack);
         }
     }
 

@@ -98,6 +98,13 @@ public interface IAudioService : IDisposable
     void EnqueueTracks(IReadOnlyList<Track> tracks, bool playNext);
 
     /// <summary>
+    /// 指定されたトラックをキューから削除します
+    /// </summary>
+    /// <param name="track">削除対象のトラック</param>
+    [LogDescription("指定されたトラックをキューから削除します")]
+    void RemoveTrack(Track track);
+
+    /// <summary>
     /// 指定された楽曲を再生します
     /// </summary>
     /// <param name="track">再生対象のトラック</param>
