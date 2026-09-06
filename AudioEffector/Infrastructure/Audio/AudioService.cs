@@ -345,22 +345,24 @@ public class AudioService : IAudioService
 
         // 仕様:
         // ・アルバムの再生中に解除した場合、元のアルバム収録順に再生キューの順番を戻す。
-        // ・シャッフル再生により、再生中曲より収録順が後のものが履歴に入っている場合、履歴はそのままに、再生キューはその曲を穴あきとする
-        // ・現在再生している曲より前の曲は、再生前の場合履歴に入れず、キューから削除
-        // ・再生済みのものは、そのまま履歴タブに残す
-        var newPlaylist = new List<Track> { currentTrack };
-
-        for (int i = originalIndex + 1; i < _originalPlaylist.Count; i++)
+        // ・シャッフル再生により、既に再生済みのもの（_playedTrackPathsに含まれる曲）は履歴に残したまま、再生キューはその曲を穴あき（除外）とする。
+        // ・未再生の曲については除外せず、再生中の曲の上（現在曲より手前）および下に残す。
+        // ・現在再生中の曲のインデックス（_currentIndex）を復元後キュー内の位置に正しく設定する。
+        var newPlaylist = new List<Track>();
+        foreach (var track in _originalPlaylist)
         {
-            var candidate = _originalPlaylist[i];
-            if (!_playedTrackPaths.Contains(candidate.FilePath))
+            if (track.FilePath == currentTrack.FilePath || !_playedTrackPaths.Contains(track.FilePath))
             {
-                newPlaylist.Add(candidate);
+                newPlaylist.Add(track);
             }
         }
 
         _playlist = newPlaylist;
-        _currentIndex = 0;
+        _currentIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
+        if (_currentIndex < 0 && _playlist.Count > 0)
+        {
+            _currentIndex = 0;
+        }
     }
 
     /// <summary>

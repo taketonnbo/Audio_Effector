@@ -139,10 +139,10 @@ public sealed class AudioServicePlaylistTests
     }
 
     /// <summary>
-    /// シャッフル再生中に解除した場合、現在曲より前の曲は除外され、再生済み曲は穴あきとなり、未再生曲がアルバム順で復元されることを検証します。
+    /// シャッフル再生中に解除した場合、未再生の曲は現在曲の前（上）も含めて除外されず、再生済み曲のみが穴あきとなりアルバム順で復元されることを検証します。
     /// </summary>
     [Fact]
-    public void IsShuffleEnabled_再生中にシャッフル解除時_現在曲以降の未再生曲のみがアルバム順で復元される()
+    public void IsShuffleEnabled_再生中にシャッフル解除時_未再生曲は除外されず再生中の曲の上に残り再生済みのみ穴あき復元される()
     {
         // Arrange
         using var sut = new AudioService();
@@ -165,16 +165,17 @@ public sealed class AudioServicePlaylistTests
         // Assert
         Assert.NotNull(receivedPlaylist);
         // 仕様ルール:
-        // 1. 現在再生中（Song 2）が先頭
-        // 2. Song 2 より前の曲（Song 1）は未再生のためキューから除外
-        // 3. Song 2 より後の曲（Song 3, 4, 5, 6）のうち、既に再生済みの Song 4 は穴あき（除外）
+        // 1. 未再生の曲（Song 1）は現在再生中の曲（Song 2）より前であっても除外されず、再生中の曲の上に残る
+        // 2. 現在再生中の曲（Song 2）はそのまま維持される
+        // 3. 既に再生済みの Song 4 は穴あき（除外）
         // 4. 残る未再生曲（Song 3, 5, 6）がアルバム順で配置
-        // 期待キュー: [Song 2, Song 3, Song 5, Song 6]
-        Assert.Equal(4, receivedPlaylist.Count);
-        Assert.Equal("Song 2", receivedPlaylist[0].Title);
-        Assert.Equal("Song 3", receivedPlaylist[1].Title);
-        Assert.Equal("Song 5", receivedPlaylist[2].Title);
-        Assert.Equal("Song 6", receivedPlaylist[3].Title);
+        // 期待キュー: [Song 1, Song 2, Song 3, Song 5, Song 6]
+        Assert.Equal(5, receivedPlaylist.Count);
+        Assert.Equal("Song 1", receivedPlaylist[0].Title);
+        Assert.Equal("Song 2", receivedPlaylist[1].Title);
+        Assert.Equal("Song 3", receivedPlaylist[2].Title);
+        Assert.Equal("Song 5", receivedPlaylist[3].Title);
+        Assert.Equal("Song 6", receivedPlaylist[4].Title);
     }
 
     /// <summary>
@@ -402,17 +403,21 @@ public sealed class AudioServicePlaylistTests
         Assert.NotNull(receivedPlaylist);
 
         // 仕様ルール:
-        // 1. 現在再生中（B2）が先頭
-        // 2. B2 より前の曲（アルバムAのA1〜A3、アルバムBのB1）は未再生のためキューから除外
+        // 1. B2 より前のアルバムA（A1〜A3）およびアルバムBのB1は未再生のため除外されず、B2の上にアルバム順・トラック順で残る
+        // 2. 現在再生中（B2）の位置はインデックス 4
         // 3. B2 より後の曲（アルバムBのB3、アルバムCのC1〜C3）
         //    - B3: 未再生なのでB2の直後に配置
         //    - アルバムC: C2は再生済みなので穴あき（除外）。未再生のC1, C3がアルバムCのトラック順で並ぶ
-        // 期待キュー: [ B2, B3, C1, C3 ]
-        Assert.Equal(4, receivedPlaylist.Count);
-        Assert.Equal("B2", receivedPlaylist[0].Title);
-        Assert.Equal("B3", receivedPlaylist[1].Title);
-        Assert.Equal("C1", receivedPlaylist[2].Title);
-        Assert.Equal("C3", receivedPlaylist[3].Title);
+        // 期待キュー: [ A1, A2, A3, B1, B2, B3, C1, C3 ]
+        Assert.Equal(8, receivedPlaylist.Count);
+        Assert.Equal("A1", receivedPlaylist[0].Title);
+        Assert.Equal("A2", receivedPlaylist[1].Title);
+        Assert.Equal("A3", receivedPlaylist[2].Title);
+        Assert.Equal("B1", receivedPlaylist[3].Title);
+        Assert.Equal("B2", receivedPlaylist[4].Title);
+        Assert.Equal("B3", receivedPlaylist[5].Title);
+        Assert.Equal("C1", receivedPlaylist[6].Title);
+        Assert.Equal("C3", receivedPlaylist[7].Title);
     }
 }
 
