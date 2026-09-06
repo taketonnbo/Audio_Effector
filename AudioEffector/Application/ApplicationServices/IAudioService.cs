@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
@@ -85,8 +85,9 @@ public interface IAudioService : IDisposable
     /// プレイリストを設定します
     /// </summary>
     /// <param name="tracks">設定するトラックのリスト</param>
+    /// <param name="startTrack">最初に再生対象とするトラック（省略可）</param>
     [LogDescription("プレイリストを設定します")]
-    void SetPlaylist(List<Track> tracks);
+    void SetPlaylist(List<Track> tracks, Track? startTrack = null);
 
     /// <summary>
     /// 指定された楽曲を再生します

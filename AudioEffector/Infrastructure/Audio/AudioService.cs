@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -89,6 +89,7 @@ public class AudioService : IAudioService
         get => _isShuffleEnabled;
         set
         {
+            List<Track>? changedPlaylist = null;
             lock (_lock)
             {
                 if (_isShuffleEnabled != value)
@@ -102,7 +103,13 @@ public class AudioService : IAudioService
                     {
                         RestorePlaylist();
                     }
+                    changedPlaylist = new List<Track>(_playlist);
                 }
+            }
+
+            if (changedPlaylist != null)
+            {
+                PlaylistChanged?.Invoke(changedPlaylist);
             }
         }
     }
@@ -116,55 +123,59 @@ public class AudioService : IAudioService
     /// プレイリストを設定します
     /// </summary>
     /// <param name="tracks">トラックリスト</param>
-    public void SetPlaylist(List<Track> tracks)
+    /// <param name="startTrack">最初に再生対象とするトラック（省略可）</param>
+    public void SetPlaylist(List<Track> tracks, Track? startTrack = null)
     {
         lock (_lock)
         {
-            var currentTrack = _currentIndex >= 0 && _currentIndex < _playlist.Count ? _playlist[_currentIndex] : null;
+            var currentTrack = startTrack ?? (_currentIndex >= 0 && _currentIndex < _playlist.Count ? _playlist[_currentIndex] : null);
 
             _originalPlaylist = new List<Track>(tracks);
             if (_isShuffleEnabled)
             {
-                ShufflePlaylist();
+                ShufflePlaylist(currentTrack);
             }
             else
             {
                 _playlist = new List<Track>(tracks);
-            }
-
-            if (currentTrack != null)
-            {
-                var newIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
-                if (newIndex >= 0)
+                if (currentTrack != null)
                 {
-                    _currentIndex = newIndex;
+                    var newIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
+                    _currentIndex = newIndex >= 0 ? newIndex : -1;
                 }
                 else
                 {
                     _currentIndex = -1;
                 }
             }
-            else
-            {
-                _currentIndex = -1;
-            }
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
     }
 
-    private void ShufflePlaylist()
+    private void ShufflePlaylist(Track? keepFirstTrack = null)
     {
-        if (_playlist.Count <= 1) return;
+        if (_originalPlaylist.Count <= 1)
+        {
+            _playlist = new List<Track>(_originalPlaylist);
+            _currentIndex = _playlist.Count > 0 ? 0 : -1;
+            return;
+        }
 
-        Track? currentTrack = null;
-        if (_currentIndex >= 0 && _currentIndex < _playlist.Count)
+        Track? currentTrack = keepFirstTrack;
+        if (currentTrack == null && _currentIndex >= 0 && _currentIndex < _playlist.Count)
         {
             currentTrack = _playlist[_currentIndex];
         }
 
         var rng = new Random();
         var shuffled = new List<Track>(_originalPlaylist);
+
+        if (currentTrack != null)
+        {
+            shuffled.RemoveAll(t => t.FilePath == currentTrack.FilePath);
+        }
+
         int n = shuffled.Count;
         while (n > 1)
         {
@@ -175,9 +186,12 @@ public class AudioService : IAudioService
 
         if (currentTrack != null)
         {
-            shuffled.RemoveAll(t => t.FilePath == currentTrack.FilePath);
             shuffled.Insert(0, currentTrack);
             _currentIndex = 0;
+        }
+        else
+        {
+            _currentIndex = -1;
         }
 
         _playlist = shuffled;
@@ -196,6 +210,10 @@ public class AudioService : IAudioService
         if (currentTrack != null)
         {
             _currentIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
+        }
+        else
+        {
+            _currentIndex = _playlist.Count > 0 ? 0 : -1;
         }
     }
 

@@ -270,7 +270,7 @@ public sealed class PlayerControlViewModelTests
         // Assert
         Assert.Single(sut.PlayQueue);
         Assert.Equal("Song 2", sut.PlayQueue[0].Title);
-        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 1 && l[0].Title == "Song 2")), Times.Once);
+        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 1 && l[0].Title == "Song 2"), It.IsAny<Track?>()), Times.Once);
     }
 
     /// <summary>
@@ -295,7 +295,33 @@ public sealed class PlayerControlViewModelTests
 
         // Assert
         Assert.Empty(sut.PlayQueue);
-        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 0)), Times.Once);
+        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 0), It.IsAny<Track?>()), Times.Once);
+    }
+
+    /// <summary>
+    /// AudioServiceのPlaylistChangedイベント発火時、PlayQueueの要素が更新されることを検証します。
+    /// </summary>
+    [Fact]
+    public void PlaylistChanged_発火時_PlayQueueが更新される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" };
+        var newPlaylist = new List<Track> { track2, track1 };
+
+        // Act - イベントを発火
+        _audioServiceMock.Raise(a => a.PlaylistChanged += null, newPlaylist);
+
+        // Assert
+        Assert.Equal(2, sut.PlayQueue.Count);
+        Assert.Equal("Song 2", sut.PlayQueue[0].Title);
+        Assert.Equal("Song 1", sut.PlayQueue[1].Title);
     }
 }
 

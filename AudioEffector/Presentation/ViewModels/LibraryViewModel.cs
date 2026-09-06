@@ -472,9 +472,21 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     {
         if (parameter is Album album && album.Tracks.Count > 0)
         {
-            PlaybackRequested?.Invoke(album.Tracks, album.Tracks.First(), album.Title, album.Artist);
-            _audioService.SetPlaylist(album.Tracks);
-            _audioService.PlayTrack(album.Tracks.First());
+            var tracks = album.Tracks.ToList();
+            Track startTrack;
+            if (_audioService.IsShuffleEnabled)
+            {
+                var rng = new Random();
+                startTrack = tracks[rng.Next(tracks.Count)];
+            }
+            else
+            {
+                startTrack = tracks.First();
+            }
+
+            PlaybackRequested?.Invoke(tracks, startTrack, album.Title, album.Artist);
+            _audioService.SetPlaylist(tracks, startTrack);
+            _audioService.PlayTrack(startTrack);
         }
     }
 
@@ -590,13 +602,18 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             var album = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
             if (album != null)
             {
-                PlaybackRequested?.Invoke(album.Tracks, track, album.Title, album.Artist);
-                _audioService.SetPlaylist(album.Tracks);
+                int trackIndex = album.Tracks.IndexOf(track);
+                var candidateTracks = trackIndex >= 0
+                    ? album.Tracks.Skip(trackIndex).ToList()
+                    : album.Tracks.ToList();
+
+                PlaybackRequested?.Invoke(candidateTracks, track, album.Title, album.Artist);
+                _audioService.SetPlaylist(candidateTracks, track);
             }
             else
             {
                 PlaybackRequested?.Invoke([track], track, track.Album, track.Artist);
-                _audioService.SetPlaylist([track]);
+                _audioService.SetPlaylist([track], track);
             }
             _audioService.PlayTrack(track);
         }

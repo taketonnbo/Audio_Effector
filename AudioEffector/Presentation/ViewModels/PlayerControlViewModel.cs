@@ -914,6 +914,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         RunOnUiThread(() =>
         {
             PlayQueue = new ObservableCollection<Track>(playlist);
+            SyncTrackPlayingStates(CurrentTrack);
         });
     }
 
