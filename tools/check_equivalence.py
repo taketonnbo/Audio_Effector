@@ -540,6 +540,7 @@ class EquivalenceAuditor:
         "RecentView": "MainViewModel",
         "MiniPlayerWindow": "MainViewModel",
         "PlayQueueDialog": "MainViewModel",
+        "PlayQueueSidePanel": "MainViewModel",
         "PlaylistSelectionDialog": "PlaylistViewModel",
         "SidebarControl": "MainViewModel",
     }
