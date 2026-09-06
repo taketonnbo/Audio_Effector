@@ -334,7 +334,7 @@
             </Grid>
 
             <!-- Row 1: Main Client Area -->
-            <Grid Grid.Row="1">
+            <Grid Grid.Row="1" ClipToBounds="True">
                 <views:SidebarControl HorizontalAlignment="Left" Panel.ZIndex="10"/>
 
         <Grid Margin="50,0,0,0">
@@ -483,7 +483,7 @@
                             </ToggleButton.Template>
                         </ToggleButton>
 
-                        <Button Command="{Binding ShowQueueDialogCommand}" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="16" Height="16">
+                        <Button Command="{Binding TogglePlayQueuePanelCommand}" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="16" Height="16">
                             <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{StaticResource NeonCyanBrush}" Stretch="Uniform"/>
                         </Button>
                     </StackPanel>
@@ -952,7 +952,7 @@
                                 <!-- Row 1: Quick Actions (Queue, Add to Playlist, Favorite - Right Aligned below Track Title with 1.5x spacing) -->
                                 <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,0,14">
                                     <!-- Play Queue -->
-                                    <Button Command="{Binding ShowQueueDialogCommand}" Margin="0,0,10,0" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="18" Height="18">
+                                    <Button Command="{Binding TogglePlayQueuePanelCommand}" Margin="0,0,10,0" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="18" Height="18">
                                         <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{DynamicResource MutedTextForegroundBrush}" Stretch="Uniform" Width="14" Height="14"/>
                                     </Button>
                                     <!-- Add to Playlist -->
@@ -1379,7 +1379,7 @@
                                 </ToggleButton.Template>
                             </ToggleButton>
                             
-                            <Button Command="{Binding ShowQueueDialogCommand}" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="14" Height="14">
+                            <Button Command="{Binding TogglePlayQueuePanelCommand}" ToolTip="Play Queue" Background="Transparent" BorderThickness="0" Width="14" Height="14">
                                 <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{StaticResource NeonCyanBrush}" Stretch="Uniform"/>
                             </Button>
                         </StackPanel>
@@ -1586,6 +1586,9 @@
                 </Grid>
             </Grid>
         </Grid>
+
+                <!-- Right Slideout Panel: Play Queue (Overlay) -->
+                <views:PlayQueueSidePanel HorizontalAlignment="Right" Panel.ZIndex="30"/>
             </Grid>
         </Grid>
         </Grid>
