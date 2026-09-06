@@ -39,9 +39,9 @@ public class AudioService : IAudioService
     private bool _stopRequested;
 
     /// <summary>
-    /// トラックが変更された際に発生するイベント
+    /// トラックが変更された際に発生するイベント（未選択・キュー空時は null）
     /// </summary>
-    public event Action<Track>? TrackChanged;
+    public event Action<Track?>? TrackChanged;
 
     /// <summary>
     /// 再生状態（再生中/停止）が変更された際に発生するイベント
@@ -128,31 +128,50 @@ public class AudioService : IAudioService
     /// <param name="startTrack">最初に再生対象とするトラック（省略可）</param>
     public void SetPlaylist(List<Track> tracks, Track? startTrack = null)
     {
+        bool isEmpty = (tracks == null || tracks.Count == 0);
+
         lock (_lock)
         {
             _playedTrackPaths.Clear();
             _lastPlayingTrack = null;
 
-            var currentTrack = startTrack ?? (_currentIndex >= 0 && _currentIndex < _playlist.Count ? _playlist[_currentIndex] : null);
-
-            _originalPlaylist = new List<Track>(tracks);
-            if (_isShuffleEnabled)
+            if (isEmpty)
             {
-                ShufflePlaylist(currentTrack);
+                _originalPlaylist = new List<Track>();
+                _playlist = new List<Track>();
+                _currentIndex = -1;
             }
             else
             {
-                _playlist = new List<Track>(tracks);
-                if (currentTrack != null)
+                var currentTrack = startTrack ?? (_currentIndex >= 0 && _currentIndex < _playlist.Count ? _playlist[_currentIndex] : null);
+
+                _originalPlaylist = new List<Track>(tracks!);
+                if (_isShuffleEnabled)
                 {
-                    var newIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
-                    _currentIndex = newIndex >= 0 ? newIndex : -1;
+                    ShufflePlaylist(currentTrack);
                 }
                 else
                 {
-                    _currentIndex = -1;
+                    _playlist = new List<Track>(tracks!);
+                    if (currentTrack != null)
+                    {
+                        var newIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
+                        _currentIndex = newIndex >= 0 ? newIndex : -1;
+                    }
+                    else
+                    {
+                        _currentIndex = -1;
+                    }
                 }
             }
+        }
+
+        if (isEmpty)
+        {
+            Stop();
+            TrackChanged?.Invoke(null);
+            PlaylistChanged?.Invoke(new List<Track>());
+            return;
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
@@ -415,6 +434,7 @@ public class AudioService : IAudioService
         if (trackToPlay == null)
         {
             Stop();
+            TrackChanged?.Invoke(null);
             return;
         }
 
@@ -680,6 +700,7 @@ public class AudioService : IAudioService
     /// <param name="internalStop">内部要因による停止かどうか</param>
     public void Stop(bool internalStop = false)
     {
+        bool playlistEmpty = false;
         lock (_lock)
         {
             if (internalStop) _stopRequested = true;
@@ -687,10 +708,15 @@ public class AudioService : IAudioService
             StopInternal();
             _currentIndex = -1;
             _stopRequested = false;
+            playlistEmpty = (_playlist.Count == 0);
         }
 
         PlaybackStopped?.Invoke();
         PlaybackStateChanged?.Invoke(false);
+        if (playlistEmpty)
+        {
+            TrackChanged?.Invoke(null);
+        }
     }
 
     /// <summary>

@@ -781,9 +781,25 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     {
         if (obj is not Track track) return;
 
+        bool isCurrent = CurrentTrack != null && IsSameTrack(CurrentTrack, track);
+        int oldIndex = PlayQueue.IndexOf(track);
+
         if (PlayQueue.Remove(track))
         {
+            if (PlayQueue.Count == 0)
+            {
+                ClearQueue();
+                return;
+            }
+
             _audioService.SetPlaylist(PlayQueue.ToList());
+
+            if (isCurrent)
+            {
+                int nextIndex = Math.Clamp(oldIndex, 0, PlayQueue.Count - 1);
+                var nextTrack = PlayQueue[nextIndex];
+                _audioService.PlayTrack(nextTrack);
+            }
         }
     }
 
@@ -793,6 +809,12 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public void ClearQueue()
     {
         PlayQueue.Clear();
+        _audioService.Stop(false);
+        CurrentTrack = null;
+        TotalTimeDisplay = "00:00";
+        CurrentTimeDisplay = "00:00";
+        Progress = 0.0;
+        NowPlayingImage = null;
         _audioService.SetPlaylist(new List<Track>());
     }
 
@@ -867,6 +889,19 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     {
         if (_audioService == null) return;
 
+        if (CurrentTrack == null)
+        {
+            CurrentTimeDisplay = "00:00";
+            TotalTimeDisplay = "00:00";
+            Progress = 0.0;
+            return;
+        }
+
+        if (!_audioService.IsPlaying && !_isDraggingProgress)
+        {
+            return;
+        }
+
         var current = _audioService.CurrentTime;
         var total = _audioService.TotalTime;
 
@@ -891,13 +926,17 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
 
     #region イベント受信・UI反映
 
-    private void OnAudioServiceTrackChanged(Track track)
+    private void OnAudioServiceTrackChanged(Track? track)
     {
         RunOnUiThread(() =>
         {
             ResetSpectrum();
             CurrentTrack = track;
             Progress = 0.0;
+            if (track == null)
+            {
+                UpdateTrackDisplays(null);
+            }
         });
     }
 

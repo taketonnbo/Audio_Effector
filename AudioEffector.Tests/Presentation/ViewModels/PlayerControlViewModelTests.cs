@@ -371,5 +371,103 @@ public sealed class PlayerControlViewModelTests
         Assert.Null(ex);
         _audioServiceMock.Verify(a => a.Previous(), Times.Once);
     }
+
+    /// <summary>
+    /// ClearQueue実行時、AudioServiceのStopが呼ばれ、CurrentTrackおよび再生中表示がクリアされることを検証します。
+    /// </summary>
+    [Fact]
+    public void ClearQueue_実行時_再生が停止され再生中情報がクリアされる()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track = new Track
+        {
+            FilePath = @"C:\Music\song1.mp3",
+            Title = "Song 1",
+            Duration = TimeSpan.FromMinutes(4)
+        };
+        sut.PlayQueue.Add(track);
+        sut.CurrentTrack = track;
+        sut.Progress = 50.0;
+
+        // Act
+        sut.ClearQueue();
+
+        // Assert
+        Assert.Empty(sut.PlayQueue);
+        Assert.Null(sut.CurrentTrack);
+        Assert.Equal("00:00", sut.TotalTimeDisplay);
+        Assert.Equal("00:00", sut.CurrentTimeDisplay);
+        Assert.Equal(0.0, sut.Progress);
+        Assert.Null(sut.NowPlayingImage);
+        _audioServiceMock.Verify(a => a.Stop(false), Times.Once);
+        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 0), null), Times.Once);
+    }
+
+    /// <summary>
+    /// RemoveFromQueueで最後の1曲を削除した際、ClearQueueが実行され再生停止・情報クリアが行われることを検証します。
+    /// </summary>
+    [Fact]
+    public void RemoveFromQueue_最後の1曲を削除時_ClearQueueが実行され再生中情報がクリアされる()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track = new Track
+        {
+            FilePath = @"C:\Music\song1.mp3",
+            Title = "Song 1",
+            Duration = TimeSpan.FromMinutes(3)
+        };
+        sut.PlayQueue.Add(track);
+        sut.CurrentTrack = track;
+
+        // Act
+        sut.RemoveFromQueue(track);
+
+        // Assert
+        Assert.Empty(sut.PlayQueue);
+        Assert.Null(sut.CurrentTrack);
+        Assert.Equal("00:00", sut.TotalTimeDisplay);
+        Assert.Equal("00:00", sut.CurrentTimeDisplay);
+        _audioServiceMock.Verify(a => a.Stop(false), Times.Once);
+    }
+
+    /// <summary>
+    /// RemoveFromQueueで複数曲ある状態で現在再生中の曲を削除した際、後続の曲へ再生が遷移することを検証します。
+    /// </summary>
+    [Fact]
+    public void RemoveFromQueue_再生中の曲を削除時_後続曲へ遷移する()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" };
+        sut.PlayQueue.Add(track1);
+        sut.PlayQueue.Add(track2);
+        sut.CurrentTrack = track1;
+
+        // Act - 現在再生中のtrack1を削除
+        sut.RemoveFromQueue(track1);
+
+        // Assert
+        Assert.Single(sut.PlayQueue);
+        Assert.Equal("Song 2", sut.PlayQueue[0].Title);
+        _audioServiceMock.Verify(a => a.PlayTrack(track2), Times.Once);
+    }
 }
 

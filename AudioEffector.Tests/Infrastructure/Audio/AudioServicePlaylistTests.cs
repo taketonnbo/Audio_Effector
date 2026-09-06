@@ -419,5 +419,61 @@ public sealed class AudioServicePlaylistTests
         Assert.Equal("C1", receivedPlaylist[6].Title);
         Assert.Equal("C3", receivedPlaylist[7].Title);
     }
+
+    /// <summary>
+    /// SetPlaylistに空リストを設定した際、再生が停止され、TrackChangedイベントにnullが通知されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SetPlaylist_空リスト設定時_再生が停止しTrackChangedにnullが通知される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var tracks = CreateSampleTracks(3);
+        sut.SetPlaylist(tracks);
+
+        Track? receivedTrack = tracks[0];
+        bool trackChangedFired = false;
+        sut.TrackChanged += t =>
+        {
+            receivedTrack = t;
+            trackChangedFired = true;
+        };
+
+        bool playbackStoppedFired = false;
+        sut.PlaybackStopped += () => playbackStoppedFired = true;
+
+        // Act - 空リストを設定（キュークリア相当）
+        sut.SetPlaylist(new List<Track>());
+
+        // Assert
+        Assert.True(trackChangedFired);
+        Assert.Null(receivedTrack);
+        Assert.True(playbackStoppedFired);
+        Assert.False(sut.IsPlaying);
+    }
+
+    /// <summary>
+    /// キューが空の状態でStopを実行した際、TrackChangedイベントにnullが通知されることを検証します。
+    /// </summary>
+    [Fact]
+    public void Stop_キューが空の状態で呼び出し時_TrackChangedにnullが通知される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        Track? receivedTrack = new Track { Title = "Dummy" };
+        bool trackChangedFired = false;
+        sut.TrackChanged += t =>
+        {
+            receivedTrack = t;
+            trackChangedFired = true;
+        };
+
+        // Act
+        sut.Stop();
+
+        // Assert
+        Assert.True(trackChangedFired);
+        Assert.Null(receivedTrack);
+    }
 }
 

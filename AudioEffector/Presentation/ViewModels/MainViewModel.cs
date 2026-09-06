@@ -1647,7 +1647,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// スペクトラムの更新、アルバムアートの読み込み、背景画像の更新を行います。
         /// </summary>
         /// <param name="track">新しいトラック。</param>
-        private void OnTrackChanged(Track track)
+        private void OnTrackChanged(Track? track)
         {
             if (CurrentTrack != null)
             {
@@ -1657,10 +1657,21 @@ namespace AudioEffector.Presentation.ViewModels
             CurrentTrack = track;
             Progress = 0;
 
-            if (track != null)
+            if (track == null)
             {
-                track.IsPlaying = true;
+                CurrentAlbum = null;
+                PlayerControl?.SyncTrackPlayingStates(null);
+                RunOnUiThread(() =>
+                {
+                    NowPlayingImage = _defaultNowPlayingImage;
+                    SpectrumBackgroundImage = _defaultSpectrumImage;
+                    SpectrumBackgroundImageGray = null;
+                    IsDefaultSpectrumImage = true;
+                });
+                return;
             }
+
+            track.IsPlaying = true;
 
             PlayerControl?.SyncTrackPlayingStates(track);
 

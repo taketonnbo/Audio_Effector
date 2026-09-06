@@ -12,9 +12,9 @@ namespace AudioEffector.Application.ApplicationServices;
 public interface IAudioService : IDisposable
 {
     /// <summary>
-    /// 再生トラックが変更された際に発生するイベント
+    /// 再生トラックが変更された際に発生するイベント（未選択・キュー空時は null）
     /// </summary>
-    event Action<Track> TrackChanged;
+    event Action<Track?> TrackChanged;
 
     /// <summary>
     /// 再生状態（再生中/一時停止）が変更された際に発生するイベント
