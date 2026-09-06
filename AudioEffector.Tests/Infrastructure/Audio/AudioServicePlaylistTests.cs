@@ -193,5 +193,115 @@ public sealed class AudioServicePlaylistTests
         var ex = Record.Exception(() => sut.Previous());
         Assert.Null(ex);
     }
+
+    /// <summary>
+    /// リピート無効時に先頭曲でPreviousを連続実行した場合、負のインデックスとならず先頭に留まり例外が発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void Previous_リピート無効かつ先頭曲再生時_インデックスが負にならず先頭に留まり例外が発生しない()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var tracks = CreateSampleTracks(3);
+        sut.SetPlaylist(tracks);
+        sut.IsRepeatEnabled = false;
+
+        Track? lastChangedTrack = null;
+        sut.TrackChanged += t => lastChangedTrack = t;
+
+        // Act - 先頭でPreviousを複数回実行
+        var ex1 = Record.Exception(() => sut.Previous());
+        var ex2 = Record.Exception(() => sut.Previous());
+
+        // Assert
+        Assert.Null(ex1);
+        Assert.Null(ex2);
+        Assert.NotNull(lastChangedTrack);
+        Assert.Equal(tracks[0].FilePath, lastChangedTrack.FilePath);
+    }
+
+    /// <summary>
+    /// リピート有効時に先頭曲でPreviousを実行した場合、末尾の曲へ循環し例外が発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void Previous_リピート有効かつ先頭曲再生時_末尾の曲へ循環し例外が発生しない()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var tracks = CreateSampleTracks(3);
+        sut.SetPlaylist(tracks);
+        sut.IsRepeatEnabled = true;
+
+        Track? lastChangedTrack = null;
+        sut.TrackChanged += t => lastChangedTrack = t;
+
+        // Act - 先頭でPreviousを実行
+        var ex = Record.Exception(() => sut.Previous());
+
+        // Assert
+        Assert.Null(ex);
+        Assert.NotNull(lastChangedTrack);
+        Assert.Equal(tracks[2].FilePath, lastChangedTrack.FilePath);
+    }
+
+    /// <summary>
+    /// PreviousとNextが複数スレッドから高頻度で並行実行された際、レースコンディションによる例外が発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PreviousとNext_複数スレッドから並行実行時_レースコンディションによる例外が発生しない()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var tracks = CreateSampleTracks(10);
+        sut.SetPlaylist(tracks);
+        sut.IsShuffleEnabled = true;
+
+        // Act - 複数スレッドから並行してPrevious/Nextを連打
+        var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+        var tasks = Enumerable.Range(0, 10).Select(i => Task.Run(() =>
+        {
+            try
+            {
+                for (int j = 0; j < 20; j++)
+                {
+                    if (j % 2 == 0)
+                    {
+                        sut.Previous();
+                    }
+                    else
+                    {
+                        sut.Next();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                exceptions.Add(ex);
+            }
+        }));
+
+        await Task.WhenAll(tasks);
+
+        // Assert - スレッド競合による未処理例外が一切発生していないこと
+        Assert.Empty(exceptions);
+    }
+
+    /// <summary>
+    /// StopおよびStopInternal実行時、例外が発生せず安全に停止処理が行われることを検証します。
+    /// </summary>
+    [Fact]
+    public void Stop_連続実行時_例外が発生せず安全に停止する()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var tracks = CreateSampleTracks(3);
+        sut.SetPlaylist(tracks);
+
+        // Act & Assert
+        var ex1 = Record.Exception(() => sut.Stop());
+        var ex2 = Record.Exception(() => sut.Stop());
+        Assert.Null(ex1);
+        Assert.Null(ex2);
+    }
 }
 

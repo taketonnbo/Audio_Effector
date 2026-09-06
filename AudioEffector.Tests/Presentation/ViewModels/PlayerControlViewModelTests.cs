@@ -323,5 +323,53 @@ public sealed class PlayerControlViewModelTests
         Assert.Equal("Song 2", sut.PlayQueue[0].Title);
         Assert.Equal("Song 1", sut.PlayQueue[1].Title);
     }
+
+    /// <summary>
+    /// CurrentTrackに実体のないファイルパスを持つトラックを設定した際、画像読み込みで例外が発生せず安全にフォールバックされることを検証します。
+    /// </summary>
+    [Fact]
+    public void CurrentTrack_画像読み込み失敗時_例外が発生せず安全にフォールバックされる()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track = new Track
+        {
+            FilePath = @"C:\NonExistent\non_existent_song.mp3",
+            Title = "Non Existent Song",
+            Duration = TimeSpan.FromMinutes(3),
+            CoverImage = null
+        };
+
+        // Act & Assert - 例外が発生しないこと
+        var ex = Record.Exception(() => sut.CurrentTrack = track);
+        Assert.Null(ex);
+        Assert.Equal("03:00", sut.TotalTimeDisplay);
+    }
+
+    /// <summary>
+    /// PreviousCommand実行時、例外が発生せずAudioServiceのPreviousが呼び出されることを検証します。
+    /// </summary>
+    [Fact]
+    public void PreviousCommand_実行時_例外が発生せずAudioServiceのPreviousが呼び出される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        // Act
+        var ex = Record.Exception(() => sut.PreviousCommand.Execute(null));
+
+        // Assert
+        Assert.Null(ex);
+        _audioServiceMock.Verify(a => a.Previous(), Times.Once);
+    }
 }
 
