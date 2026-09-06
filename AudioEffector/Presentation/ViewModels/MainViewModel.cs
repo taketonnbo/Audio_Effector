@@ -198,15 +198,6 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ICommand ClearQueueCommand { get; }
 
-        /// <summary>
-        /// 再生キュー内のトラックを1つ上に移動するコマンドを取得します
-        /// </summary>
-        public ICommand MoveQueueItemUpCommand { get; }
-
-        /// <summary>
-        /// 再生キュー内のトラックを1つ下に移動するコマンドを取得します
-        /// </summary>
-        public ICommand MoveQueueItemDownCommand { get; }
 
         private bool _isAlbumViewMaximized = true;
         /// <summary>
@@ -603,8 +594,6 @@ namespace AudioEffector.Presentation.ViewModels
             ShowQueueDialogCommand = PlayerControl!.ShowQueueDialogCommand;
             RemoveFromQueueCommand = PlayerControl!.RemoveFromQueueCommand;
             ClearQueueCommand = PlayerControl!.ClearQueueCommand;
-            MoveQueueItemUpCommand = PlayerControl!.MoveQueueItemUpCommand;
-            MoveQueueItemDownCommand = PlayerControl!.MoveQueueItemDownCommand;
             ToggleShuffleCommand = PlayerControl!.ToggleShuffleCommand;
             ToggleRepeatCommand = PlayerControl!.ToggleRepeatCommand;
             IncreaseVolumeCommand = PlayerControl!.IncreaseVolumeCommand;
