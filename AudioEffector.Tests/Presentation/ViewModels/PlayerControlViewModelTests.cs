@@ -297,57 +297,5 @@ public sealed class PlayerControlViewModelTests
         Assert.Empty(sut.PlayQueue);
         _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 0)), Times.Once);
     }
-
-    /// <summary>
-    /// MoveQueueItemUp呼び出し時、指定トラックが1つ上に移動しAudioServiceに反映されることを検証します。
-    /// </summary>
-    [Fact]
-    public void MoveQueueItemUp_インデックス1のトラックを指定時_インデックス0に移動する()
-    {
-        // Arrange
-        using var sut = new PlayerControlViewModel(
-            _audioServiceMock.Object,
-            _audioEngineMock.Object,
-            _eventBus,
-            _settingsServiceMock.Object);
-
-        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
-        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" };
-        sut.PlayQueue = new ObservableCollection<Track> { track1, track2 };
-
-        // Act
-        sut.MoveQueueItemUpCommand.Execute(track2);
-
-        // Assert
-        Assert.Equal("Song 2", sut.PlayQueue[0].Title);
-        Assert.Equal("Song 1", sut.PlayQueue[1].Title);
-        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l[0].Title == "Song 2" && l[1].Title == "Song 1")), Times.Once);
-    }
-
-    /// <summary>
-    /// MoveQueueItemDown呼び出し時、指定トラックが1つ下に移動しAudioServiceに反映されることを検証します。
-    /// </summary>
-    [Fact]
-    public void MoveQueueItemDown_インデックス0のトラックを指定時_インデックス1に移動する()
-    {
-        // Arrange
-        using var sut = new PlayerControlViewModel(
-            _audioServiceMock.Object,
-            _audioEngineMock.Object,
-            _eventBus,
-            _settingsServiceMock.Object);
-
-        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
-        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" };
-        sut.PlayQueue = new ObservableCollection<Track> { track1, track2 };
-
-        // Act
-        sut.MoveQueueItemDownCommand.Execute(track1);
-
-        // Assert
-        Assert.Equal("Song 2", sut.PlayQueue[0].Title);
-        Assert.Equal("Song 1", sut.PlayQueue[1].Title);
-        _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l[0].Title == "Song 2" && l[1].Title == "Song 1")), Times.Once);
-    }
 }
 

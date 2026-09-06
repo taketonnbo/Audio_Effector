@@ -508,15 +508,6 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     /// </summary>
     public ICommand ClearQueueCommand { get; }
 
-    /// <summary>
-    /// キュー内のトラックを1つ上に移動するコマンド
-    /// </summary>
-    public ICommand MoveQueueItemUpCommand { get; }
-
-    /// <summary>
-    /// キュー内のトラックを1つ下に移動するコマンド
-    /// </summary>
-    public ICommand MoveQueueItemDownCommand { get; }
 
     /// <summary>
     /// スペクトラムアナライザーを表示するコマンド
@@ -577,8 +568,6 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         ShowQueueDialogCommand = new RelayCommand(_ => ShowQueueDialog());
         RemoveFromQueueCommand = new RelayCommand(o => RemoveFromQueue(o));
         ClearQueueCommand = new RelayCommand(_ => ClearQueue());
-        MoveQueueItemUpCommand = new RelayCommand(o => MoveQueueItemUp(o));
-        MoveQueueItemDownCommand = new RelayCommand(o => MoveQueueItemDown(o));
         SwitchToSpectrumCommand = new RelayCommand(_ => IsSpectrumVisible = true);
         ToggleSpectrumCommand = new RelayCommand(_ => IsSpectrumVisible = !IsSpectrumVisible);
 
@@ -807,37 +796,6 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         _audioService.SetPlaylist(new List<Track>());
     }
 
-    /// <summary>
-    /// 指定されたトラックを再生キュー内で1つ上に移動します
-    /// </summary>
-    /// <param name="obj">移動対象のトラック</param>
-    public void MoveQueueItemUp(object? obj)
-    {
-        if (obj is not Track track) return;
-
-        int index = PlayQueue.IndexOf(track);
-        if (index > 0)
-        {
-            PlayQueue.Move(index, index - 1);
-            _audioService.SetPlaylist(PlayQueue.ToList());
-        }
-    }
-
-    /// <summary>
-    /// 指定されたトラックを再生キュー内で1つ下に移動します
-    /// </summary>
-    /// <param name="obj">移動対象のトラック</param>
-    public void MoveQueueItemDown(object? obj)
-    {
-        if (obj is not Track track) return;
-
-        int index = PlayQueue.IndexOf(track);
-        if (index >= 0 && index < PlayQueue.Count - 1)
-        {
-            PlayQueue.Move(index, index + 1);
-            _audioService.SetPlaylist(PlayQueue.ToList());
-        }
-    }
 
     /// <summary>
     /// 再生キューダイアログを表示します（多重起動を防止し単一インスタンス管理）
