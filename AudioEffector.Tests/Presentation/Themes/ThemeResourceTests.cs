@@ -160,6 +160,76 @@ public class ThemeResourceTests
         }
     }
 
+    /// <summary>
+    /// PlayQueueSidePanel.xamlの再生オーバーレイにおいて、テーマに依存しないAlwaysNeonCyanBrushが参照されていることを検証します。
+    /// （Issue #202 再発防止）
+    /// </summary>
+    [Fact]
+    public void PlayQueueSidePanel_再生オーバーレイ確認_AlwaysNeonCyanリソースを参照していること()
+    {
+        // Arrange
+        var rootDir = FindWorkspaceRoot();
+        var xamlPath = Path.Combine(rootDir, "AudioEffector", "Presentation", "Views", "PlayQueueSidePanel.xaml");
+        Assert.True(File.Exists(xamlPath), $"PlayQueueSidePanel.xaml が見つかりません: {xamlPath}");
+
+        // Act
+        var xamlContent = File.ReadAllText(xamlPath);
+        var sut = XDocument.Parse(xamlContent);
+
+        // Assert
+        var overlayBorders = sut.Descendants()
+            .Where(e => e.Name.LocalName == "Border" &&
+                e.Attributes().Any(a => a.Name.LocalName == "Background" && a.Value == "#80000000"))
+            .ToList();
+
+        Assert.NotEmpty(overlayBorders);
+
+        foreach (var overlay in overlayBorders)
+        {
+            var overlayXml = overlay.ToString();
+            // 常時ネオンシアンのリソースが参照されていること
+            Assert.Contains("{DynamicResource AlwaysNeonCyanBrush}", overlayXml);
+
+            // 通常のNeonCyanBrushが参照されていないこと（ライトテーマ時の暗青色化・視認性低下防止）
+            Assert.DoesNotContain("NeonCyanBrush", overlayXml.Replace("AlwaysNeonCyanBrush", ""));
+        }
+    }
+
+    /// <summary>
+    /// PlayQueueDialog.xamlの再生オーバーレイにおいて、テーマに依存しないAlwaysNeonCyanBrushが参照されていることを検証します。
+    /// （Issue #202 再発防止）
+    /// </summary>
+    [Fact]
+    public void PlayQueueDialog_再生オーバーレイ確認_AlwaysNeonCyanリソースを参照していること()
+    {
+        // Arrange
+        var rootDir = FindWorkspaceRoot();
+        var xamlPath = Path.Combine(rootDir, "AudioEffector", "Presentation", "Views", "PlayQueueDialog.xaml");
+        Assert.True(File.Exists(xamlPath), $"PlayQueueDialog.xaml が見つかりません: {xamlPath}");
+
+        // Act
+        var xamlContent = File.ReadAllText(xamlPath);
+        var sut = XDocument.Parse(xamlContent);
+
+        // Assert
+        var overlayBorders = sut.Descendants()
+            .Where(e => e.Name.LocalName == "Border" &&
+                e.Attributes().Any(a => a.Name.LocalName == "Background" && a.Value == "#80000000"))
+            .ToList();
+
+        Assert.NotEmpty(overlayBorders);
+
+        foreach (var overlay in overlayBorders)
+        {
+            var overlayXml = overlay.ToString();
+            // 常時ネオンシアンのリソースが参照されていること
+            Assert.Contains("{DynamicResource AlwaysNeonCyanBrush}", overlayXml);
+
+            // 通常のNeonCyanBrushが参照されていないこと（ライトテーマ時の暗青色化・視認性低下防止）
+            Assert.DoesNotContain("NeonCyanBrush", overlayXml.Replace("AlwaysNeonCyanBrush", ""));
+        }
+    }
+
     private static string FindWorkspaceRoot()
     {
         var current = AppDomain.CurrentDomain.BaseDirectory;

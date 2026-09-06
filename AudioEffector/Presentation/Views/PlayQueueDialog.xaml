@@ -78,9 +78,9 @@
                                         </Image>
                                         <Border Background="#80000000" CornerRadius="3" Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
                                             <Grid>
-                                                <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{StaticResource NeonCyanBrush}" Width="15" Height="15" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{DynamicResource AlwaysNeonCyanBrush}" Width="15" Height="15" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                       Visibility="{Binding DataContext.IsPlaying, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}"/>
-                                                <Path Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="{StaticResource NeonCyanBrush}" Width="15" Height="15" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                <Path Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="{DynamicResource AlwaysNeonCyanBrush}" Width="15" Height="15" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                       Visibility="{Binding DataContext.IsPlaying, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
                                             </Grid>
                                         </Border>
