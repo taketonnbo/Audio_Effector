@@ -884,20 +884,15 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     }
 
     /// <summary>
-    /// 履歴から指定されたトラックを即時再生します
+    /// 履歴から指定されたトラックを即時再生します（キュー先頭に追加し再生リストタブへ自動切替）
     /// </summary>
     /// <param name="obj">再生対象のトラック</param>
     public void PlayFromHistory(object? obj)
     {
         if (obj is not Track track) return;
 
-        if (CurrentTrack != null && IsSameTrack(CurrentTrack, track))
-        {
-            _audioService.TogglePlayPause();
-            return;
-        }
-
-        _audioService.PlayTrack(track);
+        SelectedQueueTabIndex = 0;
+        _audioService.PlayTrack(track, insertAtBeginning: true);
     }
 
     /// <summary>
@@ -1171,16 +1166,29 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     /// <param name="currentTrack">現在再生中のトラック（未再生または停止時は null）</param>
     public void SyncTrackPlayingStates(Track? currentTrack)
     {
-        var tracks = PlaybackListTracks;
-        if (tracks == null) return;
-
-        foreach (var track in tracks)
+        if (PlaybackListTracks != null)
         {
-            if (track == null) continue;
-            bool shouldBePlaying = currentTrack != null && IsSameTrack(track, currentTrack);
-            if (track.IsPlaying != shouldBePlaying)
+            foreach (var track in PlaybackListTracks)
             {
-                track.IsPlaying = shouldBePlaying;
+                if (track == null) continue;
+                bool shouldBePlaying = currentTrack != null && IsSameTrack(track, currentTrack);
+                if (track.IsPlaying != shouldBePlaying)
+                {
+                    track.IsPlaying = shouldBePlaying;
+                }
+            }
+        }
+
+        if (PlayQueue != null)
+        {
+            foreach (var track in PlayQueue)
+            {
+                if (track == null) continue;
+                bool shouldBePlaying = currentTrack != null && IsSameTrack(track, currentTrack);
+                if (track.IsPlaying != shouldBePlaying)
+                {
+                    track.IsPlaying = shouldBePlaying;
+                }
             }
         }
     }

@@ -605,10 +605,10 @@ public sealed class PlayerControlViewModelTests
     }
 
     /// <summary>
-    /// PlayFromHistoryCommand実行時、未再生曲であればAudioServiceのPlayTrackが呼ばれることを検証します。
+    /// PlayFromHistoryCommand実行時、再生リストタブ（インデックス0）に切り替わり、キュー先頭挿入（insertAtBeginning: true）でPlayTrackが呼ばれることを検証します。
     /// </summary>
     [Fact]
-    public void PlayFromHistoryCommand_未再生曲の場合_AudioServiceのPlayTrackが呼ばれる()
+    public void PlayFromHistoryCommand_実行時_再生リストタブへ自動切替されキュー先頭追加で再生が開始される()
     {
         // Arrange
         using var sut = new PlayerControlViewModel(
@@ -617,20 +617,22 @@ public sealed class PlayerControlViewModelTests
             _eventBus,
             _settingsServiceMock.Object);
 
+        sut.SelectedQueueTabIndex = 1; // 履歴タブを開いている状態
         var track = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
 
         // Act
         sut.PlayFromHistoryCommand.Execute(track);
 
-        // Assert
-        _audioServiceMock.Verify(a => a.PlayTrack(track), Times.Once);
+        // Assert - タブが 0（再生リスト）に自動切り替えされ、先頭追加で PlayTrack が呼ばれること
+        Assert.Equal(0, sut.SelectedQueueTabIndex);
+        _audioServiceMock.Verify(a => a.PlayTrack(track, true), Times.Once);
     }
 
     /// <summary>
-    /// PlayFromHistoryCommand実行時、現在再生中の曲と同一であればTogglePlayPauseが呼ばれることを検証します。
+    /// SyncTrackPlayingStates実行時、PlayQueue内の該当トラックのIsPlayingが更新されることを検証します。
     /// </summary>
     [Fact]
-    public void PlayFromHistoryCommand_現在再生中の同一曲の場合_TogglePlayPauseが呼ばれる()
+    public void SyncTrackPlayingStates_実行時_PlayQueue内のトラックのIsPlayingが同期更新される()
     {
         // Arrange
         using var sut = new PlayerControlViewModel(
@@ -639,15 +641,16 @@ public sealed class PlayerControlViewModelTests
             _eventBus,
             _settingsServiceMock.Object);
 
-        var track = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
-        sut.CurrentTrack = track;
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1", IsPlaying = false };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2", IsPlaying = false };
+        sut.PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track> { track1, track2 };
 
         // Act
-        sut.PlayFromHistoryCommand.Execute(track);
+        sut.SyncTrackPlayingStates(track2);
 
         // Assert
-        _audioServiceMock.Verify(a => a.TogglePlayPause(), Times.Once);
-        _audioServiceMock.Verify(a => a.PlayTrack(It.IsAny<Track>()), Times.Never);
+        Assert.False(track1.IsPlaying);
+        Assert.True(track2.IsPlaying);
     }
 
     /// <summary>
