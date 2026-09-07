@@ -31,7 +31,8 @@ public sealed class AudioServiceHistoryTests
         using var sut = new AudioService();
         var track1 = CreateTrack("1", "Track 1");
         var track2 = CreateTrack("2", "Track 2");
-        sut.SetPlaylist(new List<Track> { track1, track2 });
+        var track3 = CreateTrack("3", "Track 3");
+        sut.SetPlaylist(new List<Track> { track1, track2, track3 });
 
         // リフレクションで _lastPlayingTrack を設定
         var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -59,10 +60,10 @@ public sealed class AudioServiceHistoryTests
         Assert.NotNull(endedTrack);
         Assert.Equal(track1.FilePath, endedTrack.FilePath);
 
-        // 再生キューから終了曲が削除され、track2のみ残ること
+        // 再生キューから終了曲および新再生曲(track2)が除外され、後続のtrack3のみ残ること
         Assert.NotNull(updatedPlaylist);
         Assert.Single(updatedPlaylist);
-        Assert.Equal(track2.FilePath, updatedPlaylist[0].FilePath);
+        Assert.Equal(track3.FilePath, updatedPlaylist[0].FilePath);
     }
 
     [Fact]
@@ -72,7 +73,8 @@ public sealed class AudioServiceHistoryTests
         using var sut = new AudioService();
         var track1 = CreateTrack("1", "Track 1");
         var track2 = CreateTrack("2", "Track 2");
-        sut.SetPlaylist(new List<Track> { track1, track2 });
+        var track3 = CreateTrack("3", "Track 3");
+        sut.SetPlaylist(new List<Track> { track1, track2, track3 });
 
         var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.NotNull(lastPlayingTrackField);
@@ -91,10 +93,10 @@ public sealed class AudioServiceHistoryTests
         Assert.NotNull(endedTrack);
         Assert.Equal(track1.FilePath, endedTrack.FilePath);
 
-        // 再生キューから track1 が削除され track2 のみが残る
+        // 再生キューから track1 および新再生曲 track2 が除外され track3 のみが残る
         Assert.NotNull(updatedPlaylist);
         Assert.Single(updatedPlaylist);
-        Assert.Equal(track2.FilePath, updatedPlaylist[0].FilePath);
+        Assert.Equal(track3.FilePath, updatedPlaylist[0].FilePath);
     }
 
     [Fact]

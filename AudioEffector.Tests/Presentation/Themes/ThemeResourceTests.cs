@@ -161,8 +161,9 @@ public class ThemeResourceTests
     }
 
     /// <summary>
-    /// PlayQueueSidePanel.xamlの再生オーバーレイにおいて、テーマに依存しないAlwaysNeonCyanBrushが参照されていることを検証します。
-    /// （Issue #202 再発防止）
+    /// PlayQueueSidePanel.xamlにおいて、Issue #225に伴い再生オーバーレイが消去されていること、
+    /// およびアクセントカラーとしてテーマに依存しないAlwaysNeonCyanBrushが参照されていることを検証します。
+    /// （Issue #202, #225）
     /// </summary>
     [Fact]
     public void PlayQueueSidePanel_再生オーバーレイ確認_AlwaysNeonCyanリソースを参照していること()
@@ -176,23 +177,16 @@ public class ThemeResourceTests
         var xamlContent = File.ReadAllText(xamlPath);
         var sut = XDocument.Parse(xamlContent);
 
-        // Assert
+        // Assert: Issue #225により再生中アイコンの半透明オーバーレイ(#80000000)は消去されていること
         var overlayBorders = sut.Descendants()
             .Where(e => e.Name.LocalName == "Border" &&
                 e.Attributes().Any(a => a.Name.LocalName == "Background" && a.Value == "#80000000"))
             .ToList();
 
-        Assert.NotEmpty(overlayBorders);
+        Assert.Empty(overlayBorders);
 
-        foreach (var overlay in overlayBorders)
-        {
-            var overlayXml = overlay.ToString();
-            // 常時ネオンシアンのリソースが参照されていること
-            Assert.Contains("{DynamicResource AlwaysNeonCyanBrush}", overlayXml);
-
-            // 通常のNeonCyanBrushが参照されていないこと（ライトテーマ時の暗青色化・視認性低下防止）
-            Assert.DoesNotContain("NeonCyanBrush", overlayXml.Replace("AlwaysNeonCyanBrush", ""));
-        }
+        // パネル内のアクセント表示（ヘッダーアイコン、アクティブインジケーター、予約クリア等）でAlwaysNeonCyanBrushが参照されていること
+        Assert.Contains("{DynamicResource AlwaysNeonCyanBrush}", xamlContent);
     }
 
     /// <summary>

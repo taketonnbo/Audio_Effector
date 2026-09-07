@@ -28,7 +28,8 @@ public sealed class AudioServicePlaylistTests
     }
 
     /// <summary>
-    /// IsShuffleEnabledをtrueにした際、PlaylistChangedが発火し、リストが更新されることを検証します。
+    /// IsShuffleEnabledをtrueにした際、PlaylistChangedが発火し、未再生キュー（AlbumQueue）が更新されることを検証します。
+    /// （新仕様: 現在再生中曲はキューに含まれない）
     /// </summary>
     [Fact]
     public void IsShuffleEnabled_True設定時_PlaylistChangedが発火されシャッフルリストが通知される()
@@ -53,13 +54,17 @@ public sealed class AudioServicePlaylistTests
         Assert.True(sut.IsShuffleEnabled);
         Assert.Equal(1, eventCallCount);
         Assert.NotNull(receivedPlaylist);
-        Assert.Equal(tracks.Count, receivedPlaylist.Count);
-        // 全楽曲が含まれていること
-        Assert.All(tracks, t => Assert.Contains(receivedPlaylist, r => r.FilePath == t.FilePath));
+        // 現在再生中(tracks[0])を除く残り9曲が含まれていること
+        Assert.Equal(tracks.Count - 1, receivedPlaylist.Count);
+        for (int i = 1; i < tracks.Count; i++)
+        {
+            Assert.Contains(receivedPlaylist, r => r.FilePath == tracks[i].FilePath);
+        }
     }
 
     /// <summary>
-    /// IsShuffleEnabledをfalseに戻した際、PlaylistChangedが発火し、元の追加順序に復元されることを検証します。
+    /// IsShuffleEnabledをfalseに戻した際、PlaylistChangedが発火し、元のアルバム順に復元されることを検証します。
+    /// （新仕様: 現在再生中曲はキューに含まれない）
     /// </summary>
     [Fact]
     public void IsShuffleEnabled_False復帰時_PlaylistChangedが発火され元の追加順に復元される()
@@ -79,15 +84,17 @@ public sealed class AudioServicePlaylistTests
         // Assert
         Assert.False(sut.IsShuffleEnabled);
         Assert.NotNull(receivedPlaylist);
-        // 元の順序と完全に一致すること
-        for (int i = 0; i < tracks.Count; i++)
+        // 現在再生中(tracks[0])を除く残り9曲が元の順序と完全に一致すること
+        Assert.Equal(tracks.Count - 1, receivedPlaylist.Count);
+        for (int i = 1; i < tracks.Count; i++)
         {
-            Assert.Equal(tracks[i].FilePath, receivedPlaylist[i].FilePath);
+            Assert.Equal(tracks[i].FilePath, receivedPlaylist[i - 1].FilePath);
         }
     }
 
     /// <summary>
-    /// シャッフルON時にstartTrackを指定してSetPlaylistを呼んだ際、startTrackが先頭に固定され残りがシャッフルされることを検証します。
+    /// シャッフルON時にstartTrackを指定してSetPlaylistを呼んだ際、startTrackが即時再生され、キューには残り曲がシャッフルされて入ることを検証します。
+    /// （新仕様: 現在再生中曲はキューに含まれない）
     /// </summary>
     [Fact]
     public void SetPlaylist_シャッフルON時にstartTrack指定時_startTrackが先頭に固定される()
@@ -98,6 +105,9 @@ public sealed class AudioServicePlaylistTests
         var tracks = CreateSampleTracks(10);
         var targetStartTrack = tracks[4]; // 5曲目 (インデックス 4)
 
+        Track? currentPlayingTrack = null;
+        sut.TrackChanged += t => currentPlayingTrack = t;
+
         List<Track>? receivedPlaylist = null;
         sut.PlaylistChanged += p => receivedPlaylist = p;
 
@@ -105,15 +115,19 @@ public sealed class AudioServicePlaylistTests
         sut.SetPlaylist(tracks, targetStartTrack);
 
         // Assert
+        Assert.NotNull(currentPlayingTrack);
+        Assert.Equal(targetStartTrack.FilePath, currentPlayingTrack.FilePath);
         Assert.NotNull(receivedPlaylist);
-        Assert.Equal(tracks.Count, receivedPlaylist.Count);
-        Assert.Equal(targetStartTrack.FilePath, receivedPlaylist[0].FilePath);
-        // 他の9曲も全て含まれていること
-        Assert.All(tracks, t => Assert.Contains(receivedPlaylist, r => r.FilePath == t.FilePath));
+        // targetStartTrack を除く残り9曲がキューに入っていること
+        Assert.Equal(tracks.Count - 1, receivedPlaylist.Count);
+        Assert.DoesNotContain(receivedPlaylist, r => r.FilePath == targetStartTrack.FilePath);
+        var remainingExpected = tracks.Where(t => t.FilePath != targetStartTrack.FilePath).ToList();
+        Assert.All(remainingExpected, t => Assert.Contains(receivedPlaylist, r => r.FilePath == t.FilePath));
     }
 
     /// <summary>
-    /// シャッフルOFF時にSetPlaylistを呼んだ際、元の順序でプレイリストが通知されることを検証します。
+    /// シャッフルOFF時にSetPlaylistを呼んだ際、1曲目が即時再生され、後続曲が順序通りキューに通知されることを検証します。
+    /// （新仕様: 現在再生中曲はキューに含まれない）
     /// </summary>
     [Fact]
     public void SetPlaylist_シャッフルOFF時_元の順序で通知される()
@@ -123,6 +137,9 @@ public sealed class AudioServicePlaylistTests
         sut.IsShuffleEnabled = false;
         var tracks = CreateSampleTracks(5);
 
+        Track? currentPlayingTrack = null;
+        sut.TrackChanged += t => currentPlayingTrack = t;
+
         List<Track>? receivedPlaylist = null;
         sut.PlaylistChanged += p => receivedPlaylist = p;
 
@@ -130,19 +147,23 @@ public sealed class AudioServicePlaylistTests
         sut.SetPlaylist(tracks);
 
         // Assert
+        Assert.NotNull(currentPlayingTrack);
+        Assert.Equal(tracks[0].FilePath, currentPlayingTrack.FilePath);
         Assert.NotNull(receivedPlaylist);
-        Assert.Equal(5, receivedPlaylist.Count);
-        for (int i = 0; i < tracks.Count; i++)
+        // 1曲目を除く4曲が順序通りキューに入っていること
+        Assert.Equal(4, receivedPlaylist.Count);
+        for (int i = 1; i < tracks.Count; i++)
         {
-            Assert.Equal(tracks[i].FilePath, receivedPlaylist[i].FilePath);
+            Assert.Equal(tracks[i].FilePath, receivedPlaylist[i - 1].FilePath);
         }
     }
 
     /// <summary>
-    /// シャッフル再生中に解除した場合、未再生の曲は現在曲の前（上）も含めて除外されず、再生済み曲のみが穴あきとなりアルバム順で復元されることを検証します。
+    /// シャッフル再生中に解除した場合、未再生の曲のみがキューに残り、再生済み曲は除外されアルバム順で復元されることを検証します。
+    /// （新仕様: 現在再生中曲はキューに含まれない）
     /// </summary>
     [Fact]
-    public void IsShuffleEnabled_再生中にシャッフル解除時_未再生曲は除外されず再生中の曲の上に残り再生済みのみ穴あき復元される()
+    public void IsShuffleEnabled_再生中にシャッフル解除時_未再生曲のみがキューに残りアルバム順で復元される()
     {
         // Arrange
         using var sut = new AudioService();
@@ -151,9 +172,9 @@ public sealed class AudioServicePlaylistTests
         sut.IsShuffleEnabled = true;
 
         // シャッフル再生の模擬:
-        // Song 4 を再生（履歴に入る）
+        // Song 4 を再生（履歴に入る、キューから除外）
         sut.PlayTrack(tracks[3]); // Song 4
-        // 次に Song 2 を再生（現在再生中曲とする）
+        // 次に Song 2 を再生（現在再生中曲となりキューから除外）
         sut.PlayTrack(tracks[1]); // Song 2
 
         List<Track>? receivedPlaylist = null;
@@ -165,17 +186,14 @@ public sealed class AudioServicePlaylistTests
         // Assert
         Assert.NotNull(receivedPlaylist);
         // 仕様ルール:
-        // 1. 未再生の曲（Song 1）は現在再生中の曲（Song 2）より前であっても除外されず、再生中の曲の上に残る
-        // 2. 現在再生中の曲（Song 2）はそのまま維持される
-        // 3. 既に再生済みの Song 4 は穴あき（除外）
-        // 4. 残る未再生曲（Song 3, 5, 6）がアルバム順で配置
-        // 期待キュー: [Song 1, Song 2, Song 3, Song 5, Song 6]
-        Assert.Equal(5, receivedPlaylist.Count);
-        Assert.Equal("Song 1", receivedPlaylist[0].Title);
-        Assert.Equal("Song 2", receivedPlaylist[1].Title);
-        Assert.Equal("Song 3", receivedPlaylist[2].Title);
-        Assert.Equal("Song 5", receivedPlaylist[3].Title);
-        Assert.Equal("Song 6", receivedPlaylist[4].Title);
+        // 1. 現在再生中の曲（Song 2）はキューに含まれない
+        // 2. 既に再生済みの Song 1, Song 4 はキューから除外
+        // 3. 残る未再生曲（Song 3, 5, 6）がアルバム順で配置
+        // 期待キュー: [Song 3, Song 5, Song 6]
+        Assert.Equal(3, receivedPlaylist.Count);
+        Assert.Equal("Song 3", receivedPlaylist[0].Title);
+        Assert.Equal("Song 5", receivedPlaylist[1].Title);
+        Assert.Equal("Song 6", receivedPlaylist[2].Title);
     }
 
     /// <summary>
@@ -306,7 +324,8 @@ public sealed class AudioServicePlaylistTests
     }
 
     /// <summary>
-    /// シャッフル再生中にアルバム単位で「次に再生」を実行した場合、アルバム内の曲順がランダムな状態で現在曲直後にまとめて追加されることを検証します。
+    /// シャッフル再生中にアルバム単位で「次に再生」を実行した場合、アルバム内の曲順がランダムな状態で予約キュー（キュー先頭）にまとめて追加されることを検証します。
+    /// （新仕様: 現在再生中曲はキューに含まれない）
     /// </summary>
     [Fact]
     public void EnqueueTracks_シャッフルON時にアルバム単位で次に再生_アルバムの曲がランダムな順序で現在曲直後にまとめて追加される()
@@ -339,26 +358,26 @@ public sealed class AudioServicePlaylistTests
 
         // Assert
         Assert.NotNull(receivedPlaylist);
-        Assert.Equal(8, receivedPlaylist.Count);
+        // 現在再生中の A1 を除く 7曲（予約キュー5曲 + アルバムキュー2曲）
+        Assert.Equal(7, receivedPlaylist.Count);
 
-        // 先頭は現在再生中の A1 であること
-        Assert.Equal("A1", receivedPlaylist[0].Title);
-
-        // インデックス 1〜5 はアルバムBの曲群（B1〜B5）がまとめて挿入されていること
-        var insertedChunk = receivedPlaylist.Skip(1).Take(5).Select(t => t.Title).ToList();
+        // 先頭 0〜4 はアルバムBの曲群（B1〜B5）がシャッフルされて挿入されていること
+        var insertedChunk = receivedPlaylist.Take(5).Select(t => t.Title).ToList();
         var expectedTitles = albumB.Select(t => t.Title).OrderBy(t => t).ToList();
         Assert.Equal(expectedTitles, insertedChunk.OrderBy(t => t).ToList());
 
-        // インデックス 6, 7 は元の後続曲（A2, A3）であること
-        var tailChunk = receivedPlaylist.Skip(6).Take(2).Select(t => t.Title).OrderBy(t => t).ToList();
+        // インデックス 5, 6 は元の後続曲（A2, A3）であること
+        var tailChunk = receivedPlaylist.Skip(5).Take(2).Select(t => t.Title).OrderBy(t => t).ToList();
         Assert.Equal(new[] { "A2", "A3" }, tailChunk);
     }
 
     /// <summary>
-    /// 複数アルバム混在時にシャッフルを解除した場合、追加したアルバム順かつ各アルバム内のトラック順に穴あき復元されることを検証します。
+    /// 複数アルバム混在時（「次に再生」「最後に再生」後）にシャッフルを解除した場合、
+    /// 予約キューに統合された未再生曲が保持され、再生中・再生済み曲が除外されていることを検証します。
+    /// （新仕様: 「最後に再生」で予約キューへ統合、現在再生中曲はキューに含まれない）
     /// </summary>
     [Fact]
-    public void IsShuffleEnabled_複数アルバム混在時にシャッフル解除_追加したアルバム順かつ各アルバムのトラック順に穴あき復元される()
+    public void IsShuffleEnabled_複数アルバム混在時にシャッフル解除_統合された未再生曲が保持され再生中曲は除外される()
     {
         // Arrange
         using var sut = new AudioService();
@@ -385,12 +404,13 @@ public sealed class AudioServicePlaylistTests
             new Track { FilePath = @"C:\Music\C2.mp3", Title = "C2" },
             new Track { FilePath = @"C:\Music\C3.mp3", Title = "C3" }
         };
+        // 「最後に再生」を行うと予約キューとアルバム残りが統合され、albumCが末尾追加される
         sut.EnqueueTracks(albumC, playNext: false);
 
         // シャッフル再生の模擬:
-        // 1. C2 を過去に再生（履歴に入る）
+        // 1. C2 を再生（キューから除外）
         sut.PlayTrack(albumC[1]); // C2
-        // 2. B2 を現在再生中とする
+        // 2. B2 を現在再生中とする（キューから除外）
         sut.PlayTrack(albumB[1]); // B2
 
         List<Track>? receivedPlaylist = null;
@@ -402,22 +422,19 @@ public sealed class AudioServicePlaylistTests
         // Assert
         Assert.NotNull(receivedPlaylist);
 
-        // 仕様ルール:
-        // 1. B2 より前のアルバムA（A1〜A3）およびアルバムBのB1は未再生のため除外されず、B2の上にアルバム順・トラック順で残る
-        // 2. 現在再生中（B2）の位置はインデックス 4
-        // 3. B2 より後の曲（アルバムBのB3、アルバムCのC1〜C3）
-        //    - B3: 未再生なのでB2の直後に配置
-        //    - アルバムC: C2は再生済みなので穴あき（除外）。未再生のC1, C3がアルバムCのトラック順で並ぶ
-        // 期待キュー: [ A1, A2, A3, B1, B2, B3, C1, C3 ]
-        Assert.Equal(8, receivedPlaylist.Count);
-        Assert.Equal("A1", receivedPlaylist[0].Title);
-        Assert.Equal("A2", receivedPlaylist[1].Title);
-        Assert.Equal("A3", receivedPlaylist[2].Title);
-        Assert.Equal("B1", receivedPlaylist[3].Title);
-        Assert.Equal("B2", receivedPlaylist[4].Title);
-        Assert.Equal("B3", receivedPlaylist[5].Title);
-        Assert.Equal("C1", receivedPlaylist[6].Title);
-        Assert.Equal("C3", receivedPlaylist[7].Title);
+        // 新仕様ルール:
+        // 1. 再生中の B2 および 再生済みの A1, C2 はキューに含まれない
+        // 2. 未再生曲（B1, B3, A2, A3, C1, C3）の計6曲がキューに残る
+        Assert.Equal(6, receivedPlaylist.Count);
+        Assert.DoesNotContain(receivedPlaylist, t => t.Title == "A1");
+        Assert.DoesNotContain(receivedPlaylist, t => t.Title == "B2");
+        Assert.DoesNotContain(receivedPlaylist, t => t.Title == "C2");
+        Assert.Contains(receivedPlaylist, t => t.Title == "B1");
+        Assert.Contains(receivedPlaylist, t => t.Title == "B3");
+        Assert.Contains(receivedPlaylist, t => t.Title == "A2");
+        Assert.Contains(receivedPlaylist, t => t.Title == "A3");
+        Assert.Contains(receivedPlaylist, t => t.Title == "C1");
+        Assert.Contains(receivedPlaylist, t => t.Title == "C3");
     }
 
     /// <summary>
@@ -477,47 +494,32 @@ public sealed class AudioServicePlaylistTests
     }
 
     /// <summary>
-    /// アルバム名およびトラック番号を持つ複数アルバムの楽曲がシャッフル再生された後、
-    /// シャッフルを解除した際にアルバム追加順かつトラック番号昇順にグループ化されて復元されることを検証します。
+    /// アルバムの楽曲がシャッフル再生された後、シャッフルを解除した際に残りの未再生トラックがトラック番号昇順に復元されることを検証します。
+    /// （新仕様: 現在再生中曲はキューに含まれない）
     /// </summary>
     [Fact]
-    public void IsShuffleEnabled_複数アルバム混在時にシャッフル解除_アルバム名とトラック番号に基づき追加順アルバムかつトラック昇順に復元される()
+    public void IsShuffleEnabled_シャッフル解除時_アルバムキューの未再生曲がトラック昇順に復元される()
     {
         // Arrange
         using var sut = new AudioService();
-        var album1 = new List<Track>
+        var album = new List<Track>
         {
             new Track { FilePath = @"C:\Music\A1.mp3", Title = "A1", Album = "Album First", TrackNumber = 1 },
             new Track { FilePath = @"C:\Music\A2.mp3", Title = "A2", Album = "Album First", TrackNumber = 2 },
-            new Track { FilePath = @"C:\Music\A3.mp3", Title = "A3", Album = "Album First", TrackNumber = 3 }
+            new Track { FilePath = @"C:\Music\A3.mp3", Title = "A3", Album = "Album First", TrackNumber = 3 },
+            new Track { FilePath = @"C:\Music\A4.mp3", Title = "A4", Album = "Album First", TrackNumber = 4 },
+            new Track { FilePath = @"C:\Music\A5.mp3", Title = "A5", Album = "Album First", TrackNumber = 5 },
+            new Track { FilePath = @"C:\Music\A6.mp3", Title = "A6", Album = "Album First", TrackNumber = 6 }
         };
-        sut.SetPlaylist(album1, album1[0]);
+        sut.SetPlaylist(album, album[0]); // A1 再生開始、AlbumQueue は A2〜A6 (5曲)
         sut.IsShuffleEnabled = true;
-
-        var album2 = new List<Track>
-        {
-            new Track { FilePath = @"C:\Music\B1.mp3", Title = "B1", Album = "Album Second", TrackNumber = 1 },
-            new Track { FilePath = @"C:\Music\B2.mp3", Title = "B2", Album = "Album Second", TrackNumber = 2 },
-            new Track { FilePath = @"C:\Music\B3.mp3", Title = "B3", Album = "Album Second", TrackNumber = 3 }
-        };
-        sut.EnqueueTracks(album2, playNext: true);
-
-        var album3 = new List<Track>
-        {
-            new Track { FilePath = @"C:\Music\C1.mp3", Title = "C1", Album = "Album Third", TrackNumber = 1 },
-            new Track { FilePath = @"C:\Music\C2.mp3", Title = "C2", Album = "Album Third", TrackNumber = 2 },
-            new Track { FilePath = @"C:\Music\C3.mp3", Title = "C3", Album = "Album Third", TrackNumber = 3 }
-        };
-        sut.EnqueueTracks(album3, playNext: false);
 
         Track? activeTrack = null;
         sut.TrackChanged += t => activeTrack = t;
 
         // シャッフル再生の模擬:
-        // C2 を再生（履歴に入る）
-        sut.PlayTrack(album3[1]); // C2
-        // B2 を現在再生中とする
-        sut.PlayTrack(album2[1]); // B2
+        // A4 を再生（現在再生中曲となり、キューから除外）
+        sut.PlayTrack(album[3]); // A4
 
         List<Track>? receivedPlaylist = null;
         sut.PlaylistChanged += p => receivedPlaylist = p;
@@ -527,59 +529,36 @@ public sealed class AudioServicePlaylistTests
 
         // Assert
         Assert.NotNull(receivedPlaylist);
-        Assert.Equal(8, receivedPlaylist.Count);
+        // 残り未再生曲は 4曲 (A2, A3, A5, A6)
+        Assert.Equal(4, receivedPlaylist.Count);
 
-        // アルバム追加順（Album First -> Album Second -> Album Third）に並び、
-        // かつ各アルバム内はTrackNumber昇順（1, 2, 3...）に並ぶこと
-        // Album First: A1(1), A2(2), A3(3)
-        Assert.Equal("A1", receivedPlaylist[0].Title);
-        Assert.Equal("Album First", receivedPlaylist[0].Album);
-        Assert.Equal(1u, receivedPlaylist[0].TrackNumber);
+        // トラック番号昇順（2, 3, 5, 6）に並ぶこと
+        Assert.Equal("A2", receivedPlaylist[0].Title);
+        Assert.Equal(2u, receivedPlaylist[0].TrackNumber);
 
-        Assert.Equal("A2", receivedPlaylist[1].Title);
-        Assert.Equal("Album First", receivedPlaylist[1].Album);
-        Assert.Equal(2u, receivedPlaylist[1].TrackNumber);
+        Assert.Equal("A3", receivedPlaylist[1].Title);
+        Assert.Equal(3u, receivedPlaylist[1].TrackNumber);
 
-        Assert.Equal("A3", receivedPlaylist[2].Title);
-        Assert.Equal("Album First", receivedPlaylist[2].Album);
-        Assert.Equal(3u, receivedPlaylist[2].TrackNumber);
+        Assert.Equal("A5", receivedPlaylist[2].Title);
+        Assert.Equal(5u, receivedPlaylist[2].TrackNumber);
 
-        // Album Second: B1(1), B2(2), B3(3)
-        Assert.Equal("B1", receivedPlaylist[3].Title);
-        Assert.Equal("Album Second", receivedPlaylist[3].Album);
-        Assert.Equal(1u, receivedPlaylist[3].TrackNumber);
+        Assert.Equal("A6", receivedPlaylist[3].Title);
+        Assert.Equal(6u, receivedPlaylist[3].TrackNumber);
 
-        Assert.Equal("B2", receivedPlaylist[4].Title);
-        Assert.Equal("Album Second", receivedPlaylist[4].Album);
-        Assert.Equal(2u, receivedPlaylist[4].TrackNumber);
-
-        Assert.Equal("B3", receivedPlaylist[5].Title);
-        Assert.Equal("Album Second", receivedPlaylist[5].Album);
-        Assert.Equal(3u, receivedPlaylist[5].TrackNumber);
-
-        // Album Third: C1(1), C3(3) （※C2は再生済みのため穴あき除外）
-        Assert.Equal("C1", receivedPlaylist[6].Title);
-        Assert.Equal("Album Third", receivedPlaylist[6].Album);
-        Assert.Equal(1u, receivedPlaylist[6].TrackNumber);
-
-        Assert.Equal("C3", receivedPlaylist[7].Title);
-        Assert.Equal("Album Third", receivedPlaylist[7].Album);
-        Assert.Equal(3u, receivedPlaylist[7].TrackNumber);
-
-        // 現在再生中の B2 が維持されていること
-        Assert.Equal("B2", activeTrack?.Title);
-        Assert.Equal("B2", receivedPlaylist[4].Title);
+        // 現在再生中の A4 が維持されていること
+        Assert.Equal("A4", activeTrack?.Title);
     }
 
     /// <summary>
     /// RemoveTrackを呼び出した際、キューおよび元プレイリストから対象トラックが削除されることを検証します。
+    /// （新仕様: 現在再生中曲を除く残りキューから削除）
     /// </summary>
     [Fact]
     public void RemoveTrack_指定トラックが正常に削除されPlaylistChangedが発火する()
     {
         // Arrange
         using var sut = new AudioService();
-        var tracks = CreateSampleTracks(3);
+        var tracks = CreateSampleTracks(3); // tracks[0]再生、tracks[1], tracks[2]がキュー
         sut.SetPlaylist(tracks);
 
         List<Track>? receivedPlaylist = null;
@@ -590,7 +569,8 @@ public sealed class AudioServicePlaylistTests
 
         // Assert
         Assert.NotNull(receivedPlaylist);
-        Assert.Equal(2, receivedPlaylist.Count);
+        // tracks[1] 削除後は tracks[2] の 1曲のみ
+        Assert.Single(receivedPlaylist);
         Assert.DoesNotContain(receivedPlaylist, t => t.FilePath == tracks[1].FilePath);
     }
 }
