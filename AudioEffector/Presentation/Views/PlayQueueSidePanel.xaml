@@ -24,8 +24,8 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/> <!-- Header -->
-            <RowDefinition Height="*"/>    <!-- Queue List -->
-            <RowDefinition Height="Auto"/> <!-- Footer / Summary -->
+            <RowDefinition Height="Auto"/> <!-- Tabs (Queue / History) -->
+            <RowDefinition Height="*"/>    <!-- Content Area (Queue / History) -->
         </Grid.RowDefinitions>
 
         <!-- Header -->
@@ -40,16 +40,24 @@
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" Fill="{DynamicResource AlwaysNeonCyanBrush}" Width="16" Height="16" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <TextBlock Text="再生キュー" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource AlwaysNeonCyanBrush}" VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding PlayQueue.Count, StringFormat=' ({0})'}" FontSize="13" Foreground="{DynamicResource MutedTextForegroundBrush}" VerticalAlignment="Center" Margin="2,0,0,0"/>
                 </StackPanel>
 
                 <!-- Actions: Clear & Close Buttons -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- Clear Queue Button -->
-                    <Button Command="{Binding ClearQueueCommand}"
-                            ToolTip="再生キューをすべてクリア"
+                    <!-- Clear Button (Queue or History depending on active tab) -->
+                    <Button Command="{Binding ClearCurrentTabCommand}"
                             Background="Transparent" BorderThickness="0"
                             Width="28" Height="28" Margin="0,0,4,0" Cursor="Hand">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="ToolTip" Value="再生キューをすべてクリア"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedQueueTabIndex}" Value="1">
+                                        <Setter Property="ToolTip" Value="再生履歴をすべてクリア"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" CornerRadius="4">
@@ -90,52 +98,134 @@
             </Grid>
         </Border>
 
-        <!-- Queue List -->
-        <Grid Grid.Row="1">
-            <!-- Empty State Message -->
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,40">
-                <StackPanel.Style>
-                    <Style TargetType="StackPanel">
+        <!-- Tabs (Queue / History) -->
+        <Border Grid.Row="1" Background="{DynamicResource PanelBackgroundBrush}" BorderBrush="{DynamicResource ControlBorderBrush}" BorderThickness="0,0,0,1" Padding="14,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Queue Tab -->
+                <Button Grid.Column="0" Command="{Binding SelectQueueTabCommand}" CommandParameter="0"
+                        Background="Transparent" BorderThickness="0" Height="36" Cursor="Hand" Padding="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent">
+                                <Grid>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <TextBlock x:Name="TabTitle" Text="再生リスト" FontSize="13" FontWeight="Normal" Foreground="{DynamicResource MutedTextForegroundBrush}"/>
+                                        <TextBlock x:Name="TabCount" Text="{Binding PlayQueue.Count, StringFormat=' ({0})'}" FontSize="12" Foreground="{DynamicResource MutedTextForegroundBrush}" Margin="2,0,0,0"/>
+                                    </StackPanel>
+                                    <Border x:Name="ActiveIndicator" Height="2" Background="{DynamicResource AlwaysNeonCyanBrush}" VerticalAlignment="Bottom" Visibility="Collapsed"/>
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="TabTitle" Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                </Trigger>
+                                <DataTrigger Binding="{Binding SelectedQueueTabIndex}" Value="0">
+                                    <Setter TargetName="TabTitle" Property="FontWeight" Value="Bold"/>
+                                    <Setter TargetName="TabTitle" Property="Foreground" Value="{DynamicResource AlwaysNeonCyanBrush}"/>
+                                    <Setter TargetName="TabCount" Property="Foreground" Value="{DynamicResource AlwaysNeonCyanBrush}"/>
+                                    <Setter TargetName="ActiveIndicator" Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+
+                <!-- History Tab -->
+                <Button Grid.Column="1" Command="{Binding SelectQueueTabCommand}" CommandParameter="1"
+                        Background="Transparent" BorderThickness="0" Height="36" Cursor="Hand" Padding="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent">
+                                <Grid>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <TextBlock x:Name="TabTitle" Text="履歴" FontSize="13" FontWeight="Normal" Foreground="{DynamicResource MutedTextForegroundBrush}"/>
+                                        <TextBlock x:Name="TabCount" Text="{Binding PlayHistory.Count, StringFormat=' ({0})'}" FontSize="12" Foreground="{DynamicResource MutedTextForegroundBrush}" Margin="2,0,0,0"/>
+                                    </StackPanel>
+                                    <Border x:Name="ActiveIndicator" Height="2" Background="{DynamicResource AlwaysNeonCyanBrush}" VerticalAlignment="Bottom" Visibility="Collapsed"/>
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="TabTitle" Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                </Trigger>
+                                <DataTrigger Binding="{Binding SelectedQueueTabIndex}" Value="1">
+                                    <Setter TargetName="TabTitle" Property="FontWeight" Value="Bold"/>
+                                    <Setter TargetName="TabTitle" Property="Foreground" Value="{DynamicResource AlwaysNeonCyanBrush}"/>
+                                    <Setter TargetName="TabCount" Property="Foreground" Value="{DynamicResource AlwaysNeonCyanBrush}"/>
+                                    <Setter TargetName="ActiveIndicator" Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- Content Area -->
+        <Grid Grid.Row="2">
+            <!-- Tab 0: Queue List Content -->
+            <Grid>
+                <Grid.Style>
+                    <Style TargetType="Grid">
                         <Setter Property="Visibility" Value="Collapsed"/>
                         <Style.Triggers>
-                            <DataTrigger Binding="{Binding PlayQueue.Count}" Value="0">
+                            <DataTrigger Binding="{Binding SelectedQueueTabIndex}" Value="0">
                                 <Setter Property="Visibility" Value="Visible"/>
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
-                </StackPanel.Style>
-                <Path Data="M12,3V13.55A4,4 0 1,0 14,17V7H18V3H12Z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="36" Height="36" Stretch="Uniform" HorizontalAlignment="Center" Opacity="0.4" Margin="0,0,0,10"/>
-                <TextBlock Text="再生キューは空です" FontSize="14" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center"/>
-                <TextBlock Text="楽曲を右クリックして「再生キューに追加」できます" FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Margin="0,4,0,0" Opacity="0.7"/>
-            </StackPanel>
+                </Grid.Style>
 
-            <ListBox ItemsSource="{Binding PlayQueue}"
-                     Background="Transparent"
-                     BorderThickness="0"
-                     Padding="8,6"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                     ScrollViewer.CanContentScroll="True"
-                     VirtualizingPanel.IsVirtualizing="True"
-                     VirtualizingPanel.VirtualizationMode="Recycling"
-                     VirtualizingPanel.ScrollUnit="Pixel">
-                <ListBox.ItemContainerStyle>
-                    <Style TargetType="ListBoxItem">
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                        <Setter Property="Padding" Value="0"/>
-                        <Setter Property="Background" Value="Transparent"/>
-                        <Setter Property="BorderThickness" Value="0"/>
-                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="ListBoxItem">
-                                    <ContentPresenter/>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </ListBox.ItemContainerStyle>
-                <ListBox.ItemTemplate>
+                <!-- Empty State Message -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,40">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding PlayQueue.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <Path Data="M12,3V13.55A4,4 0 1,0 14,17V7H18V3H12Z" Fill="{DynamicResource MutedTextForegroundBrush}" Width="36" Height="36" Stretch="Uniform" HorizontalAlignment="Center" Opacity="0.4" Margin="0,0,0,10"/>
+                    <TextBlock Text="再生キューは空です" FontSize="14" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="楽曲を右クリックして「再生キューに追加」できます" FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Margin="0,4,0,0" Opacity="0.7"/>
+                </StackPanel>
+
+                <!-- Queue ListBox with UI Virtualization -->
+                <ListBox ItemsSource="{Binding PlayQueue}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="8,6"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.CanContentScroll="True"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         VirtualizingPanel.ScrollUnit="Pixel">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Border x:Name="ItemBorder" Background="Transparent" CornerRadius="6" Margin="0,2" Padding="6,5"
                                     Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
@@ -186,7 +276,7 @@
                                         <ColumnDefinition Width="Auto"/> <!-- Play Button / Album Art -->
                                         <ColumnDefinition Width="*"/>    <!-- Track Details -->
                                         <ColumnDefinition Width="Auto"/> <!-- Duration -->
-                                        <ColumnDefinition Width="Auto"/> <!-- Actions: Move Up, Move Down, Remove -->
+                                        <ColumnDefinition Width="Auto"/> <!-- Actions: Remove -->
                                     </Grid.ColumnDefinitions>
 
                                     <!-- Album Art & Play Overlay (Clickable to Play) -->
@@ -271,5 +361,194 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
             </Grid>
+
+            <!-- Tab 1: History List Content -->
+            <Grid>
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding SelectedQueueTabIndex}" Value="1">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+
+                <!-- Empty State Message for History -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,40">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding PlayHistory.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <Path Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z"
+                          Fill="{DynamicResource MutedTextForegroundBrush}" Width="36" Height="36" Stretch="Uniform" HorizontalAlignment="Center" Opacity="0.4" Margin="0,0,0,10"/>
+                    <TextBlock Text="再生履歴はありません" FontSize="14" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="再生が終了した楽曲がここに表示されます" FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" HorizontalAlignment="Center" Margin="0,4,0,0" Opacity="0.7"/>
+                </StackPanel>
+
+                <!-- History ListBox with UI Virtualization -->
+                <ListBox ItemsSource="{Binding PlayHistory}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="8,6"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.CanContentScroll="True"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         VirtualizingPanel.ScrollUnit="Pixel">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border x:Name="HistoryItemBorder" Background="Transparent" CornerRadius="6" Margin="0,2" Padding="6,5"
+                                    Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="再生"
+                                                  Command="{Binding PlacementTarget.Tag.PlayFromHistoryCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                  CommandParameter="{Binding}"/>
+                                        <MenuItem Header="次に再生"
+                                                  Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                  CommandParameter="{Binding}"/>
+                                        <MenuItem Header="再生リストに追加"
+                                                  Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                  CommandParameter="{Binding}"/>
+                                        <Separator/>
+                                        <MenuItem Header="履歴から削除"
+                                                  Command="{Binding PlacementTarget.Tag.RemoveFromHistoryCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                  CommandParameter="{Binding}"/>
+                                        <Separator/>
+                                        <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
+                                            <MenuItem.Style>
+                                                <Style TargetType="MenuItem">
+                                                    <Setter Property="Header" Value="お気に入りに追加" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                            <Setter Property="Header" Value="お気に入りから解除" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </MenuItem.Style>
+                                        </MenuItem>
+                                        <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                        <Separator/>
+                                        <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                        <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                    </ContextMenu>
+                                </Border.ContextMenu>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/> <!-- Play Button / Album Art -->
+                                        <ColumnDefinition Width="*"/>    <!-- Track Details -->
+                                        <ColumnDefinition Width="Auto"/> <!-- Duration -->
+                                        <ColumnDefinition Width="Auto"/> <!-- Actions: Remove -->
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Album Art & Play Overlay (Clickable to Play) -->
+                                    <Button Grid.Column="0"
+                                            Command="{Binding DataContext.PlayFromHistoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand"
+                                            Width="36" Height="36" Margin="0,0,10,0">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Grid Width="36" Height="36">
+                                                    <Border CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundBrush}">
+                                                        <Image ap:AlbumArtLoader.SourcePath="{Binding FilePath}" Stretch="UniformToFill"/>
+                                                    </Border>
+                                                    <Border Background="#80000000" CornerRadius="4" Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
+                                                        <Grid>
+                                                            <Path Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{DynamicResource AlwaysNeonCyanBrush}" Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                  Visibility="{Binding DataContext.IsPlaying, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}}"/>
+                                                            <Path Data="M6,19h4V5H6V19z M14,5v14h4V5H14z" Fill="{DynamicResource AlwaysNeonCyanBrush}" Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                  Visibility="{Binding DataContext.IsPlaying, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+
+                                    <!-- Track Title & Artist (Clickable to Play) -->
+                                    <Button Grid.Column="1"
+                                            Command="{Binding DataContext.PlayFromHistoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Left" Cursor="Hand">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource TextForegroundBrush}"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding Artist}" FontSize="11"
+                                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                                               TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                                                </StackPanel>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+
+                                    <!-- Duration -->
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding Duration, StringFormat='{}{0:mm\\:ss}'}"
+                                               FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                               VerticalAlignment="Center" Margin="8,0,8,0"/>
+
+                                    <!-- Action Button: Remove from History -->
+                                    <Button Grid.Column="3"
+                                            Command="{Binding DataContext.RemoveFromHistoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"
+                                            ToolTip="履歴から削除"
+                                            Background="Transparent" BorderThickness="0" Width="20" Height="22" Cursor="Hand"
+                                            VerticalAlignment="Center">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border Background="{TemplateBinding Background}" CornerRadius="3">
+                                                    <Path Data="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"
+                                                          Fill="{DynamicResource MutedTextForegroundBrush}" Width="9" Height="9" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+                                </Grid>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True" SourceName="HistoryItemBorder">
+                                    <Setter TargetName="HistoryItemBorder" Property="Background" Value="{DynamicResource ControlBackgroundBrush}"/>
+                                </Trigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Grid>
     </Grid>
 </UserControl>
