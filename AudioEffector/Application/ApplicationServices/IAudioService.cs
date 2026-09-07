@@ -32,6 +32,11 @@ public interface IAudioService : IDisposable
     event EventHandler PlaylistEnded;
 
     /// <summary>
+    /// 楽曲の再生が終了（完奏または一定時間以上の再生後の遷移・停止）した際に発生するイベント
+    /// </summary>
+    event Action<Track>? TrackPlaybackEnded;
+
+    /// <summary>
     /// FFT計算が完了した際に発生するイベント
     /// </summary>
     event EventHandler<FftEventArgs>? FftCalculated;

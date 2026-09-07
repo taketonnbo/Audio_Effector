@@ -1,0 +1,149 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using AudioEffector.Domain.Entities;
+using AudioEffector.Infrastructure.Audio;
+using Xunit;
+
+namespace AudioEffector.Tests.Infrastructure.Audio;
+
+/// <summary>
+/// <see cref="AudioService"/> の再生終了検知および <see cref="AudioService.TrackPlaybackEnded"/> イベント発火の挙動を検証するテストクラス。
+/// </summary>
+public sealed class AudioServiceHistoryTests
+{
+    private static Track CreateTrack(string id = "1", string title = "Test Song")
+    {
+        return new Track
+        {
+            FilePath = $@"C:\Music\{id}.mp3",
+            Title = title,
+            Artist = "Artist",
+            Album = "Album",
+            Duration = TimeSpan.FromMinutes(3)
+        };
+    }
+
+    [Fact]
+    public void OnTrackEnded_トラック完奏時_TrackPlaybackEndedイベントが発火される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var track = CreateTrack("1", "Track 1");
+
+        // リフレクションで _lastPlayingTrack を設定
+        var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(lastPlayingTrackField);
+        lastPlayingTrackField.SetValue(sut, track);
+
+        Track? endedTrack = null;
+        int eventCount = 0;
+        sut.TrackPlaybackEnded += t =>
+        {
+            endedTrack = t;
+            eventCount++;
+        };
+
+        // Act - private メソッド OnTrackEnded を呼び出し
+        var onTrackEndedMethod = typeof(AudioService).GetMethod("OnTrackEnded", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(onTrackEndedMethod);
+        onTrackEndedMethod.Invoke(sut, null);
+
+        // Assert
+        Assert.Equal(1, eventCount);
+        Assert.NotNull(endedTrack);
+        Assert.Equal(track.FilePath, endedTrack.FilePath);
+    }
+
+    [Fact]
+    public void OnTrackEnded_同一トラックで複数回呼ばれても二重発火しない()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var track = CreateTrack("1", "Track 1");
+
+        var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(lastPlayingTrackField);
+        lastPlayingTrackField.SetValue(sut, track);
+
+        int eventCount = 0;
+        sut.TrackPlaybackEnded += _ => eventCount++;
+
+        var onTrackEndedMethod = typeof(AudioService).GetMethod("OnTrackEnded", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(onTrackEndedMethod);
+
+        // Act
+        onTrackEndedMethod.Invoke(sut, null);
+        onTrackEndedMethod.Invoke(sut, null); // 2回目の呼び出し
+
+        // Assert - 二重発火防止フラグにより1回のみ発火
+        Assert.Equal(1, eventCount);
+    }
+
+    [Fact]
+    public void CheckAndPreparePlaybackEnded_再生時間が5秒未満の場合_報告されない()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var track = CreateTrack("1", "Short Track");
+
+        var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(lastPlayingTrackField);
+        lastPlayingTrackField.SetValue(sut, track);
+
+        // _audioFile が null の状態（または再生時間0秒）
+        var checkMethod = typeof(AudioService).GetMethod("CheckAndPreparePlaybackEnded", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(checkMethod);
+
+        // Act
+        var result = checkMethod.Invoke(sut, new object[] { false }) as Track;
+
+        // Assert
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void CheckAndPreparePlaybackEnded_forceEndedがtrueの場合_再生時間に関わらず報告される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var track = CreateTrack("1", "Force Ended Track");
+
+        var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(lastPlayingTrackField);
+        lastPlayingTrackField.SetValue(sut, track);
+
+        var checkMethod = typeof(AudioService).GetMethod("CheckAndPreparePlaybackEnded", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(checkMethod);
+
+        // Act
+        var result = checkMethod.Invoke(sut, new object[] { true }) as Track;
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(track.FilePath, result.FilePath);
+    }
+
+    [Fact]
+    public void SetPlaylist_キュー変更時に報告済みフラグがリセットされる()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var track1 = CreateTrack("1", "Track 1");
+        var track2 = CreateTrack("2", "Track 2");
+
+        var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
+        var reportedField = typeof(AudioService).GetField("_currentTrackReportedAsEnded", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(lastPlayingTrackField);
+        Assert.NotNull(reportedField);
+
+        reportedField.SetValue(sut, true);
+
+        // Act
+        sut.SetPlaylist(new List<Track> { track1, track2 });
+
+        // Assert
+        var isReported = (bool)(reportedField.GetValue(sut) ?? true);
+        Assert.False(isReported);
+    }
+}

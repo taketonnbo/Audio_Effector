@@ -35,8 +35,14 @@ public class AudioService : IAudioService
     private WdlResamplingSampleProvider? _resampler;
     private VolumeSampleProvider? _masterVolumeProvider;
 
+    /// <summary>
+    /// 再生履歴に追加するための最小再生時間（秒）
+    /// </summary>
+    public const double MinPlaybackSecondsForHistory = 5.0;
+
     private Track? _lastPlayingTrack;
     private bool _stopRequested;
+    private bool _currentTrackReportedAsEnded;
 
     /// <summary>
     /// トラックが変更された際に発生するイベント（未選択・キュー空時は null）
@@ -57,6 +63,11 @@ public class AudioService : IAudioService
     /// プレイリストの最後（リピートなし）に到達した際に発生するイベント
     /// </summary>
     public event EventHandler? PlaylistEnded;
+
+    /// <summary>
+    /// 楽曲の再生が終了（完奏または一定時間以上の再生後の遷移・停止）した際に発生するイベント
+    /// </summary>
+    public event Action<Track>? TrackPlaybackEnded;
 
     /// <summary>
     /// FFT計算結果が利用可能になった際に発生するイベント
@@ -129,11 +140,14 @@ public class AudioService : IAudioService
     public void SetPlaylist(List<Track> tracks, Track? startTrack = null)
     {
         bool isEmpty = (tracks == null || tracks.Count == 0);
+        Track? endedTrack = null;
 
         lock (_lock)
         {
+            endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
             _playedTrackPaths.Clear();
             _lastPlayingTrack = null;
+            _currentTrackReportedAsEnded = false;
 
             if (isEmpty)
             {
@@ -164,6 +178,11 @@ public class AudioService : IAudioService
                     }
                 }
             }
+        }
+
+        if (endedTrack != null)
+        {
+            TrackPlaybackEnded?.Invoke(endedTrack);
         }
 
         if (isEmpty)
@@ -534,6 +553,27 @@ public class AudioService : IAudioService
         PlayCurrent();
     }
 
+    private Track? CheckAndPreparePlaybackEnded(bool forceEnded = false)
+    {
+        if (_currentTrackReportedAsEnded) return null;
+
+        if (_lastPlayingTrack != null)
+        {
+            bool shouldReport = forceEnded;
+            if (!shouldReport && _audioFile != null)
+            {
+                shouldReport = _audioFile.CurrentTime.TotalSeconds >= MinPlaybackSecondsForHistory;
+            }
+
+            if (shouldReport)
+            {
+                _currentTrackReportedAsEnded = true;
+                return _lastPlayingTrack;
+            }
+        }
+        return null;
+    }
+
     private async void PlayCurrent()
     {
         Guid thisPlaybackId = Guid.NewGuid();
@@ -543,6 +583,7 @@ public class AudioService : IAudioService
         }
 
         Track? trackToPlay = null;
+        Track? endedTrack = null;
         lock (_lock)
         {
             if (_currentIndex >= 0 && _currentIndex < _playlist.Count)
@@ -550,11 +591,18 @@ public class AudioService : IAudioService
                 trackToPlay = _playlist[_currentIndex];
             }
 
-            if (_lastPlayingTrack != null && trackToPlay != null && _lastPlayingTrack.FilePath != trackToPlay.FilePath)
+            if (_lastPlayingTrack != null && (trackToPlay == null || _lastPlayingTrack.FilePath != trackToPlay.FilePath))
             {
+                endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
                 _playedTrackPaths.Add(_lastPlayingTrack.FilePath);
             }
             _lastPlayingTrack = trackToPlay;
+            _currentTrackReportedAsEnded = false;
+        }
+
+        if (endedTrack != null)
+        {
+            TrackPlaybackEnded?.Invoke(endedTrack);
         }
 
         if (trackToPlay == null)
@@ -672,9 +720,12 @@ public class AudioService : IAudioService
 
     private void OnTrackEnded()
     {
+        Track? endedTrack = null;
         lock (_lock)
         {
             if (_stopRequested) return;
+
+            endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
 
             if (_currentIndex < _playlist.Count - 1)
             {
@@ -691,6 +742,11 @@ public class AudioService : IAudioService
                 Stop();
                 PlaylistEnded?.Invoke(this, EventArgs.Empty);
             }
+        }
+
+        if (endedTrack != null)
+        {
+            TrackPlaybackEnded?.Invoke(endedTrack);
         }
     }
 
@@ -827,14 +883,22 @@ public class AudioService : IAudioService
     public void Stop(bool internalStop = false)
     {
         bool playlistEmpty = false;
+        Track? endedTrack = null;
         lock (_lock)
         {
             if (internalStop) _stopRequested = true;
+
+            endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
 
             StopInternal();
             _currentIndex = -1;
             _stopRequested = false;
             playlistEmpty = (_playlist.Count == 0);
+        }
+
+        if (endedTrack != null)
+        {
+            TrackPlaybackEnded?.Invoke(endedTrack);
         }
 
         PlaybackStopped?.Invoke();
