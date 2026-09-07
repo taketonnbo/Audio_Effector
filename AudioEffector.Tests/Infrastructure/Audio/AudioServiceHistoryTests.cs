@@ -8,7 +8,7 @@ using Xunit;
 namespace AudioEffector.Tests.Infrastructure.Audio;
 
 /// <summary>
-/// <see cref="AudioService"/> の再生終了検知および <see cref="AudioService.TrackPlaybackEnded"/> イベント発火の挙動を検証するテストクラス。
+/// <see cref="AudioService"/> の再生終了検知、履歴イベント発火、および再生キューからの削除挙動を検証するテストクラス。
 /// </summary>
 public sealed class AudioServiceHistoryTests
 {
@@ -25,16 +25,18 @@ public sealed class AudioServiceHistoryTests
     }
 
     [Fact]
-    public void OnTrackEnded_トラック完奏時_TrackPlaybackEndedイベントが発火される()
+    public void OnTrackEnded_トラック完奏時_TrackPlaybackEndedイベントが発火されキューから削除される()
     {
         // Arrange
         using var sut = new AudioService();
-        var track = CreateTrack("1", "Track 1");
+        var track1 = CreateTrack("1", "Track 1");
+        var track2 = CreateTrack("2", "Track 2");
+        sut.SetPlaylist(new List<Track> { track1, track2 });
 
         // リフレクションで _lastPlayingTrack を設定
         var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.NotNull(lastPlayingTrackField);
-        lastPlayingTrackField.SetValue(sut, track);
+        lastPlayingTrackField.SetValue(sut, track1);
 
         Track? endedTrack = null;
         int eventCount = 0;
@@ -44,6 +46,9 @@ public sealed class AudioServiceHistoryTests
             eventCount++;
         };
 
+        List<Track>? updatedPlaylist = null;
+        sut.PlaylistChanged += p => updatedPlaylist = p;
+
         // Act - private メソッド OnTrackEnded を呼び出し
         var onTrackEndedMethod = typeof(AudioService).GetMethod("OnTrackEnded", BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.NotNull(onTrackEndedMethod);
@@ -52,7 +57,44 @@ public sealed class AudioServiceHistoryTests
         // Assert
         Assert.Equal(1, eventCount);
         Assert.NotNull(endedTrack);
-        Assert.Equal(track.FilePath, endedTrack.FilePath);
+        Assert.Equal(track1.FilePath, endedTrack.FilePath);
+
+        // 再生キューから終了曲が削除され、track2のみ残ること
+        Assert.NotNull(updatedPlaylist);
+        Assert.Single(updatedPlaylist);
+        Assert.Equal(track2.FilePath, updatedPlaylist[0].FilePath);
+    }
+
+    [Fact]
+    public void Next_次へスキップ時_再生キューから直前曲が削除され履歴イベントが発火される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var track1 = CreateTrack("1", "Track 1");
+        var track2 = CreateTrack("2", "Track 2");
+        sut.SetPlaylist(new List<Track> { track1, track2 });
+
+        var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(lastPlayingTrackField);
+        lastPlayingTrackField.SetValue(sut, track1);
+
+        Track? endedTrack = null;
+        sut.TrackPlaybackEnded += t => endedTrack = t;
+
+        List<Track>? updatedPlaylist = null;
+        sut.PlaylistChanged += p => updatedPlaylist = p;
+
+        // Act
+        sut.Next();
+
+        // Assert
+        Assert.NotNull(endedTrack);
+        Assert.Equal(track1.FilePath, endedTrack.FilePath);
+
+        // 再生キューから track1 が削除され track2 のみが残る
+        Assert.NotNull(updatedPlaylist);
+        Assert.Single(updatedPlaylist);
+        Assert.Equal(track2.FilePath, updatedPlaylist[0].FilePath);
     }
 
     [Fact]
@@ -81,7 +123,7 @@ public sealed class AudioServiceHistoryTests
     }
 
     [Fact]
-    public void CheckAndPreparePlaybackEnded_再生時間が5秒未満の場合_報告されない()
+    public void CheckAndPreparePlaybackEnded_再生時間が5秒未満でも報告される()
     {
         // Arrange
         using var sut = new AudioService();
@@ -91,35 +133,13 @@ public sealed class AudioServiceHistoryTests
         Assert.NotNull(lastPlayingTrackField);
         lastPlayingTrackField.SetValue(sut, track);
 
-        // _audioFile が null の状態（または再生時間0秒）
         var checkMethod = typeof(AudioService).GetMethod("CheckAndPreparePlaybackEnded", BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.NotNull(checkMethod);
 
-        // Act
+        // Act - forceEnded: false (5秒未満相当)
         var result = checkMethod.Invoke(sut, new object[] { false }) as Track;
 
-        // Assert
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void CheckAndPreparePlaybackEnded_forceEndedがtrueの場合_再生時間に関わらず報告される()
-    {
-        // Arrange
-        using var sut = new AudioService();
-        var track = CreateTrack("1", "Force Ended Track");
-
-        var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(lastPlayingTrackField);
-        lastPlayingTrackField.SetValue(sut, track);
-
-        var checkMethod = typeof(AudioService).GetMethod("CheckAndPreparePlaybackEnded", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(checkMethod);
-
-        // Act
-        var result = checkMethod.Invoke(sut, new object[] { true }) as Track;
-
-        // Assert
+        // Assert - 5秒未満でも履歴追加対象として返却されること
         Assert.NotNull(result);
         Assert.Equal(track.FilePath, result.FilePath);
     }

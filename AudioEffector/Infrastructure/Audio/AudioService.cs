@@ -559,19 +559,31 @@ public class AudioService : IAudioService
 
         if (_lastPlayingTrack != null)
         {
-            bool shouldReport = forceEnded;
-            if (!shouldReport && _audioFile != null)
-            {
-                shouldReport = _audioFile.CurrentTime.TotalSeconds >= MinPlaybackSecondsForHistory;
-            }
-
-            if (shouldReport)
-            {
-                _currentTrackReportedAsEnded = true;
-                return _lastPlayingTrack;
-            }
+            _currentTrackReportedAsEnded = true;
+            return _lastPlayingTrack;
         }
         return null;
+    }
+
+    private void RemoveTrackFromQueueInternal(Track track)
+    {
+        _originalPlaylist.RemoveAll(t => t.FilePath == track.FilePath);
+        int index = _playlist.FindIndex(t => t.FilePath == track.FilePath);
+        if (index >= 0)
+        {
+            _playlist.RemoveAt(index);
+            if (_currentIndex > index)
+            {
+                _currentIndex--;
+            }
+            else if (_currentIndex == index)
+            {
+                if (_currentIndex >= _playlist.Count)
+                {
+                    _currentIndex = _playlist.Count > 0 ? 0 : -1;
+                }
+            }
+        }
     }
 
     private async void PlayCurrent()
@@ -721,32 +733,64 @@ public class AudioService : IAudioService
     private void OnTrackEnded()
     {
         Track? endedTrack = null;
+        bool playlistEmpty = false;
+        List<Track>? newPlaylist = null;
         lock (_lock)
         {
             if (_stopRequested) return;
 
             endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
-
-            if (_currentIndex < _playlist.Count - 1)
+            if (endedTrack != null)
             {
-                _currentIndex++;
-                PlayCurrent();
+                RemoveTrackFromQueueInternal(endedTrack);
+                newPlaylist = new List<Track>(_playlist);
             }
-            else if (IsRepeatEnabled && _playlist.Count > 0)
+
+            if (_playlist.Count == 0)
             {
-                _currentIndex = 0;
-                PlayCurrent();
+                playlistEmpty = true;
+                StopInternal();
+                _currentIndex = -1;
             }
             else
             {
-                Stop();
-                PlaylistEnded?.Invoke(this, EventArgs.Empty);
+                if (_currentIndex >= _playlist.Count)
+                {
+                    if (IsRepeatEnabled)
+                    {
+                        _currentIndex = 0;
+                        PlayCurrent();
+                    }
+                    else
+                    {
+                        playlistEmpty = true;
+                        StopInternal();
+                        _currentIndex = -1;
+                    }
+                }
+                else
+                {
+                    PlayCurrent();
+                }
             }
         }
 
         if (endedTrack != null)
         {
             TrackPlaybackEnded?.Invoke(endedTrack);
+        }
+
+        if (newPlaylist != null)
+        {
+            PlaylistChanged?.Invoke(newPlaylist);
+        }
+
+        if (playlistEmpty)
+        {
+            PlaylistEnded?.Invoke(this, EventArgs.Empty);
+            PlaybackStopped?.Invoke();
+            PlaybackStateChanged?.Invoke(false);
+            TrackChanged?.Invoke(null);
         }
     }
 
@@ -821,25 +865,65 @@ public class AudioService : IAudioService
     /// </summary>
     public async void Next()
     {
+        Track? endedTrack = null;
+        bool playlistEmpty = false;
+        List<Track>? newPlaylist = null;
         lock (_lock)
         {
             if (_playlist.Count == 0) return;
-            _currentIndex++;
-            if (_currentIndex >= _playlist.Count)
+
+            endedTrack = CheckAndPreparePlaybackEnded();
+            if (endedTrack != null)
             {
-                if (IsRepeatEnabled)
+                RemoveTrackFromQueueInternal(endedTrack);
+                newPlaylist = new List<Track>(_playlist);
+            }
+
+            if (_playlist.Count == 0)
+            {
+                playlistEmpty = true;
+                StopInternal();
+                _currentIndex = -1;
+            }
+            else
+            {
+                if (_currentIndex >= _playlist.Count)
                 {
-                    _currentIndex = 0;
+                    if (IsRepeatEnabled)
+                    {
+                        _currentIndex = 0;
+                        PlayCurrent();
+                    }
+                    else
+                    {
+                        playlistEmpty = true;
+                        StopInternal();
+                        _currentIndex = -1;
+                    }
                 }
                 else
                 {
-                    _currentIndex = _playlist.Count - 1;
-                    Stop();
-                    PlaylistEnded?.Invoke(this, EventArgs.Empty);
-                    return;
+                    PlayCurrent();
                 }
             }
-            PlayCurrent();
+        }
+
+        if (endedTrack != null)
+        {
+            TrackPlaybackEnded?.Invoke(endedTrack);
+        }
+
+        if (newPlaylist != null)
+        {
+            PlaylistChanged?.Invoke(newPlaylist);
+        }
+
+        if (playlistEmpty)
+        {
+            PlaylistEnded?.Invoke(this, EventArgs.Empty);
+            PlaybackStopped?.Invoke();
+            PlaybackStateChanged?.Invoke(false);
+            TrackChanged?.Invoke(null);
         }
 
         await Task.Delay(100);
