@@ -709,5 +709,32 @@ public sealed class PlayerControlViewModelTests
         Assert.Empty(sut.PlayHistory);
         Assert.Single(sut.PlayQueue);
     }
+
+    /// <summary>
+    /// PlayQueueプロパティに新しいコレクションが代入された際、CurrentTrackと一致する曲のIsPlayingが自動的に同期されることを検証します。
+    /// </summary>
+    [Fact]
+    public void PlayQueue_新しいコレクション代入時_CurrentTrackと一致する曲のIsPlayingが自動的にtrueに同期される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var current = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+        sut.CurrentTrack = current;
+
+        var newQueueTrack1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1", IsPlaying = false };
+        var newQueueTrack2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2", IsPlaying = false };
+
+        // Act - PlayQueue に新しいコレクションを設定
+        sut.PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track> { newQueueTrack1, newQueueTrack2 };
+
+        // Assert - setter 内で自動的に SyncTrackPlayingStates が実行され、newQueueTrack1.IsPlaying が true になること
+        Assert.True(newQueueTrack1.IsPlaying);
+        Assert.False(newQueueTrack2.IsPlaying);
+    }
 }
 

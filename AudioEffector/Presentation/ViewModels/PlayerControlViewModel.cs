@@ -378,7 +378,13 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public ObservableCollection<Track> PlayQueue
     {
         get => _playQueue;
-        set => SetProperty(ref _playQueue, value);
+        set
+        {
+            if (SetProperty(ref _playQueue, value))
+            {
+                SyncTrackPlayingStates(CurrentTrack);
+            }
+        }
     }
 
     /// <summary>

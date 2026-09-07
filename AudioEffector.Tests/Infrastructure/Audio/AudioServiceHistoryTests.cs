@@ -193,4 +193,43 @@ public sealed class AudioServiceHistoryTests
         // Assert - キューに曲が残っていても最終曲が終了したので PlaylistEnded が発火すること
         Assert.True(playlistEndedFired);
     }
+
+    [Fact]
+    public void OnTrackEnded_PlaylistEndedハンドラで次のアルバム再生が開始された場合_停止イベントやTrackChanged_nullが発火せず新アルバムの再生状態が維持される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var track1 = CreateTrack("1", "Track 1");
+        var nextAlbumTrack = CreateTrack("2", "Next Album Track");
+        sut.SetPlaylist(new List<Track> { track1 });
+
+        // track1 を直前曲として設定
+        var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(lastPlayingTrackField);
+        lastPlayingTrackField.SetValue(sut, track1);
+
+        Track? lastTrackChanged = null;
+        sut.TrackChanged += t => lastTrackChanged = t;
+
+        bool stoppedFired = false;
+        sut.PlaybackStopped += () => stoppedFired = true;
+
+        // PlaylistEnded のハンドラ内で次のアルバム再生を開始する（MainViewModel.OnPlaylistEnded と同様の動作）
+        sut.PlaylistEnded += (s, e) =>
+        {
+            sut.SetPlaylist(new List<Track> { nextAlbumTrack });
+            sut.PlayTrack(nextAlbumTrack);
+        };
+
+        var onTrackEndedMethod = typeof(AudioService).GetMethod("OnTrackEnded", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(onTrackEndedMethod);
+
+        // Act - 最終曲 track1 の終了
+        onTrackEndedMethod.Invoke(sut, null);
+
+        // Assert - PlaylistEnded 内で開始された nextAlbumTrack の再生が null で上書きされず維持され、PlaybackStopped も発火しないこと
+        Assert.NotNull(lastTrackChanged);
+        Assert.Equal(nextAlbumTrack.FilePath, lastTrackChanged.FilePath);
+        Assert.False(stoppedFired);
+    }
 }

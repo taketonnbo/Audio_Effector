@@ -821,9 +821,20 @@ public class AudioService : IAudioService
         if (playlistEmpty)
         {
             PlaylistEnded?.Invoke(this, EventArgs.Empty);
-            PlaybackStopped?.Invoke();
-            PlaybackStateChanged?.Invoke(false);
-            TrackChanged?.Invoke(null);
+
+            // PlaylistEnded のハンドラ（次アルバム自動再生等）によって新しい再生が開始されていない場合のみ、停止イベントを発火する
+            bool hasNewPlaybackStarted;
+            lock (_lock)
+            {
+                hasNewPlaybackStarted = _playlist.Count > 0 || _currentIndex >= 0 || _outputDevice != null;
+            }
+
+            if (!hasNewPlaybackStarted)
+            {
+                PlaybackStopped?.Invoke();
+                PlaybackStateChanged?.Invoke(false);
+                TrackChanged?.Invoke(null);
+            }
         }
     }
 
@@ -959,9 +970,20 @@ public class AudioService : IAudioService
         if (playlistEmpty)
         {
             PlaylistEnded?.Invoke(this, EventArgs.Empty);
-            PlaybackStopped?.Invoke();
-            PlaybackStateChanged?.Invoke(false);
-            TrackChanged?.Invoke(null);
+
+            // PlaylistEnded のハンドラ（次アルバム自動再生等）によって新しい再生が開始されていない場合のみ、停止イベントを発火する
+            bool hasNewPlaybackStarted;
+            lock (_lock)
+            {
+                hasNewPlaybackStarted = _playlist.Count > 0 || _currentIndex >= 0 || _outputDevice != null;
+            }
+
+            if (!hasNewPlaybackStarted)
+            {
+                PlaybackStopped?.Invoke();
+                PlaybackStateChanged?.Invoke(false);
+                TrackChanged?.Invoke(null);
+            }
         }
 
         await Task.Delay(100);

@@ -1710,6 +1710,7 @@ namespace AudioEffector.Presentation.ViewModels
             System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track>(playlist);
+                PlayerControl?.SyncTrackPlayingStates(CurrentTrack);
             });
         }
 
