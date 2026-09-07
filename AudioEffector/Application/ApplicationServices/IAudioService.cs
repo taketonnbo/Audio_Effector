@@ -52,6 +52,22 @@ public interface IAudioService : IDisposable
     event Action<float> VolumeChanged;
 
     /// <summary>
+    /// ユーザーが手動で追加した予約キュー
+    /// </summary>
+    IReadOnlyList<Track> UserQueue { get; }
+
+    /// <summary>
+    /// アルバムから引き続いて再生される予定のキュー
+    /// </summary>
+    IReadOnlyList<Track> AlbumQueue { get; }
+
+    /// <summary>
+    /// 予約キューのみを全クリアします
+    /// </summary>
+    [LogDescription("予約キューをクリアします")]
+    void ClearUserQueue();
+
+    /// <summary>
     /// 現在再生中かどうか
     /// </summary>
     bool IsPlaying { get; }

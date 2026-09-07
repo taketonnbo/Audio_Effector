@@ -23,9 +23,11 @@ public class AudioService : IAudioService
     private WaveOutEvent? _outputDevice;
     private AudioFileReader? _audioFile;
     private EqualizerDsp? _equalizer;
+    private List<Track> _userQueue = new();
+    private List<Track> _albumQueue = new();
+    private List<Track> _originalAlbumTracks = new();
     private List<Track> _playlist = new();
-    private List<Track> _originalPlaylist = new();
-    private int _currentIndex = -1;
+    private Track? _currentlyPlayingTrack;
     private bool _isShuffleEnabled;
     private bool _wasPlayingBeforeSeek;
     private Guid _currentPlaybackId;
@@ -34,6 +36,45 @@ public class AudioService : IAudioService
     private int _bufferSizeMs = 100;
     private WdlResamplingSampleProvider? _resampler;
     private VolumeSampleProvider? _masterVolumeProvider;
+
+    /// <summary>
+    /// ユーザーが手動で追加した予約キュー
+    /// </summary>
+    public IReadOnlyList<Track> UserQueue
+    {
+        get { lock (_lock) { return new List<Track>(_userQueue); } }
+    }
+
+    /// <summary>
+    /// アルバムから引き続いて再生される予定のキュー
+    /// </summary>
+    public IReadOnlyList<Track> AlbumQueue
+    {
+        get { lock (_lock) { return new List<Track>(_albumQueue); } }
+    }
+
+    /// <summary>
+    /// 予約キューのみを全クリアします
+    /// </summary>
+    public void ClearUserQueue()
+    {
+        List<Track>? changedPlaylist = null;
+        lock (_lock)
+        {
+            if (_userQueue.Count > 0)
+            {
+                _userQueue.Clear();
+                _playlist = new List<Track>(_albumQueue);
+                _finalTrackOfQueue = _albumQueue.Count > 0 ? _albumQueue[^1] : _currentlyPlayingTrack;
+                changedPlaylist = new List<Track>(_playlist);
+            }
+        }
+
+        if (changedPlaylist != null)
+        {
+            PlaylistChanged?.Invoke(changedPlaylist);
+        }
+    }
 
     /// <summary>
     /// 再生履歴に追加するための最小再生時間（秒）
@@ -142,6 +183,7 @@ public class AudioService : IAudioService
     {
         bool isEmpty = (tracks == null || tracks.Count == 0);
         Track? endedTrack = null;
+        Track? trackToPlay = null;
 
         lock (_lock)
         {
@@ -149,37 +191,44 @@ public class AudioService : IAudioService
             _playedTrackPaths.Clear();
             _lastPlayingTrack = null;
             _currentTrackReportedAsEnded = false;
+            _userQueue.Clear();
 
             if (isEmpty)
             {
-                _originalPlaylist = new List<Track>();
-                _playlist = new List<Track>();
-                _currentIndex = -1;
+                _originalAlbumTracks.Clear();
+                _albumQueue.Clear();
+                _playlist.Clear();
+                _currentlyPlayingTrack = null;
                 _finalTrackOfQueue = null;
             }
             else
             {
-                var currentTrack = startTrack ?? (_currentIndex >= 0 && _currentIndex < _playlist.Count ? _playlist[_currentIndex] : null);
+                _originalAlbumTracks = new List<Track>(tracks!);
+                var currentTrack = startTrack ?? tracks![0];
+                trackToPlay = currentTrack;
 
-                _originalPlaylist = new List<Track>(tracks!);
                 if (_isShuffleEnabled)
                 {
-                    ShufflePlaylist(currentTrack);
+                    var remaining = tracks!.Where(t => !string.Equals(t.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase)).ToList();
+                    ShuffleList(remaining);
+                    _albumQueue = remaining;
+                    _finalTrackOfQueue = _albumQueue.Count > 0 ? _albumQueue[^1] : currentTrack;
                 }
                 else
                 {
-                    _playlist = new List<Track>(tracks!);
-                    if (currentTrack != null)
+                    int startIdx = tracks!.FindIndex(t => string.Equals(t.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase));
+                    if (startIdx >= 0)
                     {
-                        var newIndex = _playlist.FindIndex(t => t.FilePath == currentTrack.FilePath);
-                        _currentIndex = newIndex >= 0 ? newIndex : -1;
+                        _albumQueue = tracks!.Skip(startIdx + 1).ToList();
                     }
                     else
                     {
-                        _currentIndex = -1;
+                        _albumQueue = tracks!.Where(t => !string.Equals(t.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase)).ToList();
                     }
+                    _finalTrackOfQueue = _albumQueue.Count > 0 ? _albumQueue[^1] : currentTrack;
                 }
-                _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : null;
+
+                _playlist = new List<Track>(_albumQueue);
             }
         }
 
@@ -197,120 +246,52 @@ public class AudioService : IAudioService
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
+        if (trackToPlay != null)
+        {
+            PlayTrackInternal(trackToPlay);
+        }
     }
 
     /// <summary>
     /// トラックコレクションをキューに追加します（単曲またはアルバム）
     /// </summary>
     /// <param name="tracks">追加するトラックコレクション</param>
-    /// <param name="playNext">trueの場合、現在再生中の楽曲の直後に追加（次に再生）。falseの場合、キュー末尾に追加。</param>
+    /// <param name="playNext">trueの場合、現在再生中の楽曲の直後に追加（次に再生）。falseの場合、キュー末尾に追加（最後に再生）。</param>
     public void EnqueueTracks(IReadOnlyList<Track> tracks, bool playNext)
     {
         if (tracks == null || tracks.Count == 0) return;
 
         lock (_lock)
         {
-            // 元の順序リスト（_originalPlaylist）には、アルバムを追加した順（各アルバム内はトラック順）で末尾に追加
-            _originalPlaylist.AddRange(tracks);
-
-            if (_playlist.Count == 0)
+            if (playNext)
             {
-                if (_isShuffleEnabled)
+                // 仕様: 「次に再生」は予約キューの先頭に追加
+                var tracksToAdd = new List<Track>(tracks);
+                if (_isShuffleEnabled && tracksToAdd.Count > 1)
                 {
-                    var shuffled = new List<Track>(tracks);
-                    var rng = new Random();
-                    int n = shuffled.Count;
-                    while (n > 1)
-                    {
-                        n--;
-                        int k = rng.Next(n + 1);
-                        (shuffled[k], shuffled[n]) = (shuffled[n], shuffled[k]);
-                    }
-
-                    _playlist = shuffled;
+                    // シャッフル中かつアルバム単位の場合、アルバム収録曲をシャッフルして追加
+                    ShuffleList(tracksToAdd);
                 }
-                else
-                {
-                    _playlist = new List<Track>(tracks);
-                }
-
-                _currentIndex = 0;
+                _userQueue.InsertRange(0, tracksToAdd);
             }
             else
             {
-                if (_isShuffleEnabled)
+                // 仕様: 「最後に再生」を行うと、予約キューとアルバムの残りを統合し、まとめて予約キューとする
+                _userQueue.AddRange(_albumQueue);
+                _albumQueue.Clear();
+                _originalAlbumTracks.Clear();
+
+                var tracksToAdd = new List<Track>(tracks);
+                if (_isShuffleEnabled && tracksToAdd.Count > 1)
                 {
-                    if (playNext)
-                    {
-                        // 仕様: シャッフル再生中にアルバム単位で「次に再生」を行うと、
-                        // アルバムの順番がランダムな状態で、まとめて現在再生中の曲の直後に追加される。
-                        var tracksToAdd = new List<Track>(tracks);
-                        if (tracksToAdd.Count > 1)
-                        {
-                            var rng = new Random();
-                            int n = tracksToAdd.Count;
-                            while (n > 1)
-                            {
-                                n--;
-                                int k = rng.Next(n + 1);
-                                (tracksToAdd[k], tracksToAdd[n]) = (tracksToAdd[n], tracksToAdd[k]);
-                            }
-                        }
-
-                        int insertIndex = (_currentIndex >= 0 && _currentIndex < _playlist.Count)
-                            ? _currentIndex + 1
-                            : _playlist.Count;
-
-                        _playlist.InsertRange(insertIndex, tracksToAdd);
-                    }
-                    else
-                    {
-                        // 仕様: 「キューに追加」は現状通り（現在再生中以外の全キューリストと再シャッフル）
-                        Track? currentTrack = (_currentIndex >= 0 && _currentIndex < _playlist.Count)
-                            ? _playlist[_currentIndex] : null;
-
-                        var others = new List<Track>(_playlist);
-                        if (currentTrack != null)
-                        {
-                            others.RemoveAt(_currentIndex);
-                        }
-
-                        others.AddRange(tracks);
-
-                        var rng = new Random();
-                        int n = others.Count;
-                        while (n > 1)
-                        {
-                            n--;
-                            int k = rng.Next(n + 1);
-                            (others[k], others[n]) = (others[n], others[k]);
-                        }
-
-                        if (currentTrack != null)
-                        {
-                            others.Insert(0, currentTrack);
-                            _currentIndex = 0;
-                        }
-
-                        _playlist = others;
-                    }
+                    // アルバム単位の場合、アルバム収録曲をシャッフルして追加
+                    ShuffleList(tracksToAdd);
                 }
-                else
-                {
-                    // シャッフルOFF時
-                    if (playNext)
-                    {
-                        int insertIndex = (_currentIndex >= 0 && _currentIndex < _playlist.Count)
-                            ? _currentIndex + 1
-                            : _playlist.Count;
-                        _playlist.InsertRange(insertIndex, tracks);
-                    }
-                    else
-                    {
-                        _playlist.AddRange(tracks);
-                    }
-                }
+                _userQueue.AddRange(tracksToAdd);
             }
+
+            _playlist = _userQueue.Concat(_albumQueue).ToList();
+            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
@@ -326,209 +307,60 @@ public class AudioService : IAudioService
 
         lock (_lock)
         {
-            _originalPlaylist.RemoveAll(t => t.FilePath == track.FilePath);
-            int index = _playlist.FindIndex(t => t.FilePath == track.FilePath);
-            if (index >= 0)
+            _userQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
+            _albumQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
+            _originalAlbumTracks.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
+
+            _playlist = _userQueue.Concat(_albumQueue).ToList();
+            if (_finalTrackOfQueue != null && string.Equals(_finalTrackOfQueue.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase))
             {
-                _playlist.RemoveAt(index);
-                if (_currentIndex == index)
-                {
-                    if (_playlist.Count == 0)
-                    {
-                        _currentIndex = -1;
-                    }
-                    else if (_currentIndex >= _playlist.Count)
-                    {
-                        _currentIndex = 0;
-                    }
-                }
-                else if (_currentIndex > index)
-                {
-                    _currentIndex--;
-                }
+                _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
             }
         }
 
-        if (_playlist.Count == 0)
-        {
-            Stop();
-            TrackChanged?.Invoke(null);
-            PlaylistChanged?.Invoke(new List<Track>());
-        }
-        else
-        {
-            PlaylistChanged?.Invoke(new List<Track>(_playlist));
-        }
+        PlaylistChanged?.Invoke(new List<Track>(_playlist));
     }
 
     private void ShufflePlaylist(Track? keepFirstTrack = null)
     {
-        if (_originalPlaylist.Count <= 1)
+        // 仕様: シャッフルの適用範囲を「AlbumQueue」に限定
+        if (_albumQueue.Count > 1)
         {
-            _playlist = new List<Track>(_originalPlaylist);
-            _currentIndex = _playlist.Count > 0 ? 0 : -1;
-            return;
+            ShuffleList(_albumQueue);
         }
+        _playlist = _userQueue.Concat(_albumQueue).ToList();
+        if (_albumQueue.Count > 0)
+        {
+            _finalTrackOfQueue = _albumQueue[^1];
+        }
+    }
 
-        Track? currentTrack = keepFirstTrack ?? ((_currentIndex >= 0 && _currentIndex < _playlist.Count)
-            ? _playlist[_currentIndex] : null);
-
+    private static void ShuffleList(List<Track> list)
+    {
         var rng = new Random();
-        var shuffled = new List<Track>(_originalPlaylist);
-
-        if (currentTrack != null)
-        {
-            shuffled.RemoveAll(t => t.FilePath == currentTrack.FilePath);
-        }
-
-        int n = shuffled.Count;
+        int n = list.Count;
         while (n > 1)
         {
             n--;
             int k = rng.Next(n + 1);
-            (shuffled[k], shuffled[n]) = (shuffled[n], shuffled[k]);
+            (list[k], list[n]) = (list[n], list[k]);
         }
-
-        if (currentTrack != null)
-        {
-            shuffled.Insert(0, currentTrack);
-            _currentIndex = 0;
-        }
-        else
-        {
-            _currentIndex = -1;
-        }
-
-        _playlist = shuffled;
     }
 
     private void RestorePlaylist()
     {
-        Track? currentTrack = null;
-        if (_currentIndex >= 0 && _currentIndex < _playlist.Count)
+        // 仕様: 予約キューはそのまま保持し、アルバム残り曲のみを元のアルバムトラック順序に復元
+        if (_albumQueue.Count > 1 && _originalAlbumTracks.Count > 0)
         {
-            currentTrack = _playlist[_currentIndex];
+            _albumQueue = _albumQueue
+                .OrderBy(t => t.TrackNumber > 0 ? (int)t.TrackNumber : int.MaxValue)
+                .ThenBy(t => _originalAlbumTracks.FindIndex(o => string.Equals(o.FilePath, t.FilePath, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
         }
-
-        // 仕様:
-        // ・アルバムの再生中に解除した場合、元のアルバム収録順に再生キューの順番を戻す。
-        // ・シャッフル再生により、既に再生済みのもの（_playedTrackPathsに含まれる曲）は履歴に残したまま、再生キューはその曲を穴あき（除外）とする。
-        // ・未再生の曲については除外せず、再生中の曲の上（手前）および下に残す。
-        // ・複数アルバム混在時、シャッフルOFF時は「キューに追加した順」でアルバムごとにまとめる。
-        // ・各アルバム内はトラック番号順（TrackNumber昇順。同一または0の場合は元順序）に整列する。
-        // ・現在再生中の曲のインデックス（_currentIndex）を復元後キュー内の位置に正しく設定する。
-
-        var allTracks = new List<Track>(_originalPlaylist);
-        foreach (var t in _playlist)
+        _playlist = _userQueue.Concat(_albumQueue).ToList();
+        if (_albumQueue.Count > 0)
         {
-            if (!allTracks.Any(o => o.FilePath == t.FilePath))
-            {
-                allTracks.Add(t);
-            }
-        }
-
-        // 残す対象曲（現在再生中の曲、または未再生曲）
-        var remainingTracks = new List<Track>();
-        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var track in allTracks)
-        {
-            if (seenPaths.Add(track.FilePath))
-            {
-                bool isCurrent = currentTrack != null && string.Equals(track.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase);
-                bool isPlayed = _playedTrackPaths.Contains(track.FilePath);
-
-                if (isCurrent || !isPlayed)
-                {
-                    remainingTracks.Add(track);
-                }
-            }
-        }
-
-        if (remainingTracks.Count == 0)
-        {
-            if (currentTrack != null)
-            {
-                remainingTracks.Add(currentTrack);
-            }
-        }
-
-        // アルバムのキー決定関数
-        // track.Album が存在すれば Album名（大文字小文字無視）。
-        // track.Album が空なら、曲のディレクトリ名またはFilePathで単曲アルバムとして識別
-        static string GetAlbumKey(Track track)
-        {
-            if (!string.IsNullOrWhiteSpace(track.Album))
-            {
-                return track.Album.Trim();
-            }
-            string? dir = null;
-            try
-            {
-                dir = System.IO.Path.GetDirectoryName(track.FilePath);
-            }
-            catch { }
-
-            if (!string.IsNullOrWhiteSpace(dir))
-            {
-                return dir;
-            }
-            return !string.IsNullOrWhiteSpace(track.Title) ? track.Title : track.FilePath;
-        }
-
-        // キューに追加されたアルバムの出現順（allTracks に現れる順）
-        var albumOrder = new List<string>();
-        foreach (var track in allTracks)
-        {
-            string key = GetAlbumKey(track);
-            if (!albumOrder.Contains(key, StringComparer.OrdinalIgnoreCase))
-            {
-                albumOrder.Add(key);
-            }
-        }
-
-        // 残っている曲をアルバムごとにグループ化
-        var grouped = remainingTracks
-            .GroupBy(t => GetAlbumKey(t), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
-
-        var restoredPlaylist = new List<Track>();
-        foreach (var albumKey in albumOrder)
-        {
-            if (grouped.TryGetValue(albumKey, out var tracksInAlbum))
-            {
-                // 各アルバム内の曲をトラック番号順（TrackNumber > 0 なら昇順、同一番号または0ならallTracks内の元の出現インデックス順）
-                var sortedTracks = tracksInAlbum
-                    .OrderBy(t => t.TrackNumber > 0 ? (int)t.TrackNumber : int.MaxValue)
-                    .ThenBy(t => allTracks.FindIndex(o => string.Equals(o.FilePath, t.FilePath, StringComparison.OrdinalIgnoreCase)))
-                    .ToList();
-
-                restoredPlaylist.AddRange(sortedTracks);
-            }
-        }
-
-        // 万が一グループ化から漏れた曲があれば末尾に配置
-        foreach (var t in remainingTracks)
-        {
-            if (!restoredPlaylist.Any(r => string.Equals(r.FilePath, t.FilePath, StringComparison.OrdinalIgnoreCase)))
-            {
-                restoredPlaylist.Add(t);
-            }
-        }
-
-        _playlist = restoredPlaylist;
-
-        if (currentTrack != null)
-        {
-            _currentIndex = _playlist.FindIndex(t => string.Equals(t.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase));
-            if (_currentIndex < 0 && _playlist.Count > 0)
-            {
-                _currentIndex = 0;
-            }
-        }
-        else
-        {
-            _currentIndex = _playlist.Count > 0 ? 0 : -1;
+            _finalTrackOfQueue = _albumQueue[^1];
         }
     }
 
@@ -550,35 +382,14 @@ public class AudioService : IAudioService
     {
         lock (_lock)
         {
-            int index = _playlist.FindIndex(t => t.FilePath == track.FilePath);
-            if (insertAtBeginning)
-            {
-                if (index >= 0)
-                {
-                    _playlist.RemoveAt(index);
-                    _originalPlaylist.RemoveAll(t => t.FilePath == track.FilePath);
-                }
-                _playlist.Insert(0, track);
-                _originalPlaylist.Insert(0, track);
-                _currentIndex = 0;
-                PlaylistChanged?.Invoke(new List<Track>(_playlist));
-            }
-            else
-            {
-                if (index >= 0)
-                {
-                    _currentIndex = index;
-                }
-                else
-                {
-                    _playlist.Insert(0, track);
-                    _originalPlaylist.Insert(0, track);
-                    _currentIndex = 0;
-                    PlaylistChanged?.Invoke(new List<Track>(_playlist));
-                }
-            }
+            _userQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
+            _albumQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
+            _originalAlbumTracks.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
+            _playlist = _userQueue.Concat(_albumQueue).ToList();
         }
-        PlayCurrent();
+
+        PlaylistChanged?.Invoke(new List<Track>(_playlist));
+        PlayTrackInternal(track);
     }
 
     private Track? CheckAndPreparePlaybackEnded(bool forceEnded = false)
@@ -595,47 +406,54 @@ public class AudioService : IAudioService
 
     private void RemoveTrackFromQueueInternal(Track track)
     {
-        _originalPlaylist.RemoveAll(t => t.FilePath == track.FilePath);
-        int index = _playlist.FindIndex(t => t.FilePath == track.FilePath);
-        if (index >= 0)
+        _userQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
+        _albumQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
+        _originalAlbumTracks.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
+        _playlist = _userQueue.Concat(_albumQueue).ToList();
+    }
+
+    private void PlayCurrent()
+    {
+        Track? trackToPlay = null;
+        lock (_lock)
         {
-            _playlist.RemoveAt(index);
-            if (_currentIndex > index)
+            if (_currentlyPlayingTrack != null)
             {
-                _currentIndex--;
+                trackToPlay = _currentlyPlayingTrack;
             }
-            else if (_currentIndex == index)
+            else if (_userQueue.Count > 0)
             {
-                if (_currentIndex >= _playlist.Count)
-                {
-                    _currentIndex = _playlist.Count > 0 ? 0 : -1;
-                }
+                trackToPlay = _userQueue[0];
+                _userQueue.RemoveAt(0);
             }
+            else if (_albumQueue.Count > 0)
+            {
+                trackToPlay = _albumQueue[0];
+                _albumQueue.RemoveAt(0);
+            }
+            _playlist = _userQueue.Concat(_albumQueue).ToList();
+        }
+
+        if (trackToPlay != null)
+        {
+            PlaylistChanged?.Invoke(new List<Track>(_playlist));
+            PlayTrackInternal(trackToPlay);
         }
     }
 
-    private async void PlayCurrent()
+    private async void PlayTrackInternal(Track trackToPlay)
     {
         Guid thisPlaybackId = Guid.NewGuid();
-        lock (_lock)
-        {
-            _currentPlaybackId = thisPlaybackId;
-        }
-
-        Track? trackToPlay = null;
         Track? endedTrack = null;
         lock (_lock)
         {
-            if (_currentIndex >= 0 && _currentIndex < _playlist.Count)
-            {
-                trackToPlay = _playlist[_currentIndex];
-            }
-
-            if (_lastPlayingTrack != null && (trackToPlay == null || _lastPlayingTrack.FilePath != trackToPlay.FilePath))
+            _currentPlaybackId = thisPlaybackId;
+            if (_currentlyPlayingTrack != null && !string.Equals(_currentlyPlayingTrack.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase))
             {
                 endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
-                _playedTrackPaths.Add(_lastPlayingTrack.FilePath);
+                _playedTrackPaths.Add(_currentlyPlayingTrack.FilePath);
             }
+            _currentlyPlayingTrack = trackToPlay;
             _lastPlayingTrack = trackToPlay;
             _currentTrackReportedAsEnded = false;
         }
@@ -643,13 +461,6 @@ public class AudioService : IAudioService
         if (endedTrack != null)
         {
             TrackPlaybackEnded?.Invoke(endedTrack);
-        }
-
-        if (trackToPlay == null)
-        {
-            Stop();
-            TrackChanged?.Invoke(null);
-            return;
         }
 
         TrackChanged?.Invoke(trackToPlay);
@@ -758,85 +569,6 @@ public class AudioService : IAudioService
         PlaybackStateChanged?.Invoke(IsPlaying);
     }
 
-    private void OnTrackEnded()
-    {
-        Track? endedTrack = null;
-        bool playlistEmpty = false;
-        List<Track>? newPlaylist = null;
-        lock (_lock)
-        {
-            if (_stopRequested) return;
-
-            endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
-            bool isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
-                string.Equals(endedTrack.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
-
-            if (endedTrack != null)
-            {
-                RemoveTrackFromQueueInternal(endedTrack);
-                newPlaylist = new List<Track>(_playlist);
-            }
-
-            if (_playlist.Count == 0 || (!IsRepeatEnabled && isFinalTrackEnded))
-            {
-                playlistEmpty = true;
-                StopInternal();
-                _currentIndex = -1;
-                _finalTrackOfQueue = null;
-            }
-            else
-            {
-                if (_currentIndex >= _playlist.Count)
-                {
-                    if (IsRepeatEnabled)
-                    {
-                        _currentIndex = 0;
-                        PlayCurrent();
-                    }
-                    else
-                    {
-                        playlistEmpty = true;
-                        StopInternal();
-                        _currentIndex = -1;
-                        _finalTrackOfQueue = null;
-                    }
-                }
-                else
-                {
-                    PlayCurrent();
-                }
-            }
-        }
-
-        if (endedTrack != null)
-        {
-            TrackPlaybackEnded?.Invoke(endedTrack);
-        }
-
-        if (newPlaylist != null)
-        {
-            PlaylistChanged?.Invoke(newPlaylist);
-        }
-
-        if (playlistEmpty)
-        {
-            PlaylistEnded?.Invoke(this, EventArgs.Empty);
-
-            // PlaylistEnded のハンドラ（次アルバム自動再生等）によって新しい再生が開始されていない場合のみ、停止イベントを発火する
-            bool hasNewPlaybackStarted;
-            lock (_lock)
-            {
-                hasNewPlaybackStarted = _playlist.Count > 0 || _currentIndex >= 0 || _outputDevice != null;
-            }
-
-            if (!hasNewPlaybackStarted)
-            {
-                PlaybackStopped?.Invoke();
-                PlaybackStateChanged?.Invoke(false);
-                TrackChanged?.Invoke(null);
-            }
-        }
-    }
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
     {
@@ -880,11 +612,18 @@ public class AudioService : IAudioService
     {
         lock (_lock)
         {
-            if (_outputDevice == null && _playlist.Count > 0)
+            if (_outputDevice == null)
             {
-                if (_currentIndex == -1) _currentIndex = 0;
-                PlayCurrent();
-                return;
+                if (_currentlyPlayingTrack != null)
+                {
+                    PlayTrackInternal(_currentlyPlayingTrack);
+                    return;
+                }
+                else if (_userQueue.Count > 0 || _albumQueue.Count > 0)
+                {
+                    PlayCurrent();
+                    return;
+                }
             }
 
             if (_outputDevice != null)
@@ -909,50 +648,60 @@ public class AudioService : IAudioService
     /// </summary>
     public async void Next()
     {
+        OnTrackEnded();
+        await Task.Delay(100);
+        PlaybackStateChanged?.Invoke(IsPlaying);
+    }
+
+    private void OnTrackEnded()
+    {
         Track? endedTrack = null;
+        Track? nextTrack = null;
         bool playlistEmpty = false;
         List<Track>? newPlaylist = null;
+
         lock (_lock)
         {
-            if (_playlist.Count == 0) return;
+            if (_stopRequested) return;
 
-            endedTrack = CheckAndPreparePlaybackEnded();
+            endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
             bool isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
                 string.Equals(endedTrack.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
 
-            if (endedTrack != null)
+            if (_userQueue.Count > 0)
             {
-                RemoveTrackFromQueueInternal(endedTrack);
-                newPlaylist = new List<Track>(_playlist);
+                nextTrack = _userQueue[0];
+                _userQueue.RemoveAt(0);
+            }
+            else if (_albumQueue.Count > 0)
+            {
+                nextTrack = _albumQueue[0];
+                _albumQueue.RemoveAt(0);
             }
 
-            if (_playlist.Count == 0 || (!IsRepeatEnabled && isFinalTrackEnded))
+            _playlist = _userQueue.Concat(_albumQueue).ToList();
+            newPlaylist = new List<Track>(_playlist);
+
+            if (nextTrack == null || (!IsRepeatEnabled && isFinalTrackEnded))
             {
-                playlistEmpty = true;
-                StopInternal();
-                _currentIndex = -1;
-                _finalTrackOfQueue = null;
-            }
-            else
-            {
-                if (_currentIndex >= _playlist.Count)
+                if (IsRepeatEnabled && _originalAlbumTracks.Count > 0 && nextTrack == null)
                 {
-                    if (IsRepeatEnabled)
+                    var repeatTracks = new List<Track>(_originalAlbumTracks);
+                    if (_isShuffleEnabled)
                     {
-                        _currentIndex = 0;
-                        PlayCurrent();
+                        ShuffleList(repeatTracks);
                     }
-                    else
-                    {
-                        playlistEmpty = true;
-                        StopInternal();
-                        _currentIndex = -1;
-                        _finalTrackOfQueue = null;
-                    }
+                    nextTrack = repeatTracks[0];
+                    _albumQueue = repeatTracks.Skip(1).ToList();
+                    _playlist = _userQueue.Concat(_albumQueue).ToList();
+                    newPlaylist = new List<Track>(_playlist);
                 }
                 else
                 {
-                    PlayCurrent();
+                    playlistEmpty = true;
+                    StopInternal();
+                    _currentlyPlayingTrack = null;
+                    _finalTrackOfQueue = null;
                 }
             }
         }
@@ -975,7 +724,7 @@ public class AudioService : IAudioService
             bool hasNewPlaybackStarted;
             lock (_lock)
             {
-                hasNewPlaybackStarted = _playlist.Count > 0 || _currentIndex >= 0 || _outputDevice != null;
+                hasNewPlaybackStarted = _playlist.Count > 0 || _currentlyPlayingTrack != null || _outputDevice != null;
             }
 
             if (!hasNewPlaybackStarted)
@@ -985,9 +734,10 @@ public class AudioService : IAudioService
                 TrackChanged?.Invoke(null);
             }
         }
-
-        await Task.Delay(100);
-        PlaybackStateChanged?.Invoke(IsPlaying);
+        else if (nextTrack != null)
+        {
+            PlayTrackInternal(nextTrack);
+        }
     }
 
     /// <summary>
@@ -995,25 +745,34 @@ public class AudioService : IAudioService
     /// </summary>
     public async void Previous()
     {
+        Track? trackToPlay = null;
         lock (_lock)
         {
-            if (_playlist.Count == 0) return;
-            if (_currentIndex > 0)
+            if (_audioFile != null && _audioFile.CurrentTime.TotalSeconds > 3.0)
             {
-                _currentIndex--;
+                _audioFile.CurrentTime = TimeSpan.Zero;
             }
             else
             {
-                if (IsRepeatEnabled)
+                if (IsRepeatEnabled && _originalAlbumTracks.Count > 0 &&
+                    _currentlyPlayingTrack != null &&
+                    string.Equals(_currentlyPlayingTrack.FilePath, _originalAlbumTracks[0].FilePath, StringComparison.OrdinalIgnoreCase))
                 {
-                    _currentIndex = _playlist.Count - 1;
+                    // 先頭曲再生中でリピート有効の場合、末尾曲へ循環
+                    trackToPlay = _originalAlbumTracks[^1];
+                    _albumQueue = _originalAlbumTracks.Take(_originalAlbumTracks.Count - 1).ToList();
+                    _playlist = _userQueue.Concat(_albumQueue).ToList();
                 }
-                else
+                else if (_currentlyPlayingTrack != null)
                 {
-                    _currentIndex = 0;
+                    trackToPlay = _currentlyPlayingTrack;
                 }
             }
-            PlayCurrent();
+        }
+
+        if (trackToPlay != null)
+        {
+            PlayTrackInternal(trackToPlay);
         }
 
         await Task.Delay(100);
@@ -1035,7 +794,7 @@ public class AudioService : IAudioService
             endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
 
             StopInternal();
-            _currentIndex = -1;
+            _currentlyPlayingTrack = null;
             _stopRequested = false;
             playlistEmpty = (_playlist.Count == 0);
         }

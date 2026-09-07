@@ -67,6 +67,8 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     // キュー・履歴関連フィールド
     private const int MaxHistoryCount = 100;
     private ObservableCollection<Track> _playQueue = new();
+    private ObservableCollection<Track> _userQueue = new();
+    private ObservableCollection<Track> _albumQueue = new();
     private ObservableCollection<Track> _playHistory = new();
     private int _selectedQueueTabIndex;
     private ObservableCollection<Track> _playbackListTracks = new();
@@ -388,6 +390,73 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     }
 
     /// <summary>
+    /// ユーザーが手動で追加した予約キュー
+    /// </summary>
+    public ObservableCollection<Track> UserQueue
+    {
+        get => _userQueue;
+        set
+        {
+            if (SetProperty(ref _userQueue, value))
+            {
+                OnPropertyChanged(nameof(HasUserQueue));
+                OnPropertyChanged(nameof(UserQueueCountText));
+            }
+        }
+    }
+
+    /// <summary>
+    /// アルバムから引き続いて再生される予定のキュー
+    /// </summary>
+    public ObservableCollection<Track> AlbumQueue
+    {
+        get => _albumQueue;
+        set
+        {
+            if (SetProperty(ref _albumQueue, value))
+            {
+                OnPropertyChanged(nameof(AlbumQueueCountText));
+                OnPropertyChanged(nameof(AlbumQueueTitle));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 予約キューが存在するかどうか
+    /// </summary>
+    public bool HasUserQueue => UserQueue?.Count > 0;
+
+    /// <summary>
+    /// アルバムキューが存在するかどうか
+    /// </summary>
+    public bool HasAlbumQueue => AlbumQueue?.Count > 0;
+
+    /// <summary>
+    /// 予約キュー曲数表示テキスト
+    /// </summary>
+    public string UserQueueCountText => $"{UserQueue?.Count ?? 0} tracks";
+
+    /// <summary>
+    /// アルバムキュータイトル
+    /// </summary>
+    public string AlbumQueueTitle
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(PlaybackListName) && PlaybackListName != "No Album Selected")
+            {
+                return $"次のアルバムから: {PlaybackListName}";
+            }
+            return "アルバムの残り曲";
+        }
+    }
+
+    /// <summary>
+    /// アルバムキュー曲数表示テキスト
+    /// </summary>
+    public string AlbumQueueCountText => $"{AlbumQueue?.Count ?? 0} tracks";
+
+    /// <summary>
     /// 再生終了した楽曲の履歴コレクション（直近100件、最新が先頭）
     /// </summary>
     public ObservableCollection<Track> PlayHistory
@@ -536,6 +605,16 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public ICommand ClearQueueCommand { get; }
 
     /// <summary>
+    /// 予約キューのみを全クリアするコマンド
+    /// </summary>
+    public ICommand ClearUserQueueCommand { get; }
+
+    /// <summary>
+    /// 最後に再生コマンド（旧: キューに追加）
+    /// </summary>
+    public ICommand PlayLastCommand { get; }
+
+    /// <summary>
     /// 再生履歴を全クリアするコマンド
     /// </summary>
     public ICommand ClearHistoryCommand { get; }
@@ -620,6 +699,8 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         ShowQueueDialogCommand = new RelayCommand(_ => ShowQueueDialog());
         RemoveFromQueueCommand = new RelayCommand(o => RemoveFromQueue(o));
         ClearQueueCommand = new RelayCommand(_ => ClearQueue());
+        ClearUserQueueCommand = new RelayCommand(_ => ClearUserQueue());
+        PlayLastCommand = new RelayCommand(o => EnqueueTrack(o));
         ClearHistoryCommand = new RelayCommand(_ => ClearHistory());
         RemoveFromHistoryCommand = new RelayCommand(o => RemoveFromHistory(o));
         PlayFromHistoryCommand = new RelayCommand(o => PlayFromHistory(o));
@@ -872,6 +953,17 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     }
 
     /// <summary>
+    /// 予約キューのみを全クリアします
+    /// </summary>
+    public void ClearUserQueue()
+    {
+        _audioService.ClearUserQueue();
+        UserQueue.Clear();
+        OnPropertyChanged(nameof(HasUserQueue));
+        OnPropertyChanged(nameof(UserQueueCountText));
+    }
+
+    /// <summary>
     /// 再生履歴を全クリアします
     /// </summary>
     public void ClearHistory()
@@ -1085,6 +1177,13 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         RunOnUiThread(() =>
         {
             PlayQueue = new ObservableCollection<Track>(playlist);
+            UserQueue = new ObservableCollection<Track>(_audioService.UserQueue ?? Enumerable.Empty<Track>());
+            AlbumQueue = new ObservableCollection<Track>(_audioService.AlbumQueue ?? Enumerable.Empty<Track>());
+            OnPropertyChanged(nameof(HasUserQueue));
+            OnPropertyChanged(nameof(HasAlbumQueue));
+            OnPropertyChanged(nameof(UserQueueCountText));
+            OnPropertyChanged(nameof(AlbumQueueCountText));
+            OnPropertyChanged(nameof(AlbumQueueTitle));
             SyncTrackPlayingStates(CurrentTrack);
         });
     }
