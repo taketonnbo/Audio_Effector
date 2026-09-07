@@ -64,8 +64,11 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     private string _totalTimeDisplay = "00:00";
     private ImageSource? _nowPlayingImage;
 
-    // キュー関連フィールド
+    // キュー・履歴関連フィールド
+    private const int MaxHistoryCount = 100;
     private ObservableCollection<Track> _playQueue = new();
+    private ObservableCollection<Track> _playHistory = new();
+    private int _selectedQueueTabIndex;
     private ObservableCollection<Track> _playbackListTracks = new();
     private string _playbackListName = "No Album Selected";
     private string _playbackListSubtitle = string.Empty;
@@ -379,6 +382,24 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     }
 
     /// <summary>
+    /// 再生終了した楽曲の履歴コレクション（直近100件、最新が先頭）
+    /// </summary>
+    public ObservableCollection<Track> PlayHistory
+    {
+        get => _playHistory;
+        set => SetProperty(ref _playHistory, value);
+    }
+
+    /// <summary>
+    /// 再生キューパネルで選択されているタブのインデックス（0: 再生リスト, 1: 履歴）
+    /// </summary>
+    public int SelectedQueueTabIndex
+    {
+        get => _selectedQueueTabIndex;
+        set => SetProperty(ref _selectedQueueTabIndex, value);
+    }
+
+    /// <summary>
     /// 再生リストの名称（アルバム名やプレイリスト名）
     /// </summary>
     public string PlaybackListName
@@ -508,6 +529,31 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     /// </summary>
     public ICommand ClearQueueCommand { get; }
 
+    /// <summary>
+    /// 再生履歴を全クリアするコマンド
+    /// </summary>
+    public ICommand ClearHistoryCommand { get; }
+
+    /// <summary>
+    /// 指定されたトラックを履歴から削除するコマンド
+    /// </summary>
+    public ICommand RemoveFromHistoryCommand { get; }
+
+    /// <summary>
+    /// 履歴からトラックを即時再生するコマンド
+    /// </summary>
+    public ICommand PlayFromHistoryCommand { get; }
+
+    /// <summary>
+    /// 選択中のタブ（再生リストまたは履歴）に応じた全クリアを実行するコマンド
+    /// </summary>
+    public ICommand ClearCurrentTabCommand { get; }
+
+    /// <summary>
+    /// 再生キューのタブ（0: 再生リスト, 1: 履歴）を選択するコマンド
+    /// </summary>
+    public ICommand SelectQueueTabCommand { get; }
+
 
     /// <summary>
     /// スペクトラムアナライザーを表示するコマンド
@@ -568,6 +614,17 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         ShowQueueDialogCommand = new RelayCommand(_ => ShowQueueDialog());
         RemoveFromQueueCommand = new RelayCommand(o => RemoveFromQueue(o));
         ClearQueueCommand = new RelayCommand(_ => ClearQueue());
+        ClearHistoryCommand = new RelayCommand(_ => ClearHistory());
+        RemoveFromHistoryCommand = new RelayCommand(o => RemoveFromHistory(o));
+        PlayFromHistoryCommand = new RelayCommand(o => PlayFromHistory(o));
+        ClearCurrentTabCommand = new RelayCommand(_ => ClearCurrentTab());
+        SelectQueueTabCommand = new RelayCommand(p =>
+        {
+            if (p != null && int.TryParse(p.ToString(), out int index))
+            {
+                SelectedQueueTabIndex = index;
+            }
+        });
         SwitchToSpectrumCommand = new RelayCommand(_ => IsSpectrumVisible = true);
         ToggleSpectrumCommand = new RelayCommand(_ => IsSpectrumVisible = !IsSpectrumVisible);
 
@@ -580,6 +637,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         _audioService.PlaybackStateChanged += OnAudioServicePlaybackStateChanged;
         _audioService.PlaylistChanged += OnAudioServicePlaylistChanged;
         _audioService.VolumeChanged += OnAudioServiceVolumeChanged;
+        _audioService.TrackPlaybackEnded += OnAudioServiceTrackPlaybackEnded;
         _audioService.FftCalculated += OnLegacyFftCalculated;
         _audioEngine.FftCalculated += OnFftCalculated;
 
@@ -805,6 +863,87 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         Progress = 0.0;
         NowPlayingImage = null;
         _audioService.SetPlaylist(new List<Track>());
+    }
+
+    /// <summary>
+    /// 再生履歴を全クリアします
+    /// </summary>
+    public void ClearHistory()
+    {
+        PlayHistory.Clear();
+    }
+
+    /// <summary>
+    /// 指定されたトラックを再生履歴から削除します
+    /// </summary>
+    /// <param name="obj">削除対象のトラック</param>
+    public void RemoveFromHistory(object? obj)
+    {
+        if (obj is not Track track) return;
+        PlayHistory.Remove(track);
+    }
+
+    /// <summary>
+    /// 履歴から指定されたトラックを即時再生します
+    /// </summary>
+    /// <param name="obj">再生対象のトラック</param>
+    public void PlayFromHistory(object? obj)
+    {
+        if (obj is not Track track) return;
+
+        if (CurrentTrack != null && IsSameTrack(CurrentTrack, track))
+        {
+            _audioService.TogglePlayPause();
+            return;
+        }
+
+        _audioService.PlayTrack(track);
+    }
+
+    /// <summary>
+    /// 選択中のタブ（0: 再生キュー, 1: 履歴）に応じて全クリアを実行します
+    /// </summary>
+    public void ClearCurrentTab()
+    {
+        if (SelectedQueueTabIndex == 1)
+        {
+            ClearHistory();
+        }
+        else
+        {
+            ClearQueue();
+        }
+    }
+
+    /// <summary>
+    /// 再生終了した楽曲を履歴コレクションに追加します
+    /// </summary>
+    /// <param name="track">追加対象のトラック</param>
+    public void AddTrackToHistory(Track track)
+    {
+        if (track == null) return;
+
+        RunOnUiThread(() =>
+        {
+            // 既存の同一曲があれば削除して先頭へ再配置
+            var existing = PlayHistory.FirstOrDefault(t => IsSameTrack(t, track));
+            if (existing != null)
+            {
+                PlayHistory.Remove(existing);
+            }
+
+            PlayHistory.Insert(0, track);
+
+            while (PlayHistory.Count > MaxHistoryCount)
+            {
+                PlayHistory.RemoveAt(PlayHistory.Count - 1);
+            }
+        });
+    }
+
+    private void OnAudioServiceTrackPlaybackEnded(Track track)
+    {
+        AddTrackToHistory(track);
     }
 
 
@@ -1243,6 +1382,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         _audioService.PlaybackStateChanged -= OnAudioServicePlaybackStateChanged;
         _audioService.PlaylistChanged -= OnAudioServicePlaylistChanged;
         _audioService.VolumeChanged -= OnAudioServiceVolumeChanged;
+        _audioService.TrackPlaybackEnded -= OnAudioServiceTrackPlaybackEnded;
         _audioService.FftCalculated -= OnLegacyFftCalculated;
         _audioEngine.FftCalculated -= OnFftCalculated;
 

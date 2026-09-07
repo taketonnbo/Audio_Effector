@@ -198,6 +198,31 @@ namespace AudioEffector.Presentation.ViewModels
         /// </summary>
         public ICommand ClearQueueCommand { get; }
 
+        /// <summary>
+        /// 再生履歴を全クリアするコマンドを取得します
+        /// </summary>
+        public ICommand ClearHistoryCommand { get; }
+
+        /// <summary>
+        /// 再生履歴からトラックを削除するコマンドを取得します
+        /// </summary>
+        public ICommand RemoveFromHistoryCommand { get; }
+
+        /// <summary>
+        /// 履歴からトラックを即時再生するコマンドを取得します
+        /// </summary>
+        public ICommand PlayFromHistoryCommand { get; }
+
+        /// <summary>
+        /// 選択中のタブ（再生リストまたは履歴）に応じた全クリアを実行するコマンドを取得します
+        /// </summary>
+        public ICommand ClearCurrentTabCommand { get; }
+
+        /// <summary>
+        /// 再生キューのタブ（0: 再生リスト, 1: 履歴）を選択するコマンドを取得します
+        /// </summary>
+        public ICommand SelectQueueTabCommand { get; }
+
 
         private bool _isAlbumViewMaximized = true;
         /// <summary>
@@ -303,6 +328,44 @@ namespace AudioEffector.Presentation.ViewModels
                 if (PlayerControl != null)
                 {
                     PlayerControl.PlayQueue = value;
+                }
+                OnPropertyChanged();
+            }
+        }
+
+        private ObservableCollection<Track> _playHistory = new ObservableCollection<Track>();
+
+        /// <summary>
+        /// 再生終了した楽曲の履歴コレクション。
+        /// </summary>
+        public ObservableCollection<Track> PlayHistory
+        {
+            get => PlayerControl?.PlayHistory ?? _playHistory;
+            set
+            {
+                _playHistory = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.PlayHistory = value;
+                }
+                OnPropertyChanged();
+            }
+        }
+
+        private int _selectedQueueTabIndex;
+
+        /// <summary>
+        /// 再生キューパネルで選択されているタブのインデックス（0: 再生リスト, 1: 履歴）
+        /// </summary>
+        public int SelectedQueueTabIndex
+        {
+            get => PlayerControl?.SelectedQueueTabIndex ?? _selectedQueueTabIndex;
+            set
+            {
+                _selectedQueueTabIndex = value;
+                if (PlayerControl != null)
+                {
+                    PlayerControl.SelectedQueueTabIndex = value;
                 }
                 OnPropertyChanged();
             }
@@ -569,6 +632,11 @@ namespace AudioEffector.Presentation.ViewModels
             ShowQueueDialogCommand = PlayerControl!.ShowQueueDialogCommand;
             RemoveFromQueueCommand = PlayerControl!.RemoveFromQueueCommand;
             ClearQueueCommand = PlayerControl!.ClearQueueCommand;
+            ClearHistoryCommand = PlayerControl!.ClearHistoryCommand;
+            RemoveFromHistoryCommand = PlayerControl!.RemoveFromHistoryCommand;
+            PlayFromHistoryCommand = PlayerControl!.PlayFromHistoryCommand;
+            ClearCurrentTabCommand = PlayerControl!.ClearCurrentTabCommand;
+            SelectQueueTabCommand = PlayerControl!.SelectQueueTabCommand;
             ToggleShuffleCommand = PlayerControl!.ToggleShuffleCommand;
             ToggleRepeatCommand = PlayerControl!.ToggleRepeatCommand;
             IncreaseVolumeCommand = PlayerControl!.IncreaseVolumeCommand;
