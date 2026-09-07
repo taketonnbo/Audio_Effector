@@ -485,6 +485,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             startTrack = tracks.First();
         }
 
+        startTrack.IsPlaying = true;
         PlaybackRequested?.Invoke(tracks, startTrack, album.Title, album.Artist);
         _audioService.SetPlaylist(tracks, startTrack);
         _audioService.PlayTrack(startTrack);

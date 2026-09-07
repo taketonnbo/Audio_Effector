@@ -474,5 +474,267 @@ public sealed class PlayerControlViewModelTests
         Assert.Equal("Song 2", sut.PlayQueue[0].Title);
         _audioServiceMock.Verify(a => a.PlayTrack(track2), Times.Once);
     }
+
+    /// <summary>
+    /// TrackPlaybackEndedイベント発火時、PlayHistoryの先頭にトラックが追加されることを検証します。
+    /// </summary>
+    [Fact]
+    public void TrackPlaybackEnded_発火時_PlayHistoryに先頭追加される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" };
+
+        // Act
+        _audioServiceMock.Raise(a => a.TrackPlaybackEnded += null, track1);
+        _audioServiceMock.Raise(a => a.TrackPlaybackEnded += null, track2);
+
+        // Assert - 最新のtrack2が先頭(index 0)にあること
+        Assert.Equal(2, sut.PlayHistory.Count);
+        Assert.Equal("Song 2", sut.PlayHistory[0].Title);
+        Assert.Equal("Song 1", sut.PlayHistory[1].Title);
+    }
+
+    /// <summary>
+    /// 既に履歴に存在する曲が再度再生終了した際、重複せず先頭に移動することを検証します。
+    /// </summary>
+    [Fact]
+    public void AddTrackToHistory_既存曲が再再生された場合_先頭に移動する()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" };
+        var track1Duplicate = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1 Duplicate" };
+
+        sut.AddTrackToHistory(track1);
+        sut.AddTrackToHistory(track2);
+
+        // Act - track1の重複を再度追加
+        sut.AddTrackToHistory(track1Duplicate);
+
+        // Assert - 2件のままで、track1が先頭に移動していること
+        Assert.Equal(2, sut.PlayHistory.Count);
+        Assert.Equal("C:\\Music\\song1.mp3", sut.PlayHistory[0].FilePath);
+        Assert.Equal("C:\\Music\\song2.mp3", sut.PlayHistory[1].FilePath);
+    }
+
+    /// <summary>
+    /// 履歴が上限（100件）を超えた場合、古い末尾アイテムが自動破棄されることを検証します。
+    /// </summary>
+    [Fact]
+    public void AddTrackToHistory_100件超過時_古い末尾アイテムが自動破棄される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        // Act - 105曲追加
+        for (int i = 0; i < 105; i++)
+        {
+            sut.AddTrackToHistory(new Track { FilePath = $@"C:\Music\song{i}.mp3", Title = $"Song {i}" });
+        }
+
+        // Assert - 最大100件に制限され、最新のSong 104が先頭、最も古い5〜104が保持されていること
+        Assert.Equal(100, sut.PlayHistory.Count);
+        Assert.Equal("Song 104", sut.PlayHistory[0].Title);
+        Assert.Equal("Song 5", sut.PlayHistory[99].Title);
+    }
+
+    /// <summary>
+    /// ClearHistoryCommand実行時、PlayHistoryが全クリアされることを検証します。
+    /// </summary>
+    [Fact]
+    public void ClearHistoryCommand_実行時_PlayHistoryが全クリアされる()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        sut.PlayHistory.Add(new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" });
+        sut.PlayHistory.Add(new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" });
+
+        // Act
+        sut.ClearHistoryCommand.Execute(null);
+
+        // Assert
+        Assert.Empty(sut.PlayHistory);
+    }
+
+    /// <summary>
+    /// RemoveFromHistoryCommand実行時、指定トラックがPlayHistoryから削除されることを検証します。
+    /// </summary>
+    [Fact]
+    public void RemoveFromHistoryCommand_実行時_指定トラックがPlayHistoryから削除される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2" };
+        sut.PlayHistory.Add(track1);
+        sut.PlayHistory.Add(track2);
+
+        // Act
+        sut.RemoveFromHistoryCommand.Execute(track1);
+
+        // Assert
+        Assert.Single(sut.PlayHistory);
+        Assert.Equal("Song 2", sut.PlayHistory[0].Title);
+    }
+
+    /// <summary>
+    /// PlayFromHistoryCommand実行時、再生リストタブ（インデックス0）に切り替わり、キュー先頭挿入（insertAtBeginning: true）でPlayTrackが呼ばれることを検証します。
+    /// </summary>
+    [Fact]
+    public void PlayFromHistoryCommand_実行時_再生リストタブへ自動切替されキュー先頭追加で再生が開始される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        sut.SelectedQueueTabIndex = 1; // 履歴タブを開いている状態
+        var track = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+
+        // Act
+        sut.PlayFromHistoryCommand.Execute(track);
+
+        // Assert - タブが 0（再生リスト）に自動切り替えされ、先頭追加で PlayTrack が呼ばれること
+        Assert.Equal(0, sut.SelectedQueueTabIndex);
+        _audioServiceMock.Verify(a => a.PlayTrack(track, true), Times.Once);
+    }
+
+    /// <summary>
+    /// SyncTrackPlayingStates実行時、PlayQueue内の該当トラックのIsPlayingが更新されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SyncTrackPlayingStates_実行時_PlayQueue内のトラックのIsPlayingが同期更新される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1", IsPlaying = false };
+        var track2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2", IsPlaying = false };
+        sut.PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track> { track1, track2 };
+
+        // Act
+        sut.SyncTrackPlayingStates(track2);
+
+        // Assert
+        Assert.False(track1.IsPlaying);
+        Assert.True(track2.IsPlaying);
+    }
+
+    /// <summary>
+    /// SelectQueueTabCommand実行時、SelectedQueueTabIndexが更新されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SelectQueueTabCommand_実行時_SelectedQueueTabIndexが更新される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        Assert.Equal(0, sut.SelectedQueueTabIndex);
+
+        // Act & Assert
+        sut.SelectQueueTabCommand.Execute("1");
+        Assert.Equal(1, sut.SelectedQueueTabIndex);
+
+        sut.SelectQueueTabCommand.Execute(0);
+        Assert.Equal(0, sut.SelectedQueueTabIndex);
+    }
+
+    /// <summary>
+    /// ClearCurrentTabCommand実行時、タブ0ならキューがクリアされ、タブ1なら履歴がクリアされることを検証します。
+    /// </summary>
+    [Fact]
+    public void ClearCurrentTabCommand_選択中タブに応じて適切なクリアが実行される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        sut.PlayQueue.Add(new Track { FilePath = @"C:\Music\queue.mp3", Title = "Queue Track" });
+        sut.PlayHistory.Add(new Track { FilePath = @"C:\Music\history.mp3", Title = "History Track" });
+
+        // Act 1 - タブ0（キュータブ）の状態で実行
+        sut.SelectedQueueTabIndex = 0;
+        sut.ClearCurrentTabCommand.Execute(null);
+
+        // Assert 1 - キューのみクリアされ、履歴は残る
+        Assert.Empty(sut.PlayQueue);
+        Assert.Single(sut.PlayHistory);
+
+        // Act 2 - タブ1（履歴タブ）の状態で実行
+        sut.PlayQueue.Add(new Track { FilePath = @"C:\Music\queue2.mp3", Title = "Queue Track 2" });
+        sut.SelectedQueueTabIndex = 1;
+        sut.ClearCurrentTabCommand.Execute(null);
+
+        // Assert 2 - 履歴がクリアされ、キューは残る
+        Assert.Empty(sut.PlayHistory);
+        Assert.Single(sut.PlayQueue);
+    }
+
+    /// <summary>
+    /// PlayQueueプロパティに新しいコレクションが代入された際、CurrentTrackと一致する曲のIsPlayingが自動的に同期されることを検証します。
+    /// </summary>
+    [Fact]
+    public void PlayQueue_新しいコレクション代入時_CurrentTrackと一致する曲のIsPlayingが自動的にtrueに同期される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var current = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1" };
+        sut.CurrentTrack = current;
+
+        var newQueueTrack1 = new Track { FilePath = @"C:\Music\song1.mp3", Title = "Song 1", IsPlaying = false };
+        var newQueueTrack2 = new Track { FilePath = @"C:\Music\song2.mp3", Title = "Song 2", IsPlaying = false };
+
+        // Act - PlayQueue に新しいコレクションを設定
+        sut.PlayQueue = new System.Collections.ObjectModel.ObservableCollection<Track> { newQueueTrack1, newQueueTrack2 };
+
+        // Assert - setter 内で自動的に SyncTrackPlayingStates が実行され、newQueueTrack1.IsPlaying が true になること
+        Assert.True(newQueueTrack1.IsPlaying);
+        Assert.False(newQueueTrack2.IsPlaying);
+    }
 }
 

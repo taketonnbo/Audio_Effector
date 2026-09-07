@@ -35,8 +35,15 @@ public class AudioService : IAudioService
     private WdlResamplingSampleProvider? _resampler;
     private VolumeSampleProvider? _masterVolumeProvider;
 
+    /// <summary>
+    /// 再生履歴に追加するための最小再生時間（秒）
+    /// </summary>
+    public const double MinPlaybackSecondsForHistory = 5.0;
+
     private Track? _lastPlayingTrack;
+    private Track? _finalTrackOfQueue;
     private bool _stopRequested;
+    private bool _currentTrackReportedAsEnded;
 
     /// <summary>
     /// トラックが変更された際に発生するイベント（未選択・キュー空時は null）
@@ -57,6 +64,11 @@ public class AudioService : IAudioService
     /// プレイリストの最後（リピートなし）に到達した際に発生するイベント
     /// </summary>
     public event EventHandler? PlaylistEnded;
+
+    /// <summary>
+    /// 楽曲の再生が終了（完奏または一定時間以上の再生後の遷移・停止）した際に発生するイベント
+    /// </summary>
+    public event Action<Track>? TrackPlaybackEnded;
 
     /// <summary>
     /// FFT計算結果が利用可能になった際に発生するイベント
@@ -129,17 +141,21 @@ public class AudioService : IAudioService
     public void SetPlaylist(List<Track> tracks, Track? startTrack = null)
     {
         bool isEmpty = (tracks == null || tracks.Count == 0);
+        Track? endedTrack = null;
 
         lock (_lock)
         {
+            endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
             _playedTrackPaths.Clear();
             _lastPlayingTrack = null;
+            _currentTrackReportedAsEnded = false;
 
             if (isEmpty)
             {
                 _originalPlaylist = new List<Track>();
                 _playlist = new List<Track>();
                 _currentIndex = -1;
+                _finalTrackOfQueue = null;
             }
             else
             {
@@ -163,7 +179,13 @@ public class AudioService : IAudioService
                         _currentIndex = -1;
                     }
                 }
+                _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : null;
             }
+        }
+
+        if (endedTrack != null)
+        {
+            TrackPlaybackEnded?.Invoke(endedTrack);
         }
 
         if (isEmpty)
@@ -516,22 +538,80 @@ public class AudioService : IAudioService
     /// <param name="track">再生対象のトラック</param>
     public void PlayTrack(Track track)
     {
+        PlayTrack(track, false);
+    }
+
+    /// <summary>
+    /// 指定された楽曲を再生します
+    /// </summary>
+    /// <param name="track">再生対象のトラック</param>
+    /// <param name="insertAtBeginning">再生キューの先頭に挿入して再生するかどうか</param>
+    public void PlayTrack(Track track, bool insertAtBeginning)
+    {
         lock (_lock)
         {
             int index = _playlist.FindIndex(t => t.FilePath == track.FilePath);
-            if (index >= 0)
+            if (insertAtBeginning)
             {
-                _currentIndex = index;
-            }
-            else
-            {
+                if (index >= 0)
+                {
+                    _playlist.RemoveAt(index);
+                    _originalPlaylist.RemoveAll(t => t.FilePath == track.FilePath);
+                }
                 _playlist.Insert(0, track);
                 _originalPlaylist.Insert(0, track);
                 _currentIndex = 0;
                 PlaylistChanged?.Invoke(new List<Track>(_playlist));
             }
+            else
+            {
+                if (index >= 0)
+                {
+                    _currentIndex = index;
+                }
+                else
+                {
+                    _playlist.Insert(0, track);
+                    _originalPlaylist.Insert(0, track);
+                    _currentIndex = 0;
+                    PlaylistChanged?.Invoke(new List<Track>(_playlist));
+                }
+            }
         }
         PlayCurrent();
+    }
+
+    private Track? CheckAndPreparePlaybackEnded(bool forceEnded = false)
+    {
+        if (_currentTrackReportedAsEnded) return null;
+
+        if (_lastPlayingTrack != null)
+        {
+            _currentTrackReportedAsEnded = true;
+            return _lastPlayingTrack;
+        }
+        return null;
+    }
+
+    private void RemoveTrackFromQueueInternal(Track track)
+    {
+        _originalPlaylist.RemoveAll(t => t.FilePath == track.FilePath);
+        int index = _playlist.FindIndex(t => t.FilePath == track.FilePath);
+        if (index >= 0)
+        {
+            _playlist.RemoveAt(index);
+            if (_currentIndex > index)
+            {
+                _currentIndex--;
+            }
+            else if (_currentIndex == index)
+            {
+                if (_currentIndex >= _playlist.Count)
+                {
+                    _currentIndex = _playlist.Count > 0 ? 0 : -1;
+                }
+            }
+        }
     }
 
     private async void PlayCurrent()
@@ -543,6 +623,7 @@ public class AudioService : IAudioService
         }
 
         Track? trackToPlay = null;
+        Track? endedTrack = null;
         lock (_lock)
         {
             if (_currentIndex >= 0 && _currentIndex < _playlist.Count)
@@ -550,11 +631,18 @@ public class AudioService : IAudioService
                 trackToPlay = _playlist[_currentIndex];
             }
 
-            if (_lastPlayingTrack != null && trackToPlay != null && _lastPlayingTrack.FilePath != trackToPlay.FilePath)
+            if (_lastPlayingTrack != null && (trackToPlay == null || _lastPlayingTrack.FilePath != trackToPlay.FilePath))
             {
+                endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
                 _playedTrackPaths.Add(_lastPlayingTrack.FilePath);
             }
             _lastPlayingTrack = trackToPlay;
+            _currentTrackReportedAsEnded = false;
+        }
+
+        if (endedTrack != null)
+        {
+            TrackPlaybackEnded?.Invoke(endedTrack);
         }
 
         if (trackToPlay == null)
@@ -672,24 +760,80 @@ public class AudioService : IAudioService
 
     private void OnTrackEnded()
     {
+        Track? endedTrack = null;
+        bool playlistEmpty = false;
+        List<Track>? newPlaylist = null;
         lock (_lock)
         {
             if (_stopRequested) return;
 
-            if (_currentIndex < _playlist.Count - 1)
+            endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
+            bool isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
+                string.Equals(endedTrack.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+
+            if (endedTrack != null)
             {
-                _currentIndex++;
-                PlayCurrent();
+                RemoveTrackFromQueueInternal(endedTrack);
+                newPlaylist = new List<Track>(_playlist);
             }
-            else if (IsRepeatEnabled && _playlist.Count > 0)
+
+            if (_playlist.Count == 0 || (!IsRepeatEnabled && isFinalTrackEnded))
             {
-                _currentIndex = 0;
-                PlayCurrent();
+                playlistEmpty = true;
+                StopInternal();
+                _currentIndex = -1;
+                _finalTrackOfQueue = null;
             }
             else
             {
-                Stop();
-                PlaylistEnded?.Invoke(this, EventArgs.Empty);
+                if (_currentIndex >= _playlist.Count)
+                {
+                    if (IsRepeatEnabled)
+                    {
+                        _currentIndex = 0;
+                        PlayCurrent();
+                    }
+                    else
+                    {
+                        playlistEmpty = true;
+                        StopInternal();
+                        _currentIndex = -1;
+                        _finalTrackOfQueue = null;
+                    }
+                }
+                else
+                {
+                    PlayCurrent();
+                }
+            }
+        }
+
+        if (endedTrack != null)
+        {
+            TrackPlaybackEnded?.Invoke(endedTrack);
+        }
+
+        if (newPlaylist != null)
+        {
+            PlaylistChanged?.Invoke(newPlaylist);
+        }
+
+        if (playlistEmpty)
+        {
+            PlaylistEnded?.Invoke(this, EventArgs.Empty);
+
+            // PlaylistEnded のハンドラ（次アルバム自動再生等）によって新しい再生が開始されていない場合のみ、停止イベントを発火する
+            bool hasNewPlaybackStarted;
+            lock (_lock)
+            {
+                hasNewPlaybackStarted = _playlist.Count > 0 || _currentIndex >= 0 || _outputDevice != null;
+            }
+
+            if (!hasNewPlaybackStarted)
+            {
+                PlaybackStopped?.Invoke();
+                PlaybackStateChanged?.Invoke(false);
+                TrackChanged?.Invoke(null);
             }
         }
     }
@@ -765,25 +909,81 @@ public class AudioService : IAudioService
     /// </summary>
     public async void Next()
     {
+        Track? endedTrack = null;
+        bool playlistEmpty = false;
+        List<Track>? newPlaylist = null;
         lock (_lock)
         {
             if (_playlist.Count == 0) return;
-            _currentIndex++;
-            if (_currentIndex >= _playlist.Count)
+
+            endedTrack = CheckAndPreparePlaybackEnded();
+            bool isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
+                string.Equals(endedTrack.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+
+            if (endedTrack != null)
             {
-                if (IsRepeatEnabled)
+                RemoveTrackFromQueueInternal(endedTrack);
+                newPlaylist = new List<Track>(_playlist);
+            }
+
+            if (_playlist.Count == 0 || (!IsRepeatEnabled && isFinalTrackEnded))
+            {
+                playlistEmpty = true;
+                StopInternal();
+                _currentIndex = -1;
+                _finalTrackOfQueue = null;
+            }
+            else
+            {
+                if (_currentIndex >= _playlist.Count)
                 {
-                    _currentIndex = 0;
+                    if (IsRepeatEnabled)
+                    {
+                        _currentIndex = 0;
+                        PlayCurrent();
+                    }
+                    else
+                    {
+                        playlistEmpty = true;
+                        StopInternal();
+                        _currentIndex = -1;
+                        _finalTrackOfQueue = null;
+                    }
                 }
                 else
                 {
-                    _currentIndex = _playlist.Count - 1;
-                    Stop();
-                    PlaylistEnded?.Invoke(this, EventArgs.Empty);
-                    return;
+                    PlayCurrent();
                 }
             }
-            PlayCurrent();
+        }
+
+        if (endedTrack != null)
+        {
+            TrackPlaybackEnded?.Invoke(endedTrack);
+        }
+
+        if (newPlaylist != null)
+        {
+            PlaylistChanged?.Invoke(newPlaylist);
+        }
+
+        if (playlistEmpty)
+        {
+            PlaylistEnded?.Invoke(this, EventArgs.Empty);
+
+            // PlaylistEnded のハンドラ（次アルバム自動再生等）によって新しい再生が開始されていない場合のみ、停止イベントを発火する
+            bool hasNewPlaybackStarted;
+            lock (_lock)
+            {
+                hasNewPlaybackStarted = _playlist.Count > 0 || _currentIndex >= 0 || _outputDevice != null;
+            }
+
+            if (!hasNewPlaybackStarted)
+            {
+                PlaybackStopped?.Invoke();
+                PlaybackStateChanged?.Invoke(false);
+                TrackChanged?.Invoke(null);
+            }
         }
 
         await Task.Delay(100);
@@ -827,14 +1027,22 @@ public class AudioService : IAudioService
     public void Stop(bool internalStop = false)
     {
         bool playlistEmpty = false;
+        Track? endedTrack = null;
         lock (_lock)
         {
             if (internalStop) _stopRequested = true;
+
+            endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
 
             StopInternal();
             _currentIndex = -1;
             _stopRequested = false;
             playlistEmpty = (_playlist.Count == 0);
+        }
+
+        if (endedTrack != null)
+        {
+            TrackPlaybackEnded?.Invoke(endedTrack);
         }
 
         PlaybackStopped?.Invoke();

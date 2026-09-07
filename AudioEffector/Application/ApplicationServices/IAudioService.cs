@@ -32,6 +32,11 @@ public interface IAudioService : IDisposable
     event EventHandler PlaylistEnded;
 
     /// <summary>
+    /// 楽曲の再生が終了（完奏または一定時間以上の再生後の遷移・停止）した際に発生するイベント
+    /// </summary>
+    event Action<Track>? TrackPlaybackEnded;
+
+    /// <summary>
     /// FFT計算が完了した際に発生するイベント
     /// </summary>
     event EventHandler<FftEventArgs>? FftCalculated;
@@ -110,6 +115,14 @@ public interface IAudioService : IDisposable
     /// <param name="track">再生対象のトラック</param>
     [LogDescription("指定された楽曲を再生します")]
     void PlayTrack(Track track);
+
+    /// <summary>
+    /// 指定された楽曲を再生します
+    /// </summary>
+    /// <param name="track">再生対象のトラック</param>
+    /// <param name="insertAtBeginning">再生キューの先頭に挿入して再生するかどうか</param>
+    [LogDescription("指定された楽曲を再生します")]
+    void PlayTrack(Track track, bool insertAtBeginning);
 
     /// <summary>
     /// 再生と一時停止を切り替えます
