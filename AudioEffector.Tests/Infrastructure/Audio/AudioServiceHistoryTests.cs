@@ -166,4 +166,31 @@ public sealed class AudioServiceHistoryTests
         var isReported = (bool)(reportedField.GetValue(sut) ?? true);
         Assert.False(isReported);
     }
+
+    [Fact]
+    public void OnTrackEnded_キューに未再生曲が残っていてもキュー最終曲の再生終了時_次アルバムへ移行するためPlaylistEndedが発火する()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var track1 = CreateTrack("1", "Track 1");
+        var track2 = CreateTrack("2", "Track 2");
+        sut.SetPlaylist(new List<Track> { track1, track2 }); // 最終曲は track2
+
+        // track2 を直前曲として設定
+        var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(lastPlayingTrackField);
+        lastPlayingTrackField.SetValue(sut, track2);
+
+        bool playlistEndedFired = false;
+        sut.PlaylistEnded += (s, e) => playlistEndedFired = true;
+
+        var onTrackEndedMethod = typeof(AudioService).GetMethod("OnTrackEnded", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(onTrackEndedMethod);
+
+        // Act - 最終曲 track2 の終了
+        onTrackEndedMethod.Invoke(sut, null);
+
+        // Assert - キューに曲が残っていても最終曲が終了したので PlaylistEnded が発火すること
+        Assert.True(playlistEndedFired);
+    }
 }

@@ -375,6 +375,9 @@ namespace AudioEffector.Presentation.ViewModels
         private BitmapImage? _favoritesImage;
         private BitmapImage? _defaultNowPlayingImage;
 
+        private Track? _lastPlayedTrack;
+        private Album? _lastPlayedAlbum;
+
         private ImageSource? _spectrumBackgroundImage;
 
         /// <summary>
@@ -1748,6 +1751,8 @@ namespace AudioEffector.Presentation.ViewModels
 
             if (track != null)
             {
+                _lastPlayedTrack = track;
+                _lastPlayedAlbum = CurrentAlbum;
                 RunOnUiThread(() =>
                 {
                     if (!IsPlaylistTracksVisible && PlaybackListTracks != null && !PlaybackListTracks.Any(t => PlayerControlViewModel.IsSameTrack(t, track)))
@@ -2070,14 +2075,20 @@ namespace AudioEffector.Presentation.ViewModels
         private void OnPlaylistEnded(object? sender, EventArgs e)
         {
             // If repeat is OFF, try to play next album
-            if (!IsAlbumRepeat && CurrentTrack != null)
+            if (!IsAlbumRepeat)
             {
                 Action action = () =>
                 {
-                    var currentAlbum = Albums.FirstOrDefault(a => a.Tracks.Any(t => t.FilePath == CurrentTrack.FilePath));
-                    if (currentAlbum != null)
+                    var targetTrack = CurrentTrack ?? _lastPlayedTrack;
+                    var targetAlbum = CurrentAlbum ?? _lastPlayedAlbum;
+                    if (targetAlbum == null && targetTrack != null)
                     {
-                        int index = Albums.IndexOf(currentAlbum);
+                        targetAlbum = Albums.FirstOrDefault(a => a.Tracks.Any(t => t.FilePath == targetTrack.FilePath));
+                    }
+
+                    if (targetAlbum != null)
+                    {
+                        int index = Albums.IndexOf(targetAlbum);
                         if (index >= 0 && index < Albums.Count - 1)
                         {
                             var nextAlbum = Albums[index + 1];

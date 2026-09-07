@@ -41,6 +41,7 @@ public class AudioService : IAudioService
     public const double MinPlaybackSecondsForHistory = 5.0;
 
     private Track? _lastPlayingTrack;
+    private Track? _finalTrackOfQueue;
     private bool _stopRequested;
     private bool _currentTrackReportedAsEnded;
 
@@ -154,6 +155,7 @@ public class AudioService : IAudioService
                 _originalPlaylist = new List<Track>();
                 _playlist = new List<Track>();
                 _currentIndex = -1;
+                _finalTrackOfQueue = null;
             }
             else
             {
@@ -177,6 +179,7 @@ public class AudioService : IAudioService
                         _currentIndex = -1;
                     }
                 }
+                _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : null;
             }
         }
 
@@ -535,19 +538,44 @@ public class AudioService : IAudioService
     /// <param name="track">再生対象のトラック</param>
     public void PlayTrack(Track track)
     {
+        PlayTrack(track, false);
+    }
+
+    /// <summary>
+    /// 指定された楽曲を再生します
+    /// </summary>
+    /// <param name="track">再生対象のトラック</param>
+    /// <param name="insertAtBeginning">再生キューの先頭に挿入して再生するかどうか</param>
+    public void PlayTrack(Track track, bool insertAtBeginning)
+    {
         lock (_lock)
         {
             int index = _playlist.FindIndex(t => t.FilePath == track.FilePath);
-            if (index >= 0)
+            if (insertAtBeginning)
             {
-                _currentIndex = index;
-            }
-            else
-            {
+                if (index >= 0)
+                {
+                    _playlist.RemoveAt(index);
+                    _originalPlaylist.RemoveAll(t => t.FilePath == track.FilePath);
+                }
                 _playlist.Insert(0, track);
                 _originalPlaylist.Insert(0, track);
                 _currentIndex = 0;
                 PlaylistChanged?.Invoke(new List<Track>(_playlist));
+            }
+            else
+            {
+                if (index >= 0)
+                {
+                    _currentIndex = index;
+                }
+                else
+                {
+                    _playlist.Insert(0, track);
+                    _originalPlaylist.Insert(0, track);
+                    _currentIndex = 0;
+                    PlaylistChanged?.Invoke(new List<Track>(_playlist));
+                }
             }
         }
         PlayCurrent();
@@ -740,17 +768,21 @@ public class AudioService : IAudioService
             if (_stopRequested) return;
 
             endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
+            bool isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
+                string.Equals(endedTrack.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+
             if (endedTrack != null)
             {
                 RemoveTrackFromQueueInternal(endedTrack);
                 newPlaylist = new List<Track>(_playlist);
             }
 
-            if (_playlist.Count == 0)
+            if (_playlist.Count == 0 || (!IsRepeatEnabled && isFinalTrackEnded))
             {
                 playlistEmpty = true;
                 StopInternal();
                 _currentIndex = -1;
+                _finalTrackOfQueue = null;
             }
             else
             {
@@ -766,6 +798,7 @@ public class AudioService : IAudioService
                         playlistEmpty = true;
                         StopInternal();
                         _currentIndex = -1;
+                        _finalTrackOfQueue = null;
                     }
                 }
                 else
@@ -873,17 +906,21 @@ public class AudioService : IAudioService
             if (_playlist.Count == 0) return;
 
             endedTrack = CheckAndPreparePlaybackEnded();
+            bool isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
+                string.Equals(endedTrack.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+
             if (endedTrack != null)
             {
                 RemoveTrackFromQueueInternal(endedTrack);
                 newPlaylist = new List<Track>(_playlist);
             }
 
-            if (_playlist.Count == 0)
+            if (_playlist.Count == 0 || (!IsRepeatEnabled && isFinalTrackEnded))
             {
                 playlistEmpty = true;
                 StopInternal();
                 _currentIndex = -1;
+                _finalTrackOfQueue = null;
             }
             else
             {
@@ -899,6 +936,7 @@ public class AudioService : IAudioService
                         playlistEmpty = true;
                         StopInternal();
                         _currentIndex = -1;
+                        _finalTrackOfQueue = null;
                     }
                 }
                 else

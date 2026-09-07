@@ -117,6 +117,14 @@ public interface IAudioService : IDisposable
     void PlayTrack(Track track);
 
     /// <summary>
+    /// 指定された楽曲を再生します
+    /// </summary>
+    /// <param name="track">再生対象のトラック</param>
+    /// <param name="insertAtBeginning">再生キューの先頭に挿入して再生するかどうか</param>
+    [LogDescription("指定された楽曲を再生します")]
+    void PlayTrack(Track track, bool insertAtBeginning);
+
+    /// <summary>
     /// 再生と一時停止を切り替えます
     /// </summary>
     [LogDescription("再生/一時停止を切り替えます")]
