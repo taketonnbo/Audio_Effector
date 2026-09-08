@@ -183,7 +183,6 @@ public class AudioService : IAudioService
     {
         bool isEmpty = (tracks == null || tracks.Count == 0);
         Track? endedTrack = null;
-        Track? trackToPlay = null;
 
         lock (_lock)
         {
@@ -205,7 +204,7 @@ public class AudioService : IAudioService
             {
                 _originalAlbumTracks = new List<Track>(tracks!);
                 var currentTrack = startTrack ?? tracks![0];
-                trackToPlay = currentTrack;
+                _currentlyPlayingTrack = currentTrack;
 
                 if (_isShuffleEnabled)
                 {
@@ -246,9 +245,9 @@ public class AudioService : IAudioService
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
-        if (trackToPlay != null)
+        if (_currentlyPlayingTrack != null)
         {
-            PlayTrackInternal(trackToPlay);
+            TrackChanged?.Invoke(_currentlyPlayingTrack);
         }
     }
 
@@ -382,9 +381,9 @@ public class AudioService : IAudioService
     {
         lock (_lock)
         {
+            _currentlyPlayingTrack = track;
             _userQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
             _albumQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
-            _originalAlbumTracks.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
             _playlist = _userQueue.Concat(_albumQueue).ToList();
         }
 
@@ -979,12 +978,27 @@ public class EndOfStreamProvider : ISampleProvider
     /// <returns>実際に読み込まれたサンプル数</returns>
     public int Read(float[] buffer, int offset, int count)
     {
-        int read = _source.Read(buffer, offset, count);
-        if (read == 0 && !_endReached)
+        try
         {
-            _endReached = true;
-            EndOfStream?.Invoke();
+            int read = _source.Read(buffer, offset, count);
+            if (read == 0 && !_endReached)
+            {
+                _endReached = true;
+                EndOfStream?.Invoke();
+            }
+            return read;
         }
-        return read;
+        catch (System.Runtime.InteropServices.InvalidComObjectException)
+        {
+            return 0;
+        }
+        catch (ObjectDisposedException)
+        {
+            return 0;
+        }
+        catch (Exception)
+        {
+            return 0;
+        }
     }
 }
