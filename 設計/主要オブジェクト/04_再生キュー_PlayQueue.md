@@ -22,6 +22,7 @@
 | :--- | :--- | :--- | :---: | :--- |
 | **PlayQueue** | `ObservableCollection<Track>` | キューに含まれる楽曲リスト | ○ | `PlayerControlViewModel.PlayQueue` |
 | **CurrentTrack** | `Track?` | 現在再生中の楽曲オブジェクト | ○ (ハイライト) | `PlayerControlViewModel.CurrentTrack` |
+| **PreloadedTrack** | `Track?` | ギャップレス再生用に事前デコード待機中の次曲 | - | オーディオエンジン連携 |
 | **IsPlayQueuePanelOpen**| `bool` | パネルの開閉状態 | - | `MainViewModel.IsPlayQueuePanelOpen` |
 | **QueueCount** | `int` | キュー内の曲数 | ○ (ヘッダー表示) | `PlayQueue.Count` |
 
@@ -32,9 +33,13 @@
 | **開閉トグル** | Toggle | ツールバーのキューアイコンボタン押下 | サイドパネルのスライド開閉アニメーション実行 | `TogglePlayQueuePanelCommand` ([MainViewModel.cs](file:///c:/Users/tnish/vs_code_git/Audio_Effector/AudioEffector/Presentation/ViewModels/MainViewModel.cs)) |
 | **パネルを閉じる** | Close | パネル右上の「✕」ボタン押下 | サイドパネルを右端へ収納 | `ClosePlayQueuePanelCommand` |
 | **指定曲から再生** | Play At | キュー行のアートまたはタイトルボタンクリック | 該当インデックスから再生開始 | `PlayFromQueueCommand` |
-| **再生順の並び替え** | Reorder | キュー行のドラッグ＆ドロップ操作 | キュー内の順序をリアルタイム入れ替え | `PlayQueueSidePanel.xaml.cs` |
-| **1曲削除** | Remove | キュー行右端の「✕」ボタン、または右クリック「キューから削除」 | 該当楽曲をキューから除外 | `RemoveFromQueueCommand` |
-| **キューの全クリア** | Clear All | パネルヘッダーの「Clear」ボタン押下 | キューを空にして再生停止 | `ClearQueueCommand` |
+| **再生順の並び替え** | Reorder | キュー行のドラッグ＆ドロップ操作 | キュー内の順序をリアルタイム入れ替え（Undo対応） | `PlayQueueSidePanel.xaml.cs` |
+| **1曲削除** | Remove | キュー行右端の「✕」ボタン、または右クリック「キューから削除」 | 該当楽曲をキューから除外（Undo対応） | `RemoveFromQueueCommand` |
+| **キューの全クリア** | Clear All | パネルヘッダーの「Clear」ボタン押下 | キューを空にして再生停止（誤操作時Undo対応） | `ClearQueueCommand` |
+| **ギャップレス遷移** | Gapless Next | 曲終了検知による自動トリガー | プリロード済み次曲へ無音なくシームレスに切り替え | オーディオサービス制御 |
 
 ## 5. OOUI設計上の課題と今後の指針 (To-Be)
-- **ライブラリからのダイレクト投入**: ライブラリ画面（アルバムや曲一覧）から楽曲を選択し、開いているキューパネルへ直接ドラッグ＆ドロップして挿入できるインタラクションの強化。
+- **ライブラリからのダイレクト投入**: ライブラリ画面（全曲、アルバム、プレイリスト）から楽曲を選択し、開いているキューパネルへ直接ドラッグ＆ドロップして任意位置へ挿入できるインタラクションの強化。
+- **ギャップレス再生の保証**: 次曲の事前デコードとシームレスなバッファ切り替えにより、トラック境界でのノイズや途切れをゼロにする再生基盤の連携。
+- **キュー操作のUndo対応**: 「Clear」ボタンや誤ったドラッグ順序変更を行った際に、`Ctrl+Z` で直前のキュー状態へ即座に復元できる安全設計の導入。
+

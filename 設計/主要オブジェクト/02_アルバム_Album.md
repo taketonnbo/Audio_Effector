@@ -26,7 +26,11 @@
 | **CoverImage** | `BitmapImage?` | アルバムジャケット画像 | ○ (カードアート) | ○ (右カラム大表示) | `Album.CoverImage` |
 | **Tracks** | `List<Track>` | 所属楽曲リスト | - | ○ (インライン展開リスト) | `Album.Tracks` |
 | **TrackCount** | `int` | 収録楽曲数 | - | ○ (トレイヘッダー等) | `Album.TrackCount` |
-| **TotalDuration** | `TimeSpan` | アルバム総再生時間 | - | - | `Album.TotalDuration` |
+| **TotalDuration** | `TimeSpan` | アルバム総再生時間 | - | ○ (トレイ/詳細情報) | `Album.TotalDuration` |
+| **TotalSize** | `long` | アルバム総データサイズ (バイト) | - | ○ (詳細情報) | アルバム内楽曲の合計サイズ |
+| **BitrateDisplay** | `string` | 代表/平均ビットレート (kbps) | - | ○ (詳細情報) | 収録曲のビットレート情報 |
+| **FormatDisplay** | `string` | 主要音声フォーマット (FLAC, MP3等) | - | ○ (詳細情報) | 収録曲のフォーマット |
+| **DateAdded** | `DateTime` | ライブラリ追加日時（スマートプレイリスト基準） | △ (ソート時) | ○ | 登録日時 |
 | **IsOnDevice** | `bool` | 接続機器に転送済みか | ○ (選択モード時バッジ) | - | `Album.IsOnDevice` |
 | **IsSelected** | `bool` | 選択モード時の選択状態 | ○ (CheckBox) | - | `Album.IsSelected` |
 | **IsTracksExpanded**| `bool` | トラック展開中かどうか | ○ | - | `Album.IsTracksExpanded` |
@@ -39,10 +43,12 @@
 | **次に再生** | Play Next | アルバム右クリック「次に再生」 | アルバム全曲を現在再生曲の直後に割り込み | `PlayNextAlbumCommand` |
 | **最後に再生** | Enqueue | アルバム右クリック「最後に再生」 | アルバム全曲をキューの末尾に追加 | `EnqueueAlbumCommand` |
 | **トラック一覧展開**| Expand Tracks | ・グリッド時: ホバー時の下部トグルボタン押下<br>・リスト時: Expanderボタン押下 | 収録曲リスト（SocketTrayまたはExpander）を展開 | `IsTracksExpanded` |
-| **プレイリスト追加**| Add to Playlist| アルバム右クリック「プレイリストに追加...」 | ダイアログ (`ShowAddAlbumToPlaylistDialogCommand`) 表示 | `PlaylistViewModel.cs` |
-| **削除する** | Delete | アルバムリスト行の右クリック「削除」 | アルバムをライブラリから除外 | `DeleteAlbumCommand` |
-| **右側詳細表示** | Show Info | アルバムカードホバー時の三点リーダーボタン押下 (#168) | メイン画面右側タブにアルバム詳細を表示 | 右ペイン連携 |
+| **詳細情報を確認する**| Show Details | アルバム右クリック「詳細情報...」、またはホバー時のインフォメーションボタン | 収録曲一覧、アーティスト、総データサイズ、ビットレート、リリース年等の詳細パネル/画面を表示 | [AlbumDetailView.xaml](file:///c:/Users/tnish/vs_code_git/Audio_Effector/AudioEffector/Presentation/Views/AlbumDetailView.xaml) |
+| **プレイリスト追加**| Add to Playlist| アルバム右クリック「プレイリストに追加...」、またはプレイリストへのD&D | ダイアログ表示または直接投入 | `PlaylistViewModel.cs` |
+| **削除する** | Delete | アルバムリスト行の右クリック「削除」 | アルバムをライブラリから除外（Undo対応） | `DeleteAlbumCommand` |
+| **再スキャン** | Rescan | ツールバー「ライブラリ再スキャン」ボタン | フォルダ巡回によりアルバム構成・タグ変更を同期更新 | `FolderScannerService.cs` |
 
 ## 5. OOUI設計上の課題と今後の指針 (To-Be)
-- **シングルビューの再定義**: 現在のインライン展開（ソケットオーバーレイ）は省スペースですが、曲数が多いアルバムでの操作性が制限されます。
-  OOUIの標準モデルとして、「アルバム一覧（コレクション）」から特定のアルバムを選択した際、中央ワークスペースで「アルバム詳細（大アート・メタ情報・全トラックテーブル）」をシームレスに表示するシングルビューへの移行を検討します。
+- **シングルビューの確立**: 現在のインライン展開（ソケットオーバーレイ）に加え、OOUIの標準モデルとして「アルバム一覧（コレクション）」から選択したアルバムの詳細（大アート・メタ情報・サイズ・ビットレート・全トラックテーブル）を中央ワークスペースで閲覧・操作できるシングルビュー（`AlbumDetailView`）を確立する。
+- **階層ブラウズ（アーティストからのドリルダウン）**: アーティスト一覧（`ArtistsView`）から目的のアーティストを選択した際、所属アルバム一覧およびその詳細楽曲群をスムーズに絞り込み・展開できる連携を強化する。
+

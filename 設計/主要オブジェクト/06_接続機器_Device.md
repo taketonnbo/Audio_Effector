@@ -25,6 +25,10 @@
 | **RootPath** | `string` | ルートドライブパス（例：`E:\`） | コンボボックス内部データ | `RemovableDrive.RootPath` |
 | **CurrentDirectory** | `string` | 機器内の現在閲覧中フォルダパス | ナビゲーションバー | `DeviceBrowserViewModel.CurrentDirectory` |
 | **Directories** | `ObservableCollection<DeviceDirectoryItem>` | 機器内のフォルダ一覧 | 上部フォルダリスト | `DeviceBrowserViewModel.Directories` |
+| **TotalSpace** | `long` | 機器ストレージ総容量 (バイト) | 機器ダイアログ、容量バー | ドライブ情報 |
+| **FreeSpace** | `long` | 機器の現在空き容量 (バイト) | 機器ダイアログ、容量バー | ドライブ情報 |
+| **ProjectedFreeSpace** | `long` | 転送後の予測空き容量 (バイト) | リアルタイム容量バー | 選択アイテム合計とFreeSpaceから算出 |
+| **HasCapacityWarning** | `bool` | 空き容量不足警告フラグ | 警告メッセージ、赤色バー表示 | 予測容量不足時にtrue |
 | **IsTransferring** | `bool` | 転送処理中かどうか | 進捗プログレスバーの表示制御 | `DeviceBrowserViewModel.IsTransferring` |
 
 ## 4. アクション（操作）定義
@@ -33,9 +37,12 @@
 | :--- | :--- | :--- | :--- | :--- |
 | **機器選択** | Select | コンボボックスで対象機器を選択 | 機器内部のルートディレクトリ読込 | `SelectedDevice` セッター |
 | **フォルダ移動** | Browse | フォルダ一覧項目のダブルクリック | 選択フォルダへ下位ドリルダウン | 内部ナビゲーション |
-| **アルバム転送** | Transfer | 下部アルバムのチェックボックス選択後、「TRANSFER TO DEVICE」ボタン押下 | 選択アルバムの機器転送タスク開始 | `TransferCommand` |
+| **容量予測と警告** | Predict Capacity | 転送対象アルバム/楽曲の選択変更時 | 転送後空き容量をリアルタイム計算し、不足時は警告表示 | 容量計算ロジック |
+| **アルバム転送** | Transfer | 下部アルバムのチェックボックス選択後、「TRANSFER TO DEVICE」ボタン押下、またはD&D | 選択アルバムの機器転送タスク開始（容量不足時は抑止） | `TransferCommand` |
 | **転送キャンセル** | Cancel | 転送中の「Cancel」ボタン押下 | ファイル転送処理の中止 | `CancelTransferCommand` |
 | **機器管理を開く** | Manage | 「⚙ Manage」ボタン押下 | `DeviceManagerDialog` モーダル表示 | `ShowDeviceManagerCommand` |
 
 ## 5. OOUI設計上の課題と今後の指針 (To-Be)
-- **サイドバーのロケーション化**: 独立した専用転送画面（2ペイン分割画面）ではなく、左サイドバーに接続機器をマウント表示し、通常のライブラリ画面から直接ドラッグ＆ドロップして転送できる直感的な操作感を導入します。
+- **サイドバーのロケーション化**: 独立した専用転送画面（2ペイン分割画面）ではなく、左サイドバーに接続機器をマウント表示し、通常のライブラリ画面から直接ドラッグ＆ドロップして転送できる直感的な操作感を導入する。
+- **リアルタイム空き容量予測と安全な転送**: 楽曲やアルバムのドラッグ中やチェック選択時に、機器の空き容量バーがリアルタイムに伸縮・警告表示（オーバー時は赤色表示）され、容量不足による転送失敗を直感的に防止する。
+
