@@ -26,3 +26,7 @@ objects.txt
 .agent_build/
 .agent_test_build/
 PowerShell/
+
+# Proposal documents (リモート管理対象外)
+設計/提案書/
+*提案書*

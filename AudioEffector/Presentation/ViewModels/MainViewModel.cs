@@ -333,6 +333,51 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// ユーザーが手動で追加した予約キュー
+        /// </summary>
+        public ObservableCollection<Track> UserQueue => PlayerControl?.UserQueue ?? new ObservableCollection<Track>();
+
+        /// <summary>
+        /// アルバムから引き続いて再生される予定のキュー
+        /// </summary>
+        public ObservableCollection<Track> AlbumQueue => PlayerControl?.AlbumQueue ?? new ObservableCollection<Track>();
+
+        /// <summary>
+        /// 予約キューが存在するかどうか
+        /// </summary>
+        public bool HasUserQueue => PlayerControl?.HasUserQueue ?? false;
+
+        /// <summary>
+        /// アルバムキューが存在するかどうか
+        /// </summary>
+        public bool HasAlbumQueue => PlayerControl?.HasAlbumQueue ?? false;
+
+        /// <summary>
+        /// 予約キュー曲数表示テキスト
+        /// </summary>
+        public string UserQueueCountText => PlayerControl?.UserQueueCountText ?? "0 tracks";
+
+        /// <summary>
+        /// アルバムキュータイトル
+        /// </summary>
+        public string AlbumQueueTitle => PlayerControl?.AlbumQueueTitle ?? "アルバムの残り曲";
+
+        /// <summary>
+        /// アルバムキュー曲数表示テキスト
+        /// </summary>
+        public string AlbumQueueCountText => PlayerControl?.AlbumQueueCountText ?? "0 tracks";
+
+        /// <summary>
+        /// 予約キューのみを全クリアするコマンド
+        /// </summary>
+        public ICommand? ClearUserQueueCommand => PlayerControl?.ClearUserQueueCommand;
+
+        /// <summary>
+        /// 最後に再生コマンド（旧: キューに追加）
+        /// </summary>
+        public ICommand? PlayLastCommand => PlayerControl?.PlayLastCommand;
+
         private ObservableCollection<Track> _playHistory = new ObservableCollection<Track>();
 
         /// <summary>

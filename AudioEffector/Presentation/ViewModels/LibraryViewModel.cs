@@ -422,7 +422,6 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     }
 
                     SortLibrary();
-                    _audioService.SetPlaylist(allTrackList);
                 });
             }, token);
         }
