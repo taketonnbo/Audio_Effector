@@ -17,9 +17,9 @@ _site/
 api/
 docs/
 scratch/
-docfx.json
-index.md
-toc.yml
+/docfx.json
+/index.md
+/toc.yml
 
 # Misc
 objects.txt
