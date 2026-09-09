@@ -18,8 +18,8 @@ description: Audio EffectorにおけるUI仕様書作成ルール。デザイン
    - 必ず日本語で `<機能名・画面名>UI仕様書.md` とします。
    - 例: `全曲一覧UI仕様書.md`, `歌詞パネルUI仕様書.md`
 3. **画像格納ディレクトリ**:
-   - 仕様書と同じディレクトリ内に必ず `images/` サブディレクトリを作成し、モックアップ画像を格納します。
-   - 仕様書内からは `![キャプション](images/<画像名>.jpg)` の相対パスで参照します。
+   - 仕様書と同じディレクトリ内に必ず `images/` サブディレクトリを作成し、実物モックアップ画像を格納します。
+   - 仕様書内からは `![キャプション](images/<画像名>.png)` の相対パスで参照します。
 
 ---
 
@@ -34,7 +34,7 @@ description: Audio EffectorにおけるUI仕様書作成ルール。デザイン
 - 画面の目的、ユーザー体験、主要な操作対象オブジェクト（Track, Album等）の明示。
 
 ## 2. 実装イメージ（モックアップ）
-- generate_image で生成したUIモックアップ画像の配置。
+- `tools/MockupRenderer` により本番XAMLおよびデザインシステムリソースから自動生成した実物PNGスクリーンショットの配置。
 
 ## 3. 画面配置とペインレイアウト
 - 全体レイアウト（全体レイアウト・ペイン構成UI仕様書）における位置付け（左サイドバー、中央ワークスペース、右パネル等）。
@@ -139,11 +139,27 @@ flowchart LR
 
 ---
 
-## 6. UIモックアップ画像生成の要件
-
-`generate_image` ツールを用いて画像を生成する際は、以下の要件を必ずプロンプトに含めてください：
-- **プラットフォーム**: Windows 11 desktop application, Fluent Design system
-- **テーマ**: Modern dark theme, Mica effect, deep charcoal slate background (`#161920`)
-- **アクセント**: Sleek neon cyan accent (`#00FFFF`)
-- **UI構成**: 全体レイアウト（全体レイアウト・ペイン構成UI仕様書）との位置関係に合致する画面構成
-- **枠線等の除外**: 外部ディスプレイ枠（monitor frame, laptop chassis等）を含めず、アプリウィンドウそのものを描画すること
+## 6. UIモックアップ画像生成の要件（XAML実物レンダリングの義務化）
+ 
+本プロジェクトのUI仕様書に掲載するモックアップ画像は、AI画像生成ツール（`generate_image` 等）による架空の画像ではなく、**実際に利用するWPF XAMLコードおよびデザインシステムリソース（`DarkTheme.xaml` 等）からメモリ上で描画した実物スクリーンショット（PNG）**を使用することを義務付けます。
+ 
+- **AI画像生成の原則禁止**:
+  - `generate_image` ツールによるモックアップ画像作成は行いません（文字化け、非現実的なコンポーネント配置、スタイル不一致を防ぐため）。
+- **`tools/MockupRenderer` の使用**:
+  - 画像の生成には、プロジェクト配下のオフスクリーンレンダラー `tools/MockupRenderer` を使用します。
+  - レンダラーはSTAスレッドでバックグラウンド起動し、画面にウィンドウを物理表示することなく、完全なレイアウト計算（`Measure` / `Arrange` / `UpdateLayout`）と `RenderTargetBitmap` + `PngBitmapEncoder` を実行して高精細PNGを出力します。
+ 
+### 6.1 コマンド実行例
+ 
+```bash
+# プリセットビューのレンダリング
+dotnet run --project tools/MockupRenderer/MockupRenderer.csproj -- --view <view_name> --output "設計/画面設計/<画面名>/images/<画面名>_mockup.png" --width 1280 --height 720
+ 
+# 任意のXAMLファイルのレンダリング
+dotnet run --project tools/MockupRenderer/MockupRenderer.csproj -- --xaml "path/to/TargetView.xaml" --output "設計/画面設計/<画面名>/images/<画面名>_mockup.png" --width 1280 --height 720
+```
+ 
+- **レンダリング仕様**:
+  - **解像度**: 横幅1280px × 縦幅720px（または各ペインの適正比率）
+  - **テーマ**: ダークテーマ（`--theme Dark`、デフォルト）
+  - **フォーマット**: PNG（ロスレス圧縮、透過またはウィンドウ背景色 `#161920`）

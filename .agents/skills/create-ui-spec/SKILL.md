@@ -1,7 +1,7 @@
 ---
 name: create-ui-spec
 description: >-
-  Use this skill when the user asks you to create a UI specification document (UI仕様書). It provides the required directory structure, markdown layout, design system token alignment, image generation instructions, and linking steps adhering to .agents/rules/ui_spec_rules.md.
+  Use this skill when the user asks you to create a UI specification document (UI仕様書). It provides the required directory structure, markdown layout, design system token alignment, XAML offscreen rendering with tools/MockupRenderer, and linking steps adhering to .agents/rules/ui_spec_rules.md.
 ---
 
 # UI仕様書作成スキル (create-ui-spec)
@@ -26,16 +26,17 @@ description: >-
 - そのディレクトリ内に `<画面名>UI仕様書.md` というMarkdownファイルを作成します（ファイル名は必ず日本語にすること）。
 - モックアップ画像を保存するため、同ディレクトリ内に `images/` サブディレクトリを作成します。
 
-### 3. モックアップ画像の生成
-- `generate_image` ツールを使用して、対象画面のUIモックアップ画像を生成します。
-- **必須プロンプト要件**:
-  - `Windows 11 desktop application, Fluent Design system`
-  - `Dark theme, mica effect, deep charcoal slate background (#161920)`
-  - `Sleek neon cyan accent (#00FFFF)`
-  - 対象画面のペイン位置（左サイドバー、中央ワークスペース、右スライドパネル、下部プレイヤーバー）に合わせたレイアウト
-  - `High-resolution UI presentation, no external monitor frames`
-- 生成した画像を `<画面名>UI仕様書.md` と同じディレクトリの `images/` 配下にコピー（または移動）します。
-- Markdownファイル内に `![実装イメージ](images/<画像ファイル名>)` として画像を挿入します。
+### 3. モックアップ画像の生成（実物XAMLレンダリング）
+- AI画像生成ツール（`generate_image`）は使用せず、**オフスクリーンレンダラー `tools/MockupRenderer`** を使用して実際のXAMLから画面キャプチャ（PNG）を生成します。
+- **実行コマンド例**:
+  ```bash
+  # プリセットビューの場合
+  dotnet run --project tools/MockupRenderer/MockupRenderer.csproj -- --view <view_name> --output "設計/画面設計/<機能名・画面名>/images/<画面名>_mockup.png" --width 1280 --height 720
+
+  # 個別XAMLファイルを指定する場合
+  dotnet run --project tools/MockupRenderer/MockupRenderer.csproj -- --xaml "<xamlファイルパス>" --output "設計/画面設計/<機能名・画面名>/images/<画面名>_mockup.png" --width 1280 --height 720
+  ```
+- 生成された画像（`images/<画面名>_mockup.png`）を仕様書から相対パスで参照します。
 
 ### 4. UI仕様書の記述（マークダウンフォーマット）
 以下の必須セクション構成に従って仕様書を作成してください：
@@ -47,7 +48,7 @@ description: >-
 画面の目的、ユーザー体験、主要操作対象オブジェクト（Track, Album, Playlist, Device等）を明記。
 
 ## 2. 実装イメージ（モックアップ）
-![<画面名> 実装イメージ](images/<画像名>.jpg)
+![<画面名> 実装イメージ](images/<画面名>_mockup.png)
 
 ## 3. 画面配置とペインレイアウト
 全体レイアウト（3ペイン構成）における位置付け、Grid構造（Row/Column）、推奨サイズおよびリサイズ挙動。

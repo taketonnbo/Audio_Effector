@@ -13,7 +13,7 @@
 
 Windows 11 Fluent Design（Micaエフェクト、ダークテーマ、ネオンシアンアクセントカラー `#00FFFF`）に準拠した統合3ペインレイアウトの実装イメージです。
 
-![全体レイアウト・ペイン構成実装イメージ](images/overall_layout_mockup.jpg)
+![全体レイアウト・ペイン構成実装イメージ](images/overall_layout_mockup.png)
 
 ---
 
