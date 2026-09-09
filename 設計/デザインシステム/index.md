@@ -33,32 +33,32 @@
 
 ```mermaid
 flowchart TD
-    subgraph Layer1 [1. プリミティブトークン (Primitive Tokens)]
-        C_Raw[Raw Colors: #00FFFF, #161920...]
-        S_Raw[Raw Sizes: 4px, 8px, 16px...]
-        F_Raw[Font Metrics: 11pt, 13pt, 20pt...]
+    subgraph Layer1 ["1. プリミティブトークン (Primitive Tokens)"]
+        C_Raw["Raw Colors: #00FFFF, #161920..."]
+        S_Raw["Raw Sizes: 4px, 8px, 16px..."]
+        F_Raw["Font Metrics: 11pt, 13pt, 20pt..."]
     end
 
-    subgraph Layer2 [2. セマンティックトークン (Semantic Tokens)]
-        C_Sem[Surface / Foreground / Accent / Status]
-        S_Sem[Component Padding / Gap / Margin]
-        T_Sem[Header / Body / Caption / Badge]
+    subgraph Layer2 ["2. セマンティックトークン (Semantic Tokens)"]
+        C_Sem["Surface / Foreground / Accent / Status"]
+        S_Sem["Component Padding / Gap / Margin"]
+        T_Sem["Header / Body / Caption / Badge"]
     end
 
-    subgraph Layer3 [3. 共通コントロールスタイル (Component Styles)]
-        BtnStyle[Button / ToggleButton Style]
-        InpStyle[TextBox / SearchBox Style]
-        SldStyle[Slider: Seek & Volume Style]
-        LstStyle[ListBox / DataGrid ItemStyle]
-        MnuStyle[ContextMenu / MenuItem Style]
+    subgraph Layer3 ["3. 共通コントロールスタイル (Component Styles)"]
+        BtnStyle["Button / ToggleButton Style"]
+        InpStyle["TextBox / SearchBox Style"]
+        SldStyle["Slider: Seek & Volume Style"]
+        LstStyle["ListBox / DataGrid ItemStyle"]
+        MnuStyle["ContextMenu / MenuItem Style"]
     end
 
-    subgraph Layer4 [4. 各画面・ビュー (OOUI Views)]
-        TitleBar[CustomTitleBar]
-        Sidebar[Sidebar Navigation]
-        Workspace[Center Workspace Views]
-        SidePanel[Right Side Multi-Tab Panel]
-        PlayerBar[Persistent Player Bar]
+    subgraph Layer4 ["4. 各画面・ビュー (OOUI Views)"]
+        TitleBar["CustomTitleBar"]
+        Sidebar["Sidebar Navigation"]
+        Workspace["Center Workspace Views"]
+        SidePanel["Right Side Multi-Tab Panel"]
+        PlayerBar["Persistent Player Bar"]
     end
 
     Layer1 --> Layer2
