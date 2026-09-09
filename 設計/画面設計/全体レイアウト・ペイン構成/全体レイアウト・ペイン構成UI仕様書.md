@@ -222,17 +222,17 @@ Audio Effectorは、小型ノートPCからウルトラワイドディスプレ�
 
 Windows 11 Fluent Designおよび本アプリの象徴であるサイバー・モダン・ダークテーマを構成するカラートークン一覧です。
 
-| トークン名 | カラーコード | 用途 |
-| :--- | :--- | :--- |
-| `WindowBackgroundBrush` | `#12171F` / `#0F1318` | ウィンドウ全体のベース背景（Mica効果透過） |
-| `PanelBackgroundBrush` | `#18202A` | 左サイドバー、右パネル、プレイヤーバーの背景色 |
-| `WorkspaceBackgroundBrush` | `#141A22` | 中央ワークスペースの背景色 |
-| `ControlBackgroundBrush` | `#222D3B` | ボタン、入力フィールド、カードの背景色 |
-| `NeonCyanBrush` | `#00FFFF` | 再生ボタン、アクティブタブ、シークバー、スペクトラムバー、ハイライト |
-| `TitleBarBackgroundBrush` | `#10141B` | カスタムタイトルバーの背景色 |
-| `BorderBrush` | `#2A3747` | ペイン境界線、カードボーダー、スプリッター |
-| `TextForegroundBrush` | `#FFFFFF` | 主要タイトル、トラック名、アクティブテキスト |
-| `MutedTextForegroundBrush` | `#8C9BAE` | アーティスト名、アルバム名、時間表示、非アクティブテキスト |
+| トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
+| :--- | :---: | :--- | :--- |
+| `WindowBackgroundBrush` | <span style="background-color:#161920; color:#F0F4F8; padding:3px 10px; border-radius:4px; border:1px solid #343E4E; font-family:monospace;">■ #161920</span> | `#161920` | ウィンドウ全体のベース背景（Mica効果透過） |
+| `PanelBackgroundBrush` | <span style="background-color:#1B2028; color:#F0F4F8; padding:3px 10px; border-radius:4px; border:1px solid #343E4E; font-family:monospace;">■ #1B2028</span> | `#1B2028` | 左サイドバー、右パネル、プレイヤーバーの背景色 |
+| `WorkspaceBackgroundBrush` | <span style="background-color:#141A22; color:#F0F4F8; padding:3px 10px; border-radius:4px; border:1px solid #343E4E; font-family:monospace;">■ #141A22</span> | `#141A22` | 中央ワークスペースの背景色 |
+| `ControlBackgroundBrush` | <span style="background-color:#232934; color:#F0F4F8; padding:3px 10px; border-radius:4px; border:1px solid #343E4E; font-family:monospace;">■ #232934</span> | `#232934` | ボタン、入力フィールド、カードの背景色 |
+| `NeonCyanBrush` | <span style="background-color:#00FFFF; color:#10141B; padding:3px 10px; border-radius:4px; font-weight:bold; font-family:monospace;">■ #00FFFF</span> | `#00FFFF` | 再生ボタン、アクティブタブ、シークバー、スペクトラムバー、ハイライト |
+| `TitleBarBackgroundBrush` | <span style="background-color:#10141B; color:#F0F4F8; padding:3px 10px; border-radius:4px; border:1px solid #343E4E; font-family:monospace;">■ #10141B</span> | `#10141B` | カスタムタイトルバーの背景色 |
+| `BorderBrush` | <span style="background-color:#1B2028; color:#343E4E; padding:3px 10px; border-radius:4px; border:2px solid #343E4E; font-family:monospace;">■ #343E4E</span> | `#343E4E` | ペイン境界線、カードボーダー、スプリッター |
+| `TextForegroundBrush` | <span style="background-color:#1B2028; color:#F0F4F8; padding:3px 10px; border-radius:4px; border:1px solid #F0F4F8; font-family:monospace;">■ #F0F4F8</span> | `#F0F4F8` | 主要タイトル、トラック名、アクティブテキスト |
+| `MutedTextForegroundBrush` | <span style="background-color:#1B2028; color:#718096; padding:3px 10px; border-radius:4px; border:1px solid #718096; font-family:monospace;">■ #718096</span> | `#718096` | アーティスト名、アルバム名、時間表示、非アクティブテキスト |
 
 ---
 
