@@ -21,10 +21,12 @@
 
 | プロパティ名 | 型 | 説明 | 表示箇所 | 実装プロパティ ([DeviceBrowserViewModel.cs](file:///c:/Users/tnish/vs_code_git/Audio_Effector/AudioEffector/Presentation/ViewModels/DeviceBrowserViewModel.cs)) |
 | :--- | :--- | :--- | :---: | :--- |
-| **Name / DisplayName** | `string` | デバイス名（ボリューム名等） | コンボボックス、機器ダイアログ | `RemovableDrive.Name` |
+| **DeviceId** | `string` | 機器固有識別子（ボリュームシリアル番号、ハードウェアUUID等） | 機器設定・内部識別 | ドライブシリアル情報 |
+| **Name / DisplayName** | `string` | デバイス名（ボリューム名等） | コンボボックス、機器ダイアログ、パネル | `RemovableDrive.Name` |
 | **RootPath** | `string` | ルートドライブパス（例：`E:\`） | コンボボックス内部データ | `RemovableDrive.RootPath` |
-| **CurrentDirectory** | `string` | 機器内の現在閲覧中フォルダパス | ナビゲーションバー | `DeviceBrowserViewModel.CurrentDirectory` |
-| **Directories** | `ObservableCollection<DeviceDirectoryItem>` | 機器内のフォルダ一覧 | 上部フォルダリスト | `DeviceBrowserViewModel.Directories` |
+| **DefaultDestinationPath**| `string` | 端末ごとに登録・記憶されたデフォルト転送先フォルダパス | 転送パネル、機器ダイアログ | アプリ設定 (`AppSettings`) と機器IDを紐付け |
+| **CurrentDirectory** | `string` | 機器内の現在閲覧中/転送先フォルダパス | ナビゲーションバー、転送パネル | `DeviceBrowserViewModel.CurrentDirectory` |
+| **Directories** | `ObservableCollection<DeviceDirectoryItem>` | 機器内のフォルダ一覧 | 上部フォルダリスト、フォルダ選択ツリー | `DeviceBrowserViewModel.Directories` |
 | **TotalSpace** | `long` | 機器ストレージ総容量 (バイト) | 機器ダイアログ、容量バー | ドライブ情報 |
 | **FreeSpace** | `long` | 機器の現在空き容量 (バイト) | 機器ダイアログ、容量バー | ドライブ情報 |
 | **ProjectedFreeSpace** | `long` | 転送後の予測空き容量 (バイト) | リアルタイム容量バー | 選択アイテム合計とFreeSpaceから算出 |
@@ -36,13 +38,17 @@
 | アクション名 | 動詞 | トリガー / 操作 | 影響・結果 | 関連コマンド / 実装 |
 | :--- | :--- | :--- | :--- | :--- |
 | **機器選択** | Select | コンボボックスで対象機器を選択 | 機器内部のルートディレクトリ読込 | `SelectedDevice` セッター |
-| **フォルダ移動** | Browse | フォルダ一覧項目のダブルクリック | 選択フォルダへ下位ドリルダウン | 内部ナビゲーション |
+| **デフォルトフォルダ自動選択** | Auto Select Folder | 端末接続検知時（自動） | 記憶されたデフォルト転送先フォルダを自動セット・展開 | 自動バインド処理 |
+| **デフォルトフォルダ登録・記憶** | Register Default Folder | パネルの「このフォルダを既定に設定」ボタン押下 | 現在フォルダを機器IDと紐づけてアプリ設定へ永続化記憶 | `SetDefaultFolderCommand` |
+| **フォルダ移動・選択** | Browse | フォルダ一覧項目のダブルクリック、フォルダ変更ボタン | 選択フォルダへ下位ドリルダウン、転送先の変更 | 内部ナビゲーション |
 | **容量予測と警告** | Predict Capacity | 転送対象アルバム/楽曲の選択変更時 | 転送後空き容量をリアルタイム計算し、不足時は警告表示 | 容量計算ロジック |
 | **アルバム/楽曲転送** | Transfer | メインワークスペースで単選択・複数選択し、右クリック「端末へ転送」またはパネルの「転送開始」 | 選択アイテムの機器転送タスク開始（容量不足時は抑止） | `TransferCommand` |
 | **転送キャンセル** | Cancel | 転送中の「Cancel」ボタン押下 | ファイル転送処理の中止 | `CancelTransferCommand` |
-| **機器管理を開く** | Manage | 「⚙ Manage」ボタン押下 | `DeviceManagerDialog` モーダル表示 | `ShowDeviceManagerCommand` |
+| **機器管理を開く** | Manage | 「⚙ Manage」ボタン押下 | `DeviceManagerDialog` モーダル表示（各端末のデフォルトフォルダ編集も可能） | `ShowDeviceManagerCommand` |
 
 ## 5. OOUI設計上の課題と今後の指針 (To-Be)
+- **端末識別とデフォルトフォルダの記憶・管理**:
+  接続機器の固有ID（ボリュームシリアル番号やハードウェアUUID等）を識別キーとし、各端末ごとに転送先デフォルトフォルダ（例: `E:\MUSIC`）をアプリ設定に記憶・管理する。接続時に自動で右側パネルが起動した際、毎回フォルダを選び直す必要なく登録済みフォルダが即座にセットされるため、ユーザーは楽曲を選択して転送ボタンを押すだけの「ゼロステップ転送」を実現する。また、パネル内や機器管理ダイアログからワンクリックでデフォルトフォルダの変更・登録を可能とする。
 - **接続時トースト通知と右側転送パネルの自動起動**: 外部端末がPCに接続された際、トースト通知とともに画面右側に「端末転送パネル」を自動スライドイン展開。ユーザーは通常のライブラリ画面（全曲、アルバム、アーティスト、プレイリスト）を閲覧したまま、単選択または複数選択してスムーズに転送を行えるモードレスな導線を提供する。（※端末へのドラッグ＆ドロップ直接転送は一旦保留）
 - **リアルタイム空き容量予測と安全な転送**: 楽曲やアルバムの選択時に、機器の空き容量バーがリアルタイムに伸縮・警告表示（オーバー時は赤色表示）され、容量不足による転送失敗を直感的に防止する。
 
