@@ -13,7 +13,7 @@
 | **プレイリスト** | UserPlaylist | プライマリ / コンテナ | `PlaylistSelectorView.xaml`<br>（4分割サムネイル付きカード一覧）。 | `PlaylistTracksView.xaml`<br>（ヘッダー＋所属曲一覧の独立画面）。 | コレクションとシングルは分離済み。楽曲のD&D直接投入・インライン名称編集の導入。 | [03_プレイリスト_UserPlaylist.md](03_プレイリスト_UserPlaylist.md) |
 | **再生キュー** | PlayQueue | コンテナ / ワークスペース | `PlayQueueSidePanel.xaml`<br>（右端からスライドオーバーレイ表示）。 | キュー内の現在再生曲ハイライト。 | ライブラリ各画面からのドラッグ＆ドロップによるキュー割り込み・追加の強化。 | [04_再生キュー_PlayQueue.md](04_再生キュー_PlayQueue.md) |
 | **エフェクトプリセット** | EqualizerPreset | セカンダリ / 設定 | プリセット選択コンボボックス（`EqualizerViewModel.Presets`）。 | `EqualizerView.xaml`<br>（10バンドゲインスライダー全画面）。 | 全画面占有から、再生中も操作できるポップアップ/ドロワー配置への見直し。 | [05_エフェクトプリセット_EqualizerPreset.md](05_エフェクトプリセット_EqualizerPreset.md) |
-| **接続機器** | Device | セカンダリ / ロケーション | `DeviceSyncView.xaml` のコンボボックス、`DeviceManagerDialog` の一覧。 | `DeviceSyncView.xaml` のフォルダ探索ブラウザ。 | 専用同期画面ではなく、サイドバーへの常設マウントおよび直接D&D転送の実現。 | [06_接続機器_Device.md](06_接続機器_Device.md) |
+| **接続機器** | Device | セカンダリ / ロケーション | `DeviceSyncView.xaml` のコンボボックス、`DeviceManagerDialog` の一覧。 | `DeviceSyncView.xaml` のフォルダ探索ブラウザ。 | 専用同期画面ではなく、接続時トースト通知と右側端末転送パネルの自動起動、通常画面からの単選択・複数選択転送の実現（D&D転送は一旦保留）。 | [06_接続機器_Device.md](06_接続機器_Device.md) |
 
 ---
 
