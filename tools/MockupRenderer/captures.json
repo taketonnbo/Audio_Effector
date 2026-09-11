@@ -1,0 +1,254 @@
+[
+  {
+    "view": "MainWindow",
+    "state": "default",
+    "width": 1280,
+    "height": 720,
+    "output": "設計/画面設計/全体レイアウト・ペイン構成/images/全体レイアウト・ペイン構成_mockup.png"
+  },
+  {
+    "view": "SidebarControl",
+    "state": "expanded",
+    "width": 200,
+    "height": 600,
+    "output": "設計/画面設計/左サイドバー/images/左サイドバー_mockup.png"
+  },
+  {
+    "view": "AllSongsView",
+    "state": "default",
+    "width": 800,
+    "height": 450,
+    "output": "設計/画面設計/全曲一覧/images/全曲一覧_mockup.png"
+  },
+  {
+    "view": "ArtistsView",
+    "state": "default",
+    "width": 800,
+    "height": 450,
+    "output": "設計/画面設計/アーティスト一覧/images/アーティスト一覧_mockup.png"
+  },
+  {
+    "view": "RecentView",
+    "state": "default",
+    "width": 800,
+    "height": 450,
+    "output": "設計/画面設計/最近再生した曲/images/最近再生した曲_mockup.png"
+  },
+  {
+    "view": "FolderView",
+    "state": "default",
+    "width": 800,
+    "height": 450,
+    "output": "設計/画面設計/フォルダ/images/フォルダ_mockup.png"
+  },
+  {
+    "view": "LibraryView",
+    "state": "default",
+    "width": 800,
+    "height": 500,
+    "output": "設計/画面設計/アルバム一覧/images/アルバム一覧_mockup.png"
+  },
+  {
+    "view": "LibraryView",
+    "state": "grid",
+    "width": 800,
+    "height": 500,
+    "output": "設計/画面設計/アルバム一覧/images/アルバム一覧_グリッド.png"
+  },
+  {
+    "view": "PlaylistSelectorView",
+    "state": "default",
+    "width": 800,
+    "height": 500,
+    "output": "設計/画面設計/プレイリスト一覧/images/プレイリスト一覧_mockup.png"
+  },
+  {
+    "view": "PlaylistTracksView",
+    "state": "default",
+    "width": 800,
+    "height": 500,
+    "output": "設計/画面設計/プレイリスト内楽曲/images/プレイリスト内楽曲_mockup.png"
+  },
+  {
+    "view": "PlaylistTracksView",
+    "state": "favorites",
+    "width": 800,
+    "height": 500,
+    "output": "設計/画面設計/お気に入り/images/お気に入り_mockup.png"
+  },
+  {
+    "view": "EqualizerView",
+    "state": "default",
+    "width": 1000,
+    "height": 500,
+    "output": "設計/画面設計/イコライザー/images/イコライザー_mockup.png"
+  },
+  {
+    "view": "DeviceSyncView",
+    "state": "default",
+    "width": 800,
+    "height": 650,
+    "output": "設計/画面設計/機器転送/images/機器転送_mockup.png"
+  },
+  {
+    "view": "DeviceSyncView",
+    "state": "transferring",
+    "width": 800,
+    "height": 650,
+    "output": "設計/画面設計/機器転送/images/機器転送_転送中.png"
+  },
+  {
+    "view": "DeviceManagerDialog",
+    "state": "default",
+    "width": 800,
+    "height": 600,
+    "output": "設計/画面設計/機器ストレージ管理/images/機器ストレージ管理_mockup.png"
+  },
+  {
+    "view": "SettingsDialog",
+    "state": "default",
+    "width": 800,
+    "height": 600,
+    "output": "設計/画面設計/設定/images/設定_mockup.png"
+  },
+  {
+    "view": "SettingsDialog",
+    "state": "audio",
+    "width": 800,
+    "height": 600,
+    "output": "設計/画面設計/設定/images/設定_オーディオ.png"
+  },
+  {
+    "view": "SettingsDialog",
+    "state": "effects",
+    "width": 800,
+    "height": 600,
+    "output": "設計/画面設計/設定/images/設定_エフェクト.png"
+  },
+  {
+    "view": "SettingsDialog",
+    "state": "shortcuts",
+    "width": 800,
+    "height": 600,
+    "output": "設計/画面設計/設定/images/設定_ショートカット.png"
+  },
+  {
+    "view": "SettingsDialog",
+    "state": "data",
+    "width": 800,
+    "height": 600,
+    "output": "設計/画面設計/設定/images/設定_データ管理.png"
+  },
+  {
+    "view": "ShortcutInputBox",
+    "state": "default",
+    "width": 300,
+    "height": 90,
+    "output": "設計/画面設計/ショートカット入力/images/ショートカット入力_mockup.png"
+  },
+  {
+    "view": "InputBox",
+    "state": "default",
+    "width": 300,
+    "height": 150,
+    "output": "設計/画面設計/文字入力ダイアログ/images/文字入力ダイアログ_mockup.png"
+  },
+  {
+    "view": "PlaylistSelectionDialog",
+    "state": "default",
+    "width": 350,
+    "height": 450,
+    "output": "設計/画面設計/プレイリスト追加ダイアログ/images/プレイリスト追加ダイアログ_mockup.png"
+  },
+  {
+    "view": "MiniPlayerWindow",
+    "state": "default",
+    "width": 350,
+    "height": 100,
+    "output": "設計/画面設計/ミニプレイヤー/images/ミニプレイヤー_mockup.png"
+  },
+  {
+    "view": "PlayQueueDialog",
+    "state": "default",
+    "width": 400,
+    "height": 500,
+    "output": "設計/画面設計/再生キューダイアログ/images/再生キューダイアログ_mockup.png"
+  },
+  {
+    "view": "PlayQueueSidePanel",
+    "state": "default",
+    "width": 360,
+    "height": 600,
+    "output": "設計/画面設計/再生キュースライドパネル/images/再生キュースライドパネル_mockup.png"
+  },
+  {
+    "view": "PlayQueueSidePanel",
+    "state": "history",
+    "width": 360,
+    "height": 600,
+    "output": "設計/画面設計/再生キュースライドパネル/images/再生キュースライドパネル_履歴.png"
+  },
+  {
+    "view": "PlayQueueSidePanel",
+    "state": "empty",
+    "width": 360,
+    "height": 600,
+    "output": "設計/画面設計/再生キュースライドパネル/images/再生キュースライドパネル_空.png"
+  },
+  {
+    "view": "MainWindow",
+    "state": "default",
+    "width": 1280,
+    "height": 720,
+    "output": "設計/画面設計/タイトルバー/images/タイトルバー_mockup.png"
+  },
+  {
+    "view": "MainWindow",
+    "state": "closed",
+    "width": 1280,
+    "height": 720,
+    "output": "設計/画面設計/再生操作/images/再生操作_mockup.png"
+  },
+  {
+    "view": "MainWindow",
+    "state": "default",
+    "width": 1280,
+    "height": 720,
+    "output": "設計/画面設計/右側タブ開閉機能/images/右側タブ開閉機能_mockup.png"
+  },
+  {
+    "view": "MainWindow",
+    "state": "closed",
+    "width": 1280,
+    "height": 720,
+    "output": "設計/画面設計/右側タブ開閉機能/images/右側タブ開閉機能_閉.png"
+  },
+  {
+    "view": "MainWindow",
+    "state": "maximized",
+    "width": 1920,
+    "height": 1000,
+    "output": "設計/画面設計/右側アルバム情報表示サイズ切り替え機能/images/右側アルバム情報表示サイズ切り替え機能_mockup.png"
+  },
+  {
+    "view": "MainWindow",
+    "state": "default",
+    "width": 1280,
+    "height": 720,
+    "output": "設計/画面設計/右側アルバム情報表示サイズ切り替え機能/images/右側アルバム情報表示サイズ切り替え機能_コンパクト.png"
+  },
+  {
+    "view": "MainWindow",
+    "state": "spectrum",
+    "width": 1280,
+    "height": 720,
+    "output": "設計/画面設計/スペクトラムアナライザ/images/スペクトラムアナライザ_mockup.png"
+  },
+  {
+    "view": "PlaylistTracksView",
+    "state": "default",
+    "width": 520,
+    "height": 260,
+    "output": "設計/画面設計/スクロールバー/images/スクロールバー_mockup.png"
+  }
+]
