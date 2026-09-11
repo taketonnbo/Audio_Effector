@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 
 namespace MockupRenderer;
 
@@ -42,6 +43,7 @@ public static class Program
             Console.ResetColor();
             return 1;
         }
+        finally { Dispatcher.CurrentDispatcher.InvokeShutdown(); }
     }
 
     private static void InitializeWpfApplication(string theme)
@@ -52,7 +54,7 @@ public static class Program
         }
 
         var app = Application.Current ?? new Application();
-        app.Resources.MergedDictionaries.Clear();
+        app.Resources = SourceViewLoader.LoadResources("AudioEffector/App.xaml");
 
         // Load DarkTheme or LightTheme from AudioEffector assembly
         string themePath = theme.Equals("Light", StringComparison.OrdinalIgnoreCase)
@@ -62,80 +64,59 @@ public static class Program
         try
         {
             var themeDict = new ResourceDictionary { Source = new Uri(themePath, UriKind.Absolute) };
-            app.Resources.MergedDictionaries.Add(themeDict);
+            app.Resources.MergedDictionaries[0] = themeDict;
 
-            var scrollDict = new ResourceDictionary
-            {
-                Source = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/ScrollBarResources.xaml", UriKind.Absolute)
-            };
-            app.Resources.MergedDictionaries.Add(scrollDict);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[MockupRenderer] Warning loading packaged theme dictionaries: {ex.Message}");
-            // Fallback: load local colors if needed
-            AddFallbackColors(app.Resources);
+            throw new InvalidOperationException("本番テーマの読み込みに失敗しました。", ex);
         }
 
-        // Register standard converters
-        app.Resources["BoolToVis"] = new AudioEffector.Presentation.Converters.BoolToVisConverter();
-        app.Resources["IndexConverter"] = new AudioEffector.Presentation.Converters.IndexConverter();
-    }
-
-    private static void AddFallbackColors(ResourceDictionary resources)
-    {
-        resources["WindowBackgroundBrush"] = new SolidColorBrush(Color.FromRgb(0x16, 0x19, 0x20));
-        resources["PanelBackgroundBrush"] = new SolidColorBrush(Color.FromRgb(0x1B, 0x20, 0x28));
-        resources["WorkspaceBackgroundBrush"] = new SolidColorBrush(Color.FromRgb(0x14, 0x1A, 0x22));
-        resources["ControlBackgroundBrush"] = new SolidColorBrush(Color.FromRgb(0x23, 0x29, 0x34));
-        resources["ControlBackgroundHighlightBrush"] = new SolidColorBrush(Color.FromRgb(0x2F, 0x37, 0x46));
-        resources["TextForegroundBrush"] = new SolidColorBrush(Color.FromRgb(0xF0, 0xF4, 0xF8));
-        resources["SecondaryTextForegroundBrush"] = new SolidColorBrush(Color.FromRgb(0xA0, 0xAE, 0xC0));
-        resources["MutedTextForegroundBrush"] = new SolidColorBrush(Color.FromRgb(0x71, 0x80, 0x96));
-        resources["BorderBrush"] = new SolidColorBrush(Color.FromRgb(0x34, 0x3E, 0x4E));
-        resources["NeonCyanBrush"] = new SolidColorBrush(Color.FromRgb(0x00, 0xFF, 0xFF));
-        resources["DarkNeonCyanBrush"] = new SolidColorBrush(Color.FromRgb(0x00, 0xE5, 0xFF));
     }
 
     private static FrameworkElement BuildElement(RenderOptions options)
     {
-        // 1. If explicit XAML file is provided, load it
-        if (!string.IsNullOrEmpty(options.XamlPath) && File.Exists(options.XamlPath))
-        {
-            string xamlContent = File.ReadAllText(options.XamlPath);
-            if (XamlReader.Parse(xamlContent) is FrameworkElement customElement)
-            {
-                return customElement;
-            }
-            throw new InvalidOperationException($"Parsed XAML is not a FrameworkElement: {options.XamlPath}");
-        }
-
-        // 2. Preset Views
-        return options.ViewName?.ToLowerInvariant() switch
-        {
-            "sidebar" or "sidebarcontrol" => new AudioEffector.Presentation.Views.SidebarControl(),
-            "playqueue" or "playqueuesidepanel" => new AudioEffector.Presentation.Views.PlayQueueSidePanel(),
-            "equalizer" or "equalizerview" => new AudioEffector.Presentation.Views.EqualizerView(),
-            "overalllayout" or "mainwindow" => MockViewFactory.CreateOverallLayoutMock(),
-            _ => MockViewFactory.CreateOverallLayoutMock()
-        };
+        return SourceViewLoader.Load(options);
     }
 
     public static void RenderToPng(FrameworkElement element, string outputPath, int width, int height)
     {
+        Window? hostWindow = element as Window;
+        if (element is Window window)
+        {
+            var content = (FrameworkElement)window.Content;
+            content.SetValue(System.Windows.Documents.TextElement.ForegroundProperty, window.Foreground);
+            content.SetValue(System.Windows.Documents.TextElement.FontFamilyProperty, window.FontFamily);
+            content.SetValue(System.Windows.Documents.TextElement.FontSizeProperty, window.FontSize);
+            window.Content = null;
+            content.DataContext = window.DataContext;
+            content.Resources.MergedDictionaries.Add(window.Resources);
+            element = content;
+        }
         // Ensure element size
-        element.Width = width;
-        element.Height = height;
+        element.Width = Math.Max(0, width - element.Margin.Left - element.Margin.Right);
+        element.Height = Math.Max(0, height - element.Margin.Top - element.Margin.Bottom);
 
         // Wrap in a parent border to ensure proper background fill if not set
         Border container = new Border
         {
             Width = width,
             Height = height,
-            Background = (Brush)Application.Current.Resources["WindowBackgroundBrush"] ?? new SolidColorBrush(Color.FromRgb(0x16, 0x19, 0x20)),
+            Background = hostWindow?.Background ?? (Brush)Application.Current.Resources["WindowBackgroundBrush"],
             Child = element
         };
+        if (hostWindow != null) hostWindow.Content = container;
 
+        container.Measure(new Size(width, height));
+        container.Arrange(new Rect(0, 0, width, height));
+        container.UpdateLayout();
+
+        // 初期バインディングと最長600msの表示切替を完了させてから撮影する。
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(900) };
+        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
         container.Measure(new Size(width, height));
         container.Arrange(new Rect(0, 0, width, height));
         container.UpdateLayout();
@@ -171,6 +152,10 @@ public static class Program
             {
                 options.ViewName = args[++i];
             }
+            else if (arg is "--state" && i + 1 < args.Length)
+            {
+                options.State = args[++i];
+            }
             else if (arg is "-x" or "--xaml" && i + 1 < args.Length)
             {
                 options.XamlPath = args[++i];
@@ -202,7 +187,8 @@ public static class Program
         Console.WriteLine("  MockupRenderer [options]");
         Console.WriteLine();
         Console.WriteLine("Options:");
-        Console.WriteLine("  -v, --view <name>     Preset view name (overalllayout, sidebar, playqueue, equalizer)");
+        Console.WriteLine("  -v, --view <name>     Production view class name or overalllayout/sidebar/playqueue/equalizer");
+        Console.WriteLine("      --state <name>    Fixed display state (see captures.json)");
         Console.WriteLine("  -x, --xaml <path>     Path to custom XAML file to render");
         Console.WriteLine("  -o, --output <path>   Output PNG path (default: mockup_output.png)");
         Console.WriteLine("  -w, --width <int>     Target width in pixels (default: 1280)");
@@ -214,6 +200,7 @@ public static class Program
 
 public class RenderOptions
 {
+    public string State { get; set; } = "default";
     public string? ViewName { get; set; } = "overalllayout";
     public string? XamlPath { get; set; }
     public string OutputPath { get; set; } = "mockup_output.png";
