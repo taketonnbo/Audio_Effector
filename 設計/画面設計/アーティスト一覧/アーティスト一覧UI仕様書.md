@@ -2,10 +2,10 @@
 
 ## 1. 概要 (Overview)
 
-ライブラリ内の楽曲をアーティスト単位で集約し、ブラウズ・アルバム/楽曲へのドリルダウン・一括再生を行う画面。
+ライブラリ内の楽曲をアーティスト単位で集約し、2ペイン構成でブラウズ・アルバム/楽曲へのドリルダウン・一括再生を行う画面。
 
 - **主要操作対象オブジェクト**: アーティスト (`Track.Artist` および所属 `Album` 集約)
-- **ユーザー体験**: お気に入りのアーティストの素早い探索、アーティスト別全楽曲の一括再生、所属アルバムおよび代表曲のプレビュー。
+- **ユーザー体験**: 左ペインでの高速なアーティスト探索と、右ペインでの詳細ヘッダー・所属アルバム・全楽曲一覧の即時確認および一括再生。
 
 ---
 
@@ -15,28 +15,21 @@
 
 ```text
 +--------------------------------------------------------------------------------------------------------------------+
-| [ソート: 名前順 (A-Z) ▼]   [🔍 アーティストを検索...                        ]                     全 64 アーティスト |
-+--------------------------------------------------------------------------------------------------------------------+
-| +---------------+  +---------------+  +---------------+  +---------------+  +---------------+                      |
-| |    ( 👤 )     |  |    ( 👤 )     |  |    ( 👤 )     |  |    ( 👤 )     |  |    ( 👤 )     |                      |
-| |   [Avatar]    |  |   [Avatar]    |  |   [Avatar]    |  |   [Avatar]    |  |   [Avatar]    |                      |
-| |               |  |  [▶ 全曲再生] |  |               |  |               |  |               |                      |
-| +---------------+  +---------------+  +---------------+  +---------------+  +---------------+                      |
-| Daft Punk          M83                The Weeknd         Tame Impala        Justice                                |
-| 4 アルバム • 68曲  3 アルバム • 45曲  5 アルバム • 82曲  4 アルバム • 54曲  3 アルバム • 38曲                      |
-|                                                                                                                    |
-| (クリック選択時: アーティスト詳細パネル/所属アルバム・楽曲の展開)                                                 |
-| +----------------------------------------------------------------------------------------------------------------+ |
-| | ( 👤 ) Daft Punk                                                           [▶ すべて再生]  [🔀 シャッフル]      | |
-| |        電子音楽デュオ / アルバム: 4作品 / 楽曲: 68曲                                                           | |
-| |                                                                                                                | |
-| | ■ 代表アルバム:                                                                                                | |
-| |   [Art] Random Access Memories (2013, 13曲)     [Art] Discovery (2001, 14曲)     [Art] Homework (1997, 16曲)    | |
-| |                                                                                                                | |
-| | ■ 人気楽曲トップ 5:                                                                                            | |
-| |   1. Get Lucky (06:09)    2. One More Time (05:20)    3. Harder Better (03:44)    4. Around the World (07:09)  | |
-| +----------------------------------------------------------------------------------------------------------------+ |
-+--------------------------------------------------------------------------------------------------------------------+
+| [名前順 ▼] [▲]   [アーティストを検索...                        ✕]                                 全 64 アーティスト |
++---------------------------+----------------------------------------------------------------------------------------+
+| | ( 👤 ) Daft Punk        | ( 👤 ) Daft Punk                                         [▶ すべて再生] [シャッフル]   |
+| |        4 アルバム • 68 曲 |        4 アルバム • 68 曲                                                               |
+|                           +----------------------------------------------------------------------------------------+
+|   ( 👤 ) M83              | アルバム                                                                               |
+|          3 アルバム • 45 曲 |  [Art] Random Access Memories  [Art] Discovery        [Art] Homework                   |
+|                           |        13 曲                         14 曲                    16 曲                     |
+|   ( 👤 ) The Weeknd       +----------------------------------------------------------------------------------------+
+|          5 アルバム • 82 曲 | 楽曲一覧（ダブルクリックで再生）                                                       |
+|                           |   1   ★  Get Lucky                           Random Access Memories           06:09   |
+|   ( 👤 ) Tame Impala      |   2   ☆  Instant Crush                       Random Access Memories           05:37   |
+|          4 アルバム • 54 曲 |   3   ★  One More Time                       Discovery                        05:20   |
+|                           |   4   ☆  Harder, Better, Faster, Stronger      Discovery                        03:44   |
++---------------------------+----------------------------------------------------------------------------------------+
 ```
 
 ### 2.2 Figmaモックアップ
@@ -48,9 +41,12 @@
 
 - **位置付け**: MainWindowの中央ワークスペース列（`CurrentViewType=Artists`）。
 - **グリッド構造**:
-  - 行0 (`Auto`): ツールバー（ソートComboBox、昇降順トグル、検索ボックス、アーティスト総数）。
-  - 行1 (`*`): アーティストグリッド（WrapPanel＋UI仮想化）および下部/インライン詳細展開領域。
-- **サイズ要件**: ワークスペースの幅・高さに100%追従（カード幅160px基準のレスポンシブ配置）。
+  - 行0 (`Auto`): ツールバー（ソートComboBox「名前順 / 曲数順 / アルバム数順」、昇降順トグル、検索ボックス＋クリアボタン、アーティスト総数サマリー）。
+  - 行1 (`*`): 2ペインブラウザー領域
+    - 列0 (`260px`, `MinWidth=200px`): 左ペイン（仮想化アーティスト一覧。Empty State 時は `Visibility="Collapsed"`）。
+    - 列1 (`*`): 右ペイン（選択アーティスト詳細ヘッダー、所属アルバム横スクロールリスト、楽曲一覧）。未選択時は `Visibility="Collapsed"`。
+    - Empty State (`Grid.ColumnSpan="2"`): アーティスト 0 件時に `WindowBackgroundBrush` 背景付きで中央表示。
+- **サイズ要件**: ワークスペースの幅・高さに100%追従。
 
 ---
 
@@ -58,49 +54,57 @@
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | 画面背景 |
-| `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | カード・詳細パネル背景 |
-| `ControlBackgroundHighlightBrush` | <span style="background-color:#2F3746;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #2F3746</span> | `#2F3746` | ホバー・カード選択ハイライト |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 選択枠、再生アクセント |
-| `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | アーティスト名 |
-| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | アルバム数、曲数サマリー |
+| `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | 画面背景・Empty State背景 |
+| `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | ツールバー・左ペイン・詳細ヘッダー背景 |
+| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | 検索ボックス・セカンダリボタン・アルバムカード背景 |
+| `ControlBackgroundHighlightBrush` | <span style="background-color:#2F3746;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #2F3746</span> | `#2F3746` | ホバー・選択行ハイライト |
+| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 選択アクセントバー、プライマリボタン背景、再生中タイトル |
+| `InverseTextForegroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920 / #FFFFFF</span> | Dark `#161920` / Light `#FFFFFF` | プライマリボタン（「▶ すべて再生」）文字色 |
+| `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | アーティスト名・曲名・アルバム名 |
+| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | アルバム数、曲数サマリー、再生時間 |
 
-- **角丸**: アバター画像: `Radius.Pill (9999px)`（円形表示）、カード背景: `Radius.Medium (8px)`。
-- **タイポグラフィ**: アーティスト名: `Header2 (16pt) / SemiBold`、メタデータ: `Caption (11pt) / Regular`。
+- **角丸・クリッピング**:
+  - 左ペインアバター (36x36): `CornerRadius="18"` + `<EllipseGeometry Center="17,17" RadiusX="17" RadiusY="17"/>`
+  - 詳細ヘッダーアバター (56x56): `CornerRadius="28"` + `<EllipseGeometry Center="26.5,26.5" RadiusX="26.5" RadiusY="26.5"/>`
+  - アルバムカードサムネイル (40x40): `CornerRadius="4"` + `<RectangleGeometry Rect="0,0,40,40" RadiusX="4" RadiusY="4"/>`
 
 ---
 
 ## 5. 構成要素と共通コントロール
 
-1. **アーティストカード**:
-   - 円形アバター画像（アーティスト写真または代表アルバムアート）。
-   - ホバー時に中央オーバーレイ再生ボタン（`PrimaryButton` 準拠のシアン円形ボタン）。
-   - アーティスト名、所属アルバム数、楽曲数ラベル。
-2. **アーティスト詳細ドリルダウンビュー**:
-   - 上部ヘッダー（アーティスト名、総曲数、全曲一括再生/シャッフルボタン）。
-   - アルバム一覧（横スクロールまたはカードグリッド）。
-   - 人気楽曲・代表曲リスト（ダブルクリック即時再生、右クリックコンテキストメニュー対応）。
+1. **左ペイン（アーティスト一覧）**:
+   - 選択アクセントバー、円形アバター画像（代表トラックのアルバムアート）、アーティスト名、所属アルバム数・楽曲数サマリー。
+   - UI仮想化（`IsVirtualizing="True"`, `VirtualizationMode="Recycling"`, `ScrollUnit="Pixel"`, `CanContentScroll="True"`）。
+2. **右ペイン（アーティスト詳細）**:
+   - **詳細ヘッダー**: 円形アバター、アーティスト名、サマリー、「▶ すべて再生」プライマリボタン、「シャッフル」セカンダリボタン。
+   - **所属アルバム横スクロールリスト**: 仮想化水平 `ListBox`、角丸ジャケット、アルバム名、収録曲数（クリックでアルバム再生）。
+   - **楽曲一覧**: 仮想化 `ListBox`、連番、お気に入りトグルボタン（`☆`/`★`）、曲名（再生中ハイライト）、アルバム名、再生時間。
 
 ---
 
 ## 6. アニメーションとインタラクション
 
-- **クリック**: アーティストカードの選択および詳細パネルの展開。
-- **ダブルクリック**: アーティストの全楽曲を再生キューに投入して1曲目から再生開始。
-- **ホバー時再生ボタンクリック**: 全曲一括再生（`PlayArtistCommand`）。
+- **クリック**:
+  - 左ペイン行クリック: アーティスト選択および右ペイン詳細の切り替え（`SelectedTrack` はリセット）。
+  - アルバムカードクリック: 該当アルバムの全曲を再生（`PlayAlbumCommand`）。
+- **ダブルクリック（左ボタンかつアイテム行上のみ有効、ボタン・スクロールバー・余白は除外）**:
+  - 左ペインアーティスト行: アーティストの全楽曲を再生開始（`PlayArtistCommand`）。
+  - 右ペイン楽曲行: アーティスト全曲コンテキストで対象楽曲を即時再生（`PlayTrackCommand`）。
 - **右クリック（コンテキストメニュー）**:
-  - 「アーティスト全曲を再生」「次に再生」「最後に再生（キューに追加）」
-  - 「端末へ転送」（所属全曲を一括転送）
-- **ドラッグ＆ドロップ (D&D)**:
-  - アーティストカードを右側再生キューパネルへドラッグして全曲一括割り込み投入。
+  - アーティスト行: 「アーティスト全曲を再生」「シャッフル再生」「次に再生」「最後に再生（キューに追加）」
+  - 楽曲行: 「再生」「次に再生」「最後に再生（キューに追加）」「お気に入りに追加 / 解除」「プレイリストに追加...」「プロパティ」「ファイルの場所を開く」「ライブラリから削除」
+- **今後の拡張タスク（後続 Issue 対象・未実装）**:
+  - アーティスト単位の「端末へ転送」メニュー
+  - アーティスト行／カードの右側再生キューパネルへのドラッグ＆ドロップ (D&D)
 
 ---
 
 ## 7. パフォーマンス最適化要件
 
-- アーティスト数が多い場合でも描画負荷を抑制するため、アバター画像の遅延読み込み（非同期デコード）とUI仮想化を適用。
-- 詳細パネル非展開時は内部リソースを `Visibility="Collapsed"` とし、無駄なレイアウト計算を抑止。
-- 動的エフェクト（BlurEffect/DropShadowEffect）を排除。
+- ライブラリ変更時の連続 `CollectionChanged` イベントを `DispatcherPriority.Background` でコアレッシングし、`Tracks.Count > 0` の通常経路では `Albums.CollectionChanged` による再構築を抑止。
+- アーティスト集約結果をキャッシュし、検索・ソート変更時はキャッシュに対してのみフィルタ・ソートを実行（検索入力には 200ms デバウンスを適用）。
+- 全リスト（アーティスト一覧・所属アルバム横リスト・楽曲一覧）で UI 仮想化 4 属性を適用。
+- 詳細ペイン非選択時および Empty State 時は不要領域を `Visibility="Collapsed"` とし、動的エフェクト（BlurEffect/DropShadowEffect）を排除。
 
 ---
 
