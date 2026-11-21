@@ -372,6 +372,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                         track.Duration = tfile.Properties.Duration;
                         track.Year = tfile.Tag.Year;
                         track.TrackNumber = tfile.Tag.Track;
+                        track.Genre = tfile.Tag.FirstGenre ?? string.Empty;
 
                         track.Bitrate = tfile.Properties.AudioBitrate;
                         track.SampleRate = tfile.Properties.AudioSampleRate;
