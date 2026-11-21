@@ -492,6 +492,109 @@ public sealed class AllSongsViewModelTests
     }
 
     /// <summary>
+    /// ソート条件や昇降順を切り替えた際、DisplayTracksの連番（DisplayNumber）が常に1始まりの連続番号に再採番され、SelectedSortOptionItemの表示名も同期することを検証します。
+    /// </summary>
+    [Fact]
+    public void DisplayTracks_ソート変更および昇降順切替時_連番が常に1始まりで整合しソート表示名も更新される()
+    {
+        // Arrange
+        var (sut, library, _) = CreateSut();
+        using var _lib = library;
+        using var _sut = sut;
+        library.Tracks.Add(CreateTrack("Track C", artist: "Artist B", album: "Album Z"));
+        library.Tracks.Add(CreateTrack("Track A", artist: "Artist C", album: "Album X"));
+        library.Tracks.Add(CreateTrack("Track B", artist: "Artist A", album: "Album Y"));
+
+        // Act: アルバム順へ切替
+        sut.SelectedSortOptionItem = sut.SortOptions.Single(o => o.Key == "Album");
+
+        // Assert
+        Assert.Equal("Album", sut.SelectedSortOption);
+        Assert.Equal("アルバム", sut.SelectedSortOptionItem.DisplayName);
+        Assert.Equal(new[] { 1, 2, 3 }, sut.DisplayTracks.Select(r => r.DisplayNumber).ToArray());
+        Assert.Equal(new[] { "Album X", "Album Y", "Album Z" }, sut.DisplayTracks.Select(r => r.Track.Album).ToArray());
+
+        // Act: 降順へ切替
+        sut.IsAscending = false;
+
+        // Assert
+        Assert.Equal(new[] { 1, 2, 3 }, sut.DisplayTracks.Select(r => r.DisplayNumber).ToArray());
+        Assert.Equal(new[] { "Album Z", "Album Y", "Album X" }, sut.DisplayTracks.Select(r => r.Track.Album).ToArray());
+    }
+
+    /// <summary>
+    /// AllSongsViewの実体でソートComboBoxの選択を「アルバム」へ変更した際、SelectionBoxItemの表示ラベルが「アルバム」へ更新され、バインディングエラーも0件であることを検証します。
+    /// </summary>
+    [Fact]
+    public void AllSongsView_ソート設定変更時_ComboBoxの表示名称が選択項目へ更新されること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            System.Threading.SynchronizationContext.SetSynchronizationContext(
+                new System.Windows.Threading.DispatcherSynchronizationContext(
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher));
+
+            var (viewModel, library, _) = CreateSut(TimeSpan.Zero);
+            using var _lib = library;
+            using var _vm = viewModel;
+            var t1 = CreateTrack("Song B", album: "Album Z");
+            var t2 = CreateTrack("Song A", album: "Album A");
+            t1.FilePath = string.Empty;
+            t2.FilePath = string.Empty;
+            library.Tracks.Add(t1);
+            library.Tracks.Add(t2);
+
+            using var listener = new BindingErrorTraceListener();
+            EnsureApplicationResources();
+            var view = new AllSongsView();
+            AttachRequiredResources(view.Resources);
+            view.DataContext = viewModel;
+            view.Measure(new Size(900, 600));
+            view.Arrange(new Rect(0, 0, 900, 600));
+            view.UpdateLayout();
+
+            var comboBox = Assert.IsType<System.Windows.Controls.ComboBox>(view.FindName("SortComboBox"));
+            var initialPresenter = Assert.IsType<System.Windows.Controls.ContentPresenter>(comboBox.Template.FindName("contentPresenter", comboBox));
+            Assert.Equal("タイトル", FindFirstTextBlockText(initialPresenter));
+
+            // Act
+            comboBox.SelectedItem = viewModel.SortOptions.Single(o => o.Key == "Album");
+            view.UpdateLayout();
+
+            // Assert
+            Assert.Equal("Album", viewModel.SelectedSortOption);
+            var selectedBox = Assert.IsType<AllSongsSortOption>(comboBox.SelectionBoxItem);
+            Assert.Equal("アルバム", selectedBox.DisplayName);
+            Assert.NotNull(comboBox.SelectionBoxItemTemplate);
+            Assert.Equal("アルバム", FindFirstTextBlockText(initialPresenter));
+            Assert.Equal(new[] { 1, 2 }, viewModel.DisplayTracks.Select(r => r.DisplayNumber).ToArray());
+            Assert.False(listener.HasErrors, $"AllSongsView でバインディングエラーが検出されました: {string.Join("; ", listener.Errors)}");
+        });
+    }
+
+    private static string? FindFirstTextBlockText(DependencyObject root)
+    {
+        int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is System.Windows.Controls.TextBlock textBlock)
+            {
+                return textBlock.Text;
+            }
+
+            var nested = FindFirstTextBlockText(child);
+            if (nested != null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// AllSongsViewの実体へAllSongsViewModelと楽曲データをバインドしてレイアウト更新した際、WPFバインディングエラーが0件であることを検証します。
     /// </summary>
     [Fact]
@@ -559,7 +662,34 @@ public sealed class AllSongsViewModelTests
         });
         target["BoolToVis"] = new BoolToVisConverter();
         target["IndexConverter"] = new IndexConverter();
-        target["NeonComboBoxStyle"] = new Style(typeof(System.Windows.Controls.ComboBox));
+        var appStyle = LoadNeonComboBoxStyle();
+        target["NeonComboBoxStyle"] = appStyle ?? new Style(typeof(System.Windows.Controls.ComboBox));
+    }
+
+    private static Style? LoadNeonComboBoxStyle()
+    {
+        var current = AppDomain.CurrentDomain.BaseDirectory;
+        while (!string.IsNullOrEmpty(current))
+        {
+            var appXamlPath = System.IO.Path.Combine(current, "AudioEffector", "App.xaml");
+            if (System.IO.File.Exists(appXamlPath))
+            {
+                var doc = System.Xml.Linq.XDocument.Load(appXamlPath);
+                var styleElement = doc.Descendants()
+                    .FirstOrDefault(e => e.Name.LocalName == "Style" &&
+                        e.Attributes().Any(a => a.Name.LocalName == "Key" && a.Value == "NeonComboBoxStyle"));
+                if (styleElement != null)
+                {
+                    return (Style)System.Windows.Markup.XamlReader.Parse(styleElement.ToString());
+                }
+
+                break;
+            }
+
+            current = System.IO.Directory.GetParent(current)?.FullName;
+        }
+
+        return null;
     }
 
     private static void RunInStaThread(Action action)
