@@ -653,7 +653,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:RecentView />
+                                            <views:RecentView DataContext="{Binding Recent}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>

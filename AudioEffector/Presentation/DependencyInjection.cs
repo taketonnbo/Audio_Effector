@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddSingleton<LibraryViewModel>();
         services.AddSingleton<AllSongsViewModel>();
         services.AddSingleton<ArtistsViewModel>();
+        services.AddSingleton<RecentViewModel>();
         services.AddSingleton<PlaylistViewModel>();
         services.AddSingleton<EqualizerViewModel>();
         services.AddSingleton<DeviceSyncViewModel>();
