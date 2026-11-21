@@ -9,7 +9,7 @@
     <UserControl.Resources>
         <Style x:Key="ToolbarPrimaryButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="{DynamicResource NeonCyanBrush}"/>
-            <Setter Property="Foreground" Value="#161920"/>
+            <Setter Property="Foreground" Value="{DynamicResource InverseTextForegroundBrush}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Padding" Value="12,6"/>
@@ -177,9 +177,11 @@
                 <!-- Sort Controls -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
                     <ComboBox ItemsSource="{Binding SortOptions}"
-                              SelectedItem="{Binding SelectedSortOption}"
-                              Style="{StaticResource NeonComboBoxStyle}"
-                              Width="105"
+                              DisplayMemberPath="DisplayName"
+                              SelectedValuePath="Key"
+                              SelectedValue="{Binding SelectedSortOption}"
+                              Style="{DynamicResource NeonComboBoxStyle}"
+                              Width="115"
                               Height="28"
                               VerticalContentAlignment="Center"
                               Margin="0,0,4,0"/>
@@ -220,7 +222,7 @@
                 BorderThickness="0,0,0,1"
                 Height="30"
                 Padding="0">
-            <Grid>
+            <Grid x:Name="ColumnHeaderGrid">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="32"/>
@@ -372,7 +374,7 @@
                                 <Border Width="24" Height="24" CornerRadius="3" Background="#B0161920"
                                         Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
                                     <TextBlock Text="▶"
-                                               Foreground="{DynamicResource NeonCyanBrush}"
+                                               Foreground="{DynamicResource AlwaysNeonCyanBrush}"
                                                FontSize="10"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
