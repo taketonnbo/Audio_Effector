@@ -107,8 +107,15 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             OnPropertyChanged();
             OnPropertyChanged(nameof(TrackCount));
             OnPropertyChanged(nameof(TotalDuration));
+            OnPropertyChanged(nameof(RepresentativeTrackFilePath));
         }
     }
+
+    /// <summary>
+    /// カバーアート読み込み用の代表トラックファイルパス（トラックが空の場合は空文字）
+    /// </summary>
+    public string RepresentativeTrackFilePath =>
+        _tracks.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.FilePath))?.FilePath ?? string.Empty;
 
     /// <summary>
     /// トラック数
@@ -219,6 +226,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
         OnPropertyChanged(nameof(Tracks));
         OnPropertyChanged(nameof(TrackCount));
         OnPropertyChanged(nameof(TotalDuration));
+        OnPropertyChanged(nameof(RepresentativeTrackFilePath));
     }
 
     /// <summary>
@@ -235,6 +243,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             OnPropertyChanged(nameof(Tracks));
             OnPropertyChanged(nameof(TrackCount));
             OnPropertyChanged(nameof(TotalDuration));
+            OnPropertyChanged(nameof(RepresentativeTrackFilePath));
         }
         return removed;
     }

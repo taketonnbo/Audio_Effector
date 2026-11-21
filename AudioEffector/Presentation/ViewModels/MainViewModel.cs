@@ -37,6 +37,7 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly ISettingsService _settingsService;
         private readonly SettingsApplicationService? _fallbackSettings;
         private readonly bool _ownsAllSongs;
+        private readonly bool _ownsArtists;
         private bool _disposed;
 
         /// <summary>
@@ -58,6 +59,11 @@ namespace AudioEffector.Presentation.ViewModels
         /// すべての曲専用ViewModel
         /// </summary>
         public Presentation.ViewModels.AllSongsViewModel AllSongs { get; }
+
+        /// <summary>
+        /// アーティスト一覧専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.ArtistsViewModel Artists { get; }
 
         /// <summary>
         /// プレイリスト専用ViewModel
@@ -672,6 +678,23 @@ namespace AudioEffector.Presentation.ViewModels
 
             AllSongs.PlaybackRequested += OnAllSongsPlaybackRequested;
             AllSongs.EnqueueRequested += OnAllSongsEnqueueRequested;
+
+            var resolvedArtists = App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.ArtistsViewModel>(App.ServiceProvider)
+                : null;
+            if (resolvedArtists != null)
+            {
+                Artists = resolvedArtists;
+                _ownsArtists = false;
+            }
+            else
+            {
+                Artists = new Presentation.ViewModels.ArtistsViewModel(Library!, _audioService);
+                _ownsArtists = true;
+            }
+
+            Artists.PlaybackRequested += OnArtistsPlaybackRequested;
+            Artists.EnqueueRequested += OnArtistsEnqueueRequested;
 
             var appSettings = _settingsService.LoadSettings();
             _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
@@ -2359,6 +2382,20 @@ namespace AudioEffector.Presentation.ViewModels
             _audioService.EnqueueTracks(tracks, playNext);
         }
 
+        private void OnArtistsPlaybackRequested(IReadOnlyList<Track> tracks, Track? startTrack, string name, string subtitle)
+        {
+            PlayQueue = new ObservableCollection<Track>(tracks);
+            PlaybackListName = name;
+            PlaybackListSubtitle = subtitle;
+            PlaybackListTracks = new ObservableCollection<Track>(tracks);
+            PlayerControl?.SetPlaybackList(tracks, name, subtitle, updateAudioService: false);
+        }
+
+        private void OnArtistsEnqueueRequested(IReadOnlyList<Track> tracks, bool playNext)
+        {
+            _audioService.EnqueueTracks(tracks, playNext);
+        }
+
         /// <summary>
         /// アンマネージドリソースおよびマネージドリソースを解放します
         /// </summary>
@@ -2377,6 +2414,15 @@ namespace AudioEffector.Presentation.ViewModels
                         if (_ownsAllSongs)
                         {
                             AllSongs.Dispose();
+                        }
+                    }
+                    if (Artists != null)
+                    {
+                        Artists.PlaybackRequested -= OnArtistsPlaybackRequested;
+                        Artists.EnqueueRequested -= OnArtistsEnqueueRequested;
+                        if (_ownsArtists)
+                        {
+                            Artists.Dispose();
                         }
                     }
                     _fallbackAudioService?.Dispose();

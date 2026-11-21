@@ -608,7 +608,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:ArtistsView />
+                                            <views:ArtistsView DataContext="{Binding Artists}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>
