@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddSingleton<IPlaylistRepository, JsonPlaylistRepository>();
         services.AddSingleton<IFavoriteRepository, JsonFavoriteRepository>();
         services.AddSingleton<ISettingsRepository, JsonSettingsRepository>();
+        services.AddSingleton<IRecentTrackRepository, JsonRecentTrackRepository>();
 
         // データ転送アダプター
         services.AddSingleton<IDataTransferRepository, MtpDataTransferAdapter>();
