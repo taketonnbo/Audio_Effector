@@ -104,7 +104,13 @@ public partial class AllSongsView : UserControl
 
         // お気に入りボタン・スクロールバー・空白領域のダブルクリックによる誤再生を防止
         var item = FindClickedTrackItem(e.OriginalSource as DependencyObject);
-        if (item?.DataContext is AudioEffector.Domain.Entities.Track track &&
+        var track = item?.DataContext switch
+        {
+            AllSongsTrackItem row => row.Track,
+            AudioEffector.Domain.Entities.Track entity => entity,
+            _ => null,
+        };
+        if (track != null &&
             viewModel.PlayTrackCommand.CanExecute(track))
         {
             viewModel.PlayTrackCommand.Execute(track);

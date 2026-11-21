@@ -29,8 +29,10 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
 
     private string _searchKeyword = string.Empty;
     private string _selectedSortOption = "Title";
+    private AllSongsSortOption _selectedSortOptionItem;
     private bool _isAscending = true;
     private Track? _selectedTrack;
+    private AllSongsTrackItem? _selectedTrackItem;
     private string _summaryText = "全 0 曲 (0 分)";
     private CancellationTokenSource? _searchDebounceCts;
     private int _isLibraryRefreshPending;
@@ -40,6 +42,11 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
     /// 検索・ソート適用後の表示用トラックコレクション
     /// </summary>
     public ObservableCollection<Track> FilteredTracks { get; } = new();
+
+    /// <summary>
+    /// 1始まりの表示連番を付与した表示用行コレクション（UI仮想化リサイクリング時の連番不整合防止用）
+    /// </summary>
+    public ObservableCollection<AllSongsTrackItem> DisplayTracks { get; } = new();
 
     /// <summary>
     /// ライブラリ内の全トラックコレクション（FilteredTracksの互換エイリアス）
@@ -81,8 +88,39 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
         get => _selectedSortOption;
         set
         {
-            if (SetProperty(ref _selectedSortOption, value ?? "Title"))
+            var normalized = value ?? "Title";
+            if (SetProperty(ref _selectedSortOption, normalized))
             {
+                var matched = SortOptions.FirstOrDefault(o => string.Equals(o.Key, normalized, StringComparison.Ordinal))
+                    ?? SortOptions[0];
+                if (!Equals(_selectedSortOptionItem, matched))
+                {
+                    _selectedSortOptionItem = matched;
+                    OnPropertyChanged(nameof(SelectedSortOptionItem));
+                }
+
+                RefreshTracks();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 選択中のソート選択肢アイテム（ComboBox の SelectedItem バインド用）
+    /// </summary>
+    public AllSongsSortOption SelectedSortOptionItem
+    {
+        get => _selectedSortOptionItem;
+        set
+        {
+            var next = value ?? SortOptions[0];
+            if (SetProperty(ref _selectedSortOptionItem, next))
+            {
+                if (!string.Equals(_selectedSortOption, next.Key, StringComparison.Ordinal))
+                {
+                    _selectedSortOption = next.Key;
+                    OnPropertyChanged(nameof(SelectedSortOption));
+                }
+
                 RefreshTracks();
             }
         }
@@ -109,7 +147,40 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
     public Track? SelectedTrack
     {
         get => _selectedTrack;
-        set => SetProperty(ref _selectedTrack, value);
+        set
+        {
+            if (SetProperty(ref _selectedTrack, value))
+            {
+                var matchedRow = value != null
+                    ? DisplayTracks.FirstOrDefault(row => ReferenceEquals(row.Track, value))
+                    : null;
+                if (!Equals(_selectedTrackItem, matchedRow))
+                {
+                    _selectedTrackItem = matchedRow;
+                    OnPropertyChanged(nameof(SelectedTrackItem));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 現在選択中の表示行（ListBox の SelectedItem バインド用）
+    /// </summary>
+    public AllSongsTrackItem? SelectedTrackItem
+    {
+        get => _selectedTrackItem;
+        set
+        {
+            if (SetProperty(ref _selectedTrackItem, value))
+            {
+                var nextTrack = value?.Track;
+                if (!ReferenceEquals(_selectedTrack, nextTrack))
+                {
+                    _selectedTrack = nextTrack;
+                    OnPropertyChanged(nameof(SelectedTrack));
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -196,6 +267,7 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
         _libraryViewModel = libraryViewModel ?? throw new ArgumentNullException(nameof(libraryViewModel));
         _audioService = audioService ?? throw new ArgumentNullException(nameof(audioService));
         _searchDebounceDelay = searchDebounceDelay < TimeSpan.Zero ? TimeSpan.Zero : searchDebounceDelay;
+        _selectedSortOptionItem = SortOptions[0];
 
         PlayAllCommand = new RelayCommand(_ => PlayAll(), _ => FilteredTracks.Count > 0);
         ShufflePlayCommand = new RelayCommand(_ => ShufflePlay(), _ => FilteredTracks.Count > 0);
@@ -250,9 +322,25 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
             }
 
             FilteredTracks.Clear();
-            foreach (var track in sorted)
+            DisplayTracks.Clear();
+            AllSongsTrackItem? nextSelectedRow = null;
+            for (int i = 0; i < sorted.Count; i++)
             {
+                var track = sorted[i];
+                var row = new AllSongsTrackItem(i + 1, track);
                 FilteredTracks.Add(track);
+                DisplayTracks.Add(row);
+
+                if (_selectedTrack != null && ReferenceEquals(track, _selectedTrack))
+                {
+                    nextSelectedRow = row;
+                }
+            }
+
+            if (!Equals(_selectedTrackItem, nextSelectedRow))
+            {
+                _selectedTrackItem = nextSelectedRow;
+                OnPropertyChanged(nameof(SelectedTrackItem));
             }
 
             UpdateSummary(sorted);

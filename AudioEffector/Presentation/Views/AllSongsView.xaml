@@ -176,15 +176,21 @@
 
                 <!-- Sort Controls -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
-                    <ComboBox ItemsSource="{Binding SortOptions}"
-                              DisplayMemberPath="DisplayName"
-                              SelectedValuePath="Key"
-                              SelectedValue="{Binding SelectedSortOption}"
+                    <ComboBox x:Name="SortComboBox"
+                              ItemsSource="{Binding SortOptions}"
+                              SelectedItem="{Binding SelectedSortOptionItem, Mode=TwoWay}"
                               Style="{DynamicResource NeonComboBoxStyle}"
                               Width="115"
                               Height="28"
                               VerticalContentAlignment="Center"
-                              Margin="0,0,4,0"/>
+                              Margin="0,0,4,0">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding DisplayName}"
+                                           Foreground="{DynamicResource TextForegroundBrush}"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                     <Button Command="{Binding ToggleSortDirectionCommand}"
                             Style="{StaticResource ToolbarSecondaryButtonStyle}"
                             Width="30"
@@ -250,9 +256,8 @@
         <!-- Row 2: Virtualized Track List -->
         <Grid Grid.Row="2">
             <ListBox x:Name="TracksListBox"
-                     ItemsSource="{Binding FilteredTracks}"
-                     SelectedItem="{Binding SelectedTrack}"
-                     AlternationCount="1000000"
+                     ItemsSource="{Binding DisplayTracks}"
+                     SelectedItem="{Binding SelectedTrackItem}"
                      Background="Transparent"
                      BorderThickness="0"
                      Padding="0"
@@ -281,21 +286,21 @@
                                             <ContextMenu>
                                                 <MenuItem Header="再生"
                                                           Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
-                                                          CommandParameter="{Binding}"/>
+                                                          CommandParameter="{Binding Track}"/>
                                                 <MenuItem Header="次に再生"
                                                           Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
-                                                          CommandParameter="{Binding}"/>
+                                                          CommandParameter="{Binding Track}"/>
                                                 <MenuItem Header="最後に再生（キューに追加）"
                                                           Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
-                                                          CommandParameter="{Binding}"/>
+                                                          CommandParameter="{Binding Track}"/>
                                                 <Separator/>
                                                 <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
-                                                          CommandParameter="{Binding}">
+                                                          CommandParameter="{Binding Track}">
                                                     <MenuItem.Style>
                                                         <Style TargetType="MenuItem">
                                                             <Setter Property="Header" Value="お気に入りに追加"/>
                                                             <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                <DataTrigger Binding="{Binding Track.IsFavorite}" Value="True">
                                                                     <Setter Property="Header" Value="お気に入りから解除"/>
                                                                 </DataTrigger>
                                                             </Style.Triggers>
@@ -304,18 +309,18 @@
                                                 </MenuItem>
                                                 <MenuItem Header="プレイリストに追加..."
                                                           Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
-                                                          CommandParameter="{Binding}"/>
+                                                          CommandParameter="{Binding Track}"/>
                                                 <Separator/>
                                                 <MenuItem Header="プロパティ"
                                                           Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
-                                                          CommandParameter="{Binding}"/>
+                                                          CommandParameter="{Binding Track}"/>
                                                 <MenuItem Header="ファイルの場所を開く"
                                                           Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
-                                                          CommandParameter="{Binding}"/>
+                                                          CommandParameter="{Binding Track}"/>
                                                 <Separator/>
                                                 <MenuItem Header="ライブラリから削除"
                                                           Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
-                                                          CommandParameter="{Binding}"/>
+                                                          CommandParameter="{Binding Track}"/>
                                             </ContextMenu>
                                         </Border.ContextMenu>
                                         <ContentPresenter/>
@@ -358,7 +363,7 @@
                                             <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
                                                 <Setter Property="Opacity" Value="1"/>
                                             </DataTrigger>
-                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                            <DataTrigger Binding="{Binding Track.IsPlaying}" Value="True">
                                                 <Setter Property="Opacity" Value="1"/>
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -369,10 +374,10 @@
                             <!-- Playing Indicator / Thumbnail -->
                             <Grid Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center">
                                 <Border Width="24" Height="24" CornerRadius="3" ClipToBounds="True" Background="{DynamicResource ControlBackgroundBrush}">
-                                    <Image services:AlbumArtLoader.SourcePath="{Binding FilePath}" Stretch="UniformToFill"/>
+                                    <Image services:AlbumArtLoader.SourcePath="{Binding Track.FilePath}" Stretch="UniformToFill"/>
                                 </Border>
                                 <Border Width="24" Height="24" CornerRadius="3" Background="#B0161920"
-                                        Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVis}}">
+                                        Visibility="{Binding Track.IsPlaying, Converter={StaticResource BoolToVis}}">
                                     <TextBlock Text="▶"
                                                Foreground="{DynamicResource AlwaysNeonCyanBrush}"
                                                FontSize="10"
@@ -383,7 +388,7 @@
 
                             <!-- Row Index -->
                             <TextBlock Grid.Column="2"
-                                       Text="{Binding (ItemsControl.AlternationIndex), RelativeSource={RelativeSource AncestorType=ListBoxItem}, Converter={StaticResource IndexConverter}}"
+                                       Text="{Binding DisplayNumber}"
                                        Foreground="{DynamicResource MutedTextForegroundBrush}"
                                        FontSize="11"
                                        HorizontalAlignment="Center"
@@ -392,7 +397,7 @@
                             <!-- Favorite Toggle -->
                             <Button Grid.Column="3"
                                     Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                    CommandParameter="{Binding}"
+                                    CommandParameter="{Binding Track}"
                                     Background="Transparent"
                                     BorderThickness="0"
                                     Width="28" Height="28"
@@ -404,7 +409,7 @@
                                             <Setter Property="Text" Value="☆"/>
                                             <Setter Property="Foreground" Value="{DynamicResource MutedTextForegroundBrush}"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                <DataTrigger Binding="{Binding Track.IsFavorite}" Value="True">
                                                     <Setter Property="Text" Value="★"/>
                                                     <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
                                                 </DataTrigger>
@@ -416,7 +421,7 @@
 
                             <!-- Title -->
                             <TextBlock Grid.Column="4"
-                                       Text="{Binding Title}"
+                                       Text="{Binding Track.Title}"
                                        FontSize="13"
                                        FontWeight="SemiBold"
                                        TextTrimming="CharacterEllipsis"
@@ -426,7 +431,7 @@
                                     <Style TargetType="TextBlock">
                                         <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
                                         <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                            <DataTrigger Binding="{Binding Track.IsPlaying}" Value="True">
                                                 <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
                                             </DataTrigger>
                                         </Style.Triggers>
@@ -436,7 +441,7 @@
 
                             <!-- Artist -->
                             <TextBlock Grid.Column="5"
-                                       Text="{Binding Artist}"
+                                       Text="{Binding Track.Artist}"
                                        Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                                        FontSize="11"
                                        TextTrimming="CharacterEllipsis"
@@ -445,7 +450,7 @@
 
                             <!-- Album -->
                             <TextBlock Grid.Column="6"
-                                       Text="{Binding Album}"
+                                       Text="{Binding Track.Album}"
                                        Foreground="{DynamicResource MutedTextForegroundBrush}"
                                        FontSize="11"
                                        TextTrimming="CharacterEllipsis"
@@ -454,7 +459,7 @@
 
                             <!-- Duration -->
                             <TextBlock Grid.Column="7"
-                                       Text="{Binding DurationString}"
+                                       Text="{Binding Track.DurationString}"
                                        Foreground="{DynamicResource MutedTextForegroundBrush}"
                                        FontSize="11"
                                        HorizontalAlignment="Right"
@@ -470,7 +475,7 @@
                                     Padding="5,1"
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Center">
-                                <TextBlock Text="{Binding Format}"
+                                <TextBlock Text="{Binding Track.Format}"
                                            Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                                            FontSize="10"
                                            FontWeight="SemiBold"/>
@@ -478,7 +483,7 @@
 
                             <!-- Genre -->
                             <TextBlock Grid.Column="9"
-                                       Text="{Binding Genre}"
+                                       Text="{Binding Track.Genre}"
                                        Foreground="{DynamicResource MutedTextForegroundBrush}"
                                        FontSize="11"
                                        TextTrimming="CharacterEllipsis"
