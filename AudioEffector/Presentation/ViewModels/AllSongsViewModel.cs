@@ -4,9 +4,13 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Input;
+using System.Windows.Threading;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AudioEffector.Presentation.ViewModels;
 
@@ -16,8 +20,11 @@ namespace AudioEffector.Presentation.ViewModels;
 /// </summary>
 public sealed class AllSongsViewModel : ViewModelBase, IDisposable
 {
+    private static readonly TimeSpan DefaultSearchDebounceDelay = TimeSpan.FromMilliseconds(200);
+
     private readonly LibraryViewModel _libraryViewModel;
     private readonly IAudioService _audioService;
+    private readonly TimeSpan _searchDebounceDelay;
     private readonly Random _random = new();
 
     private string _searchKeyword = string.Empty;
@@ -25,6 +32,8 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
     private bool _isAscending = true;
     private Track? _selectedTrack;
     private string _summaryText = "全 0 曲 (0 分)";
+    private CancellationTokenSource? _searchDebounceCts;
+    private int _isLibraryRefreshPending;
     private bool _disposed;
 
     /// <summary>
@@ -38,9 +47,16 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
     public ObservableCollection<Track> AllTracks => FilteredTracks;
 
     /// <summary>
-    /// ソート順の選択肢一覧
+    /// ソート順の選択肢一覧（内部キーと日本語表示ラベルのペア）
     /// </summary>
-    public IReadOnlyList<string> SortOptions { get; } = ["Title", "Artist", "Album", "Duration", "Genre"];
+    public IReadOnlyList<AllSongsSortOption> SortOptions { get; } =
+    [
+        new("Title", "タイトル"),
+        new("Artist", "アーティスト"),
+        new("Album", "アルバム"),
+        new("Duration", "時間"),
+        new("Genre", "ジャンル"),
+    ];
 
     /// <summary>
     /// 検索キーワード（曲名・アーティスト名・アルバム名・ジャンルを横断フィルタ）
@@ -52,13 +68,13 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _searchKeyword, value ?? string.Empty))
             {
-                RefreshTracks();
+                ScheduleSearchRefresh();
             }
         }
     }
 
     /// <summary>
-    /// 選択中のソート基準（Title / Artist / Album / Duration / Genre）
+    /// 選択中のソート基準キー（Title / Artist / Album / Duration / Genre）
     /// </summary>
     public string SelectedSortOption
     {
@@ -159,14 +175,27 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
     public event Action<IReadOnlyList<Track>, bool>? EnqueueRequested;
 
     /// <summary>
-    /// AllSongsViewModelを初期化します
+    /// AllSongsViewModelを初期化します（既定の検索デバウンス時間 200ms を適用します）
     /// </summary>
     /// <param name="libraryViewModel">ライブラリViewModel</param>
     /// <param name="audioService">音声再生サービス</param>
+    [ActivatorUtilitiesConstructor]
     public AllSongsViewModel(LibraryViewModel libraryViewModel, IAudioService audioService)
+        : this(libraryViewModel, audioService, DefaultSearchDebounceDelay)
+    {
+    }
+
+    /// <summary>
+    /// 検索デバウンス時間を指定してAllSongsViewModelを初期化します
+    /// </summary>
+    /// <param name="libraryViewModel">ライブラリViewModel</param>
+    /// <param name="audioService">音声再生サービス</param>
+    /// <param name="searchDebounceDelay">検索キーワード入力時のデバウンス遅延時間</param>
+    public AllSongsViewModel(LibraryViewModel libraryViewModel, IAudioService audioService, TimeSpan searchDebounceDelay)
     {
         _libraryViewModel = libraryViewModel ?? throw new ArgumentNullException(nameof(libraryViewModel));
         _audioService = audioService ?? throw new ArgumentNullException(nameof(audioService));
+        _searchDebounceDelay = searchDebounceDelay < TimeSpan.Zero ? TimeSpan.Zero : searchDebounceDelay;
 
         PlayAllCommand = new RelayCommand(_ => PlayAll(), _ => FilteredTracks.Count > 0);
         ShufflePlayCommand = new RelayCommand(_ => ShufflePlay(), _ => FilteredTracks.Count > 0);
@@ -180,8 +209,8 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
         OpenFileLocationCommand = new RelayCommand(param => _libraryViewModel.OpenFileLocationCommand.Execute(param));
         DeleteTrackCommand = new RelayCommand(param => _libraryViewModel.DeleteTrackCommand.Execute(param));
 
-        _libraryViewModel.Tracks.CollectionChanged += OnLibraryCollectionChanged;
-        _libraryViewModel.Albums.CollectionChanged += OnLibraryCollectionChanged;
+        _libraryViewModel.Tracks.CollectionChanged += OnTracksCollectionChanged;
+        _libraryViewModel.Albums.CollectionChanged += OnAlbumsCollectionChanged;
 
         RefreshTracks();
     }
@@ -191,6 +220,11 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
     /// </summary>
     public void RefreshTracks()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         var sourceTracks = CollectSourceTracks();
 
         IEnumerable<Track> query = sourceTracks;
@@ -210,6 +244,11 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
 
         RunOnUiThread(() =>
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             FilteredTracks.Clear();
             foreach (var track in sorted)
             {
@@ -218,7 +257,7 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
 
             UpdateSummary(sorted);
             OnPropertyChanged(nameof(IsEmpty));
-            OnPropertyChanged(nameof(AllTracks));
+            CommandManager.InvalidateRequerySuggested();
         });
     }
 
@@ -234,13 +273,15 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
 
         var list = FilteredTracks.ToList();
         var firstTrack = list[0];
-        PlaybackRequested?.Invoke(list, firstTrack, "すべての曲", $"{list.Count} 曲");
         _audioService.SetPlaylist(list, firstTrack);
+        PlaybackRequested?.Invoke(list, firstTrack, "すべての曲", $"{list.Count} 曲");
         _audioService.PlayTrack(firstTrack);
     }
 
     /// <summary>
-    /// 表示中の全曲をシャッフルして即時再生します
+    /// 表示中の全曲をワンショットシャッフルして即時再生します。
+    /// プレイヤーバーのシャッフルモード（<see cref="IAudioService.IsShuffleEnabled"/>）の状態は変更せず、
+    /// 有効時は <see cref="IAudioService.AlbumQueue"/> のシャッフル後順序とUI表示リストを同期させます。
     /// </summary>
     public void ShufflePlay()
     {
@@ -257,8 +298,13 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
         }
 
         var firstTrack = list[0];
-        PlaybackRequested?.Invoke(list, firstTrack, "すべての曲（シャッフル）", $"{list.Count} 曲");
         _audioService.SetPlaylist(list, firstTrack);
+
+        var effectiveList = _audioService.IsShuffleEnabled
+            ? BuildEffectiveShuffleList(firstTrack, list, _audioService.AlbumQueue)
+            : list;
+
+        PlaybackRequested?.Invoke(effectiveList, firstTrack, "すべての曲（シャッフル）", $"{effectiveList.Count} 曲");
         _audioService.PlayTrack(firstTrack);
     }
 
@@ -279,8 +325,8 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
             list.Insert(0, track);
         }
 
-        PlaybackRequested?.Invoke(list, track, "すべての曲", $"{list.Count} 曲");
         _audioService.SetPlaylist(list, track);
+        PlaybackRequested?.Invoke(list, track, "すべての曲", $"{list.Count} 曲");
         _audioService.PlayTrack(track);
     }
 
@@ -319,6 +365,25 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
         return new List<Track>();
     }
 
+    private static List<Track> BuildEffectiveShuffleList(Track firstTrack, List<Track> fallbackList, IReadOnlyList<Track> albumQueue)
+    {
+        if (albumQueue.Count == 0 && fallbackList.Count > 1)
+        {
+            return fallbackList;
+        }
+
+        var effective = new List<Track>(albumQueue.Count + 1) { firstTrack };
+        foreach (var item in albumQueue)
+        {
+            if (!string.Equals(item.FilePath, firstTrack.FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                effective.Add(item);
+            }
+        }
+
+        return effective;
+    }
+
     private static IEnumerable<Track> ApplySort(IEnumerable<Track> tracks, string sortOption, bool isAscending)
     {
         return sortOption switch
@@ -330,13 +395,15 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
                         .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
                 : tracks.OrderByDescending(t => t.Artist, StringComparer.OrdinalIgnoreCase)
                         .ThenBy(t => t.Album, StringComparer.OrdinalIgnoreCase)
-                        .ThenBy(t => t.TrackNumber),
+                        .ThenBy(t => t.TrackNumber)
+                        .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase),
             "Album" => isAscending
                 ? tracks.OrderBy(t => t.Album, StringComparer.OrdinalIgnoreCase)
                         .ThenBy(t => t.TrackNumber)
                         .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
                 : tracks.OrderByDescending(t => t.Album, StringComparer.OrdinalIgnoreCase)
-                        .ThenBy(t => t.TrackNumber),
+                        .ThenBy(t => t.TrackNumber)
+                        .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase),
             "Duration" => isAscending
                 ? tracks.OrderBy(t => t.Duration).ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
                 : tracks.OrderByDescending(t => t.Duration).ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase),
@@ -364,9 +431,104 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
         SummaryText = string.Format(CultureInfo.InvariantCulture, "全 {0:N0} 曲 ({1})", tracks.Count, durationText);
     }
 
-    private void OnLibraryCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    private void ScheduleSearchRefresh()
     {
-        RefreshTracks();
+        CancelPendingSearchDebounce();
+
+        // デバウンス時間0または検索クリア時は即時反映
+        if (_searchDebounceDelay <= TimeSpan.Zero || string.IsNullOrEmpty(_searchKeyword))
+        {
+            RefreshTracks();
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _searchDebounceCts = cts;
+        _ = RunDebouncedRefreshAsync(cts);
+    }
+
+    private async Task RunDebouncedRefreshAsync(CancellationTokenSource cts)
+    {
+        try
+        {
+            await Task.Delay(_searchDebounceDelay, cts.Token).ConfigureAwait(false);
+            if (!cts.Token.IsCancellationRequested && !_disposed)
+            {
+                RefreshTracks();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 後続入力やDisposeによるキャンセルは正常動作
+        }
+        finally
+        {
+            if (ReferenceEquals(_searchDebounceCts, cts))
+            {
+                _searchDebounceCts = null;
+            }
+            cts.Dispose();
+        }
+    }
+
+    private void CancelPendingSearchDebounce()
+    {
+        var cts = _searchDebounceCts;
+        _searchDebounceCts = null;
+        if (cts != null)
+        {
+            try
+            {
+                cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+    }
+
+    private void OnTracksCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        ScheduleLibraryRefresh();
+    }
+
+    private void OnAlbumsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        // Tracks が存在する場合は Tracks.CollectionChanged を正とする（Albumsソート等での無駄な再構築を防止）
+        if (_libraryViewModel.Tracks.Count > 0)
+        {
+            return;
+        }
+
+        ScheduleLibraryRefresh();
+    }
+
+    private void ScheduleLibraryRefresh()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            RefreshTracks();
+            return;
+        }
+
+        // 同一フレーム内の連続的な追加・削除を1回の再構築へコアレッシングする（O(N^2) 防止）
+        if (Interlocked.Exchange(ref _isLibraryRefreshPending, 1) == 0)
+        {
+            dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                Interlocked.Exchange(ref _isLibraryRefreshPending, 0);
+                if (!_disposed)
+                {
+                    RefreshTracks();
+                }
+            }));
+        }
     }
 
     private static void RunOnUiThread(Action action)
@@ -389,9 +551,10 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
     {
         if (!_disposed)
         {
-            _libraryViewModel.Tracks.CollectionChanged -= OnLibraryCollectionChanged;
-            _libraryViewModel.Albums.CollectionChanged -= OnLibraryCollectionChanged;
             _disposed = true;
+            _libraryViewModel.Tracks.CollectionChanged -= OnTracksCollectionChanged;
+            _libraryViewModel.Albums.CollectionChanged -= OnAlbumsCollectionChanged;
+            CancelPendingSearchDebounce();
         }
     }
 }
