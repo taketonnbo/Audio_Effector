@@ -24,7 +24,7 @@ description: GitHub Pull Request のコードレビューおよび PR 作成前�
 
 #### GitHub PR レビューモードの場合
 ```powershell
-# PR メタデータ・関連 Issue・差分を取得
+# PR メタデータ・関連 Issue・差分・コミットごとの変更規模を取得
 gh pr view <PR番号> --json title,body,baseRefName,headRefName,headRefOid,files,commits,comments,reviews
 gh pr diff <PR番号>
 gh issue view <関連Issue番号> --json title,body,comments
@@ -33,7 +33,7 @@ gh issue view <関連Issue番号> --json title,body,comments
 #### PR 作成前セルフレビューモードの場合
 ```powershell
 git status
-git log develop..HEAD --oneline
+git log develop..HEAD --stat
 git diff develop...HEAD
 ```
 
@@ -81,7 +81,7 @@ python tools/check_equivalence.py --indexer
 
 以下の 6 カテゴリで漏れなく検証し、検出した指摘を重要度別に分類します：
 
-1. **Git・ブランチ・PR 規約**: Base=`develop`、ブランチ名、コミット形式、PR タイトル `[種別]`、PR 本文必須項目（`Closes #N` 等）、不要ファイル混入なし。
+1. **Git・ブランチ・PR 規約**: Base=`develop`、ブランチ名、コミット形式、**コミット粒度（巨大単一コミット禁止：500〜1,000 行超や View / ViewModel / DI / テスト等の複数責務が 1 コミットに混在していないか `commits` / `git log --stat` で必ず確認）**、PR タイトル `[種別]`、PR 本文必須項目（`Closes #N` 等）、不要ファイル混入なし。
 2. **アーキテクチャ・DI・イベント整合性**: 4 層単方向依存、DI 登録、イベント/サービス重複呼び出し、購読解除・`Dispose` 漏れ。
 3. **ロジック・コーディング規約・XML コメント**: Null 安全、ソート昇降順の対称性（タイブレーカー）、`public` 要素への日本語 XML コメント（句点なし・`<param>`/`<returns>` 完備）、命名規則。
 4. **パフォーマンス最適化**: `CollectionChanged` 連続発火のコアレッシング、検索デバウンス、親 `ScrollViewer` 禁止＋UI 仮想化 4 属性（`IsVirtualizing`, `VirtualizationMode="Recycling"`, `ScrollUnit="Pixel"`, `CanContentScroll`）、非表示パネルの `Visibility="Collapsed"`、高負荷エフェクト禁止、画像 `Freeze()`、安全な `Dispatcher` ガード。
