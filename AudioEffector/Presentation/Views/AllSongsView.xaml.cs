@@ -1,4 +1,8 @@
 ﻿using System.Windows.Controls;
+using System.Windows.Input;
+using AudioEffector.Domain.Entities;
+using AudioEffector.Presentation.ViewModels;
+
 namespace AudioEffector.Presentation.Views;
 
 /// <summary>
@@ -12,5 +16,15 @@ public partial class AllSongsView : UserControl
     public AllSongsView()
     {
         InitializeComponent();
+    }
+
+    private void TracksListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (DataContext is AllSongsViewModel viewModel &&
+            TracksListBox.SelectedItem is Track track &&
+            viewModel.PlayTrackCommand.CanExecute(track))
+        {
+            viewModel.PlayTrackCommand.Execute(track);
+        }
     }
 }

@@ -54,6 +54,11 @@ namespace AudioEffector.Presentation.ViewModels
         public Presentation.ViewModels.LibraryViewModel? Library { get; }
 
         /// <summary>
+        /// すべての曲専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.AllSongsViewModel AllSongs { get; }
+
+        /// <summary>
         /// プレイリスト専用ViewModel
         /// </summary>
         public Presentation.ViewModels.PlaylistViewModel? Playlist { get; }
@@ -649,6 +654,23 @@ namespace AudioEffector.Presentation.ViewModels
                     }
                 };
             }
+
+            AllSongs = (App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.AllSongsViewModel>(App.ServiceProvider)
+                : null) ?? new Presentation.ViewModels.AllSongsViewModel(Library!, _audioService);
+
+            AllSongs.PlaybackRequested += (tracks, startTrack, name, subtitle) =>
+            {
+                PlayQueue = new ObservableCollection<Track>(tracks);
+                PlaybackListName = name;
+                PlaybackListSubtitle = subtitle;
+                PlaybackListTracks = new ObservableCollection<Track>(tracks);
+                PlayerControl?.SetPlaybackList(tracks, name, subtitle);
+            };
+            AllSongs.EnqueueRequested += (tracks, playNext) =>
+            {
+                _audioService.EnqueueTracks(tracks, playNext);
+            };
 
             var appSettings = _settingsService.LoadSettings();
             _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
@@ -2332,6 +2354,7 @@ namespace AudioEffector.Presentation.ViewModels
                 if (disposing)
                 {
                     _timer?.Stop();
+                    AllSongs?.Dispose();
                     _fallbackAudioService?.Dispose();
                     _fallbackSettings?.Dispose();
                     (_audioService as IDisposable)?.Dispose();
