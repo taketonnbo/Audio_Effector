@@ -274,6 +274,60 @@ public class ThemeResourceTests
         Assert.Equal("{DynamicResource AlwaysNeonCyanBrush}", titleBlock.Attribute("Foreground")?.Value);
     }
 
+    /// <summary>
+    /// DarkThemeおよびLightThemeにアクセントボタン上の反転文字色リソース（InverseTextForegroundBrush）が定義されていることを検証します。
+    /// </summary>
+    [Fact]
+    public void Theme_リソース読み込み時_InverseTextForegroundBrushが両テーマで視認性の高い色として定義されていること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var darkUri = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/DarkTheme.xaml");
+            var lightUri = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/LightTheme.xaml");
+
+            // Act
+            var darkDict = new ResourceDictionary { Source = darkUri };
+            var lightDict = new ResourceDictionary { Source = lightUri };
+
+            // Assert
+            Assert.True(darkDict.Contains("InverseTextForegroundBrush"));
+            Assert.True(lightDict.Contains("InverseTextForegroundBrush"));
+
+            var darkInverse = Assert.IsType<SolidColorBrush>(darkDict["InverseTextForegroundBrush"]);
+            var lightInverse = Assert.IsType<SolidColorBrush>(lightDict["InverseTextForegroundBrush"]);
+            Assert.Equal(Color.FromRgb(0x16, 0x19, 0x20), darkInverse.Color);
+            Assert.Equal(Color.FromRgb(0xFF, 0xFF, 0xFF), lightInverse.Color);
+        });
+    }
+
+    /// <summary>
+    /// AllSongsView.xamlの暗い再生オーバーレイにおいてAlwaysNeonCyanBrushが参照されていることを検証します。
+    /// </summary>
+    [Fact]
+    public void AllSongsView_再生オーバーレイ確認_AlwaysNeonCyanリソースを参照していること()
+    {
+        // Arrange
+        var rootDir = FindWorkspaceRoot();
+        var xamlPath = Path.Combine(rootDir, "AudioEffector", "Presentation", "Views", "AllSongsView.xaml");
+        Assert.True(File.Exists(xamlPath), $"AllSongsView.xaml が見つかりません: {xamlPath}");
+
+        // Act
+        var xamlContent = File.ReadAllText(xamlPath);
+        var sut = XDocument.Parse(xamlContent);
+
+        // Assert
+        var overlayBorders = sut.Descendants()
+            .Where(e => e.Name.LocalName == "Border" &&
+                e.Attributes().Any(a => a.Name.LocalName == "Background" && a.Value == "#B0161920"))
+            .ToList();
+
+        Assert.Single(overlayBorders);
+        var overlayXml = overlayBorders[0].ToString();
+        Assert.Contains("{DynamicResource AlwaysNeonCyanBrush}", overlayXml);
+        Assert.DoesNotContain("NeonCyanBrush", overlayXml.Replace("AlwaysNeonCyanBrush", ""));
+    }
+
     private static string FindWorkspaceRoot()
     {
         var current = AppDomain.CurrentDomain.BaseDirectory;
