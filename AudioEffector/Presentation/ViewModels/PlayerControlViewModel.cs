@@ -757,14 +757,18 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     /// <param name="tracks">設定するトラックコレクション</param>
     /// <param name="name">再生リスト名</param>
     /// <param name="subtitle">サブタイトル</param>
-    public void SetPlaybackList(IEnumerable<Track> tracks, string name, string subtitle)
+    /// <param name="updateAudioService">AudioServiceへプレイリストを設定するかどうか（呼び出し元で既に設定済みの場合はfalse）</param>
+    public void SetPlaybackList(IEnumerable<Track> tracks, string name, string subtitle, bool updateAudioService = true)
     {
         var trackList = tracks.ToList();
         PlaybackListName = name;
         PlaybackListSubtitle = subtitle;
         PlaybackListTracks = new ObservableCollection<Track>(trackList);
         PlayQueue = new ObservableCollection<Track>(trackList);
-        _audioService.SetPlaylist(trackList);
+        if (updateAudioService)
+        {
+            _audioService.SetPlaylist(trackList);
+        }
         SyncTrackPlayingStates(_currentTrack);
     }
 

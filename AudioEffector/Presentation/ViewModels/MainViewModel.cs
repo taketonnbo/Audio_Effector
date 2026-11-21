@@ -36,6 +36,7 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly LibraryApplicationService? _libraryService;
         private readonly ISettingsService _settingsService;
         private readonly SettingsApplicationService? _fallbackSettings;
+        private readonly bool _ownsAllSongs;
         private bool _disposed;
 
         /// <summary>
@@ -655,22 +656,22 @@ namespace AudioEffector.Presentation.ViewModels
                 };
             }
 
-            AllSongs = (App.ServiceProvider != null
+            var resolvedAllSongs = App.ServiceProvider != null
                 ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.AllSongsViewModel>(App.ServiceProvider)
-                : null) ?? new Presentation.ViewModels.AllSongsViewModel(Library!, _audioService);
+                : null;
+            if (resolvedAllSongs != null)
+            {
+                AllSongs = resolvedAllSongs;
+                _ownsAllSongs = false;
+            }
+            else
+            {
+                AllSongs = new Presentation.ViewModels.AllSongsViewModel(Library!, _audioService);
+                _ownsAllSongs = true;
+            }
 
-            AllSongs.PlaybackRequested += (tracks, startTrack, name, subtitle) =>
-            {
-                PlayQueue = new ObservableCollection<Track>(tracks);
-                PlaybackListName = name;
-                PlaybackListSubtitle = subtitle;
-                PlaybackListTracks = new ObservableCollection<Track>(tracks);
-                PlayerControl?.SetPlaybackList(tracks, name, subtitle);
-            };
-            AllSongs.EnqueueRequested += (tracks, playNext) =>
-            {
-                _audioService.EnqueueTracks(tracks, playNext);
-            };
+            AllSongs.PlaybackRequested += OnAllSongsPlaybackRequested;
+            AllSongs.EnqueueRequested += OnAllSongsEnqueueRequested;
 
             var appSettings = _settingsService.LoadSettings();
             _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
@@ -2262,6 +2263,7 @@ namespace AudioEffector.Presentation.ViewModels
                     Title = tagFile.Tag.Title ?? Path.GetFileNameWithoutExtension(filePath),
                     Artist = tagFile.Tag.FirstPerformer ?? "Unknown Artist",
                     Album = tagFile.Tag.Album ?? "Unknown Album",
+                    Genre = tagFile.Tag.FirstGenre ?? string.Empty,
                     FilePath = filePath,
                     Duration = tagFile.Properties.Duration,
                     IsFavorite = _favoritePaths.Contains(filePath)
@@ -2343,6 +2345,20 @@ namespace AudioEffector.Presentation.ViewModels
             GC.SuppressFinalize(this);
         }
 
+        private void OnAllSongsPlaybackRequested(IReadOnlyList<Track> tracks, Track? startTrack, string name, string subtitle)
+        {
+            PlayQueue = new ObservableCollection<Track>(tracks);
+            PlaybackListName = name;
+            PlaybackListSubtitle = subtitle;
+            PlaybackListTracks = new ObservableCollection<Track>(tracks);
+            PlayerControl?.SetPlaybackList(tracks, name, subtitle, updateAudioService: false);
+        }
+
+        private void OnAllSongsEnqueueRequested(IReadOnlyList<Track> tracks, bool playNext)
+        {
+            _audioService.EnqueueTracks(tracks, playNext);
+        }
+
         /// <summary>
         /// アンマネージドリソースおよびマネージドリソースを解放します
         /// </summary>
@@ -2354,7 +2370,15 @@ namespace AudioEffector.Presentation.ViewModels
                 if (disposing)
                 {
                     _timer?.Stop();
-                    AllSongs?.Dispose();
+                    if (AllSongs != null)
+                    {
+                        AllSongs.PlaybackRequested -= OnAllSongsPlaybackRequested;
+                        AllSongs.EnqueueRequested -= OnAllSongsEnqueueRequested;
+                        if (_ownsAllSongs)
+                        {
+                            AllSongs.Dispose();
+                        }
+                    }
                     _fallbackAudioService?.Dispose();
                     _fallbackSettings?.Dispose();
                     (_audioService as IDisposable)?.Dispose();
