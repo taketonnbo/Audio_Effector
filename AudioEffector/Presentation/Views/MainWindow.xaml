@@ -590,7 +590,7 @@
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>
                                         <DataTemplate>
-                                            <views:AllSongsView />
+                                            <views:AllSongsView DataContext="{Binding AllSongs}" />
                                         </DataTemplate>
                                     </Setter.Value>
                                 </Setter>

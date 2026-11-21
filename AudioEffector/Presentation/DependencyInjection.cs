@@ -19,6 +19,7 @@ public static class DependencyInjection
         // 状態保持および画面間共有のため各ViewModelはSingleton登録
         services.AddSingleton<PlayerControlViewModel>();
         services.AddSingleton<LibraryViewModel>();
+        services.AddSingleton<AllSongsViewModel>();
         services.AddSingleton<PlaylistViewModel>();
         services.AddSingleton<EqualizerViewModel>();
         services.AddSingleton<DeviceSyncViewModel>();

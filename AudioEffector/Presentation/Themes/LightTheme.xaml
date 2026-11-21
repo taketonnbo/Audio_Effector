@@ -10,6 +10,7 @@
     <Color x:Key="TextForegroundColor">#1E1E1E</Color>
     <Color x:Key="SecondaryTextForegroundColor">#404040</Color>
     <Color x:Key="MutedTextForegroundColor">#606060</Color>
+    <Color x:Key="InverseTextForegroundColor">#FFFFFF</Color>
     
     <Color x:Key="BorderColor">#CCCCCC</Color>
     
@@ -41,6 +42,7 @@
     <SolidColorBrush x:Key="TextForegroundBrush" Color="{StaticResource TextForegroundColor}"/>
     <SolidColorBrush x:Key="SecondaryTextForegroundBrush" Color="{StaticResource SecondaryTextForegroundColor}"/>
     <SolidColorBrush x:Key="MutedTextForegroundBrush" Color="{StaticResource MutedTextForegroundColor}"/>
+    <SolidColorBrush x:Key="InverseTextForegroundBrush" Color="{StaticResource InverseTextForegroundColor}"/>
     
     <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}"/>
     
