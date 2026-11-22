@@ -1,6 +1,6 @@
 {
-  "$schema_version": "1.0",
-  "description": "Audio Effector のソースコード変更と更新確認対象となる設計仕様書（設計/）の対応マップ",
+  "$schema_version": "1.1",
+  "description": "Audio Effector のソースコード変更と更新確認対象となる設計仕様書（設計/）の対応マップ（命名規則ベースのワイルドカード定義。通常の改修・補助クラス追加では更新不要）",
   "ignore_patterns": [
     "AudioEffector.Tests/**",
     "tools/**",
@@ -23,9 +23,9 @@
       "id": "main-layout-navigation",
       "name": "全体レイアウト・ペイン構成・画面遷移",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/MainWindow.xaml*",
-        "AudioEffector/Presentation/ViewModels/MainViewModel.cs",
-        "AudioEffector/Presentation/ViewModels/ViewType.cs"
+        "AudioEffector/Presentation/**/*MainWindow*",
+        "AudioEffector/Presentation/**/*MainViewModel*",
+        "AudioEffector/Presentation/**/*ViewType*"
       ],
       "primary_specs": [
         "設計/画面設計/全体レイアウト・ペイン構成/全体レイアウト・ペイン構成UI仕様書.md",
@@ -43,7 +43,7 @@
       "id": "sidebar",
       "name": "左サイドバー",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/SidebarControl.xaml*"
+        "AudioEffector/Presentation/**/*Sidebar*"
       ],
       "primary_specs": [
         "設計/画面設計/左サイドバー/左サイドバーUI仕様書.md"
@@ -56,10 +56,7 @@
       "id": "all-songs",
       "name": "全曲一覧",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/AllSongsView.xaml*",
-        "AudioEffector/Presentation/ViewModels/AllSongsViewModel.cs",
-        "AudioEffector/Presentation/ViewModels/AllSongsTrackItem.cs",
-        "AudioEffector/Presentation/ViewModels/AllSongsSortOption.cs"
+        "AudioEffector/**/*AllSongs*"
       ],
       "primary_specs": [
         "設計/画面設計/全曲一覧/全曲一覧UI仕様書.md"
@@ -73,10 +70,7 @@
       "id": "artists",
       "name": "アーティスト一覧",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/ArtistsView.xaml*",
-        "AudioEffector/Presentation/ViewModels/ArtistsViewModel.cs",
-        "AudioEffector/Presentation/ViewModels/ArtistGroup.cs",
-        "AudioEffector/Presentation/ViewModels/ArtistsSortOption.cs"
+        "AudioEffector/**/*Artist*"
       ],
       "primary_specs": [
         "設計/画面設計/アーティスト一覧/アーティスト一覧UI仕様書.md"
@@ -90,11 +84,7 @@
       "id": "recent-tracks",
       "name": "最近再生した曲（再生履歴）",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/RecentView.xaml*",
-        "AudioEffector/Presentation/ViewModels/RecentViewModel.cs",
-        "AudioEffector/Domain/Entities/RecentTrackEntry.cs",
-        "AudioEffector/Domain/Repositories/IRecentTrackRepository.cs",
-        "AudioEffector/Infrastructure/Repository/JsonRecentTrackRepository.cs"
+        "AudioEffector/**/*Recent*"
       ],
       "primary_specs": [
         "設計/画面設計/最近再生した曲/最近再生した曲UI仕様書.md"
@@ -109,8 +99,7 @@
       "id": "folder",
       "name": "フォルダ",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/FolderView.xaml*",
-        "AudioEffector/Presentation/ViewModels/FolderViewModel.cs"
+        "AudioEffector/**/*Folder*"
       ],
       "primary_specs": [
         "設計/画面設計/フォルダ/フォルダUI仕様書.md"
@@ -123,17 +112,12 @@
       "id": "library-albums-favorites",
       "name": "アルバム一覧・お気に入り・ライブラリ管理",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/LibraryView.xaml*",
-        "AudioEffector/Presentation/ViewModels/LibraryViewModel.cs",
-        "AudioEffector/Application/ApplicationServices/LibraryApplicationService.cs",
+        "AudioEffector/**/*Library*",
+        "AudioEffector/**/*Favorite*",
         "AudioEffector/Domain/Entities/Track.cs",
         "AudioEffector/Domain/Entities/Album.cs",
-        "AudioEffector/Domain/Entities/FavoriteTrackEntry.cs",
-        "AudioEffector/Domain/Services/FavoriteTrackMatcher.cs",
         "AudioEffector/Domain/Repositories/ITrackRepository.cs",
-        "AudioEffector/Domain/Repositories/IFavoriteRepository.cs",
         "AudioEffector/Infrastructure/Repository/JsonTrackRepository.cs",
-        "AudioEffector/Infrastructure/Repository/JsonFavoriteRepository.cs",
         "AudioEffector/Infrastructure/Library/**"
       ],
       "primary_specs": [
@@ -152,14 +136,7 @@
       "id": "playlists",
       "name": "プレイリスト一覧・プレイリスト内楽曲・追加ダイアログ",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/PlaylistSelectorView.xaml*",
-        "AudioEffector/Presentation/Views/PlaylistTracksView.xaml*",
-        "AudioEffector/Presentation/Views/PlaylistSelectionDialog.xaml*",
-        "AudioEffector/Presentation/ViewModels/PlaylistViewModel.cs",
-        "AudioEffector/Application/ApplicationServices/PlaylistApplicationService.cs",
-        "AudioEffector/Domain/Entities/UserPlaylist.cs",
-        "AudioEffector/Domain/Repositories/IPlaylistRepository.cs",
-        "AudioEffector/Infrastructure/Repository/JsonPlaylistRepository.cs"
+        "AudioEffector/**/*Playlist*"
       ],
       "primary_specs": [
         "設計/画面設計/プレイリスト一覧/プレイリスト一覧UI仕様書.md",
@@ -175,16 +152,12 @@
       "id": "play-queue-and-playback",
       "name": "再生制御・再生キュー・再生中表示",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/PlayQueueSidePanel.xaml*",
-        "AudioEffector/Presentation/Views/PlayQueueDialog.xaml*",
-        "AudioEffector/Presentation/ViewModels/PlayerControlViewModel.cs",
-        "AudioEffector/Presentation/ViewModels/NowPlayingViewModel.cs",
-        "AudioEffector/Application/ApplicationServices/IAudioService.cs",
-        "AudioEffector/Application/ApplicationServices/AudioApplicationService.cs",
-        "AudioEffector/Infrastructure/Audio/AudioService.cs",
-        "AudioEffector/Infrastructure/Audio/NAudioPlaybackEngine.cs",
-        "AudioEffector/Domain/Services/*PlaybackStrategy.cs",
-        "AudioEffector/Domain/Services/IPlaybackOrderStrategy.cs"
+        "AudioEffector/**/*PlayQueue*",
+        "AudioEffector/**/*PlayerControl*",
+        "AudioEffector/**/*NowPlaying*",
+        "AudioEffector/**/*AudioService*",
+        "AudioEffector/**/*AudioApplicationService*",
+        "AudioEffector/**/*Playback*"
       ],
       "primary_specs": [
         "設計/画面設計/再生キュースライドパネル/再生キュースライドパネルUI仕様書.md",
@@ -202,7 +175,7 @@
       "id": "mini-player",
       "name": "ミニプレイヤー",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/MiniPlayerWindow.xaml*"
+        "AudioEffector/**/*MiniPlayer*"
       ],
       "primary_specs": [
         "設計/画面設計/ミニプレイヤー/ミニプレイヤーUI仕様書.md"
@@ -216,12 +189,8 @@
       "id": "equalizer",
       "name": "イコライザー・DSP",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/EqualizerView.xaml*",
-        "AudioEffector/Presentation/ViewModels/EqualizerViewModel.cs",
-        "AudioEffector/Presentation/ViewModels/BandViewModel.cs",
-        "AudioEffector/Application/ApplicationServices/EqualizerApplicationService.cs",
-        "AudioEffector/Domain/Entities/EqualizerPreset.cs",
-        "AudioEffector/Infrastructure/Audio/EqualizerDsp.cs"
+        "AudioEffector/**/*Equalizer*",
+        "AudioEffector/**/*BandViewModel*"
       ],
       "primary_specs": [
         "設計/画面設計/イコライザー/イコライザーUI仕様書.md"
@@ -235,11 +204,9 @@
       "id": "spectrum-analyzer",
       "name": "スペクトラムアナライザ",
       "code_patterns": [
-        "AudioEffector/Presentation/ViewModels/SpectrumBarItem.cs",
-        "AudioEffector/Domain/Services/ISpectrumCalculator.cs",
-        "AudioEffector/Domain/Services/SpectrumCalculator.cs",
-        "AudioEffector/Infrastructure/Audio/SampleAggregator.cs",
-        "AudioEffector/Application/Common/FftEventArgs.cs"
+        "AudioEffector/**/*Spectrum*",
+        "AudioEffector/**/*SampleAggregator*",
+        "AudioEffector/**/*Fft*"
       ],
       "primary_specs": [
         "設計/画面設計/スペクトラムアナライザ/スペクトラムアナライザUI仕様書.md",
@@ -254,14 +221,8 @@
       "id": "device-transfer",
       "name": "機器転送・機器ストレージ管理",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/DeviceSyncView.xaml*",
-        "AudioEffector/Presentation/Views/DeviceManagerDialog.xaml*",
-        "AudioEffector/Presentation/ViewModels/DeviceSyncViewModel.cs",
-        "AudioEffector/Presentation/ViewModels/DeviceManagerViewModel.cs",
-        "AudioEffector/Presentation/ViewModels/DeviceBrowserViewModel.cs",
-        "AudioEffector/Application/ApplicationServices/DataTransferApplicationService.cs",
-        "AudioEffector/Domain/Entities/DataTransfer/**",
-        "AudioEffector/Domain/Repositories/IDataTransferRepository.cs",
+        "AudioEffector/**/*Device*",
+        "AudioEffector/**/*DataTransfer*",
         "AudioEffector/Infrastructure/DataTransfer/**"
       ],
       "primary_specs": [
@@ -276,16 +237,10 @@
     },
     {
       "id": "settings",
-      "name": "設定・ショートカット入力・文字入力ダイアログ",
+      "name": "設定",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/SettingsDialog.xaml*",
-        "AudioEffector/Presentation/ViewModels/SettingsViewModel.cs",
-        "AudioEffector/Application/ApplicationServices/ISettingsService.cs",
-        "AudioEffector/Application/ApplicationServices/SettingsApplicationService.cs",
-        "AudioEffector/Domain/Entities/AppSettings.cs",
-        "AudioEffector/Domain/Repositories/ISettingsRepository.cs",
-        "AudioEffector/Infrastructure/Repository/JsonSettingsRepository.cs",
-        "AudioEffector/Infrastructure/Windows/StartupManager.cs"
+        "AudioEffector/**/*Settings*",
+        "AudioEffector/Infrastructure/Windows/**"
       ],
       "primary_specs": [
         "設計/画面設計/設定/設定UI仕様書.md"
@@ -298,8 +253,7 @@
       "id": "dialogs",
       "name": "共通入力ダイアログ（文字入力・ショートカット入力）",
       "code_patterns": [
-        "AudioEffector/Presentation/Views/InputBox.xaml*",
-        "AudioEffector/Presentation/Views/ShortcutInputBox.xaml*"
+        "AudioEffector/Presentation/Views/*InputBox*"
       ],
       "primary_specs": [
         "設計/画面設計/文字入力ダイアログ/文字入力ダイアログUI仕様書.md",
@@ -311,10 +265,7 @@
       "id": "design-system-and-scrollbar",
       "name": "デザインシステム・テーマ・スクロールバー",
       "code_patterns": [
-        "AudioEffector/Presentation/Themes/DarkTheme.xaml",
-        "AudioEffector/Presentation/Themes/LightTheme.xaml",
-        "AudioEffector/Presentation/Themes/ThemeManager.cs",
-        "AudioEffector/Presentation/Themes/ScrollBarResources.xaml",
+        "AudioEffector/Presentation/Themes/**",
         "AudioEffector/App.xaml"
       ],
       "primary_specs": [
@@ -330,8 +281,7 @@
       "id": "marquee-and-controls",
       "name": "カスタムコントロール（テキストループ表示等）",
       "code_patterns": [
-        "AudioEffector/Presentation/Controls/MarqueeTextBlock.cs",
-        "AudioEffector/Presentation/Controls/GridLengthAnimation.cs"
+        "AudioEffector/Presentation/Controls/**"
       ],
       "primary_specs": [
         "設計/機能仕様/テキストループ表示機能.md"
@@ -344,9 +294,7 @@
       "id": "di-and-architecture",
       "name": "DI 構成・イベントバス・アーキテクチャ境界",
       "code_patterns": [
-        "AudioEffector/Application/DependencyInjection.cs",
-        "AudioEffector/Infrastructure/DependencyInjection.cs",
-        "AudioEffector/Presentation/DependencyInjection.cs",
+        "AudioEffector/**/DependencyInjection.cs",
         "AudioEffector/App.xaml.cs",
         "AudioEffector/Application/Common/**",
         "AudioEffector/Domain/Events/**",
