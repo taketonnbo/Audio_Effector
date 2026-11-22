@@ -1,0 +1,380 @@
+{
+  "$schema_version": "1.0",
+  "description": "Audio Effector のソースコード変更と更新確認対象となる設計仕様書（設計/）の対応マップ",
+  "ignore_patterns": [
+    "AudioEffector.Tests/**",
+    "tools/**",
+    ".agents/**",
+    "設計/**",
+    "api/**",
+    "_site/**",
+    "docs/**",
+    "*.md",
+    "*.yml",
+    "*.yaml",
+    "*.json",
+    "*.sln",
+    "*.csproj",
+    "AudioEffector/bin/**",
+    "AudioEffector/obj/**"
+  ],
+  "mappings": [
+    {
+      "id": "main-layout-navigation",
+      "name": "全体レイアウト・ペイン構成・画面遷移",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/MainWindow.xaml*",
+        "AudioEffector/Presentation/ViewModels/MainViewModel.cs",
+        "AudioEffector/Presentation/ViewModels/ViewType.cs"
+      ],
+      "primary_specs": [
+        "設計/画面設計/全体レイアウト・ペイン構成/全体レイアウト・ペイン構成UI仕様書.md",
+        "設計/画面設計/画面遷移・ナビゲーション設計書.md"
+      ],
+      "related_specs": [
+        "設計/画面設計/タイトルバー/タイトルバーUI仕様書.md",
+        "設計/画面設計/再生操作/再生操作UI仕様書.md",
+        "設計/画面設計/右側タブ開閉機能/右側タブ開閉機能UI仕様書.md",
+        "設計/画面設計/右側アルバム情報表示サイズ切り替え機能/右側アルバム情報表示サイズ切り替え機能UI仕様書.md",
+        "設計/詳細設計/アーキテクチャ/プレゼンテーション層詳細設計書.md"
+      ]
+    },
+    {
+      "id": "sidebar",
+      "name": "左サイドバー",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/SidebarControl.xaml*"
+      ],
+      "primary_specs": [
+        "設計/画面設計/左サイドバー/左サイドバーUI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/画面設計/画面遷移・ナビゲーション設計書.md"
+      ]
+    },
+    {
+      "id": "all-songs",
+      "name": "全曲一覧",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/AllSongsView.xaml*",
+        "AudioEffector/Presentation/ViewModels/AllSongsViewModel.cs",
+        "AudioEffector/Presentation/ViewModels/AllSongsTrackItem.cs",
+        "AudioEffector/Presentation/ViewModels/AllSongsSortOption.cs"
+      ],
+      "primary_specs": [
+        "設計/画面設計/全曲一覧/全曲一覧UI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/ユースケース/02_楽曲ライブラリ管理.md",
+        "設計/主要オブジェクト/01_楽曲_Track.md"
+      ]
+    },
+    {
+      "id": "artists",
+      "name": "アーティスト一覧",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/ArtistsView.xaml*",
+        "AudioEffector/Presentation/ViewModels/ArtistsViewModel.cs",
+        "AudioEffector/Presentation/ViewModels/ArtistGroup.cs",
+        "AudioEffector/Presentation/ViewModels/ArtistsSortOption.cs"
+      ],
+      "primary_specs": [
+        "設計/画面設計/アーティスト一覧/アーティスト一覧UI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/ユースケース/02_楽曲ライブラリ管理.md",
+        "設計/主要オブジェクト/02_アルバム_Album.md"
+      ]
+    },
+    {
+      "id": "recent-tracks",
+      "name": "最近再生した曲（再生履歴）",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/RecentView.xaml*",
+        "AudioEffector/Presentation/ViewModels/RecentViewModel.cs",
+        "AudioEffector/Domain/Entities/RecentTrackEntry.cs",
+        "AudioEffector/Domain/Repositories/IRecentTrackRepository.cs",
+        "AudioEffector/Infrastructure/Repository/JsonRecentTrackRepository.cs"
+      ],
+      "primary_specs": [
+        "設計/画面設計/最近再生した曲/最近再生した曲UI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/ユースケース/01_楽曲再生・再生制御.md",
+        "設計/詳細設計/アーキテクチャ/ドメイン層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md"
+      ]
+    },
+    {
+      "id": "folder",
+      "name": "フォルダ",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/FolderView.xaml*",
+        "AudioEffector/Presentation/ViewModels/FolderViewModel.cs"
+      ],
+      "primary_specs": [
+        "設計/画面設計/フォルダ/フォルダUI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/ユースケース/02_楽曲ライブラリ管理.md"
+      ]
+    },
+    {
+      "id": "library-albums-favorites",
+      "name": "アルバム一覧・お気に入り・ライブラリ管理",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/LibraryView.xaml*",
+        "AudioEffector/Presentation/ViewModels/LibraryViewModel.cs",
+        "AudioEffector/Application/ApplicationServices/LibraryApplicationService.cs",
+        "AudioEffector/Domain/Entities/Track.cs",
+        "AudioEffector/Domain/Entities/Album.cs",
+        "AudioEffector/Domain/Entities/FavoriteTrackEntry.cs",
+        "AudioEffector/Domain/Services/FavoriteTrackMatcher.cs",
+        "AudioEffector/Domain/Repositories/ITrackRepository.cs",
+        "AudioEffector/Domain/Repositories/IFavoriteRepository.cs",
+        "AudioEffector/Infrastructure/Repository/JsonTrackRepository.cs",
+        "AudioEffector/Infrastructure/Repository/JsonFavoriteRepository.cs",
+        "AudioEffector/Infrastructure/Library/**"
+      ],
+      "primary_specs": [
+        "設計/画面設計/アルバム一覧/アルバム一覧UI仕様書.md",
+        "設計/画面設計/お気に入り/お気に入りUI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/ユースケース/02_楽曲ライブラリ管理.md",
+        "設計/主要オブジェクト/01_楽曲_Track.md",
+        "設計/主要オブジェクト/02_アルバム_Album.md",
+        "設計/詳細設計/アーキテクチャ/ドメイン層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md"
+      ]
+    },
+    {
+      "id": "playlists",
+      "name": "プレイリスト一覧・プレイリスト内楽曲・追加ダイアログ",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/PlaylistSelectorView.xaml*",
+        "AudioEffector/Presentation/Views/PlaylistTracksView.xaml*",
+        "AudioEffector/Presentation/Views/PlaylistSelectionDialog.xaml*",
+        "AudioEffector/Presentation/ViewModels/PlaylistViewModel.cs",
+        "AudioEffector/Application/ApplicationServices/PlaylistApplicationService.cs",
+        "AudioEffector/Domain/Entities/UserPlaylist.cs",
+        "AudioEffector/Domain/Repositories/IPlaylistRepository.cs",
+        "AudioEffector/Infrastructure/Repository/JsonPlaylistRepository.cs"
+      ],
+      "primary_specs": [
+        "設計/画面設計/プレイリスト一覧/プレイリスト一覧UI仕様書.md",
+        "設計/画面設計/プレイリスト内楽曲/プレイリスト内楽曲UI仕様書.md",
+        "設計/画面設計/プレイリスト追加ダイアログ/プレイリスト追加ダイアログUI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/ユースケース/03_プレイリスト管理.md",
+        "設計/主要オブジェクト/03_プレイリスト_UserPlaylist.md"
+      ]
+    },
+    {
+      "id": "play-queue-and-playback",
+      "name": "再生制御・再生キュー・再生中表示",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/PlayQueueSidePanel.xaml*",
+        "AudioEffector/Presentation/Views/PlayQueueDialog.xaml*",
+        "AudioEffector/Presentation/ViewModels/PlayerControlViewModel.cs",
+        "AudioEffector/Presentation/ViewModels/NowPlayingViewModel.cs",
+        "AudioEffector/Application/ApplicationServices/IAudioService.cs",
+        "AudioEffector/Application/ApplicationServices/AudioApplicationService.cs",
+        "AudioEffector/Infrastructure/Audio/AudioService.cs",
+        "AudioEffector/Infrastructure/Audio/NAudioPlaybackEngine.cs",
+        "AudioEffector/Domain/Services/*PlaybackStrategy.cs",
+        "AudioEffector/Domain/Services/IPlaybackOrderStrategy.cs"
+      ],
+      "primary_specs": [
+        "設計/画面設計/再生キュースライドパネル/再生キュースライドパネルUI仕様書.md",
+        "設計/画面設計/再生操作/再生操作UI仕様書.md",
+        "設計/機能仕様/再生キュー機能仕様書.md",
+        "設計/詳細設計/再生キュー.md"
+      ],
+      "related_specs": [
+        "設計/画面設計/再生キューダイアログ/再生キューダイアログUI仕様書.md",
+        "設計/主要オブジェクト/04_再生キュー_PlayQueue.md",
+        "設計/ユースケース/01_楽曲再生・再生制御.md"
+      ]
+    },
+    {
+      "id": "mini-player",
+      "name": "ミニプレイヤー",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/MiniPlayerWindow.xaml*"
+      ],
+      "primary_specs": [
+        "設計/画面設計/ミニプレイヤー/ミニプレイヤーUI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/画面設計/画面遷移・ナビゲーション設計書.md",
+        "設計/ユースケース/01_楽曲再生・再生制御.md"
+      ]
+    },
+    {
+      "id": "equalizer",
+      "name": "イコライザー・DSP",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/EqualizerView.xaml*",
+        "AudioEffector/Presentation/ViewModels/EqualizerViewModel.cs",
+        "AudioEffector/Presentation/ViewModels/BandViewModel.cs",
+        "AudioEffector/Application/ApplicationServices/EqualizerApplicationService.cs",
+        "AudioEffector/Domain/Entities/EqualizerPreset.cs",
+        "AudioEffector/Infrastructure/Audio/EqualizerDsp.cs"
+      ],
+      "primary_specs": [
+        "設計/画面設計/イコライザー/イコライザーUI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/ユースケース/04_イコライザー・エフェクト.md",
+        "設計/主要オブジェクト/05_エフェクトプリセット_EqualizerPreset.md"
+      ]
+    },
+    {
+      "id": "spectrum-analyzer",
+      "name": "スペクトラムアナライザ",
+      "code_patterns": [
+        "AudioEffector/Presentation/ViewModels/SpectrumBarItem.cs",
+        "AudioEffector/Domain/Services/ISpectrumCalculator.cs",
+        "AudioEffector/Domain/Services/SpectrumCalculator.cs",
+        "AudioEffector/Infrastructure/Audio/SampleAggregator.cs",
+        "AudioEffector/Application/Common/FftEventArgs.cs"
+      ],
+      "primary_specs": [
+        "設計/画面設計/スペクトラムアナライザ/スペクトラムアナライザUI仕様書.md",
+        "設計/機能仕様/スペクトラムアナライザ.md",
+        "設計/詳細設計/スペクトラムアナライザ.md"
+      ],
+      "related_specs": [
+        "設計/詳細設計/パフォーマンス最適化.md"
+      ]
+    },
+    {
+      "id": "device-transfer",
+      "name": "機器転送・機器ストレージ管理",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/DeviceSyncView.xaml*",
+        "AudioEffector/Presentation/Views/DeviceManagerDialog.xaml*",
+        "AudioEffector/Presentation/ViewModels/DeviceSyncViewModel.cs",
+        "AudioEffector/Presentation/ViewModels/DeviceManagerViewModel.cs",
+        "AudioEffector/Presentation/ViewModels/DeviceBrowserViewModel.cs",
+        "AudioEffector/Application/ApplicationServices/DataTransferApplicationService.cs",
+        "AudioEffector/Domain/Entities/DataTransfer/**",
+        "AudioEffector/Domain/Repositories/IDataTransferRepository.cs",
+        "AudioEffector/Infrastructure/DataTransfer/**"
+      ],
+      "primary_specs": [
+        "設計/画面設計/機器転送/機器転送UI仕様書.md",
+        "設計/画面設計/機器ストレージ管理/機器ストレージ管理UI仕様書.md",
+        "設計/機能仕様/機器転送.md"
+      ],
+      "related_specs": [
+        "設計/ユースケース/05_機器転送・同期.md",
+        "設計/主要オブジェクト/06_接続機器_Device.md"
+      ]
+    },
+    {
+      "id": "settings",
+      "name": "設定・ショートカット入力・文字入力ダイアログ",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/SettingsDialog.xaml*",
+        "AudioEffector/Presentation/ViewModels/SettingsViewModel.cs",
+        "AudioEffector/Application/ApplicationServices/ISettingsService.cs",
+        "AudioEffector/Application/ApplicationServices/SettingsApplicationService.cs",
+        "AudioEffector/Domain/Entities/AppSettings.cs",
+        "AudioEffector/Domain/Repositories/ISettingsRepository.cs",
+        "AudioEffector/Infrastructure/Repository/JsonSettingsRepository.cs",
+        "AudioEffector/Infrastructure/Windows/StartupManager.cs"
+      ],
+      "primary_specs": [
+        "設計/画面設計/設定/設定UI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/ユースケース/06_設定・カスタマイズ.md"
+      ]
+    },
+    {
+      "id": "dialogs",
+      "name": "共通入力ダイアログ（文字入力・ショートカット入力）",
+      "code_patterns": [
+        "AudioEffector/Presentation/Views/InputBox.xaml*",
+        "AudioEffector/Presentation/Views/ShortcutInputBox.xaml*"
+      ],
+      "primary_specs": [
+        "設計/画面設計/文字入力ダイアログ/文字入力ダイアログUI仕様書.md",
+        "設計/画面設計/ショートカット入力/ショートカット入力UI仕様書.md"
+      ],
+      "related_specs": []
+    },
+    {
+      "id": "design-system-and-scrollbar",
+      "name": "デザインシステム・テーマ・スクロールバー",
+      "code_patterns": [
+        "AudioEffector/Presentation/Themes/DarkTheme.xaml",
+        "AudioEffector/Presentation/Themes/LightTheme.xaml",
+        "AudioEffector/Presentation/Themes/ThemeManager.cs",
+        "AudioEffector/Presentation/Themes/ScrollBarResources.xaml",
+        "AudioEffector/App.xaml"
+      ],
+      "primary_specs": [
+        "設計/デザインシステム/01_デザイントークン仕様書.md",
+        "設計/デザインシステム/02_共通コントロールスタイル仕様書.md",
+        "設計/画面設計/スクロールバー/スクロールバーUI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/詳細設計/スクロールバー.md"
+      ]
+    },
+    {
+      "id": "marquee-and-controls",
+      "name": "カスタムコントロール（テキストループ表示等）",
+      "code_patterns": [
+        "AudioEffector/Presentation/Controls/MarqueeTextBlock.cs",
+        "AudioEffector/Presentation/Controls/GridLengthAnimation.cs"
+      ],
+      "primary_specs": [
+        "設計/機能仕様/テキストループ表示機能.md"
+      ],
+      "related_specs": [
+        "設計/詳細設計/パフォーマンス最適化.md"
+      ]
+    },
+    {
+      "id": "di-and-architecture",
+      "name": "DI 構成・イベントバス・アーキテクチャ境界",
+      "code_patterns": [
+        "AudioEffector/Application/DependencyInjection.cs",
+        "AudioEffector/Infrastructure/DependencyInjection.cs",
+        "AudioEffector/Presentation/DependencyInjection.cs",
+        "AudioEffector/App.xaml.cs",
+        "AudioEffector/Application/Common/**",
+        "AudioEffector/Domain/Events/**",
+        "AudioEffector/Domain/ValueObjects/**",
+        "AudioEffector/Infrastructure/Logging/**"
+      ],
+      "primary_specs": [
+        "設計/詳細設計/アーキテクチャ/アーキテクチャ全体設計書.md"
+      ],
+      "related_specs": [
+        "設計/詳細設計/アーキテクチャ/ドメイン層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/プレゼンテーション層詳細設計書.md"
+      ]
+    },
+    {
+      "id": "xaml-diagnostics",
+      "name": "XAML バインディング検証基盤",
+      "code_patterns": [
+        "AudioEffector/Presentation/Diagnostics/**"
+      ],
+      "primary_specs": [
+        "設計/詳細設計/XAMLバインディング検証基盤.md"
+      ],
+      "related_specs": [
+        "設計/詳細設計/テスト仕様/テスト方針書.md"
+      ]
+    }
+  ]
+}
