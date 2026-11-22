@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -16,7 +16,7 @@ using Xunit;
 namespace AudioEffector.Tests.Application.ApplicationServices;
 
 /// <summary>
-/// LibraryApplicationServiceのフォルダスキャン、検索、アルバム集約、およびお気に入り管理を検証するテストクラス
+/// LibraryApplicationServiceのフォルダスキャン、検索、アルバム集約、およびメタデータベースお気に入り管理を検証するテストクラス
 /// </summary>
 public sealed class LibraryApplicationServiceTests : IDisposable
 {
@@ -43,15 +43,23 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         }
     }
 
-    private static Track CreateSampleTrack(string title = "Song 1", string artist = "Artist 1", string album = "Album 1", bool isFavorite = false)
+    private static Track CreateSampleTrack(
+        string title = "Song 1",
+        string artist = "Artist 1",
+        string album = "Album 1",
+        bool isFavorite = false,
+        string? filePath = null,
+        uint trackNumber = 1,
+        double durationSeconds = 180.0)
     {
         var track = new Track(
             id: TrackId.New(),
-            filePath: AudioPath.Create($@"C:\Music\{title}.mp3"),
+            filePath: AudioPath.Create(filePath ?? $@"C:\Music\{title}.mp3"),
             title: title,
             artist: artist,
             album: album,
-            duration: TimeSpan.FromMinutes(3),
+            duration: TimeSpan.FromSeconds(durationSeconds),
+            trackNumber: trackNumber,
             isFavorite: isFavorite);
         return track;
     }
@@ -108,8 +116,8 @@ public sealed class LibraryApplicationServiceTests : IDisposable
 
         var mockTrackRepo = new Mock<ITrackRepository>();
         var mockFavRepo = new Mock<IFavoriteRepository>();
-        mockFavRepo.Setup(r => r.GetFavoriteIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<TrackId>());
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
 
         var mockEventBus = new Mock<IEventBus>();
         var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
@@ -136,8 +144,8 @@ public sealed class LibraryApplicationServiceTests : IDisposable
 
         var mockTrackRepo = new Mock<ITrackRepository>();
         var mockFavRepo = new Mock<IFavoriteRepository>();
-        mockFavRepo.Setup(r => r.GetFavoriteIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<TrackId>());
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
 
         var mockEventBus = new Mock<IEventBus>();
         var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
@@ -203,23 +211,26 @@ public sealed class LibraryApplicationServiceTests : IDisposable
     }
 
     /// <summary>
-    /// GetAllAlbumsAsync呼び出し時、全楽曲がアルバム単位にグルーピングされ、お気に入り状態が反映されるかを検証します。
+    /// GetAllAlbumsAsync呼び出し時、全楽曲がアルバム単位にグルーピングされ、フォルダ移動・拡張子変更後でもメタデータ一致でお気に入りフラグが反映されることを検証します。
     /// </summary>
     [Fact]
-    public async Task GetAllAlbumsAsync_複数楽曲存在_アルバム名とアーティストでグルーピングされお気に入りフラグが反映されること()
+    public async Task GetAllAlbumsAsync_フォルダ移動および拡張子変更後_メタデータ一致でお気に入り反映かつパスが自動更新されること()
     {
         // Arrange
-        var t1 = CreateSampleTrack("Track 1", "Artist A", "Album X");
-        var t2 = CreateSampleTrack("Track 2", "Artist A", "Album X");
-        var t3 = CreateSampleTrack("Track 3", "Artist B", "Album Y");
+        var t1 = CreateSampleTrack("Track 1", "Artist A", "Album X", filePath: @"D:\Moved\Track1.flac");
+        var t2 = CreateSampleTrack("Track 2", "Artist A", "Album X", filePath: @"D:\Moved\Track2.flac");
+        var t3 = CreateSampleTrack("Track 3", "Artist B", "Album Y", filePath: @"D:\Moved\Track3.flac");
 
         var mockTrackRepo = new Mock<ITrackRepository>();
         mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([t1, t2, t3]);
 
         var mockFavRepo = new Mock<IFavoriteRepository>();
-        mockFavRepo.Setup(r => r.GetFavoriteIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<TrackId> { t1.Id });
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new FavoriteTrackEntry("Track 1", "Artist A", "Album X", 1, 180.0, @"C:\Old\Track1.mp3", DateTime.Now)
+            });
 
         var mockEventBus = new Mock<IEventBus>();
         var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
@@ -233,16 +244,21 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         Assert.Equal(2, albumX.Tracks.Count);
         Assert.True(albumX.Tracks.First(t => t.Id == t1.Id).IsFavorite);
         Assert.False(albumX.Tracks.First(t => t.Id == t2.Id).IsFavorite);
+        mockFavRepo.Verify(
+            r => r.SaveAllAsync(
+                It.Is<IReadOnlyList<FavoriteTrackEntry>>(list => list.Count == 1 && list[0].LastKnownFilePath == @"D:\Moved\Track1.flac"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     /// <summary>
-    /// お気に入り未登録のトラックに対してToggleFavoriteAsyncを呼び出した際、お気に入り追加されリポジトリに保存されるかを検証します。
+    /// お気に入り未登録のトラックに対してToggleFavoriteAsyncを呼び出した際、メタデータ付きでお気に入り追加されリポジトリに保存されるかを検証します。
     /// </summary>
     [Fact]
     public async Task ToggleFavoriteAsync_お気に入り未登録トラック_お気に入り追加されリポジトリへ保存されること()
     {
         // Arrange
-        var track = CreateSampleTrack("Song A", isFavorite: false);
+        var track = CreateSampleTrack("Song A", "Artist A", "Album A", isFavorite: false);
         var mockTrackRepo = new Mock<ITrackRepository>();
         mockTrackRepo.Setup(r => r.GetByIdAsync(track.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(track);
@@ -257,15 +273,19 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         // Assert
         Assert.NotNull(actual);
         Assert.True(actual.IsFavorite);
-        mockFavRepo.Verify(r => r.AddAsync(track.Id, It.IsAny<CancellationToken>()), Times.Once);
+        mockFavRepo.Verify(
+            r => r.AddOrUpdateAsync(
+                It.Is<FavoriteTrackEntry>(e => e.Title == "Song A" && e.Artist == "Artist A" && e.Album == "Album A" && e.LastKnownFilePath == track.FilePath),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
         mockTrackRepo.Verify(r => r.SaveAsync(track, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>
-    /// お気に入り登録済みのトラックに対してToggleFavoriteAsyncを呼び出した際、お気に入り解除されリポジトリに保存されるかを検証します。
+    /// お気に入り登録済みのトラックに対してToggleFavoriteAsyncを呼び出した際、お気に入り解除されリポジトリから削除されるかを検証します。
     /// </summary>
     [Fact]
-    public async Task ToggleFavoriteAsync_お気に入り登録済みトラック_お気に入り解除されリポジトリへ保存されること()
+    public async Task ToggleFavoriteAsync_お気に入り登録済みトラック_お気に入り解除されリポジトリから削除されること()
     {
         // Arrange
         var track = CreateSampleTrack("Song B", isFavorite: true);
@@ -283,7 +303,43 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         // Assert
         Assert.NotNull(actual);
         Assert.False(actual.IsFavorite);
-        mockFavRepo.Verify(r => r.RemoveAsync(track.Id, It.IsAny<CancellationToken>()), Times.Once);
+        mockFavRepo.Verify(r => r.RemoveAsync(track, It.IsAny<CancellationToken>()), Times.Once);
         mockTrackRepo.Verify(r => r.SaveAsync(track, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// GetFavoritesAsync呼び出し時、タグ編集直後でもLastKnownFilePathフォールバックでお気に入り楽曲が解決されメタデータが最新化されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetFavoritesAsync_タグ編集直後の楽曲_パス一致フォールバックで解決されメタデータが更新されること()
+    {
+        // Arrange
+        var editedTrack = CreateSampleTrack("Updated Title", "Updated Artist", "Updated Album", filePath: @"D:\Music\Track.flac");
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([editedTrack]);
+
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new FavoriteTrackEntry("Old Title", "Old Artist", "Old Album", 1, 180.0, @"D:\Music\Track.flac", DateTime.Now)
+            });
+
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+
+        // Act
+        var favorites = await sut.GetFavoritesAsync();
+
+        // Assert
+        Assert.Single(favorites);
+        Assert.Same(editedTrack, favorites[0]);
+        Assert.True(editedTrack.IsFavorite);
+        mockFavRepo.Verify(
+            r => r.SaveAllAsync(
+                It.Is<IReadOnlyList<FavoriteTrackEntry>>(list => list.Count == 1 && list[0].Title == "Updated Title"),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 }

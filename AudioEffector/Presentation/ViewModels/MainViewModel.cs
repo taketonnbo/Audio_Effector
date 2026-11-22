@@ -1,4 +1,4 @@
-using AudioEffector.Application.ApplicationServices;
+﻿using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Presentation.Views;
@@ -122,7 +122,6 @@ namespace AudioEffector.Presentation.ViewModels
         private bool _isLoading;
         private bool _isGridView = true;
         private string _selectedSortOption = "Artist";
-        private List<string> _favoritePaths;
         private ViewType _currentViewType = ViewType.Albums;
 
         /// <summary>
@@ -537,7 +536,6 @@ namespace AudioEffector.Presentation.ViewModels
                 _fallbackSettings = new SettingsApplicationService();
                 _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
             }
-            _favoritePaths = _libraryService?.LoadFavorites() ?? new List<string>();
 
             if (PlayerControl == null)
             {
@@ -623,26 +621,15 @@ namespace AudioEffector.Presentation.ViewModels
                     {
                         OnPropertyChanged(nameof(CurrentTrack));
                     }
-                    if (track.IsFavorite)
+                    if (IsFavoritesView)
                     {
-                        if (!_favoritePaths.Contains(track.FilePath))
+                        if (track.IsFavorite)
                         {
-                            _favoritePaths.Add(track.FilePath);
-                            if (IsFavoritesView)
-                            {
-                                Playlist?.AddFavoriteTrack(track);
-                            }
+                            Playlist?.AddFavoriteTrack(track);
                         }
-                    }
-                    else
-                    {
-                        if (_favoritePaths.Contains(track.FilePath))
+                        else
                         {
-                            _favoritePaths.Remove(track.FilePath);
-                            if (IsFavoritesView)
-                            {
-                                Playlist?.RemoveDisplayedTrack(track);
-                            }
+                            Playlist?.RemoveDisplayedTrack(track);
                         }
                     }
                 };
@@ -2167,26 +2154,7 @@ namespace AudioEffector.Presentation.ViewModels
             var targetTrack = obj as Track ?? CurrentTrack;
             if (targetTrack != null)
             {
-                if (Library != null)
-                {
-                    Library.ToggleFavorite(targetTrack);
-                }
-                else
-                {
-                    targetTrack.IsFavorite = !targetTrack.IsFavorite;
-                    if (targetTrack.IsFavorite)
-                    {
-                        if (!_favoritePaths.Contains(targetTrack.FilePath))
-                        {
-                            _favoritePaths.Add(targetTrack.FilePath);
-                        }
-                    }
-                    else
-                    {
-                        _favoritePaths.Remove(targetTrack.FilePath);
-                    }
-                    _libraryService?.SaveFavorites(_favoritePaths);
-                }
+                Library?.ToggleFavorite(targetTrack);
             }
         }
 
@@ -2277,11 +2245,7 @@ namespace AudioEffector.Presentation.ViewModels
         private void ShowFavorites()
         {
             CurrentViewType = ViewType.Favorites;
-            var favoriteTracks = _favoritePaths
-                .Select(LoadTrack)
-                .Where(track => track != null)
-                .Cast<Track>()
-                .ToList();
+            var favoriteTracks = Library?.GetFavoriteTracks(path => LoadTrack(path, resolveFavoriteState: false)) ?? Array.Empty<Track>();
             Playlist?.ShowFavorites(favoriteTracks, _favoritesImage);
         }
 
@@ -2299,7 +2263,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// 指定されたパスのトラック情報を読み込みます。
         /// メタデータとカバーアートを取得します。
         /// </summary>
-        private Track? LoadTrack(string filePath)
+        private Track? LoadTrack(string filePath, bool resolveFavoriteState = true)
         {
             if (!File.Exists(filePath))
                 return null;
@@ -2307,16 +2271,22 @@ namespace AudioEffector.Presentation.ViewModels
             try
             {
                 using var tagFile = TagLib.File.Create(filePath);
+                var (title, artist, album, genre) = Infrastructure.Library.TagLibMetadataExtractor.ExtractDisplayTags(tagFile.Tag, filePath);
                 var track = new Track
                 {
-                    Title = tagFile.Tag.Title ?? Path.GetFileNameWithoutExtension(filePath),
-                    Artist = tagFile.Tag.FirstPerformer ?? "Unknown Artist",
-                    Album = tagFile.Tag.Album ?? "Unknown Album",
-                    Genre = tagFile.Tag.FirstGenre ?? string.Empty,
+                    Title = title,
+                    Artist = artist,
+                    Album = album,
+                    Genre = genre,
+                    Year = tagFile.Tag.Year,
+                    TrackNumber = tagFile.Tag.Track,
                     FilePath = filePath,
-                    Duration = tagFile.Properties.Duration,
-                    IsFavorite = _favoritePaths.Contains(filePath)
+                    Duration = tagFile.Properties.Duration
                 };
+                if (resolveFavoriteState)
+                {
+                    track.IsFavorite = Library?.IsTrackFavorite(track) ?? false;
+                }
 
                 // Load cover art
                 if (tagFile.Tag.Pictures.Length > 0)

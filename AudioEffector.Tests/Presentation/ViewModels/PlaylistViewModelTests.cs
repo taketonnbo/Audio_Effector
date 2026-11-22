@@ -34,8 +34,8 @@ public sealed class PlaylistViewModelTests
     {
         _playlistRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<UserPlaylist>());
-        _favoriteRepoMock.Setup(r => r.GetFavoriteIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<TrackId>());
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
 
         _playlistAppService = new PlaylistApplicationService(_playlistRepoMock.Object, _trackRepoMock.Object, _eventBus);
         _libraryAppService = new LibraryApplicationService(

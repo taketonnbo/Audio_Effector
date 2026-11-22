@@ -1,4 +1,6 @@
+﻿using System;
 using System.Collections.Generic;
+using System.Threading;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
@@ -230,5 +232,211 @@ public sealed class LibraryViewModelTests
         Assert.Same(track1, playedTrack);
         _audioServiceMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(l => l.Count == 2), track1), Times.Once);
         _audioServiceMock.Verify(a => a.PlayTrack(track1), Times.Once);
+    }
+
+    /// <summary>
+    /// フォルダ移動や拡張子変更後でも、メタデータ一致でお気に入りが維持されGetFavoriteTracksで解決かつLastKnownFilePathが自動更新されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SyncFavoritesWithLibraryTracksおよびGetFavoriteTracks_フォルダ移動および拡張子変更後_メタデータ一致でお気に入り復元およびパス自動更新されること()
+    {
+        // Arrange
+        IReadOnlyList<FavoriteTrackEntry>? savedEntries = null;
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new FavoriteTrackEntry("Midnight City", "M83", "Hurry Up, We're Dreaming", 2, 243.5, @"C:\Old\02_Midnight_City.mp3", DateTime.Now)
+            });
+        _favoriteRepoMock.Setup(r => r.SaveAllAsync(It.IsAny<IReadOnlyList<FavoriteTrackEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FavoriteTrackEntry>, CancellationToken>((entries, _) => savedEntries = entries)
+            .Returns(Task.CompletedTask);
+
+        using var sut = CreateViewModel();
+        var movedFlacTrack = new Track
+        {
+            FilePath = @"D:\Music\M83\02_Midnight_City.flac",
+            Title = "Midnight City",
+            Artist = "M83",
+            Album = "Hurry Up, We're Dreaming",
+            TrackNumber = 2,
+            Duration = TimeSpan.FromSeconds(243.8)
+        };
+        sut.Tracks.Add(movedFlacTrack);
+
+        // Act
+        sut.SyncFavoritesWithLibraryTracks();
+        var favoriteTracks = sut.GetFavoriteTracks();
+
+        // Assert
+        Assert.True(movedFlacTrack.IsFavorite);
+        Assert.Single(favoriteTracks);
+        Assert.Same(movedFlacTrack, favoriteTracks[0]);
+        Assert.NotNull(savedEntries);
+        Assert.Single(savedEntries);
+        Assert.Equal(@"D:\Music\M83\02_Midnight_City.flac", savedEntries[0].LastKnownFilePath);
+    }
+
+    /// <summary>
+    /// タグ未設定曲やタグ編集直後の楽曲でも、LastKnownFilePathフォールバックによりお気に入り登録が維持されメタデータが最新化されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SyncFavoritesWithLibraryTracks_タグ編集直後およびタグ未設定曲_LastKnownFilePathフォールバックでお気に入りが維持されること()
+    {
+        // Arrange
+        IReadOnlyList<FavoriteTrackEntry>? savedEntries = null;
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new FavoriteTrackEntry("Old Title", "Old Artist", "Old Album", 1, 200.0, @"D:\Music\Edited.flac", DateTime.Now),
+                new FavoriteTrackEntry("Track01", "Unknown Artist", "Unknown Album", 0, 150.0, @"D:\Music\Untagged\Track01.mp3", DateTime.Now)
+            });
+        _favoriteRepoMock.Setup(r => r.SaveAllAsync(It.IsAny<IReadOnlyList<FavoriteTrackEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FavoriteTrackEntry>, CancellationToken>((entries, _) => savedEntries = entries)
+            .Returns(Task.CompletedTask);
+
+        using var sut = CreateViewModel();
+        var editedTrack = new Track
+        {
+            FilePath = @"D:\Music\Edited.flac",
+            Title = "Renamed Title",
+            Artist = "Renamed Artist",
+            Album = "Renamed Album",
+            TrackNumber = 1,
+            Duration = TimeSpan.FromSeconds(200.0)
+        };
+        var untaggedTrack = new Track
+        {
+            FilePath = @"D:\Music\Untagged\Track01.mp3",
+            Title = "Track01",
+            Artist = "Unknown Artist",
+            Album = "Unknown Album",
+            Duration = TimeSpan.FromSeconds(150.0)
+        };
+        sut.Tracks.Add(editedTrack);
+        sut.Tracks.Add(untaggedTrack);
+
+        // Act
+        sut.SyncFavoritesWithLibraryTracks();
+
+        // Assert
+        Assert.True(editedTrack.IsFavorite);
+        Assert.True(untaggedTrack.IsFavorite);
+        Assert.NotNull(savedEntries);
+        Assert.Equal("Renamed Title", savedEntries[0].Title);
+    }
+
+    /// <summary>
+    /// ToggleFavoriteの追加・解除および重複登録防止が正しく動作し、メタデータ付きエントリが保存されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ToggleFavorite_追加と解除のトグルおよび重複登録防止_メタデータ付きエントリが正しく保存および削除されること()
+    {
+        // Arrange
+        IReadOnlyList<FavoriteTrackEntry> latestSaved = Array.Empty<FavoriteTrackEntry>();
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        _favoriteRepoMock.Setup(r => r.SaveAllAsync(It.IsAny<IReadOnlyList<FavoriteTrackEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FavoriteTrackEntry>, CancellationToken>((entries, _) => latestSaved = entries)
+            .Returns(Task.CompletedTask);
+
+        using var sut = CreateViewModel();
+        var track = new Track
+        {
+            FilePath = @"D:\Music\Song.flac",
+            Title = "Starboy",
+            Artist = "The Weeknd",
+            Album = "Starboy",
+            TrackNumber = 1,
+            Duration = TimeSpan.FromSeconds(230.0)
+        };
+        var duplicateInstance = new Track
+        {
+            FilePath = @"E:\Backup\Song.mp3",
+            Title = "Starboy",
+            Artist = "The Weeknd",
+            Album = "Starboy",
+            TrackNumber = 1,
+            Duration = TimeSpan.FromSeconds(230.0)
+        };
+        sut.Tracks.Add(track);
+
+        // Act 1: 追加
+        sut.ToggleFavorite(track);
+
+        // Assert 1
+        Assert.True(track.IsFavorite);
+        Assert.Single(latestSaved);
+        Assert.Equal("Starboy", latestSaved[0].Title);
+        Assert.Equal("The Weeknd", latestSaved[0].Artist);
+        Assert.Equal("Starboy", latestSaved[0].Album);
+        Assert.Equal(1u, latestSaved[0].TrackNumber);
+        Assert.Equal(230.0, latestSaved[0].DurationSeconds);
+
+        // Act 2: 別インスタンスで再度お気に入り追加しても重複しないこと
+        sut.ToggleFavorite(duplicateInstance);
+
+        // Assert 2
+        Assert.True(duplicateInstance.IsFavorite);
+        Assert.Single(latestSaved);
+
+        // Act 3: 解除
+        sut.ToggleFavorite(track);
+
+        // Assert 3
+        Assert.False(track.IsFavorite);
+        Assert.Empty(latestSaved);
+    }
+
+    /// <summary>
+    /// 別フォルダに存在する同名・同再生時間のタグ未設定曲2件を同時にお気に入り登録でき、片方のみ解除しても他方が維持されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ToggleFavorite_別フォルダの同名未タグ曲2件_同時登録および片方のみ解除できること()
+    {
+        // Arrange
+        IReadOnlyList<FavoriteTrackEntry> latestSaved = Array.Empty<FavoriteTrackEntry>();
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        _favoriteRepoMock.Setup(r => r.SaveAllAsync(It.IsAny<IReadOnlyList<FavoriteTrackEntry>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FavoriteTrackEntry>, CancellationToken>((entries, _) => latestSaved = entries)
+            .Returns(Task.CompletedTask);
+
+        using var sut = CreateViewModel();
+        var untaggedA = new Track
+        {
+            FilePath = @"D:\Music\FolderA\Track01.mp3",
+            Title = "Track01",
+            Artist = "Unknown Artist",
+            Album = "Unknown Album",
+            Duration = TimeSpan.FromSeconds(200.0)
+        };
+        var untaggedB = new Track
+        {
+            FilePath = @"D:\Music\FolderB\Track01.mp3",
+            Title = "Track01",
+            Artist = "Unknown Artist",
+            Album = "Unknown Album",
+            Duration = TimeSpan.FromSeconds(200.0)
+        };
+        sut.Tracks.Add(untaggedA);
+        sut.Tracks.Add(untaggedB);
+
+        // Act 1: 2件ともお気に入り登録
+        sut.ToggleFavorite(untaggedA);
+        sut.ToggleFavorite(untaggedB);
+
+        // Assert 1: 互いに上書きされず2件保持されること
+        Assert.True(untaggedA.IsFavorite);
+        Assert.True(untaggedB.IsFavorite);
+        Assert.Equal(2, latestSaved.Count);
+
+        // Act 2: FolderA のみお気に入り解除
+        sut.ToggleFavorite(untaggedA);
+
+        // Assert 2: FolderB はお気に入りのまま維持されること
+        Assert.False(untaggedA.IsFavorite);
+        Assert.True(untaggedB.IsFavorite);
+        Assert.Single(latestSaved);
+        Assert.Equal(@"D:\Music\FolderB\Track01.mp3", latestSaved[0].LastKnownFilePath);
     }
 }

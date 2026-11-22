@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
+using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Library;
 
@@ -21,7 +22,6 @@ public class LibraryApplicationService
     private readonly IFavoriteRepository _favoriteRepository;
     private readonly TagLibMetadataExtractor _metadataExtractor;
     private readonly IEventBus _eventBus;
-    private readonly string _favoritesFilePath;
 
     /// <summary>
     /// LibraryApplicationServiceを初期化します
@@ -40,44 +40,84 @@ public class LibraryApplicationService
         _favoriteRepository = favoriteRepository ?? throw new ArgumentNullException(nameof(favoriteRepository));
         _metadataExtractor = metadataExtractor ?? throw new ArgumentNullException(nameof(metadataExtractor));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
-
-        var appDataPath = System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "AudioEffector");
-        System.IO.Directory.CreateDirectory(appDataPath);
-        _favoritesFilePath = System.IO.Path.Combine(appDataPath, "favorites.json");
     }
 
     /// <summary>
-    /// お気に入りリストをJSONファイルから読み込みます
+    /// お気に入りエントリ一覧をリポジトリから非同期で取得します
     /// </summary>
-    /// <returns></returns>
-    public List<string> LoadFavorites()
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>お気に入りエントリの読み取り専用リスト</returns>
+    public async Task<IReadOnlyList<FavoriteTrackEntry>> GetFavoriteEntriesAsync(CancellationToken cancellationToken = default)
     {
-        if (File.Exists(_favoritesFilePath))
-        {
-            try
-            {
-                string json = File.ReadAllText(_favoritesFilePath);
-                return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
-            }
-            catch { }
-        }
-        return new List<string>();
+        return await _favoriteRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)
+            ?? Array.Empty<FavoriteTrackEntry>();
     }
 
     /// <summary>
-    /// お気に入りリストをJSONファイルへ保存します
+    /// お気に入りエントリ一覧をリポジトリから同期的に読み込みます
     /// </summary>
-    /// <param name="favorites">保存するお気に入りファイルパス一覧</param>
-    public void SaveFavorites(List<string> favorites)
+    /// <returns>お気に入りエントリのリスト</returns>
+    public IReadOnlyList<FavoriteTrackEntry> LoadFavoriteEntries()
     {
         try
         {
-            string json = System.Text.Json.JsonSerializer.Serialize(favorites);
-            File.WriteAllText(_favoritesFilePath, json);
+            return GetFavoriteEntriesAsync().GetAwaiter().GetResult();
         }
-        catch { }
+        catch
+        {
+            return Array.Empty<FavoriteTrackEntry>();
+        }
+    }
+
+    /// <summary>
+    /// お気に入りエントリ一覧をリポジトリへ非同期で一括保存します
+    /// </summary>
+    /// <param name="entries">保存するお気に入りエントリ一覧</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>非同期タスク</returns>
+    public async Task SaveFavoriteEntriesAsync(IReadOnlyList<FavoriteTrackEntry> entries, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        await _favoriteRepository.SaveAllAsync(entries, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// お気に入りエントリ一覧をリポジトリへ同期的に保存します
+    /// </summary>
+    /// <param name="entries">保存するお気に入りエントリ一覧</param>
+    public void SaveFavoriteEntries(IReadOnlyList<FavoriteTrackEntry> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        try
+        {
+            _favoriteRepository.SaveAllAsync(entries).GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // 永続化失敗時はアプリ動作を止めない
+        }
+    }
+
+    /// <summary>
+    /// お気に入りエントリと指定されたトラック一覧を照合してIsFavoriteを反映し、パスやメタデータの差分があれば永続化します
+    /// </summary>
+    /// <param name="tracks">照合対象のトラック一覧</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>照合および更新結果</returns>
+    public async Task<FavoriteReconciliationResult> ReconcileFavoritesAsync(
+        IReadOnlyList<Track> tracks,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tracks);
+
+        var entries = await GetFavoriteEntriesAsync(cancellationToken).ConfigureAwait(false);
+        var result = FavoriteTrackMatcher.Reconcile(entries, tracks);
+        if (result.HasEntryChanges)
+        {
+            await _favoriteRepository.SaveAllAsync(result.UpdatedEntries, cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -108,7 +148,6 @@ public class LibraryApplicationService
 
         int totalCount = allFiles.Count;
         var scannedTracks = new List<Track>();
-        var favoriteIds = await _favoriteRepository.GetFavoriteIdsAsync(cancellationToken);
 
         for (int i = 0; i < totalCount; i++)
         {
@@ -118,24 +157,16 @@ public class LibraryApplicationService
             var audioPath = AudioPath.Create(file);
 
             // 既存登録があるかを確認
-            var existingTrack = await _trackRepository.GetByPathAsync(audioPath, cancellationToken);
+            var existingTrack = await _trackRepository.GetByPathAsync(audioPath, cancellationToken).ConfigureAwait(false);
             if (existingTrack != null)
             {
-                bool isFav = favoriteIds.Contains(existingTrack.Id);
-                existingTrack.SetFavorite(isFav);
                 scannedTracks.Add(existingTrack);
             }
             else
             {
-                var newTrack = await _metadataExtractor.ExtractMetadataAsync(audioPath, cancellationToken);
+                var newTrack = await _metadataExtractor.ExtractMetadataAsync(audioPath, cancellationToken).ConfigureAwait(false);
                 if (newTrack != null)
                 {
-                    bool isFav = favoriteIds.Contains(newTrack.Id);
-                    if (isFav)
-                    {
-                        newTrack.SetFavorite(true);
-                    }
-
                     scannedTracks.Add(newTrack);
                 }
             }
@@ -143,7 +174,8 @@ public class LibraryApplicationService
             progress?.Report((double)(i + 1) / totalCount);
         }
 
-        await _trackRepository.SaveRangeAsync(scannedTracks, cancellationToken);
+        await ReconcileFavoritesAsync(scannedTracks, cancellationToken).ConfigureAwait(false);
+        await _trackRepository.SaveRangeAsync(scannedTracks, cancellationToken).ConfigureAwait(false);
         return scannedTracks;
     }
 
@@ -155,7 +187,7 @@ public class LibraryApplicationService
     /// <returns>一致したトラックのリスト</returns>
     public async Task<IReadOnlyList<Track>> SearchTracksAsync(string keyword, CancellationToken cancellationToken = default)
     {
-        return await _trackRepository.SearchAsync(keyword, cancellationToken);
+        return await _trackRepository.SearchAsync(keyword, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -172,8 +204,8 @@ public class LibraryApplicationService
         }
 
         var audioPath = AudioPath.Create(filePath);
-        var track = await _trackRepository.GetByPathAsync(audioPath, cancellationToken);
-        return track ?? await _metadataExtractor.ExtractMetadataAsync(audioPath, cancellationToken);
+        var track = await _trackRepository.GetByPathAsync(audioPath, cancellationToken).ConfigureAwait(false);
+        return track ?? await _metadataExtractor.ExtractMetadataAsync(audioPath, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -183,13 +215,8 @@ public class LibraryApplicationService
     /// <returns>アルバムのリスト</returns>
     public async Task<IReadOnlyList<Album>> GetAllAlbumsAsync(CancellationToken cancellationToken = default)
     {
-        var tracks = await _trackRepository.GetAllAsync(cancellationToken);
-        var favoriteIds = await _favoriteRepository.GetFavoriteIdsAsync(cancellationToken);
-
-        foreach (var t in tracks)
-        {
-            t.SetFavorite(favoriteIds.Contains(t.Id));
-        }
+        var tracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        await ReconcileFavoritesAsync(tracks, cancellationToken).ConfigureAwait(false);
 
         var grouped = tracks
             .GroupBy(t => (t.Album, t.Artist))
@@ -204,30 +231,44 @@ public class LibraryApplicationService
     }
 
     /// <summary>
-    /// 指定されたトラックのお気に入り状態を切り替えます
+    /// 指定されたトラックIDのお気に入り状態を切り替えます
     /// </summary>
     /// <param name="trackId">トラックID</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>切り替え後のトラック（存在しない場合はnull）</returns>
     public async Task<Track?> ToggleFavoriteAsync(TrackId trackId, CancellationToken cancellationToken = default)
     {
-        var track = await _trackRepository.GetByIdAsync(trackId, cancellationToken);
+        var track = await _trackRepository.GetByIdAsync(trackId, cancellationToken).ConfigureAwait(false);
         if (track == null) return null;
+
+        await ToggleFavoriteAsync(track, cancellationToken).ConfigureAwait(false);
+        await _trackRepository.SaveAsync(track, cancellationToken).ConfigureAwait(false);
+
+        return track;
+    }
+
+    /// <summary>
+    /// 指定されたトラックのお気に入り状態を切り替え、リポジトリへ永続化します
+    /// </summary>
+    /// <param name="track">対象トラック</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>切り替え後のお気に入り状態</returns>
+    public async Task<bool> ToggleFavoriteAsync(Track track, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(track);
 
         bool newFavoriteState = !track.IsFavorite;
         if (newFavoriteState)
         {
-            await _favoriteRepository.AddAsync(trackId, cancellationToken);
+            await _favoriteRepository.AddOrUpdateAsync(FavoriteTrackEntry.FromTrack(track), cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            await _favoriteRepository.RemoveAsync(trackId, cancellationToken);
+            await _favoriteRepository.RemoveAsync(track, cancellationToken).ConfigureAwait(false);
         }
 
         track.SetFavorite(newFavoriteState);
-        await _trackRepository.SaveAsync(track, cancellationToken);
-
-        return track;
+        return newFavoriteState;
     }
 
     /// <summary>
@@ -237,19 +278,8 @@ public class LibraryApplicationService
     /// <returns>お気に入りトラックのリスト</returns>
     public async Task<IReadOnlyList<Track>> GetFavoritesAsync(CancellationToken cancellationToken = default)
     {
-        var favoriteIds = await _favoriteRepository.GetFavoriteIdsAsync(cancellationToken);
-        var allTracks = await _trackRepository.GetAllAsync(cancellationToken);
-
-        var favorites = new List<Track>();
-        foreach (var t in allTracks)
-        {
-            if (favoriteIds.Contains(t.Id))
-            {
-                t.SetFavorite(true);
-                favorites.Add(t);
-            }
-        }
-
-        return favorites;
+        var allTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var result = await ReconcileFavoritesAsync(allTracks, cancellationToken).ConfigureAwait(false);
+        return result.MatchedTracks;
     }
 }

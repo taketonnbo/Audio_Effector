@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -8,6 +8,8 @@ using System.Windows;
 using System.Windows.Input;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Domain.Services;
+using AudioEffector.Infrastructure.Library;
 
 namespace AudioEffector.Presentation.ViewModels;
 
@@ -22,7 +24,11 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     private readonly LibraryApplicationService _libraryService;
     private readonly IAudioService _audioService;
     private readonly ISettingsService _settingsService;
-    private readonly HashSet<string> _favoritePaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _favoritesLock = new();
+    private readonly object _favoritesSaveLock = new();
+    private readonly List<FavoriteTrackEntry> _favoriteEntries = new();
+    private long _favoritesVersion;
+    private long _lastSavedFavoritesVersion;
 
     private Track? _selectedTrack;
     private Album? _selectedAlbum;
@@ -259,10 +265,10 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         Playlist = playlistViewModel;
 
         // お気に入りの読み込み
-        var loadedFavorites = _libraryService.LoadFavorites();
-        foreach (var path in loadedFavorites)
+        var loadedFavorites = _libraryService.LoadFavoriteEntries();
+        lock (_favoritesLock)
         {
-            _favoritePaths.Add(path);
+            _favoriteEntries.AddRange(loadedFavorites);
         }
 
         ScanFolderCommand = new RelayCommand(folder =>
@@ -366,13 +372,14 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     try
                     {
                         using var tfile = TagLib.File.Create(file);
-                        track.Title = tfile.Tag.Title ?? track.Title;
-                        track.Artist = tfile.Tag.FirstPerformer ?? "Unknown Artist";
-                        track.Album = tfile.Tag.Album ?? "Unknown Album";
+                        var (title, artist, album, genre) = TagLibMetadataExtractor.ExtractDisplayTags(tfile.Tag, file);
+                        track.Title = title;
+                        track.Artist = artist;
+                        track.Album = album;
                         track.Duration = tfile.Properties.Duration;
                         track.Year = tfile.Tag.Year;
                         track.TrackNumber = tfile.Tag.Track;
-                        track.Genre = tfile.Tag.FirstGenre ?? string.Empty;
+                        track.Genre = genre;
 
                         track.Bitrate = tfile.Properties.AudioBitrate;
                         track.SampleRate = tfile.Properties.AudioSampleRate;
@@ -385,13 +392,13 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     }
                     catch { }
 
-                    if (_favoritePaths.Contains(track.FilePath))
-                    {
-                        track.IsFavorite = true;
-                    }
-
                     scannedTracks.Add(track);
                 });
+
+                if (token.IsCancellationRequested) return;
+
+                var allTrackList = scannedTracks.ToList();
+                ReconcileFavoriteEntries(allTrackList, cancellationToken: token);
 
                 if (token.IsCancellationRequested) return;
 
@@ -399,7 +406,6 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 {
                     if (token.IsCancellationRequested) return;
 
-                    var allTrackList = scannedTracks.ToList();
                     Tracks.Clear();
                     foreach (var t in allTrackList)
                     {
@@ -591,13 +597,9 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 foreach (var track in tracksToRemove)
                 {
                     Tracks.Remove(track);
-                    if (_favoritePaths.Contains(track.FilePath))
-                    {
-                        _favoritePaths.Remove(track.FilePath);
-                    }
                 }
 
-                _libraryService.SaveFavorites(_favoritePaths.ToList());
+                RemoveFavoriteEntries(tracksToRemove);
                 AlbumRemoved?.Invoke(album);
             }
         }
@@ -661,22 +663,186 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     {
         if (parameter is Track track)
         {
-            track.IsFavorite = !track.IsFavorite;
+            bool newFavoriteState = !track.IsFavorite;
+            track.IsFavorite = newFavoriteState;
 
-            if (track.IsFavorite)
+            long targetVersion;
+            FavoriteTrackEntry referenceEntry = FavoriteTrackEntry.FromTrack(track);
+
+            lock (_favoritesLock)
             {
-                if (!_favoritePaths.Contains(track.FilePath))
+                if (newFavoriteState)
                 {
-                    _favoritePaths.Add(track.FilePath);
+                    var existing = FavoriteTrackMatcher.FindBestMatchingEntry(track, _favoriteEntries);
+                    if (existing != null)
+                    {
+                        int existingIndex = _favoriteEntries.IndexOf(existing);
+                        _favoriteEntries[existingIndex] = existing.WithUpdatedTrack(track);
+                    }
+                    else
+                    {
+                        _favoriteEntries.Add(referenceEntry);
+                    }
+                }
+                else
+                {
+                    _favoriteEntries.RemoveAll(entry => FavoriteTrackMatcher.IsMatchForRemoval(entry, track));
+                }
+
+                targetVersion = ++_favoritesVersion;
+            }
+
+            // ライブラリ内の同一楽曲インスタンスへお気に入り状態を同期
+            foreach (var libraryTrack in Tracks)
+            {
+                if (!ReferenceEquals(libraryTrack, track) &&
+                    FavoriteTrackMatcher.IsMatchForRemoval(referenceEntry, libraryTrack))
+                {
+                    libraryTrack.SetFavorite(newFavoriteState);
                 }
             }
-            else
+
+            PersistFavorites(targetVersion);
+            FavoriteToggled?.Invoke(track);
+        }
+    }
+
+    /// <summary>
+    /// 現在のライブラリ内トラック一覧へお気に入り状態を照合・反映し、パスやメタデータの差分があれば永続化します
+    /// </summary>
+    public void SyncFavoritesWithLibraryTracks()
+    {
+        ReconcileFavoriteEntries(Tracks.ToList());
+    }
+
+    /// <summary>
+    /// 指定されたトラックがお気に入り登録されているかどうかをメタデータおよびパスで判定します
+    /// </summary>
+    /// <param name="track">判定対象のトラック</param>
+    /// <returns>お気に入り登録されている場合はtrue</returns>
+    public bool IsTrackFavorite(Track track)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+
+        List<FavoriteTrackEntry> snapshot;
+        lock (_favoritesLock)
+        {
+            snapshot = _favoriteEntries.ToList();
+        }
+
+        return FavoriteTrackMatcher.FindBestMatchingEntry(track, snapshot) != null;
+    }
+
+    /// <summary>
+    /// お気に入り一覧表示用のトラックリストをライブラリ内のメタデータ一致（およびフォールバック読込）で解決して取得します
+    /// </summary>
+    /// <param name="fallbackTrackLoader">ライブラリ内に存在しない楽曲をLastKnownFilePathから読み込むフォールバックローダー（任意）</param>
+    /// <returns>お気に入り登録順に解決されたトラック一覧</returns>
+    public IReadOnlyList<Track> GetFavoriteTracks(Func<string, Track?>? fallbackTrackLoader = null)
+    {
+        var result = ReconcileFavoriteEntries(Tracks.ToList(), fallbackTrackLoader);
+        return result.MatchedTracks;
+    }
+
+    private FavoriteReconciliationResult ReconcileFavoriteEntries(
+        IReadOnlyList<Track> tracks,
+        Func<string, Track?>? fallbackTrackLoader = null,
+        CancellationToken cancellationToken = default)
+    {
+        List<FavoriteTrackEntry> snapshot;
+        lock (_favoritesLock)
+        {
+            snapshot = _favoriteEntries.ToList();
+        }
+
+        var result = FavoriteTrackMatcher.Reconcile(snapshot, tracks, fallbackTrackLoader);
+        if (result.HasEntryChanges && !cancellationToken.IsCancellationRequested)
+        {
+            long? targetVersion = null;
+            lock (_favoritesLock)
             {
-                _favoritePaths.Remove(track.FilePath);
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    bool mergedAny = false;
+                    for (int i = 0; i < snapshot.Count; i++)
+                    {
+                        if (!ReferenceEquals(snapshot[i], result.UpdatedEntries[i]))
+                        {
+                            int currentIndex = _favoriteEntries.FindIndex(e => ReferenceEquals(e, snapshot[i]));
+                            if (currentIndex >= 0)
+                            {
+                                _favoriteEntries[currentIndex] = result.UpdatedEntries[i];
+                                mergedAny = true;
+                            }
+                        }
+                    }
+
+                    if (mergedAny)
+                    {
+                        targetVersion = ++_favoritesVersion;
+                    }
+                }
             }
 
-            _libraryService.SaveFavorites(_favoritePaths.ToList());
-            FavoriteToggled?.Invoke(track);
+            if (targetVersion.HasValue)
+            {
+                PersistFavorites(targetVersion.Value, cancellationToken);
+            }
+        }
+
+        return result;
+    }
+
+    private void RemoveFavoriteEntries(IEnumerable<Track> removedTracks)
+    {
+        var targets = removedTracks.ToList();
+        if (targets.Count == 0)
+        {
+            return;
+        }
+
+        long? targetVersion = null;
+        lock (_favoritesLock)
+        {
+            int removedCount = _favoriteEntries.RemoveAll(entry =>
+                targets.Any(track => FavoriteTrackMatcher.IsMatchForRemoval(entry, track)));
+            if (removedCount > 0)
+            {
+                targetVersion = ++_favoritesVersion;
+            }
+        }
+
+        if (targetVersion.HasValue)
+        {
+            PersistFavorites(targetVersion.Value);
+        }
+    }
+
+    /// <summary>
+    /// お気に入りエントリの最新スナップショットを直列化して永続化します（古いスナップショットによるLost Updateを防止）
+    /// </summary>
+    private void PersistFavorites(long expectedVersion, CancellationToken cancellationToken = default)
+    {
+        lock (_favoritesSaveLock)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            List<FavoriteTrackEntry> latestSnapshot;
+            lock (_favoritesLock)
+            {
+                if (_lastSavedFavoritesVersion >= expectedVersion && _lastSavedFavoritesVersion >= _favoritesVersion)
+                {
+                    return;
+                }
+
+                latestSnapshot = _favoriteEntries.ToList();
+                _lastSavedFavoritesVersion = _favoritesVersion;
+            }
+
+            _libraryService.SaveFavoriteEntries(latestSnapshot);
         }
     }
 
@@ -706,11 +872,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 }
 
                 Tracks.Remove(track);
-                if (_favoritePaths.Contains(track.FilePath))
-                {
-                    _favoritePaths.Remove(track.FilePath);
-                    _libraryService.SaveFavorites(_favoritePaths.ToList());
-                }
+                RemoveFavoriteEntries([track]);
 
                 TrackRemoved?.Invoke(track);
             }
