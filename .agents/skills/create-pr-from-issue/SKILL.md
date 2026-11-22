@@ -21,7 +21,7 @@ description: Issueの内容を読み取り、実装・適切な粒度での分�
    - **仕様書の確認と更新（必須ゲート）**:
      - `python tools/check_spec_sync.py --base develop` を実行し、変更コードに紐づく `設計/` 配下の仕様書（Primary / Related）を確認します。
      - GitHub Wiki の `仕様書同期・メンテナンスルール`（書くこと／書かないこと方針・正本原則）に従い、仕様・UI・永続化・アーキテクチャ境界に変更が生じる場合は該当仕様書を必ず更新します。
-     - 新規画面・新規機能を追加した場合は、`設計/spec_map.json` のマッピング追加も行い、`python tools/check_spec_sync.py --validate` でパス実在を検証します。
+     - 完全に新しい画面・独立機能カテゴリを新設した場合のみ、`設計/spec_map.json` へワイルドカード単位でマッピングを追加し、`python tools/check_spec_sync.py --validate` でパス実在を検証します（既存機能の改修や補助クラス追加では `spec_map.json` の更新は不要、Wiki 側へ個別対応表は転記しません）。
    - **ビルド・テスト確認**: `.agents/rules/build_rules.md` に従い、隔離ビルド（`-p:OutDir="$(Get-Location)\.agent_build\"`、確認後に `.agent_build` を削除）と単体テスト（`dotnet test`）を実行してエラー 0・警告 0・全件合格を確認します。
 
 4. **コミット（粒度分割の厳守）**:
