@@ -1,4 +1,4 @@
-# フォルダ UI仕様書
+﻿# フォルダ UI仕様書
 
 ## 1. 概要 (Overview)
 
@@ -31,7 +31,7 @@
   ^ 階層ツリー (TreeView)              ^ 選択フォルダ内ファイルデータグリッド (UI仮想化対応)
 ```
 
-> **構想要素に関する注記**: 上記ASCIIモックアップの2ペイン型フォルダツリー・ファイル一覧エクスプローラーは拡張構想（関連Issue: #171, #233）です。`FolderView.xaml` / `FolderViewModel.cs` では中央の「`SCAN FOLDER`」ボタンによるフォルダ選択・スキャン起動と `AppSettings.LastLibraryPath` へのパス永続化を提供します。
+> **構想要素に関する注記**: 上記ASCIIモックアップの2ペイン型フォルダツリー・ファイル一覧エクスプローラーは拡張構想（関連Issue: #233）です。`FolderView.xaml` / `FolderViewModel.cs`（Issue #171）では現在指定済みフォルダ（`CurrentFolderPath` / `DisplayFolderPath`）の表示カード、「`SELECT FOLDER`」（フォルダ選択のみ）・「フォルダを指定してスキャン」・および「指定済みのフォルダをスキャン」（差分再スキャン同期）の3つの操作ボタン、スキャン進捗インジケーター（`ProgressBar` および進捗率・同期結果ステータステキスト）、ならびに `AppSettings.LastLibraryPath` へのパス永続化を提供します。
 
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
@@ -42,9 +42,12 @@
 
 - **位置付け**: `MainWindow` の中央ワークスペース列（`CurrentViewType = Folders`、`DataContext = MainViewModel.Folder`）。
 - **基本レイアウト (`FolderView.xaml` / `FolderViewModel.cs`)**:
-  - ワークスペース中央に「`SCAN FOLDER`」ボタン（`SelectFolderCommand`）を配置。
-  - ボタン押下で Windows 標準の `OpenFolderDialog` を開き、選択されたフォルダパスを `AppSettings.LastLibraryPath`（`settings.json`）へ永続化した上でライブラリスキャンを実行する（保存された `LastLibraryPath` は次回アプリ起動時の自動ライブラリ読み込みにも使用される）。
-- **2ペイン拡張設計時（Issue #171 / #233）のグリッド構造**:
+  - ワークスペース上部（最大幅 `720px`）に以下のセクションを縦配置する：
+    1. **現在の指定済みフォルダカード**: `DisplayFolderPath`（未設定時は案内文言、設定時はフルパス＋ToolTip）および「`SELECT FOLDER`」ボタン（`OpenFolderCommand` / `SelectFolderCommand`：フォルダを選択し `AppSettings.LastLibraryPath` へ保存）。
+    2. **ライブラリスキャン操作カード**: 「フォルダを指定してスキャン」ボタン（`ScanNewFolderCommand`：フォルダ選択＋保存＋即時スキャン）と「指定済みのフォルダをスキャン」ボタン（`RescanCurrentFolderCommand`：現在のフォルダを対象に差分再スキャンし、追加・削除・更新された楽曲およびアルバムを同期）。
+    3. **スキャン進捗インジケーター領域**: `IsScanning = True` の間のみ表示される `ProgressBar`（`ScanProgress` `0.0`〜`1.0`、`ScanProgress <= 0` の間は `IsIndeterminate = True`）とパーセント表示（`ScanProgressPercent`）。また、フォルダタブ表示中は `MainWindow` 側の全画面 `LOADING...` オーバーレイを抑止し、本インジケーターのみで進捗を表示する。
+    4. **ステータスメッセージバナー**: `ScanStatusText` に応じて同期完了サマリー（追加・削除・更新曲数および総曲数・総アルバム数）または警告メッセージを表示。
+- **2ペイン拡張設計時（Issue #233）のグリッド構造**:
   - 行0 (`Auto`): ツールバー（フォルダ追加・スキャンボタン、現在パス表示、一括再生ボタン）。
   - 行1 (`*`): 2列構成（列0: フォルダツリー `280px / Auto`、列Splitter: `4px`、列1: 楽曲ファイル一覧 `*`）。
 - **サイズ要件**: ワークスペースの幅・高さに100%追従。
