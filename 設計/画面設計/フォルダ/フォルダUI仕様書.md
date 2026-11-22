@@ -31,7 +31,7 @@
   ^ 階層ツリー (TreeView)              ^ 選択フォルダ内ファイルデータグリッド (UI仮想化対応)
 ```
 
-> **構想要素に関する注記**: 上記ASCIIモックアップの2ペイン型フォルダツリー・ファイル一覧エクスプローラーは拡張構想（関連Issue: #171, #233）です。現行実装（`FolderView.xaml` / `FolderViewModel.cs`）は中央の「`SCAN FOLDER`」ボタンによるフォルダ選択・スキャン起動と `AppSettings.LastLibraryPath` へのパス永続化を提供します。
+> **構想要素に関する注記**: 上記ASCIIモックアップの2ペイン型フォルダツリー・ファイル一覧エクスプローラーは拡張構想（関連Issue: #171, #233）です。`FolderView.xaml` / `FolderViewModel.cs` では中央の「`SCAN FOLDER`」ボタンによるフォルダ選択・スキャン起動と `AppSettings.LastLibraryPath` へのパス永続化を提供します。
 
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
@@ -41,7 +41,7 @@
 ## 3. 画面配置とペインレイアウト
 
 - **位置付け**: `MainWindow` の中央ワークスペース列（`CurrentViewType = Folders`、`DataContext = MainViewModel.Folder`）。
-- **現行実装レイアウト (`FolderView.xaml` / `FolderViewModel.cs`)**:
+- **基本レイアウト (`FolderView.xaml` / `FolderViewModel.cs`)**:
   - ワークスペース中央に「`SCAN FOLDER`」ボタン（`SelectFolderCommand`）を配置。
   - ボタン押下で Windows 標準の `OpenFolderDialog` を開き、選択されたフォルダパスを `AppSettings.LastLibraryPath`（`settings.json`）へ永続化した上でライブラリスキャンを実行する（保存された `LastLibraryPath` は次回アプリ起動時の自動ライブラリ読み込みにも使用される）。
 - **2ペイン拡張設計時（Issue #171 / #233）のグリッド構造**:
