@@ -1,4 +1,4 @@
-using AudioEffector.Application.ApplicationServices;
+﻿using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Presentation.Views;
@@ -2245,7 +2245,7 @@ namespace AudioEffector.Presentation.ViewModels
         private void ShowFavorites()
         {
             CurrentViewType = ViewType.Favorites;
-            var favoriteTracks = Library?.GetFavoriteTracks(LoadTrack) ?? Array.Empty<Track>();
+            var favoriteTracks = Library?.GetFavoriteTracks(path => LoadTrack(path, resolveFavoriteState: false)) ?? Array.Empty<Track>();
             Playlist?.ShowFavorites(favoriteTracks, _favoritesImage);
         }
 
@@ -2263,7 +2263,7 @@ namespace AudioEffector.Presentation.ViewModels
         /// 指定されたパスのトラック情報を読み込みます。
         /// メタデータとカバーアートを取得します。
         /// </summary>
-        private Track? LoadTrack(string filePath)
+        private Track? LoadTrack(string filePath, bool resolveFavoriteState = true)
         {
             if (!File.Exists(filePath))
                 return null;
@@ -2271,18 +2271,22 @@ namespace AudioEffector.Presentation.ViewModels
             try
             {
                 using var tagFile = TagLib.File.Create(filePath);
+                var (title, artist, album, genre) = Infrastructure.Library.TagLibMetadataExtractor.ExtractDisplayTags(tagFile.Tag, filePath);
                 var track = new Track
                 {
-                    Title = tagFile.Tag.Title ?? Path.GetFileNameWithoutExtension(filePath),
-                    Artist = tagFile.Tag.FirstPerformer ?? "Unknown Artist",
-                    Album = tagFile.Tag.Album ?? "Unknown Album",
-                    Genre = tagFile.Tag.FirstGenre ?? string.Empty,
+                    Title = title,
+                    Artist = artist,
+                    Album = album,
+                    Genre = genre,
                     Year = tagFile.Tag.Year,
                     TrackNumber = tagFile.Tag.Track,
                     FilePath = filePath,
                     Duration = tagFile.Properties.Duration
                 };
-                track.IsFavorite = Library?.IsTrackFavorite(track) ?? false;
+                if (resolveFavoriteState)
+                {
+                    track.IsFavorite = Library?.IsTrackFavorite(track) ?? false;
+                }
 
                 // Load cover art
                 if (tagFile.Tag.Pictures.Length > 0)

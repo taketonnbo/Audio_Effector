@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -12,6 +12,7 @@ using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Events;
+using AudioEffector.Domain.Services;
 using AudioEffector.Presentation.Views;
 
 namespace AudioEffector.Presentation.ViewModels;
@@ -295,7 +296,8 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
     public void AddFavoriteTrack(Track track)
     {
         ArgumentNullException.ThrowIfNull(track);
-        if (IsFavoritesView && !PlaylistTracks.Any(item => ReferenceEquals(item, track) || (!string.IsNullOrEmpty(track.FilePath) && PathsEqual(item.FilePath, track.FilePath))))
+        var referenceEntry = FavoriteTrackEntry.FromTrack(track);
+        if (IsFavoritesView && !PlaylistTracks.Any(item => IsSameDisplayedTrack(item, track, referenceEntry)))
         {
             RunOnUiThread(() => PlaylistTracks.Add(track));
         }
@@ -308,14 +310,22 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
     public void RemoveDisplayedTrack(Track track)
     {
         ArgumentNullException.ThrowIfNull(track);
+        var referenceEntry = FavoriteTrackEntry.FromTrack(track);
         RunOnUiThread(() =>
         {
-            var displayedTrack = PlaylistTracks.FirstOrDefault(item => ReferenceEquals(item, track) || (!string.IsNullOrEmpty(track.FilePath) && PathsEqual(item.FilePath, track.FilePath)));
+            var displayedTrack = PlaylistTracks.FirstOrDefault(item => IsSameDisplayedTrack(item, track, referenceEntry));
             if (displayedTrack != null)
             {
                 PlaylistTracks.Remove(displayedTrack);
             }
         });
+    }
+
+    private static bool IsSameDisplayedTrack(Track item, Track target, FavoriteTrackEntry targetEntry)
+    {
+        return ReferenceEquals(item, target) ||
+               (!string.IsNullOrEmpty(target.FilePath) && PathsEqual(item.FilePath, target.FilePath)) ||
+               FavoriteTrackMatcher.IsMatchForRemoval(targetEntry, item);
     }
 
     /// <summary>

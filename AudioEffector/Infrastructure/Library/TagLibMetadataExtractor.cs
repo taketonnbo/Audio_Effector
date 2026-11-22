@@ -13,6 +13,39 @@ namespace AudioEffector.Infrastructure.Library;
 public class TagLibMetadataExtractor
 {
     /// <summary>
+    /// TagLibのタグ情報から表示・識別用の基本メタデータ（タイトル・アーティスト・アルバム・ジャンル）を統一ルールで抽出します
+    /// </summary>
+    /// <param name="tag">TagLibのタグオブジェクト</param>
+    /// <param name="filePath">音声ファイルパス（タイトル未設定時のフォールバックに使用）</param>
+    /// <returns>抽出された基本メタデータのタプル</returns>
+    public static (string Title, string Artist, string Album, string Genre) ExtractDisplayTags(TagLib.Tag? tag, string filePath)
+    {
+        string fallbackTitle = Path.GetFileNameWithoutExtension(filePath);
+        if (string.IsNullOrWhiteSpace(fallbackTitle))
+        {
+            fallbackTitle = Path.GetFileName(filePath);
+        }
+
+        string title = !string.IsNullOrWhiteSpace(tag?.Title)
+            ? tag.Title.Trim()
+            : fallbackTitle;
+
+        string artist = !string.IsNullOrWhiteSpace(tag?.FirstPerformer)
+            ? tag.FirstPerformer.Trim()
+            : (!string.IsNullOrWhiteSpace(tag?.FirstAlbumArtist) ? tag.FirstAlbumArtist.Trim() : "Unknown Artist");
+
+        string album = !string.IsNullOrWhiteSpace(tag?.Album)
+            ? tag.Album.Trim()
+            : "Unknown Album";
+
+        string genre = !string.IsNullOrWhiteSpace(tag?.FirstGenre)
+            ? tag.FirstGenre.Trim()
+            : string.Empty;
+
+        return (title, artist, album, genre);
+    }
+
+    /// <summary>
     /// 音声ファイルからメタデータを非同期で抽出し、Trackエンティティを生成します
     /// </summary>
     /// <param name="filePath">音声ファイルパス</param>
@@ -31,17 +64,7 @@ public class TagLibMetadataExtractor
             {
                 using var tagFile = TagLib.File.Create(filePath.Value);
 
-                string title = !string.IsNullOrWhiteSpace(tagFile.Tag.Title)
-                    ? tagFile.Tag.Title
-                    : filePath.FileName;
-
-                string artist = !string.IsNullOrWhiteSpace(tagFile.Tag.FirstPerformer)
-                    ? tagFile.Tag.FirstPerformer
-                    : (!string.IsNullOrWhiteSpace(tagFile.Tag.FirstAlbumArtist) ? tagFile.Tag.FirstAlbumArtist : "Unknown Artist");
-
-                string album = !string.IsNullOrWhiteSpace(tagFile.Tag.Album)
-                    ? tagFile.Tag.Album
-                    : "Unknown Album";
+                var (title, artist, album, genre) = ExtractDisplayTags(tagFile.Tag, filePath.Value);
 
                 TimeSpan duration = tagFile.Properties.Duration;
                 uint year = tagFile.Tag.Year;
@@ -49,7 +72,6 @@ public class TagLibMetadataExtractor
                 int bitrate = tagFile.Properties.AudioBitrate;
                 int sampleRate = tagFile.Properties.AudioSampleRate;
                 int bitsPerSample = tagFile.Properties.BitsPerSample;
-                string genre = tagFile.Tag.FirstGenre ?? string.Empty;
 
                 // フォーマット判定
                 string ext = filePath.Extension.ToUpperInvariant().TrimStart('.');

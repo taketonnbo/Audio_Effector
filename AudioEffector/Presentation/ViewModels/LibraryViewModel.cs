@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -9,6 +9,7 @@ using System.Windows.Input;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
+using AudioEffector.Infrastructure.Library;
 
 namespace AudioEffector.Presentation.ViewModels;
 
@@ -24,7 +25,10 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     private readonly IAudioService _audioService;
     private readonly ISettingsService _settingsService;
     private readonly object _favoritesLock = new();
+    private readonly object _favoritesSaveLock = new();
     private readonly List<FavoriteTrackEntry> _favoriteEntries = new();
+    private long _favoritesVersion;
+    private long _lastSavedFavoritesVersion;
 
     private Track? _selectedTrack;
     private Album? _selectedAlbum;
@@ -368,13 +372,14 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     try
                     {
                         using var tfile = TagLib.File.Create(file);
-                        track.Title = tfile.Tag.Title ?? track.Title;
-                        track.Artist = tfile.Tag.FirstPerformer ?? "Unknown Artist";
-                        track.Album = tfile.Tag.Album ?? "Unknown Album";
+                        var (title, artist, album, genre) = TagLibMetadataExtractor.ExtractDisplayTags(tfile.Tag, file);
+                        track.Title = title;
+                        track.Artist = artist;
+                        track.Album = album;
                         track.Duration = tfile.Properties.Duration;
                         track.Year = tfile.Tag.Year;
                         track.TrackNumber = tfile.Tag.Track;
-                        track.Genre = tfile.Tag.FirstGenre ?? string.Empty;
+                        track.Genre = genre;
 
                         track.Bitrate = tfile.Properties.AudioBitrate;
                         track.SampleRate = tfile.Properties.AudioSampleRate;
@@ -393,7 +398,9 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 if (token.IsCancellationRequested) return;
 
                 var allTrackList = scannedTracks.ToList();
-                ReconcileFavoriteEntries(allTrackList);
+                ReconcileFavoriteEntries(allTrackList, cancellationToken: token);
+
+                if (token.IsCancellationRequested) return;
 
                 RunOnUiThread(() =>
                 {
@@ -659,7 +666,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             bool newFavoriteState = !track.IsFavorite;
             track.IsFavorite = newFavoriteState;
 
-            List<FavoriteTrackEntry> snapshot;
+            long targetVersion;
             FavoriteTrackEntry referenceEntry = FavoriteTrackEntry.FromTrack(track);
 
             lock (_favoritesLock)
@@ -682,7 +689,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     _favoriteEntries.RemoveAll(entry => FavoriteTrackMatcher.IsMatchForRemoval(entry, track));
                 }
 
-                snapshot = _favoriteEntries.ToList();
+                targetVersion = ++_favoritesVersion;
             }
 
             // ライブラリ内の同一楽曲インスタンスへお気に入り状態を同期
@@ -695,7 +702,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 }
             }
 
-            _libraryService.SaveFavoriteEntries(snapshot);
+            PersistFavorites(targetVersion);
             FavoriteToggled?.Invoke(track);
         }
     }
@@ -739,7 +746,8 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
 
     private FavoriteReconciliationResult ReconcileFavoriteEntries(
         IReadOnlyList<Track> tracks,
-        Func<string, Track?>? fallbackTrackLoader = null)
+        Func<string, Track?>? fallbackTrackLoader = null,
+        CancellationToken cancellationToken = default)
     {
         List<FavoriteTrackEntry> snapshot;
         lock (_favoritesLock)
@@ -748,27 +756,38 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         }
 
         var result = FavoriteTrackMatcher.Reconcile(snapshot, tracks, fallbackTrackLoader);
-        if (result.HasEntryChanges)
+        if (result.HasEntryChanges && !cancellationToken.IsCancellationRequested)
         {
-            List<FavoriteTrackEntry> snapshotToSave;
+            long? targetVersion = null;
             lock (_favoritesLock)
             {
-                for (int i = 0; i < snapshot.Count; i++)
+                if (!cancellationToken.IsCancellationRequested)
                 {
-                    if (!ReferenceEquals(snapshot[i], result.UpdatedEntries[i]))
+                    bool mergedAny = false;
+                    for (int i = 0; i < snapshot.Count; i++)
                     {
-                        int currentIndex = _favoriteEntries.FindIndex(e => ReferenceEquals(e, snapshot[i]));
-                        if (currentIndex >= 0)
+                        if (!ReferenceEquals(snapshot[i], result.UpdatedEntries[i]))
                         {
-                            _favoriteEntries[currentIndex] = result.UpdatedEntries[i];
+                            int currentIndex = _favoriteEntries.FindIndex(e => ReferenceEquals(e, snapshot[i]));
+                            if (currentIndex >= 0)
+                            {
+                                _favoriteEntries[currentIndex] = result.UpdatedEntries[i];
+                                mergedAny = true;
+                            }
                         }
                     }
-                }
 
-                snapshotToSave = _favoriteEntries.ToList();
+                    if (mergedAny)
+                    {
+                        targetVersion = ++_favoritesVersion;
+                    }
+                }
             }
 
-            _libraryService.SaveFavoriteEntries(snapshotToSave);
+            if (targetVersion.HasValue)
+            {
+                PersistFavorites(targetVersion.Value, cancellationToken);
+            }
         }
 
         return result;
@@ -782,20 +801,48 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        List<FavoriteTrackEntry>? snapshotToSave = null;
+        long? targetVersion = null;
         lock (_favoritesLock)
         {
             int removedCount = _favoriteEntries.RemoveAll(entry =>
                 targets.Any(track => FavoriteTrackMatcher.IsMatchForRemoval(entry, track)));
             if (removedCount > 0)
             {
-                snapshotToSave = _favoriteEntries.ToList();
+                targetVersion = ++_favoritesVersion;
             }
         }
 
-        if (snapshotToSave != null)
+        if (targetVersion.HasValue)
         {
-            _libraryService.SaveFavoriteEntries(snapshotToSave);
+            PersistFavorites(targetVersion.Value);
+        }
+    }
+
+    /// <summary>
+    /// お気に入りエントリの最新スナップショットを直列化して永続化します（古いスナップショットによるLost Updateを防止）
+    /// </summary>
+    private void PersistFavorites(long expectedVersion, CancellationToken cancellationToken = default)
+    {
+        lock (_favoritesSaveLock)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            List<FavoriteTrackEntry> latestSnapshot;
+            lock (_favoritesLock)
+            {
+                if (_lastSavedFavoritesVersion >= expectedVersion && _lastSavedFavoritesVersion >= _favoritesVersion)
+                {
+                    return;
+                }
+
+                latestSnapshot = _favoriteEntries.ToList();
+                _lastSavedFavoritesVersion = _favoritesVersion;
+            }
+
+            _libraryService.SaveFavoriteEntries(latestSnapshot);
         }
     }
 
