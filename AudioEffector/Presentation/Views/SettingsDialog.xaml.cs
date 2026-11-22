@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using System.Windows.Controls;
 using AudioEffector.Presentation.ViewModels;
 
 namespace AudioEffector.Presentation.Views;
@@ -16,6 +17,11 @@ public partial class SettingsDialog : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+    }
+
+    private void CategoryListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        SettingsContentScrollViewer?.ScrollToTop();
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)

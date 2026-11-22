@@ -36,7 +36,7 @@
 
 ## 3. 画面配置とペインレイアウト
 
-800×600、所有者中央に表示するダイアログ。ルートは見出し `Auto`、設定本文 `*`、閉じる `Auto`。本文はカテゴリ幅200、区切り20、詳細 `*`。カテゴリ選択で詳細のStackPanelを切り替える。
+800×600、所有者中央に表示するダイアログ。ルートは見出し `Auto`、設定本文 `*`、閉じる `Auto`。本文はカテゴリ幅200、区切り20、詳細 `*`。詳細領域全体を `ScrollViewer`（`VerticalScrollBarVisibility="Auto"`, `HorizontalScrollBarVisibility="Disabled"`）でラップし、カテゴリ選択で内部の `StackPanel` を切り替える。カテゴリ切替時はスクロール位置を先頭へリセットする。
 
 ## 4. デザイントークンの適用
 
@@ -66,7 +66,7 @@
 
 ## 7. パフォーマンス最適化要件
 
-カテゴリは5件の固定リスト。詳細はDataTriggerで選択カテゴリだけVisible、それ以外Collapsed。ショートカットだけScrollViewer（MaxHeight=450）内で7項目をスクロールする。DropShadowEffect/BlurEffectなし。
+カテゴリは5件の固定リスト。詳細はDataTriggerで選択カテゴリだけVisible、それ以外Collapsed。右側コンテンツ領域全体を単一の `ScrollViewer` でスクロールする構成とし、個別カテゴリ内の二重スクロールは設けない。DropShadowEffect/BlurEffectなし。
 
 共通要件は[パフォーマンス最適化](../../詳細設計/パフォーマンス最適化.md)に従う。多数の項目の標準指定は `IsVirtualizing=True / VirtualizationMode=Recycling / ScrollUnit=Pixel / CanContentScroll=True`。上記の個別構成と区別して適用範囲を判断する。
 
