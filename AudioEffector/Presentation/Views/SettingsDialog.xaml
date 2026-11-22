@@ -16,7 +16,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Text="設定" FontSize="24" FontWeight="Bold" Foreground="{StaticResource NeonCyanBrush}" Margin="0,0,0,20"/>
+        <TextBlock Text="設定" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource NeonCyanBrush}" Margin="0,0,0,20"/>
 
         <!-- Main Content -->
         <Grid Grid.Row="1">
