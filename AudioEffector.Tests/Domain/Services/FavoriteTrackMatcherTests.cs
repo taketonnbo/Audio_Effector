@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
@@ -209,5 +209,52 @@ public sealed class FavoriteTrackMatcherTests
         Assert.Single(sut.MatchedTracks);
         Assert.Same(loadedTrack, sut.MatchedTracks[0]);
         Assert.True(loadedTrack.IsFavorite);
+    }
+
+    /// <summary>
+    /// 別フォルダに存在する同名・同再生時間のタグ未設定曲に対して、FindBestMatchingEntry・IsMatchForRemoval・AreSameEntryがいずれも不一致と判定することを検証します。
+    /// </summary>
+    [Fact]
+    public void 未タグ曲判定_別フォルダの同名未タグ曲_FindBestMatchingEntryとIsMatchForRemovalとAreSameEntryが誤マッチしないこと()
+    {
+        // Arrange
+        var folderBTrack = CreateTrack(@"D:\Music\FolderB\Track01.mp3", "Track01", "Unknown Artist", "Unknown Album", trackNumber: 0, durationSeconds: 200.0);
+        var folderATrack = CreateTrack(@"D:\Music\FolderA\Track01.mp3", "Track01", "Unknown Artist", "Unknown Album", trackNumber: 0, durationSeconds: 200.0);
+        var entryB = FavoriteTrackEntry.FromTrack(folderBTrack);
+        var entryA = FavoriteTrackEntry.FromTrack(folderATrack);
+
+        // Act
+        var matchedEntry = FavoriteTrackMatcher.FindBestMatchingEntry(folderATrack, [entryB]);
+        bool matchForRemoval = FavoriteTrackMatcher.IsMatchForRemoval(entryB, folderATrack);
+        bool sameEntry = FavoriteTrackMatcher.AreSameEntry(entryB, entryA);
+
+        // Assert
+        Assert.Null(matchedEntry);
+        Assert.False(matchForRemoval);
+        Assert.False(sameEntry);
+    }
+
+    /// <summary>
+    /// 再生時間許容誤差の境界値（5.0秒以内は一致、5.001秒は不一致）が正確に判定されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(200.0, 205.0, true)]
+    [InlineData(200.0, 195.0, true)]
+    [InlineData(200.0, 205.001, false)]
+    [InlineData(200.0, 194.999, false)]
+    public void FindBestMatchingEntry_再生時間差の境界値_許容誤差5秒以内で一致し超過で不一致となること(
+        double entryDurationSeconds,
+        double trackDurationSeconds,
+        bool expectedMatch)
+    {
+        // Arrange
+        var entry = new FavoriteTrackEntry("Midnight City", "M83", "Hurry Up, We're Dreaming", 2, entryDurationSeconds, @"C:\Old\song.mp3", DateTime.Now);
+        var movedTrack = CreateTrack(@"D:\New\song.flac", "Midnight City", "M83", "Hurry Up, We're Dreaming", trackNumber: 2, durationSeconds: trackDurationSeconds);
+
+        // Act
+        var actual = FavoriteTrackMatcher.FindBestMatchingEntry(movedTrack, [entry]);
+
+        // Assert
+        Assert.Equal(expectedMatch, actual != null);
     }
 }

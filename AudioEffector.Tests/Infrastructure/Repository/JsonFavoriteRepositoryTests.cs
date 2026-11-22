@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Repository;
@@ -250,5 +251,103 @@ public sealed class JsonFavoriteRepositoryTests : IDisposable
 
         // Assert
         Assert.Empty(actual);
+    }
+
+    /// <summary>
+    /// 未ロード状態からSaveAllAsyncを呼び出した際、重複排除したうえで既存ファイルを上書き保存できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SaveAllAsync_未ロード状態からの一括保存_重複排除され全件上書き保存されること()
+    {
+        // Arrange
+        await File.WriteAllTextAsync(_testFilePath, JsonSerializer.Serialize(new[] { @"C:\Legacy\Old.mp3" }));
+        using var sut = CreateSut();
+        var t1 = FavoriteTrackEntry.FromTrack(CreateSampleTrack(title: "Song 1", filePath: @"D:\Music\1.mp3"));
+        var t1Duplicate = FavoriteTrackEntry.FromTrack(CreateSampleTrack(title: "Song 1", filePath: @"D:\HiRes\1.flac"));
+        var t2 = FavoriteTrackEntry.FromTrack(CreateSampleTrack(title: "Song 2", filePath: @"D:\Music\2.flac"));
+
+        // Act
+        await sut.SaveAllAsync([t1, t1Duplicate, t2]);
+        using var reloadedSut = CreateSut();
+        var reloaded = await reloadedSut.GetAllAsync();
+
+        // Assert
+        Assert.Equal(2, reloaded.Count);
+        Assert.Equal("Song 1", reloaded[0].Title);
+        Assert.Equal("Song 2", reloaded[1].Title);
+    }
+
+    /// <summary>
+    /// キャンセル済みトークンで初回読み込みが中断された場合、OperationCanceledExceptionが再スローされ、次回読み込みで既存データが保持されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetAllAsync_初回読込キャンセル後_OperationCanceledExceptionが再スローされ既存お気に入りが保護されること()
+    {
+        // Arrange
+        var existingEntry = FavoriteTrackEntry.FromTrack(CreateSampleTrack(title: "Protected Song"));
+        using (var seedSut = CreateSut())
+        {
+            await seedSut.AddOrUpdateAsync(existingEntry);
+        }
+
+        using var sut = CreateSut();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        // Act & Assert 1: キャンセル時は例外を再スロー
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sut.GetAllAsync(cts.Token));
+
+        // Act & Assert 2: 次回通常読み込みで既存データが失われず取得できること
+        var reloaded = await sut.GetAllAsync();
+        Assert.Single(reloaded);
+        Assert.Equal("Protected Song", reloaded[0].Title);
+    }
+
+    /// <summary>
+    /// 一時的なファイルロック中にAddOrUpdateAsyncが呼ばれても既存ファイルが上書き破壊されず、ロック解除後に既存データが復元されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task AddOrUpdateAsync_一時的ファイルロック中_既存お気に入りファイルが上書き消滅しないこと()
+    {
+        // Arrange
+        var existingEntry = FavoriteTrackEntry.FromTrack(CreateSampleTrack(title: "Existing Favorite"));
+        using (var seedSut = CreateSut())
+        {
+            await seedSut.AddOrUpdateAsync(existingEntry);
+        }
+
+        using var sut = CreateSut();
+        using (new FileStream(_testFilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            // Act: ロック中に読み込み・追加を試行
+            var duringLock = await sut.GetAllAsync();
+            await sut.AddOrUpdateAsync(FavoriteTrackEntry.FromTrack(CreateSampleTrack(title: "New Favorite", filePath: @"D:\Music\New.flac")));
+            Assert.Empty(duringLock);
+        }
+
+        // Assert: ロック解除後に再試行すると既存データがそのまま残っていること
+        var afterUnlock = await sut.GetAllAsync();
+        Assert.Single(afterUnlock);
+        Assert.Equal("Existing Favorite", afterUnlock[0].Title);
+    }
+
+    /// <summary>
+    /// Dispose後に各メソッドを呼び出した場合、ObjectDisposedExceptionがスローされることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task Dispose後_メソッド呼び出し_ObjectDisposedExceptionがスローされること()
+    {
+        // Arrange
+        var sut = CreateSut();
+        sut.Dispose();
+        var track = CreateSampleTrack();
+        var entry = FavoriteTrackEntry.FromTrack(track);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => sut.GetAllAsync());
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => sut.AddOrUpdateAsync(entry));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => sut.RemoveAsync(track));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => sut.SaveAllAsync([entry]));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => sut.ContainsAsync(track));
     }
 }
