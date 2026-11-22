@@ -445,7 +445,7 @@ public sealed class LibraryViewModelTests
 
     /// <summary>
     /// 指定済みフォルダの差分再スキャン時に、新規追加ファイル・削除ファイル・空になったアルバムの除去が
-    /// 既存TrackおよびAlbumインスタンスの参照を維持したまま正確に同期されることを検証します。
+    /// 既存TrackおよびAlbumインスタンスの参照を維持したまま正確に同期されることを検証します
     /// </summary>
     [Fact]
     public async Task LoadLibraryAsync_差分再スキャンで曲追加と曲削除および空アルバム除去が発生した場合_既存インスタンスを維持しつつ正確に同期されること()
@@ -546,7 +546,7 @@ public sealed class LibraryViewModelTests
 
     /// <summary>
     /// DetectMetadataChangesOnRescan 設定の ON/OFF に応じて、最終更新日時が変化した既存ファイルの
-    /// メタデータ再解析スキップおよび再読み込み反映が切り替わることを検証します。
+    /// メタデータ再解析スキップおよび再読み込み反映が切り替わることを検証します
     /// </summary>
     [Fact]
     public async Task LoadLibraryAsync_DetectMetadataChangesOnRescan設定切替時_OFFでは再解析をスキップしONでは更新ファイルを再解析すること()
@@ -623,7 +623,7 @@ public sealed class LibraryViewModelTests
 
     /// <summary>
     /// お気に入り登録済みの楽曲が別サブフォルダや新ファイルパスへ移動した後に再スキャンした際、
-    /// メタデータ一致でお気に入り状態が維持され、favorites.json の LastKnownFilePath が新しいパスへ自動更新されることを検証します。
+    /// メタデータ一致でお気に入り状態が維持され、favorites.json の LastKnownFilePath が新しいパスへ自動更新されることを検証します
     /// </summary>
     [Fact]
     public async Task LoadLibraryAsync_お気に入り楽曲のパスが変更された後に再スキャンした場合_メタデータ一致で該当楽曲のパスに自動更新されること()
@@ -673,6 +673,134 @@ public sealed class LibraryViewModelTests
             Assert.NotNull(savedEntries);
             Assert.Single(savedEntries);
             Assert.Equal(newPath, savedEntries[0].LastKnownFilePath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ファイルの追加・削除がなく既存ファイルのメタデータのみが更新された再スキャン時に、
+    /// LibrarySynced イベント経由で AllSongsViewModel および ArtistsViewModel の集約・ソート結果が自動再構築されることを検証します
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_既存ファイルのみメタデータ更新時_AllSongsViewModelとArtistsViewModelが自動再構築されること()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), "AudioEffectorTests_SyncProp", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string trackPath = Path.Combine(tempDir, "track.mp3");
+            File.WriteAllText(trackPath, "v1");
+            var initialTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(trackPath, initialTime);
+
+            string currentArtist = "Old Artist";
+            string currentTitle = "Zeta Song";
+            var settings = new AppSettings
+            {
+                LastLibraryPath = tempDir,
+                DetectMetadataChangesOnRescan = true
+            };
+            _settingsServiceMock.Setup(s => s.LoadSettings()).Returns(settings);
+
+            using var sut = new LibraryViewModel(
+                _libraryAppService,
+                _audioServiceMock.Object,
+                _settingsServiceMock.Object,
+                playlistViewModel: null,
+                trackMetadataLoader: path => new Track
+                {
+                    FilePath = path,
+                    Title = currentTitle,
+                    Artist = currentArtist,
+                    Album = "Shared Album",
+                    Duration = TimeSpan.FromMinutes(3)
+                });
+
+            using var allSongsVm = new AllSongsViewModel(sut, _audioServiceMock.Object, TimeSpan.Zero);
+            using var artistsVm = new ArtistsViewModel(sut, _audioServiceMock.Object, TimeSpan.Zero);
+
+            await sut.LoadLibraryAsync(tempDir);
+            Assert.Equal("Old Artist", Assert.Single(artistsVm.FilteredArtists).Name);
+            Assert.Equal("Zeta Song", Assert.Single(allSongsVm.FilteredTracks).Title);
+
+            // 既存ファイルのタグ（アーティスト名・タイトル）と更新日時のみを変更
+            currentArtist = "New Artist";
+            currentTitle = "Alpha Song";
+            File.SetLastWriteTimeUtc(trackPath, initialTime.AddMinutes(5));
+
+            // Act
+            var syncResult = await sut.RescanCurrentFolderAsync();
+
+            // Assert
+            Assert.Equal(0, syncResult.AddedCount);
+            Assert.Equal(0, syncResult.RemovedCount);
+            Assert.Equal(1, syncResult.UpdatedCount);
+            Assert.Equal("New Artist", Assert.Single(artistsVm.FilteredArtists).Name);
+            Assert.Equal("Alpha Song", Assert.Single(allSongsVm.FilteredTracks).Title);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// SortLibrary 実行時、同一アーティストが複数のアルバムを持つ場合にアルバムタイトルを第2ソートキー（タイブレーカー）として
+    /// 大文字小文字無視で決定論的にソートされることを検証します
+    /// </summary>
+    [Fact]
+    public void SortLibrary_同一アーティストの複数アルバムが存在する場合_アルバム名を第2キーとして決定論的にソートされること()
+    {
+        // Arrange
+        using var sut = CreateViewModel();
+        sut.Albums.Add(new Album("Zebra Album", "Daft Punk"));
+        sut.Albums.Add(new Album("alpha Album", "daft punk"));
+        sut.Albums.Add(new Album("Middle Album", "Daft Punk"));
+        sut.SelectedSortOption = "Artist";
+        sut.IsAscending = true;
+
+        // Act
+        sut.SortLibrary();
+
+        // Assert
+        Assert.Equal("alpha Album", sut.Albums[0].Title);
+        Assert.Equal("Middle Album", sut.Albums[1].Title);
+        Assert.Equal("Zebra Album", sut.Albums[2].Title);
+    }
+
+    /// <summary>
+    /// LoadLibraryAsync にキャンセル済みトークンが渡された場合、ScanProgress が 0.0 にリセットされ IsLoading が false に戻ることを検証します
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_キャンセルされた場合_ScanProgressが0にリセットされIsLoadingがfalseに戻ること()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), "AudioEffectorTests_Cancel", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "s1.mp3"), "s1");
+            using var sut = CreateViewModel();
+            sut.ScanProgress = 0.5;
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            // Act
+            await sut.LoadLibraryAsync(tempDir, cts.Token);
+
+            // Assert
+            Assert.False(sut.IsLoading);
+            Assert.Equal(0.0, sut.ScanProgress);
         }
         finally
         {

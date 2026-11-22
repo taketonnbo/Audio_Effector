@@ -41,6 +41,7 @@ public class SettingsViewModelTests
         Assert.False(sut.StartMinimized);
         Assert.Equal(200, sut.SelectedBufferSize);
         Assert.False(sut.EnableNormalize);
+        Assert.False(sut.DetectMetadataChangesOnRescan);
         _settingsServiceMock.Verify(s => s.LoadSettings(), Times.Once);
     }
 
@@ -115,7 +116,7 @@ public class SettingsViewModelTests
     }
 
     /// <summary>
-    /// DetectMetadataChangesOnRescanプロパティを変更した際、設定サービスへ保存されることを検証します。
+    /// DetectMetadataChangesOnRescanプロパティを変更した際、設定サービスへ保存されることを検証します
     /// </summary>
     [Fact]
     public void DetectMetadataChangesOnRescan_変更時_設定サービスへ保存される()

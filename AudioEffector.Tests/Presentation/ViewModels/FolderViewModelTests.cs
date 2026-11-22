@@ -19,7 +19,7 @@ namespace AudioEffector.Tests.Presentation.ViewModels;
 
 /// <summary>
 /// <see cref="FolderViewModel"/> のフォルダ選択、新規フォルダ指定スキャン、指定済みフォルダ再スキャン、
-/// およびスキャン進捗・ステータス同期を検証するテストクラス。
+/// およびスキャン進捗・ステータス同期を検証するテストクラス
 /// </summary>
 public sealed class FolderViewModelTests : IDisposable
 {
@@ -63,7 +63,7 @@ public sealed class FolderViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// コンストラクタ初期化時に、設定サービスの LastLibraryPath が CurrentFolderPath および DisplayFolderPath に反映されることを検証します。
+    /// コンストラクタ初期化時に、設定サービスの LastLibraryPath が CurrentFolderPath および DisplayFolderPath に反映されることを検証します
     /// </summary>
     [Fact]
     public void コンストラクタ_LastLibraryPathが設定済みの場合_CurrentFolderPathとDisplayFolderPathに反映されること()
@@ -81,7 +81,7 @@ public sealed class FolderViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// LastLibraryPath が未設定の初期状態では HasCurrentFolderPath が false となり、DisplayFolderPath に未設定案内文言が表示されることを検証します。
+    /// LastLibraryPath が未設定の初期状態では HasCurrentFolderPath が false となり、DisplayFolderPath に未設定案内文言が表示されることを検証します
     /// </summary>
     [Fact]
     public void コンストラクタ_LastLibraryPathが未設定の場合_HasCurrentFolderPathがfalseとなり案内文言が表示されること()
@@ -100,7 +100,7 @@ public sealed class FolderViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// SelectFolderCommand（SELECT FOLDER）実行時、選択されたパスが設定へ保存され CurrentFolderPath が更新されるが、スキャン自体は実行されないことを検証します。
+    /// SelectFolderCommand（SELECT FOLDER）実行時、選択されたパスが設定へ保存され CurrentFolderPath が更新されるが、スキャン自体は実行されないことを検証します
     /// </summary>
     [Fact]
     public void SelectFolderCommand_フォルダが選択された場合_設定保存とCurrentFolderPath更新のみ行われスキャンは実行されないこと()
@@ -124,7 +124,7 @@ public sealed class FolderViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// フォルダ選択ダイアログがキャンセルされた場合、設定保存もスキャンも行われないことを検証します。
+    /// フォルダ選択ダイアログがキャンセルされた場合、設定保存もスキャンも行われないことを検証します
     /// </summary>
     [Fact]
     public void SelectFolderCommandおよびScanNewFolderCommand_ダイアログがキャンセルされた場合_設定変更もスキャンも行われないこと()
@@ -148,7 +148,7 @@ public sealed class FolderViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// ScanNewFolderCommand（「フォルダを指定してスキャン」）実行時、選択されたパスが永続化され即時スキャンが実行されることを検証します。
+    /// ScanNewFolderCommand（「フォルダを指定してスキャン」）実行時、選択されたパスが永続化され即時スキャンが実行されることを検証します
     /// </summary>
     [Fact]
     public void ScanNewFolderCommand_新しいフォルダが選択された場合_設定保存とCurrentFolderPath更新およびスキャン実行が行われること()
@@ -171,7 +171,7 @@ public sealed class FolderViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// RescanCurrentFolderCommand（「指定済みのフォルダをスキャン」）実行時、現在設定されているフォルダパスで再スキャンが実行されることを検証します。
+    /// RescanCurrentFolderCommand（「指定済みのフォルダをスキャン」）実行時、現在設定されているフォルダパスで再スキャンが実行されることを検証します
     /// </summary>
     [Fact]
     public void RescanCurrentFolderCommand_有効な指定済みフォルダが存在する場合_現在のパスで再スキャンが実行されること()
@@ -193,7 +193,7 @@ public sealed class FolderViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// 指定済みフォルダがディスク上に存在しない場合、スキャンを実行せず警告ステータスメッセージを設定して安全に中断することを検証します。
+    /// 指定済みフォルダがディスク上に存在しない場合、スキャンを実行せず警告ステータスメッセージを設定して安全に中断することを検証します
     /// </summary>
     [Fact]
     public void RescanCurrentFolderCommand_指定済みフォルダがディスク上に存在しない場合_スキャンを実行せず警告メッセージを表示すること()
@@ -215,7 +215,7 @@ public sealed class FolderViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// LibraryViewModel と連携した際、スキャン実行で進捗と完了ステータスが FolderViewModel に同期されることを検証します。
+    /// LibraryViewModel と連携した際、スキャン実行で進捗と完了ステータスが FolderViewModel に同期されることを検証します
     /// </summary>
     [Fact]
     public async Task LibraryViewModel連携_スキャン完了時_進捗率と同期完了ステータステキストが更新されること()
@@ -253,7 +253,7 @@ public sealed class FolderViewModelTests : IDisposable
 
     /// <summary>
     /// FolderView に FolderViewModel をバインドして描画した際、3つの操作ボタンとパス表示が正しく構成され、
-    /// XAML データバインディングエラーが1件も発生しないことを検証します。
+    /// XAML データバインディングエラーが1件も発生しないことを検証します
     /// </summary>
     [Fact]
     public void FolderView描画_FolderViewModelバインド時_3ボタンとパス表示が構成されバインディングエラーが発生しないこと()
