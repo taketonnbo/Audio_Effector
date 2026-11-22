@@ -116,7 +116,7 @@ flowchart LR
     P --> M{"Scope & Member Matching"}
     V --> M
     M -- Not Found --> W1["WARN: 未解決バインディング / スコープ不整合"]
-    P --> I{"Fixed Indexer \[(\d+)\]?"}
+    P --> I{"Fixed Indexer (Tracks[0] 等)?"}
     I -- Yes --> W2["WARN: 固定インデクサ境界"]
     M -- Match --> Pass["PASS: 整合"]
 ```
