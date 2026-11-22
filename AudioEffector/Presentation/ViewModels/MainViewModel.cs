@@ -143,6 +143,7 @@ namespace AudioEffector.Presentation.ViewModels
                     OnPropertyChanged(nameof(IsPlaylistSectionActive));
                     OnPropertyChanged(nameof(IsDeviceSyncVisible));
                     OnPropertyChanged(nameof(IsFavoritesView));
+                    OnPropertyChanged(nameof(IsMainLoadingOverlayVisible));
 
                     if (_currentViewType == ViewType.DeviceSync)
                     {
@@ -651,6 +652,14 @@ namespace AudioEffector.Presentation.ViewModels
                     if (e.PropertyName == nameof(Library.IsLoading))
                     {
                         OnPropertyChanged(nameof(IsLoading));
+                        OnPropertyChanged(nameof(IsMainLoadingOverlayVisible));
+                    }
+                };
+                Library.LibrarySynced += _ =>
+                {
+                    if (IsFavoritesView)
+                    {
+                        ShowFavorites();
                     }
                 };
             }
@@ -726,7 +735,9 @@ namespace AudioEffector.Presentation.ViewModels
             NowPlayingImage = _defaultNowPlayingImage;
             SpectrumBackgroundImage = _defaultSpectrumImage;
 
-            Folder = new FolderViewModel(_settingsService, path => LoadLibrary(path));
+            Folder = Library != null
+                ? new FolderViewModel(_settingsService, Library)
+                : new FolderViewModel(_settingsService, path => LoadLibrary(path));
             // 再生制御系コマンド（PlayerControlViewModelへ完全委譲）
             TogglePlayPauseCommand = PlayerControl!.TogglePlayPauseCommand;
             StopCommand = PlayerControl!.StopCommand;
@@ -986,8 +997,15 @@ namespace AudioEffector.Presentation.ViewModels
             {
                 _isLoading = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(IsMainLoadingOverlayVisible));
             }
         }
+
+        /// <summary>
+        /// メイン画面の全画面ローディングオーバーレイを表示するかどうかを取得します。
+        /// フォルダタブ表示中はフォルダタブ内のプログレスインジケーターを使用するため非表示とします。
+        /// </summary>
+        public bool IsMainLoadingOverlayVisible => IsLoading && CurrentViewType != ViewType.Folders;
 
         /// <summary>
         /// グリッド表示モードかどうか。
@@ -2444,6 +2462,7 @@ namespace AudioEffector.Presentation.ViewModels
                             Recent.Dispose();
                         }
                     }
+                    Folder?.Dispose();
                     _fallbackAudioService?.Dispose();
                     _fallbackSettings?.Dispose();
                     (_audioService as IDisposable)?.Dispose();

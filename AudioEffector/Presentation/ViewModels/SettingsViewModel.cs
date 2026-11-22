@@ -191,6 +191,23 @@ public class SettingsViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 再スキャン時に更新された既存ファイルのメタデータを再解析するかどうかを取得または設定します
+    /// </summary>
+    public bool DetectMetadataChangesOnRescan
+    {
+        get => _appSettings.DetectMetadataChangesOnRescan;
+        set
+        {
+            if (_appSettings.DetectMetadataChangesOnRescan != value)
+            {
+                _appSettings.DetectMetadataChangesOnRescan = value;
+                OnPropertyChanged();
+                _settingsService.SaveSettings(_appSettings);
+            }
+        }
+    }
+
+    /// <summary>
     /// 選択可能なサンプリングレート一覧を取得します
     /// </summary>
     public IReadOnlyList<int> AvailableSampleRates { get; } = new[] { 44100, 48000, 88200, 96000, 192000 };
