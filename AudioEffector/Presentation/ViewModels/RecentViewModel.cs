@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -166,6 +166,7 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
 
         _audioService.TrackChanged += OnAudioTrackChanged;
         _libraryViewModel.Tracks.CollectionChanged += OnLibraryTracksChanged;
+        _libraryViewModel.LibrarySynced += OnLibrarySynced;
     }
 
     /// <summary>
@@ -409,6 +410,14 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
         ScheduleLibrarySync();
     }
 
+    private void OnLibrarySynced(LibrarySyncResult result)
+    {
+        if (result.UpdatedCount > 0)
+        {
+            ApplyFilter();
+        }
+    }
+
     private void ScheduleLibrarySync()
     {
         if (_disposed || _allEntries.Count == 0)
@@ -532,6 +541,7 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
             _disposed = true;
             _audioService.TrackChanged -= OnAudioTrackChanged;
             _libraryViewModel.Tracks.CollectionChanged -= OnLibraryTracksChanged;
+            _libraryViewModel.LibrarySynced -= OnLibrarySynced;
         }
     }
 }

@@ -364,7 +364,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 指定されたフォルダー（または保存されたパス）からライブラリをロード・差分同期します。
+    /// 指定されたフォルダー（または保存されたパス）からライブラリをロード・差分同期します
     /// </summary>
     /// <param name="rootFolder">スキャン対象フォルダーパス（省略時は現在のパスまたは設定から読み込み）</param>
     public async void LoadLibrary(string? rootFolder = null)
@@ -380,7 +380,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 現在設定されているライブラリフォルダを再スキャンし、追加・削除・更新された楽曲およびアルバムを差分同期します。
+    /// 現在設定されているライブラリフォルダを再スキャンし、追加・削除・更新された楽曲およびアルバムを差分同期します
     /// </summary>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>差分同期の実行結果</returns>
@@ -393,7 +393,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 指定されたフォルダー（または保存されたパス）からライブラリを非同期でスキャンし、既存コレクションと差分同期します。
+    /// 指定されたフォルダー（または保存されたパス）からライブラリを非同期でスキャンし、既存コレクションと差分同期します
     /// </summary>
     /// <param name="rootFolder">スキャン対象フォルダーパス（省略時は現在のパスまたは設定から読み込み）</param>
     /// <param name="cancellationToken">外部キャンセレーショントークン</param>
@@ -646,6 +646,10 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         {
             if (ReferenceEquals(_loadCts, currentCts))
             {
+                if (token.IsCancellationRequested)
+                {
+                    RunOnUiThread(() => ScanProgress = 0.0);
+                }
                 IsLoading = false;
             }
             currentCts.Dispose();
@@ -849,30 +853,33 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     {
         return SelectedSortOption switch
         {
-            "Artist" => IsAscending ? source.OrderBy(a => a.Artist).ToList() : source.OrderByDescending(a => a.Artist).ToList(),
-            "Album" => IsAscending ? source.OrderBy(a => a.Title).ToList() : source.OrderByDescending(a => a.Title).ToList(),
+            "Artist" => IsAscending
+                ? source.OrderBy(a => a.Artist, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(a => a.Title, StringComparer.OrdinalIgnoreCase)
+                        .ToList()
+                : source.OrderByDescending(a => a.Artist, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(a => a.Title, StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+            "Album" => IsAscending
+                ? source.OrderBy(a => a.Title, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(a => a.Artist, StringComparer.OrdinalIgnoreCase)
+                        .ToList()
+                : source.OrderByDescending(a => a.Title, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(a => a.Artist, StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
             _ => source.ToList()
         };
     }
 
     /// <summary>
-    /// ライブラリをソート条件と昇順/降順に従って並び替えます。
+    /// ライブラリをソート条件と昇順/降順に従って並び替えます
     /// </summary>
     public void SortLibrary()
     {
         CloseExpandedAlbum();
         if (!Albums.Any()) return;
 
-        var sorted = Albums.ToList();
-        switch (SelectedSortOption)
-        {
-            case "Artist":
-                sorted = IsAscending ? sorted.OrderBy(a => a.Artist).ToList() : sorted.OrderByDescending(a => a.Artist).ToList();
-                break;
-            case "Album":
-                sorted = IsAscending ? sorted.OrderBy(a => a.Title).ToList() : sorted.OrderByDescending(a => a.Title).ToList();
-                break;
-        }
+        var sorted = GetSortedAlbumList(Albums);
 
         Albums.Clear();
         foreach (var album in sorted)
