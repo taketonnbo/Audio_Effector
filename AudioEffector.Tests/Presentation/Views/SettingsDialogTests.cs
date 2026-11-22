@@ -1,10 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.ViewModels;
@@ -135,6 +134,62 @@ public sealed class SettingsDialogTests
                 contentScrollViewer.ScrollableHeight > 0,
                 $"カテゴリ「{category}」で縦スクロール可能であるべきです (ExtentHeight={contentScrollViewer.ExtentHeight}, ViewportHeight={contentScrollViewer.ViewportHeight})");
             Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
+
+    /// <summary>
+    /// プレースホルダー表示となる「データ管理・その他」カテゴリを選択した際、バインディングエラーが発生せず不要なスクロール領域が生じないことを検証します。
+    /// </summary>
+    [Fact]
+    public void プレースホルダーカテゴリ_データ管理その他選択時_バインディングエラーがなく不要なスクロールが出ないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var listener = new BindingErrorTraceListener();
+            var vm = CreateViewModel();
+            vm.SelectedCategory = "データ管理・その他";
+
+            var sut = new SettingsDialog(vm);
+
+            // Act
+            var rootContent = Assert.IsAssignableFrom<FrameworkElement>(sut.Content);
+            rootContent.Measure(new Size(760, 520));
+            rootContent.Arrange(new Rect(0, 0, 760, 520));
+            rootContent.UpdateLayout();
+
+            var contentScrollViewer = FindLogicalChildren<ScrollViewer>(sut).Single();
+
+            // Assert
+            Assert.Equal(0, contentScrollViewer.ScrollableHeight);
+            Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
+
+    /// <summary>
+    /// 通常ウィンドウサイズ（800×600相当）で項目数が収まるカテゴリを表示した際、ScrollableHeight が 0 となることを検証します。
+    /// </summary>
+    [Fact]
+    public void 非スクロール状態_通常ウィンドウ高さで項目が少ないカテゴリ表示時_ScrollableHeightが0であること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var vm = CreateViewModel();
+            vm.SelectedCategory = "オーディオデバイス";
+
+            var sut = new SettingsDialog(vm);
+
+            // Act
+            var rootContent = Assert.IsAssignableFrom<FrameworkElement>(sut.Content);
+            rootContent.Measure(new Size(760, 520));
+            rootContent.Arrange(new Rect(0, 0, 760, 520));
+            rootContent.UpdateLayout();
+
+            var contentScrollViewer = FindLogicalChildren<ScrollViewer>(sut).Single();
+
+            // Assert
+            Assert.Equal(0, contentScrollViewer.ScrollableHeight);
         });
     }
 
