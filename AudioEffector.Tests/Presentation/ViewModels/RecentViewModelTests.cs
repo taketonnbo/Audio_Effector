@@ -361,11 +361,12 @@ public sealed class RecentViewModelTests
 
     private sealed class InMemoryFavoriteRepository : IFavoriteRepository
     {
-        private readonly HashSet<TrackId> _ids = new();
-        public Task<IReadOnlySet<TrackId>> GetFavoriteIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlySet<TrackId>>(_ids);
-        public Task AddAsync(TrackId trackId, CancellationToken cancellationToken = default) { _ids.Add(trackId); return Task.CompletedTask; }
-        public Task RemoveAsync(TrackId trackId, CancellationToken cancellationToken = default) { _ids.Remove(trackId); return Task.CompletedTask; }
-        public Task<bool> ContainsAsync(TrackId trackId, CancellationToken cancellationToken = default) => Task.FromResult(_ids.Contains(trackId));
+        private readonly List<FavoriteTrackEntry> _entries = new();
+        public Task<IReadOnlyList<FavoriteTrackEntry>> GetAllAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<FavoriteTrackEntry>>(_entries.ToList());
+        public Task AddOrUpdateAsync(FavoriteTrackEntry entry, CancellationToken cancellationToken = default) { _entries.Add(entry); return Task.CompletedTask; }
+        public Task RemoveAsync(Track track, CancellationToken cancellationToken = default) { _entries.RemoveAll(e => AudioEffector.Domain.Services.FavoriteTrackMatcher.IsMatchForRemoval(e, track)); return Task.CompletedTask; }
+        public Task SaveAllAsync(IReadOnlyList<FavoriteTrackEntry> entries, CancellationToken cancellationToken = default) { _entries.Clear(); _entries.AddRange(entries); return Task.CompletedTask; }
+        public Task<bool> ContainsAsync(Track track, CancellationToken cancellationToken = default) => Task.FromResult(AudioEffector.Domain.Services.FavoriteTrackMatcher.FindBestMatchingEntry(track, _entries) != null);
     }
 
     private sealed class StubSettingsService : ISettingsService
