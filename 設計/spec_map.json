@@ -15,6 +15,7 @@
     "*.json",
     "*.sln",
     "*.csproj",
+    "**/AssemblyInfo.cs",
     "AudioEffector/bin/**",
     "AudioEffector/obj/**"
   ],
@@ -283,14 +284,20 @@
     },
     {
       "id": "marquee-and-controls",
-      "name": "カスタムコントロール（テキストループ表示等）",
+      "name": "カスタムコントロール・汎用プレゼンテーション基盤（MVVM基底・添付プロパティ・ValueConverter）",
       "code_patterns": [
-        "AudioEffector/Presentation/Controls/**"
+        "AudioEffector/Presentation/Controls/**",
+        "AudioEffector/Presentation/AttachedProperties/**",
+        "AudioEffector/Presentation/Converters/**",
+        "AudioEffector/Presentation/ViewModels/ViewModelBase.cs",
+        "AudioEffector/Presentation/ViewModels/RelayCommand.cs"
       ],
       "primary_specs": [
-        "設計/機能仕様/テキストループ表示機能.md"
+        "設計/機能仕様/テキストループ表示機能.md",
+        "設計/詳細設計/アーキテクチャ/プレゼンテーション層詳細設計書.md"
       ],
       "related_specs": [
+        "設計/デザインシステム/02_共通コントロールスタイル仕様書.md",
         "設計/詳細設計/パフォーマンス最適化.md"
       ]
     },
