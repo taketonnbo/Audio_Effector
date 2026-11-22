@@ -37,38 +37,41 @@
 +--------------------------------------------------------------------------------------------------------------------+
 ```
 
+> **構想要素に関する注記**: モックアップ内の空き容量バー・選択サマリ・転送プログレスバー・残り時間・転送中止ボタンは拡張構想（関連Issue: #96, #97, #169, #170, #233）です。`DeviceSyncView.xaml` では下部ステータスは `"Transferring: {TransferProgress:0}%"` テキストとボタン文言切り替え（`"TRANSFER SELECTED"` / `"TRANSFERRING..."`）で表示されます。
+
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-`CurrentViewType=DeviceSync`、DataContextは `MainViewModel.DeviceBrowser`。行は機器エクスプローラ `1*`、高さ5のGridSplitter `Auto`、PC側一覧 `1*`、転送ボタン `Auto`。上下の領域をドラッグで配分する。
+`CurrentViewType = DeviceSync`、`DataContext` は `MainViewModel.DeviceBrowser`（`DeviceBrowserViewModel`）。行0が機器側エクスプローラー `1*`、行1が高さ `5px` の `GridSplitter` `Auto`、行2がPC側アルバム/楽曲選択一覧 `1*`、行3が下部進捗テキストおよび転送開始ボタン `Auto` の4行構成。上下の領域配分を `GridSplitter` のドラッグで調整できる。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | 入力・カード背景 |
+| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | 入力・カード・リスト背景 |
 | `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主テキスト |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
+| `SecondaryTextForegroundBrush` | <span style="background-color:#A0AEC0;color:#161920;padding:2px 8px;border-radius:3px;">■ #A0AEC0</span> | `#A0AEC0` | アーティスト名・パス表示 |
+| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 見出し・転送ボタンアクセント |
 
-機器ComboBoxとManageは高30、上へ／更新ボタンは30×25、転送ボタン高50。機器・転送選択ラベル12。アルバム行アート40×40、名称14、アーティスト11。
+機器 `ComboBox` と `"⚙ Manage"` ボタンは高さ `30px`、上へ（`..`）／更新（`↻`）ボタンは `30×25px`、転送ボタンは高さ `50px`。アルバム行アートは `40×40px`、名称 `14pt`、アーティスト `11pt`。
 
 ## 5. 構成要素と共通コントロール
 
-CONNECTED DEVICE、機器選択、⚙ Manage、上へ「..」、パス、更新「↻」、DeviceDirectoriesを表示。下部はSELECT ALBUMS / TRACKS TO TRANSFER、AlbumsのExpanderとCheckBox。
-
-転送中は選択・ナビゲーションを無効化し、ボタンをTRANSFERRING...へ変更、進捗をパーセント表示する。機器に存在するアルバムは選択を無効化する。リスト行の共通3pxアクセントは指定しない。
+- **上部（機器側エクスプローラー）**: `"CONNECTED DEVICE"` 見出し、接続機器 `ComboBox`（リムーバブルドライブおよびMTPデバイス両対応）、`"⚙ Manage"` ボタン、親フォルダへ移動 `".."`、現在パス `CurrentDevicePath`、再読込 `"↻"`、および `DeviceDirectories`（サブフォルダ `📁` とファイル `📄` の一覧）を表示する。
+- **下部（PC側選択リスト）**: `"SELECT ALBUMS / TRACKS TO TRANSFER"` 見出し、`Albums` の `Expander` と `CheckBox`（展開時は配下 `Tracks` の `CheckBox`）。
+- **重複防止とロック**: 転送先（`<CurrentDevicePath>\<Artist>\<Album>\<FileName>`）に全曲存在するアルバムは `Album.IsOnDevice = True` となり選択 `CheckBox` が無効化される（転送実行時にも既存同名ファイルは自動スキップ）。転送中（`IsTransferring = True`）はナビゲーション・選択・転送ボタンをロックし、ボタン文言を `"TRANSFERRING..."` に切り替えて進捗率 `Transferring: XX%` を更新する。
 
 ## 6. アニメーションとインタラクション
 
-機器フォルダのダブルクリックは `NavigateDirectoryCommand`、親フォルダへは `NavigateUpCommand`。更新は `RefreshDirectoryCommand`、Manageは機器ストレージ管理を開く。選択後 `TransferSelectedCommand` で転送する。転送中は開始ボタンも無効。サイドバーの機器転送項目は接続時に表示される。
+- 画面遷移時（`ViewType.DeviceSync`）に自動で `RefreshDrives()` を実行し、スペクトラムアナライザを非表示（`IsSpectrumVisible = false`）に格納する。
+- 機器内フォルダ（`📁`）のダブルクリックで下位階層へ移動、`".."` ボタンは `NavigateUpCommand`、`"↻"` ボタンは `RefreshDirectoryCommand`、`"⚙ Manage"` ボタンは `OpenDeviceManagerCommand`（`DeviceManagerDialog` 表示）を実行する。
+- アルバム/楽曲にチェックを入れて `"TRANSFER SELECTED"`（`TransferSelectedCommand`）を押下すると転送を開始する。転送中にメインウィンドウを閉じようとした場合は中断確認 `MessageBox` を表示する。
 
 ## 7. パフォーマンス最適化要件
 
-ディレクトリとアルバムはListBoxだが、4つの仮想化プロパティを揃えた明示指定はない。アルバム内のTracksはItemsControlで全件展開する。動的進捗の更新はViewModelで管理。転送状態の文言はBoolToVisで切り替える。
-
-共通要件は[パフォーマンス最適化](../../詳細設計/パフォーマンス最適化.md)に従う。多数の項目の標準指定は `IsVirtualizing=True / VirtualizationMode=Recycling / ScrollUnit=Pixel / CanContentScroll=True`。上記の個別構成と区別して適用範囲を判断する。
+PC側アルバム一覧 `ListBox` には `VirtualizingStackPanel.IsVirtualizing="True"` および `VirtualizationMode="Recycling"` を指定する（機器ディレクトリ一覧および展開トラック `ItemsControl` は標準描画）。
 
 ## 8. 関連Issue・仕様書
 

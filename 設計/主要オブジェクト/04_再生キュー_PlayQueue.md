@@ -4,42 +4,46 @@
 - **オブジェクト名**: 再生キュー
 - **英語名**: PlayQueue
 - **分類**: コンテナオブジェクト / ワークスペースオブジェクト
-- **責務**: 現在再生中および次に再生される楽曲の動的な順序付きリストを保持し、割り込み再生・順序変更・削除などのリアルタイム制御を提供する。
+- **責務**: 次に再生される未再生楽曲の2層リスト（予約キュー `UserQueue` ＋ アルバムの残り曲 `AlbumQueue`）およびセッション再生履歴（`PlayHistory`）を保持し、割り込み再生・シャッフル局所化・削除・クリアのリアルタイム制御を提供する。
 
 ## 2. コレクション / シングル構成
 
 > [!IMPORTANT]
-> **実装仕様 (As-Is)**:
-> - **コレクション表示**: `PlayQueueSidePanel.xaml`
->   - メインウィンドウ右端に最前面オーバーレイ（`Panel.ZIndex="30"`）として配置され、ツールバーの開閉ボタン操作で右からスライドイン表示される専用サイドパネル。
->   - パネル内に楽曲の縦スクロールリストが表示される。
+> **コレクション / シングル構成**:
+> - **コレクション表示**:
+>   1. `PlayQueueSidePanel.xaml`: メインウィンドウ右端に最前面オーバーレイとして配置され、開閉ボタン操作で右からスライドイン表示される専用サイドパネル（非表示時は `Visibility="Collapsed"`）。「再生リスト」タブ（`UserQueue` セクション＋`AlbumQueue` セクション）と「履歴」タブ（`PlayHistory`、インメモリ最大100件）の2タブ構成。
+>   2. `PlayQueueDialog.xaml`: 独立ウィンドウとして `PlayQueue` 一覧を表示するダイアログ（単一インスタンス管理。Issue #217 にてミニプレイヤー下部連結へ統合予定）。
 > - **シングル表示**:
->   - キュー内の各楽曲行。現在再生中の楽曲はハイライトされ、再生/一時停止の波形アイコン等が表示される。
+>   - 現在再生中の楽曲（`CurrentTrack`）は未再生キュー一覧からは除外され、メイン画面右側パネルまたは上部プレイヤーバーに表示される。
 
 ## 3. 属性（プロパティ）定義
 
-| プロパティ名 | 型 | 説明 | コレクション表示 | 実装プロパティ ([PlayerControlViewModel.cs](file:///c:/Users/tnish/vs_code_git/Audio_Effector/AudioEffector/Presentation/ViewModels/PlayerControlViewModel.cs)) |
+| プロパティ名 | 型 | 説明 | コレクション表示 | 実装プロパティ ([PlayerControlViewModel.cs](../../AudioEffector/Presentation/ViewModels/PlayerControlViewModel.cs)) |
 | :--- | :--- | :--- | :---: | :--- |
-| **PlayQueue** | `ObservableCollection<Track>` | キューに含まれる楽曲リスト | ○ | `PlayerControlViewModel.PlayQueue` |
-| **CurrentTrack** | `Track?` | 現在再生中の楽曲オブジェクト | ○ (ハイライト) | `PlayerControlViewModel.CurrentTrack` |
-| **PreloadedTrack** | `Track?` | ギャップレス再生用に事前デコード待機中の次曲 | - | オーディオエンジン連携 |
-| **IsPlayQueuePanelOpen**| `bool` | パネルの開閉状態 | - | `MainViewModel.IsPlayQueuePanelOpen` |
-| **QueueCount** | `int` | キュー内の曲数 | ○ (ヘッダー表示) | `PlayQueue.Count` |
+| **UserQueue** | `ObservableCollection<Track>` | ユーザーが「次に再生」等で予約した優先キュー | ○ (`予約キュー` セクション) | `PlayerControlViewModel.UserQueue`, `IAudioService.UserQueue` |
+| **AlbumQueue** | `ObservableCollection<Track>` | 現在再生中アルバム/リストの後続未再生トラック群（シャッフル対象） | ○ (`アルバムの残り曲` セクション) | `PlayerControlViewModel.AlbumQueue`, `IAudioService.AlbumQueue` |
+| **PlayQueue** | `ObservableCollection<Track>` | `UserQueue` と `AlbumQueue` を連結した未再生トラック全体リスト | ○ | `PlayerControlViewModel.PlayQueue` |
+| **PlayHistory** | `ObservableCollection<Track>` | 再生終了・スキップした楽曲のインメモリ履歴（最新順、上限100件） | ○ (`履歴` タブ) | `PlayerControlViewModel.PlayHistory` |
+| **CurrentTrack** | `Track?` | 現在再生中の楽曲オブジェクト | - (プレイヤー部に表示) | `PlayerControlViewModel.CurrentTrack` |
+| **SelectedQueueTabIndex** | `int` | 選択中タブ（`0`: 再生リスト / `1`: 履歴） | ○ | `PlayerControlViewModel.SelectedQueueTabIndex` |
+| **HasUserQueue / HasAlbumQueue** | `bool` | 各セクションの表示有無フラグ | ○ | `PlayerControlViewModel.HasUserQueue`, `HasAlbumQueue` |
+| **AlbumQueueTitle** | `string` | アルバム残り曲セクションの見出し（`次のアルバムから: <名>` 等） | ○ | `PlayerControlViewModel.AlbumQueueTitle` |
+| **IsPlayQueuePanelOpen** | `bool` | スライドパネルの開閉状態 | - | `MainViewModel.IsPlayQueuePanelOpen` |
 
 ## 4. アクション（操作）定義
 
-| アクション名 | 動詞 | トリガー / 操作 | 影響・結果 | 関連コマンド / 実装 |
-| :--- | :--- | :--- | :--- | :--- |
-| **開閉トグル** | Toggle | ツールバーのキューアイコンボタン押下 | サイドパネルのスライド開閉アニメーション実行 | `TogglePlayQueuePanelCommand` ([MainViewModel.cs](file:///c:/Users/tnish/vs_code_git/Audio_Effector/AudioEffector/Presentation/ViewModels/MainViewModel.cs)) |
-| **パネルを閉じる** | Close | パネル右上の「✕」ボタン押下 | サイドパネルを右端へ収納 | `ClosePlayQueuePanelCommand` |
-| **指定曲から再生** | Play At | キュー行のアートまたはタイトルボタンクリック | 該当インデックスから再生開始 | `PlayFromQueueCommand` |
-| **再生順の並び替え** | Reorder | キュー行のドラッグ＆ドロップ操作 | キュー内の順序をリアルタイム入れ替え（Undo対応） | `PlayQueueSidePanel.xaml.cs` |
-| **1曲削除** | Remove | キュー行右端の「✕」ボタン、または右クリック「キューから削除」 | 該当楽曲をキューから除外（Undo対応） | `RemoveFromQueueCommand` |
-| **キューの全クリア** | Clear All | パネルヘッダーの「Clear」ボタン押下 | キューを空にして再生停止（誤操作時Undo対応） | `ClearQueueCommand` |
-| **ギャップレス遷移** | Gapless Next | 曲終了検知による自動トリガー | プリロード済み次曲へ無音なくシームレスに切り替え | オーディオサービス制御 |
+| アクション名 | 動詞 | トリガー / 操作 | 影響・結果 | 状態 | 関連コマンド / 実装 |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **パネル開閉トグル** | Toggle | プレイヤー部のキューアイコンボタン押下 | 右側スライドパネルの開閉アニメーション実行 | 実装済み | `TogglePlayQueuePanelCommand` ([MainViewModel.cs](../../AudioEffector/Presentation/ViewModels/MainViewModel.cs)) |
+| **パネルを閉じる** | Close | パネル右上の閉じるボタン押下 | サイドパネルを右端へ格納し `Collapsed` 化 | 実装済み | `ClosePlayQueuePanelCommand` |
+| **タブ切り替え** | Switch Tab | 「再生リスト」「履歴」タブボタン押下 | 表示タブを切り替え（`0` / `1`） | 実装済み | `SelectQueueTabCommand` ([PlayerControlViewModel.cs](../../AudioEffector/Presentation/ViewModels/PlayerControlViewModel.cs)) |
+| **キュー内指定曲の再生** | Play From Queue | キュー内アイテムのクリック、または右クリック「再生」 | 該当トラックを即時再生しキューから除外 | 実装済み | `PlayFromQueueCommand` |
+| **履歴から再生** | Play From History | 履歴タブ内アイテムのクリック、または右クリック「再生」 | 該当トラックを即時再生し、自動的に「再生リスト」タブ（`0`）へ切替 | 実装済み | `PlayFromHistoryCommand` |
+| **予約キューのみクリア** | Clear User Queue | 予約キュー見出しの「予約をクリア」ボタン押下 | `AlbumQueue` を維持したまま `UserQueue` のみを全消去 | 実装済み | `ClearUserQueueCommand` |
+| **1曲削除（キュー/履歴）** | Remove | 各行の「✕」ボタン、または右クリック「キューから削除」「履歴から削除」 | 該当トラックをキューまたは履歴から除外 | 実装済み | `RemoveFromQueueCommand`, `RemoveFromHistoryCommand` |
+| **現在タブの全クリア** | Clear Current Tab | パネルヘッダー右上のゴミ箱アイコン押下 | 選択中タブに応じてキュー全消去（＋再生停止）または履歴全消去 | 実装済み | `ClearCurrentTabCommand` (`ClearQueueCommand` / `ClearHistoryCommand`) |
+| **D&D並び替え** | Reorder | キュー行のドラッグ＆ドロップ操作 | キュー内の再生順序を直接入れ替え | 拡張構想 (#216) | — |
 
-## 5. OOUI設計上の課題と今後の指針 (To-Be)
-- **ライブラリからのダイレクト投入**: ライブラリ画面（全曲、アルバム、プレイリスト）から楽曲を選択し、開いているキューパネルへ直接ドラッグ＆ドロップして任意位置へ挿入できるインタラクションの強化。
-- **ギャップレス再生の保証**: 次曲の事前デコードとシームレスなバッファ切り替えにより、トラック境界でのノイズや途切れをゼロにする再生基盤の連携。
-- **キュー操作のUndo対応**: 「Clear」ボタンや誤ったドラッグ順序変更を行った際に、`Ctrl+Z` で直前のキュー状態へ即座に復元できる安全設計の導入。
-
+## 5. 拡張設計指針
+- **キュー内D&D並び替え（Issue #216）**: キュー内の楽曲カードをドラッグ＆ドロップして再生順序を自由に入れ替える操作の導入。
+- **ミニプレイヤー下部への再生キュー連結（Issue #217）**: ミニプレイヤーから再生キューを展開する際、別ウィンドウ（`PlayQueueDialog`）ではなくミニプレイヤー下部に一体型として連結展開するUIへの統合。

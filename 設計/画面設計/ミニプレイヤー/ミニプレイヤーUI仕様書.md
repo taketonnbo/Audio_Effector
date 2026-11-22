@@ -10,45 +10,50 @@
 
 ```text
 +-------------------------------------------------------------------+
-| +--------+  Midnight City                                   [⤢]   |
-| |  [Art] |  M83 — Hurry Up, We're Dreaming                        |
+| +--------+  Midnight City            [⏮] [ ⏯ ] [⏭]  [⤢]          |
+| |  [Art] |  M83                      (30) (36)  (30) (24)         |
 | |  80x80 |                                                        |
-| |        |  [|<]   [  ▶ / ||  ]   [>|]      [≡ キュー] [★]         |
-| +--------+  01:23 =================O=============== 04:03         |
+| +--------+                                                        |
 +-------------------------------------------------------------------+
-  ^ アート    ^ 再生コントロール (前/再生一時停止/次)   ^ 復帰ボタン ([⤢])
+  ^ アート    ^ 曲名・アーティスト      ^ 前 / 再生切替 / 次 / 復帰ボタン ([⤢])
 ```
+
+> **構想要素に関する注記**: ミニプレイヤーの正方形（アルバムアート前面・回転アニメーション）デザイン切替は Issue #261、下部への再生キュー連結展開は Issue #217、最小化時のミニプレイヤー非表示設定は Issue #189 にて計画されています。
 
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-350×100、WindowStyle=None、AllowsTransparency=True、ResizeMode=NoResize。角丸8の外枠1内に曲情報、操作ボタン、復帰ボタンを置く。
+`350×100px`、`WindowStyle="None"`、`AllowsTransparency="True"`、`ResizeMode="NoResize"`。角丸 `8px`・外枠 `1px`（`BorderBrush`）内に、横3列構成（列0: `80×80px` アルバムアート、列1 `*`: 曲名・アーティスト名、列2 `Auto`: 操作ボタン4個 `⏮` `⏯` `⏭` `⤢` の横1列）で配置する。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | 画面背景 |
-| `ControlBackgroundHighlightBrush` | <span style="background-color:#2F3746;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #2F3746</span> | `#2F3746` | ホバー・選択背景 |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
+| `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | ウィンドウ背景 |
+| `BorderBrush` | <span style="background-color:#343E4E;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #343E4E</span> | `#343E4E` | ウィンドウ外枠 |
+| `ControlBackgroundHighlightBrush` | <span style="background-color:#2F3746;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #2F3746</span> | `#2F3746` | ボタンホバー背景 |
+| `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 曲名・ボタンアイコン |
+| `SecondaryTextForegroundBrush` | <span style="background-color:#A0AEC0;color:#161920;padding:2px 8px;border-radius:3px;">■ #A0AEC0</span> | `#A0AEC0` | アーティスト名 |
 
-曲名・アーティストはMarqueeTextBlock。前／次は30×30、再生切替は36×36。IconButtonStyleは角丸15で、ホバー時にControlBackgroundHighlightBrushを使用する。
+曲名（`14pt / Bold`）・アーティスト名（`12pt`）は `MarqueeTextBlock`（情報エリア `MiniPlayerInfoArea` へのホバー連動）。前／次ボタンは `30×30px`、再生切替ボタンは `36×36px`、復帰ボタン（`ToolTip="元に戻す"`）は `24×24px`。
 
 ## 5. 構成要素と共通コントロール
 
-アート、曲名、アーティスト、前の曲「⏮」、再生切替「⏯」、次の曲「⏭」、通常画面へ戻る「⤢」。再生切替の文字記号は固定。単一の再生対象を扱うため幅3px選択バーは対象外。
+アルバムアート（`NowPlayingImage`）、曲名（`CurrentTrack.Title`）、アーティスト名（`CurrentTrack.Artist`）、前の曲「`⏮`」、再生切替「`⏯`」、次の曲「`⏭`」、メイン画面へ戻る「`⤢`」で構成する。
 
 ## 6. アニメーションとインタラクション
 
-メイン最小化で表示する。ウィンドウをドラッグで移動、復帰ボタンでメイン画面を表示する。OSの最大化ショートカット（`Win + ↑` / Aero Snap の `WM_WINDOWPOSCHANGING`・`WM_SIZE(SIZE_MAXIMIZED)`・`WM_SYSCOMMAND(SC_MAXIMIZE)`）またはメインウィンドウ側への復元要求を受けた場合は、ミニプレイヤーの拡大を抑止して閉じ、メイン画面を正常な可視・描画状態でシームレスに復帰する（ミニプレイヤーとの同時表示および黒画面化を防止）。右クリックはお気に入り、プレイリスト追加、プロパティ表示、ファイル場所、再生リスト表示、削除。最前面表示は設定の「常に」「表示時のみ」「表示しない」に従う。
+- **起動と座標永続化**: メインウィンドウ最小化時に表示する。`Loaded` 時に `AppSettings.MiniPlayerLeft` / `MiniPlayerTop` から表示座標を復元（仮想スクリーン領域外の場合は画面内へ補正）し、`OnClosed` 時に現在座標を `settings.json` へ保存する。
+- **移動と復帰**: ウィンドウのドラッグで自由移動し、復帰ボタン「`⤢`」でメイン画面へ復帰する。
+- **最大化ショートカット時の安全復帰 (Issue #72)**: OSの最大化ショートカット（`Win + ↑` / Aero Snap の `WM_WINDOWPOSCHANGING`・`WM_SIZE(SIZE_MAXIMIZED)`・`WM_SYSCOMMAND(SC_MAXIMIZE)`）またはメインウィンドウ側への復元要求を受けた場合は、ミニプレイヤーの拡大を抑止して閉じ、メイン画面を正常な可視・描画状態でシームレスに復帰する。
+- **右クリックメニュー**: 「お気に入りに追加 / 解除」「プレイリストに追加...」「プロパティ」「ファイルの場所を開く」「再生リストを表示」（`ShowQueueDialogCommand`）「削除」。
+- **最前面表示制御**: `AppSettings.MiniPlayerTopmostBehavior`（「常に最前面に表示」「音楽を再生中のみ最前面に表示」「最前面に表示しない」）に従い、再生状態変更時および設定変更時にリアルタイム反映する。
 
 ## 7. パフォーマンス最適化要件
 
-少数の固定要素。長い曲名はMarqueeTextBlockのホバーとオーバーフロー条件に従う。通常画面復帰後の表示・終了はコードビハインドで管理する。
-
-共通要件は[パフォーマンス最適化](../../詳細設計/パフォーマンス最適化.md)に従う。多数の項目の標準指定は `IsVirtualizing=True / VirtualizationMode=Recycling / ScrollUnit=Pixel / CanContentScroll=True`。上記の個別構成と区別して適用範囲を判断する。
+少数の固定要素のみで構成されるためコレクションのUI仮想化は対象外。長い曲名・アーティスト名の `MarqueeTextBlock` は `MiniPlayerInfoArea` にマウスが乗っており、かつ文字列が表示幅を超えている場合のみアニメーションを実行する。
 
 ## 8. 関連Issue・仕様書
 

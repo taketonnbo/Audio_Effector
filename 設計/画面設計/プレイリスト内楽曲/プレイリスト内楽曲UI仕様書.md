@@ -28,32 +28,39 @@
   ^ ドラッグ＆ドロップで曲順並び替え可能 (≡)                                                 ^ 除外ボタン [✕]
 ```
 
+> **構想要素に関する注記**: モックアップ内のヘッダー一括操作ボタン群・曲数/総時間サマリー・D&D曲順並び替え（Domain/Application層 `ReorderTrackAsync` は実装済み）は拡張構想（関連Issue: #233, #242, #252）です。
+
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-`CurrentViewType=PlaylistTracks`。ヘッダー `Auto`、楽曲ListBox `*` の2行。背景画像を両行にまたがって敷く。ヘッダーは40×40のサムネイル、名前、右端のX。
+`CurrentViewType = PlaylistTracks`、`DataContext` は `MainViewModel.Playlist`（`PlaylistViewModel`）。行0がヘッダー（`Auto`：2×2分割サムネイル、`CurrentPlaylistName`、右端の閉じるボタン `X`）、行1が仮想化楽曲 `ListBox`（`*`）の2行構成。背景には再生中アルバムアート（`BlurEffect`＋半透明暗幕）を両行にまたがって透過配置する。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | 入力・カード背景 |
-| `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主テキスト |
-| `SecondaryTextForegroundBrush` | <span style="background-color:#A0AEC0;color:#161920;padding:2px 8px;border-radius:3px;">■ #A0AEC0</span> | `#A0AEC0` | 補足テキスト |
-
-ヘッダー名16/Bold、曲名12、アーティスト10、時間12。行のアート40×40/角丸4、行の上下余白2。除外ボタンは40×40、文字24。
+| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | 行・カード背景 |
+| `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主テキスト（プレイリスト名・曲名） |
+| `SecondaryTextForegroundBrush` | <span style="background-color:#A0AEC0;color:#161920;padding:2px 8px;border-radius:3px;">■ #A0AEC0</span> | `#A0AEC0` | アーティスト名 |
+| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 再生時間 |
+| `AlwaysNeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | サムネイル上の再生状態アイコン |
 
 ## 5. 構成要素と共通コントロール
 
-ヘッダーの `CurrentPlaylistName` と `PlaylistTracks` の行を表示。各行は転送用CheckBox、アート、曲名・アーティスト、mm:ssの時間、除外「-」。選択用CheckBoxはMainWindowの `IsSelectionMode` に連動し、転送中は無効。
-
-ListBoxItemはContentPresenterのみ。行に共通の幅3px選択バーは描かない。背景画像にはBlurEffect半径30と半透明Rectangleを重ねる。
+- ヘッダーの `CurrentPlaylistName`（2×2サムネイル `Thumbnail1`〜`4` 付き）と `PlaylistTracks` の楽曲行を表示する。
+- 各楽曲行は、転送選択用 `CheckBox`（`IsSelectionMode` 連動、転送中 `DeviceBrowser.IsTransferring` 時は非活性）、アルバムアート（再生中は暗幕＋再生/一時停止アイコン）、曲名・アーティスト名、再生時間、および右端のプレイリスト除外ボタン「`-`」で構成する。
+- プレイリスト切替時の非同期トラック読み込み（`PlaylistViewModel`）では、`CancellationTokenSource` と世代番号（`_trackLoadVersion`）を併用し、古い読み込み結果による表示上書き（レースコンディション）を防止する。
 
 ## 6. アニメーションとインタラクション
 
-行のButtonは単一クリックで `PlayTrackCommand`。右クリックに再生／停止、次に再生、最後に再生、お気に入り、プレイリスト追加、プロパティ、ファイル場所、削除を表示。行末「-」は `RemoveFromPlaylistCommand` で、確認後にプレイリストから曲を除外する。右上Xは `ShowPlaylistSelectorCommand`。
+- **楽曲再生**: 行のクリックで親ウィンドウ（`MainViewModel`）の `PlayTrackCommand` を実行し、再生を開始する。
+- **プレイリストからの除外 vs ライブラリからの削除の区別**:
+  - **行右端の「`-`」ボタン (`PlaylistViewModel.RemoveFromPlaylistCommand`)**: 確認 `MessageBox` を表示した上で、**現在のプレイリストからのみ該当曲を除外**し、2×2サムネイルを再計算して `playlists.json` を即時保存する（ライブラリ本体からは削除されない）。
+  - **右クリックメニューの「削除」 (`MainViewModel.DeleteTrackCommand`)**: ライブラリ全体（およびお気に入り）から該当曲を除外する。
+- **その他の右クリックメニュー**: 「再生 / 停止」「次に再生」「最後に再生」「お気に入りに追加 / 解除」「プレイリストに追加...」「プロパティ」「ファイルの場所を開く」。
+- **一覧へ戻る**: ヘッダー右上の `X` ボタンは `ShowPlaylistSelectorCommand` を実行し、`PlaylistSelectorView`（プレイリスト一覧）へ戻る。
 
 ## 7. パフォーマンス最適化要件
 

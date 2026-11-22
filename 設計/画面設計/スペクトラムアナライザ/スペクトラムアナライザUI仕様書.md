@@ -11,13 +11,14 @@
 ```text
 【格納時 (高さ22px)】
 +--------------------------------------------------------------------------------------------------------------------+
-| [▲] SPECTRUM ANALYZER                                                                          [ 64-Band FFT ]     |
+|                                              [▲] SPECTRUM ANALYZER                                                 |
 +--------------------------------------------------------------------------------------------------------------------+
 
-【展開時 (高さ140px)】
+【展開時 (ハンドル22px + パネル140px)】
 +--------------------------------------------------------------------------------------------------------------------+
-| [▼] SPECTRUM ANALYZER                                                                          [ 64-Band FFT ]     |
+|                                              [▼] SPECTRUM ANALYZER                                                 |
 | +----------------------------------------------------------------------------------------------------------------+ |
+| | 60Hz         250Hz         500Hz         1kHz          4kHz          16kHz                                     | |
 | |                                     ▄█                                                                         | |
 | |                         ▄█         ███▄                                                                        | |
 | |                  ▄█    ████       █████▄       ▄█                                                              | |
@@ -25,7 +26,6 @@
 | |          ▄█    ██████████████   ██████████▄  ██████████  ▄█                                                    | |
 | | ▄█      ████  ████████████████▄█████████████████████████████▄      ▄█                                          | |
 | |████▄▄▄▄███████████████████████████████████████████████████████▄▄▄▄████                                         | |
-| | 60Hz         250Hz         500Hz         1kHz          4kHz          16kHz                                     | |
 | +----------------------------------------------------------------------------------------------------------------+ |
 +--------------------------------------------------------------------------------------------------------------------+
 ```
@@ -35,31 +35,33 @@
 
 ## 3. 画面配置とペインレイアウト
 
-本文の最下行。開閉バーは高22、下のSpectrumSlidePanelは0／140。内部Grid幅768、ヘッダー高22、バーItemsControl幅768・高90、下余白22。64個をUniformGridの1行に均等配置する。
+本文の最下行。上部の開閉ハンドルバーは高さ `22px`（中央寄せで矢印アイコンと `"SPECTRUM ANALYZER"` ラベル）、その下の `SpectrumSlidePanel` は高さ `0px`（格納時）／`140px`（展開時）。内部描画領域は中央固定幅 `768px` で、行0（高さ `22px`）に6分割周波数ラベル（`60Hz`, `250Hz`, `500Hz`, `1kHz`, `4kHz`, `16kHz`）、行1（`*`、高さ `90px`、下余白 `22px`）に下端基準線（高さ `1px`）と64本のバー（`UniformGrid Rows="1"`）を配置する。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | ペイン背景 |
-| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 補助表示 |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
+| `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | 開閉ハンドルバー背景 |
+| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | ハンドル文字・周波数ラベル |
+| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | ハンドルホバー時の文字・矢印アクセント |
 
-開閉ラベルSPECTRUM ANALYZERは9/Bold、周波数ラベル10/SemiBold。バー幅6、最小高3、最大高80、角丸3、枠線1。ラベルは60Hz／250Hz／500Hz／1kHz／4kHz／16kHz。
+開閉ラベル `"SPECTRUM ANALYZER"` は `9pt / Bold`、周波数ラベルは `10pt / SemiBold`。バーは幅 `6px`、最小高 `3px`、最大高 `80px`（クランプ上限 `78.0`）、角丸 `3,3,1,1`、枠線 `1px`。
 
 ## 5. 構成要素と共通コントロール
 
-`PlayerControl.IsSpectrumVisible` でパネルを開閉し、`IsPlaying=True` のときバーを表示する。各バーのValueが高さ、不透明度はZeroToTransparentで制御される。バー色は `SpectrumBarBrush`、枠は `SpectrumBorderBrush` の動的ブラシ。画像は固定した再生中データを使用する。選択行バーは対象外。
+- `PlayerControl.IsSpectrumVisible` でパネルを開閉し、`IsPlaying = True` のときバーを表示する。
+- 背景には現在再生中アートワーク（`SpectrumBackgroundImage` に `BlurEffect Radius="30"`、グレースケール画像 `SpectrumBackgroundImageGray`、および暗色グラデーション `#E60A0D14`）を配置する。
+- 各バーの高さは `SpectrumBarItem.Value`、不透明度は `ZeroToTransparent` コンバータで制御し、塗りはアルバムアートのドミナントカラーから動的生成された `SpectrumBarBrush`、枠線は `SpectrumBorderBrush` を使用する。
 
 ## 6. アニメーションとインタラクション
 
-ハンドルクリックで `PlayerControl.ToggleSpectrumCommand`。開300ms、閉250msの高さアニメーション。閉時は開閉バーを残す。アルバム情報を最大化している場合はアートの大きさも追従する。
+- ハンドルクリックで `PlayerControl.ToggleSpectrumCommand` を実行。開く際は `300ms`、閉じる際は `250ms` の高さアニメーションを行う。
+- 右側パネルが最大化表示されている場合は、スペクトラムの開閉に連動して右側アルバムアートの寸法（`260px` ⇔ `330px`）および左カラム幅（`340px` ⇔ `380px`）もアニメーション追従する。
+- 機器転送画面（`ViewType.DeviceSync`）へ遷移した際は、自動的に `IsSpectrumVisible = false` となって格納される。
 
 ## 7. パフォーマンス最適化要件
 
-64本の固定個数なのでUI仮想化対象外。更新はPlayerControlViewModelで間引き、値の通知は有意差に限る。バーにDropShadowEffect／BlurEffectは付与しない。停止時はItemsControlをCollapsed。パネル格納は高さ0で行う。
-
-共通要件は[パフォーマンス最適化](../../詳細設計/パフォーマンス最適化.md)に従う。多数の項目の標準指定は `IsVirtualizing=True / VirtualizationMode=Recycling / ScrollUnit=Pixel / CanContentScroll=True`。上記の個別構成と区別して適用範囲を判断する。
+64本の固定要素であるためコレクションのUI仮想化は対象外。FFT更新は `PlayerControlViewModel` で約30fps（`1000 / 30 ms`）にスロットリングし、`SpectrumBarItem.Value` の変更通知は変化量が `0.5` を超える場合のみ発火する。64本のバー要素には `DropShadowEffect` や `BlurEffect`、`VisualBrush`（水面反射）を一切使用しない。
 
 ## 8. 関連Issue・仕様書
 

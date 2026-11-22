@@ -26,32 +26,36 @@
 +--------------------------------------------------------------------------------------------------------------------+
 ```
 
+> **構想要素に関する注記**: モックアップ内のプレイリスト検索ボックス・件数/時間サマリー・末尾の新規作成カード・ホバー再生オーバーレイは拡張構想（関連Issue: #233, #242, #252）です。
+
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-`CurrentViewType=Playlists`、DataContextは `MainViewModel.Playlist`。行は作成ボタン `Auto` と一覧 `*`。ListBoxのItemsPanelは中央揃えのWrapPanelで、幅に応じてカードを折り返す。
+`CurrentViewType = Playlists`、`DataContext` は `MainViewModel.Playlist`（`PlaylistViewModel`）。行0が新規作成ボタン（`Auto`）、行1がプレイリストカード一覧（`*`）。`ListBox` の `ItemsPanel` は中央揃えの `WrapPanel` で、ウィンドウ幅に応じてカードを折り返す。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | 入力・カード背景 |
-| `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主テキスト |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
-
-作成ボタン高30、左右余白10、下余白10。カードは160pxのアート領域に2×2のサムネイルを並べる。カード角丸8、コンテナ余白10、名称14。
+| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | 作成ボタン・カード背景 |
+| `ControlBackgroundHighlightBrush` | <span style="background-color:#2F3746;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #2F3746</span> | `#2F3746` | ボタン・カードホバー背景 |
+| `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | プレイリスト名テキスト |
+| `BorderBrush` | <span style="background-color:#343E4E;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #343E4E</span> | `#343E4E` | ボタン・カード境界線 |
 
 ## 5. 構成要素と共通コントロール
 
-「+ NEW PLAYLIST」、`UserPlaylists` のカード、カード内の削除「-」を配置。カードのサムネイル順は左上→右上→右下→左下。名称は省略表示。ホバーでカード背景を変更する。
-
-ListBoxItemはContentPresenterのみで、選択行の幅3pxバーを描画しない。共通PrimaryButton等の名前付きStyleではなく各テンプレートとMainWindowの暗黙Buttonを使用する。
+- 上部に「`+ Create New Playlist`」ボタン、一覧領域に `UserPlaylists` のカード、各カード右上に削除「`-`」ボタンを配置する。
+- **2×2分割サムネイル抽出仕様**: 各プレイリストの登録曲から親ディレクトリ（アルバムフォルダ）単位で重複を排除して最大4曲のパスを抽出し、`Thumbnail1`〜`Thumbnail4` プロパティ経由で左上→右上→右下→左下の順に `AlbumArtLoader` で非同期表示する。
+- **永続化仕様**: プレイリスト一覧は `%AppData%\AudioEffector\playlists.json` に永続化される。
 
 ## 6. アニメーションとインタラクション
 
-作成ボタンと一覧余白の右クリックから新規作成。カード選択は `ShowPlaylistCommand` で収録曲画面へ遷移する。カード右クリックには再生／シャッフル再生／名前の変更／削除を置く。削除「-」は `DeletePlaylistCommand`。作成時の名前はInputBoxで入力する。
+- **新規作成**: 「`+ Create New Playlist`」ボタン（`CreatePlaylistCommand`）押下で `InputBox` ダイアログを表示し、名称を入力して新規作成・保存する。
+- **詳細画面への遷移**: カード左クリックまたは右クリック「開く」（`SelectPlaylistCommand`）で `PlaylistTracksView`（収録曲画面）へ遷移する。
+- **コンテキストメニュー**: カード右クリックで「開く」「再生」（`PlayPlaylistCommand`）「シャッフル再生」（`ShufflePlayPlaylistCommand`）「名前の変更」（`RenamePlaylistCommand`、`InputBox` に現在名をプリセット）「削除」（`DeletePlaylistCommand`）を表示する。登録曲が0件のプレイリストに対する再生・シャッフル再生は何も行わない。
+- **削除確認**: カード右上の「`-`」ボタンまたは右クリック「削除」実行時は、確認 `MessageBox` を表示した上で削除・保存する。
 
 ## 7. パフォーマンス最適化要件
 

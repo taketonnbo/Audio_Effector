@@ -32,36 +32,44 @@
 +------------------------------------+
 ```
 
+> **構想要素に関する注記**: モックアップ内のメイン画面上音量スライダー、および上部バーの `[★]` `[📋+]` `[🗖 ミニ]` ボタンは拡張構想（関連Issue: #233）です。`MainWindow.xaml` では上部プレイヤー右端はミュート切替ボタンのみ（音量スライダーは `EqualizerView` および `SettingsDialog` に配置）、再生キュー開閉ボタンは中央操作列末尾に配置されます。
+
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-右パネルを閉じた状態では、本文最上部の高さ60のプレイヤーを表示する。左曲情報、中央の操作とシーク、右の音量・切替の3列。右パネルを開くと上部を高0へ格納し、右側のプレイヤーを使用する。
+右パネルを閉じた状態（`IsRightPanelOpen = False`）では、本文最上部に高さ `60px` のコンパクトプレイヤーを表示する（左列: 40×40アート＋曲名・アーティスト名、中央列: 再生制御・シークバー・キュー開閉ボタン、右列: ミュートボタン）。右パネルを開くと上部プレイヤーを高さ `0px` へ格納し、右パネル内のPlayer Pod（最大化時）または上部コンパクトプレイヤー（最小化時）を使用する。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | ペイン背景 |
-| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 補助表示 |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
+| `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | 上部プレイヤーバー背景 |
+| `MetallicCardBackgroundBrush` | <span style="background-color:#202734;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #2C3545..#161A22</span> | グラデーション | 右パネル Player Pod 背景 |
+| `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 曲名テキスト |
+| `SecondaryTextForegroundBrush` | <span style="background-color:#A0AEC0;color:#161920;padding:2px 8px;border-radius:3px;">■ #A0AEC0</span> | `#A0AEC0` | アーティスト名 |
+| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 経過・総再生時間、非アクティブボタン |
+| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 再生ボタン・シークバー・有効トグル強調 |
 
-上部の曲名14/SemiBold、アーティスト12。シークはNeonSliderStyleでレール4、つまみ10。最大化アルバム内の再生ボタン48×48、コンパクト再生ボタン30×30。
+上部の曲名 `14pt / SemiBold`、アーティスト `12pt`（いずれも `MarqueeTextBlock` でホバー連動ループスクロールに対応）。シークバーは `NeonSliderStyle`（レール高 `4px`、つまみ `10px`）。最大化右パネルのPlayer Pod再生ボタンは `48×48px`、コンパクト時は `30×30px`。
 
 ## 5. 構成要素と共通コントロール
 
-曲情報はCurrentTrackとNowPlayingImage。前／再生・一時停止／次、シャッフル、リピート、時間・シーク、音量、キュー展開、お気に入り、プレイリスト追加を備える。再生中は一時停止アイコンへ切り替える。シャッフル・リピートは状態に応じてシアンで強調する。選択行バーは対象外。
+- 曲情報は `CurrentTrack`（`Title`, `Artist`）と `NowPlayingImage` を表示する。
+- 操作ボタン群はシャッフル（`IsShuffleEnabled`）、前の曲、再生/一時停止（`IsPlaying` に応じて `▶` / `⏸` アイコン切替）、次の曲、リピート（`IsAlbumRepeat`：全曲リピート ON / OFF の2値トグル）、再生キュー開閉（`TogglePlayQueuePanelCommand`）を備える。
+- 右パネル側にはさらにプレイリスト追加（`+`）およびお気に入りトグルボタンを配置し、上部プレイヤーバー右端にはミュート切替ボタン（`ToggleMuteCommand`、ミュート前音量を `_preMuteVolume` に保持）を配置する。
 
 ## 6. アニメーションとインタラクション
 
-`TogglePlayPauseCommand`、PreviousCommand、NextCommandを実行。シークつまみのドラッグ開始でシーク中フラグを立て再生を一時停止し、終了時に移動先へシークして再開する。音量は0～1の範囲。登録済みショートカットからも再生操作を呼び出す。
+- `TogglePlayPauseCommand`, `PreviousCommand`, `NextCommand`, `ToggleShuffleCommand`, `ToggleRepeatCommand` を実行する。
+- **シーク制御**: `500ms` 周期の進捗タイマー更新中は内部更新フラグ（`_isUpdatingProgressInternally`）で逆シーク発火を防止し、ユーザーのスライダードラッグ中は `_isDraggingProgress` フラグを立てて完了位置へシークする。
+- **音量・ショートカット制御**: 音量は `0.0`〜`1.0` の範囲で `AppSettings.Volume` に永続化され、ショートカットキー（`IncreaseVolumeCommand` / `DecreaseVolumeCommand`）により `±5%`（`0.05`）刻みで増減できる。
 
 ## 7. パフォーマンス最適化要件
 
-時間・進捗・状態はPlayerControlViewModelの通知で更新。上部の開閉は600msの高さアニメーションで、Collapsed指定はない。シークの動的要素へ追加のぼかし・影を適用しない。
-
-共通要件は[パフォーマンス最適化](../../詳細設計/パフォーマンス最適化.md)に従う。多数の項目の標準指定は `IsVirtualizing=True / VirtualizationMode=Recycling / ScrollUnit=Pixel / CanContentScroll=True`。上記の個別構成と区別して適用範囲を判断する。
+- 固定数のプレイヤーコントロールで構成されるためUI仮想化は対象外。
+- 時間・進捗・再生状態は `PlayerControlViewModel`（500msタイマーおよびイベント通知）で更新し、シークバー等の動的更新要素には `DropShadowEffect` / `BlurEffect` を適用しない。
 
 ## 8. 関連Issue・仕様書
 

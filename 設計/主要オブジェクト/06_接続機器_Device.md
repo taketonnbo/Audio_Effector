@@ -2,70 +2,46 @@
 
 ## 1. 基本情報
 - **オブジェクト名**: 接続機器（外部デバイス）
-- **英語名**: Device
+- **英語名**: Device（実装クラス: `MainViewModel.DeviceViewModel`, `DeviceAlbum`, `DeviceTrack`）
 - **分類**: セカンダリオブジェクト / ターゲット（ロケーション）オブジェクト
-- **責務**: PCに接続されたポータブルオーディオプレイヤーやUSBストレージの接続状態・容量・内部フォルダ構造を表現し、転送先ターゲットとしての役割を担う。
+- **責務**: PCに接続されたリムーバブルドライブ（USBメモリ、SDカード等）やMTPポータブルオーディオプレイヤーの内部フォルダ構造・転送済み楽曲を表現し、楽曲転送先およびストレージ管理対象としての役割を担う。
 
 ## 2. コレクション / シングル構成
 
 > [!IMPORTANT]
-> **実装仕様 (As-Is)**:
+> **コレクション / シングル構成**:
 > - **コレクション表示**:
->   - `DeviceSyncView.xaml` 上部の「CONNECTED DEVICE」コンボボックス（`RemovableDrives`）。
->   - `DeviceManagerDialog.xaml` 内の接続ドライブ一覧リスト。
+>   - `DeviceSyncView.xaml` 上部の「CONNECTED DEVICE」コンボボックス（`DeviceBrowserViewModel.ConnectedDevices`）。
 > - **シングル表示**:
->   - `DeviceSyncView.xaml` の上部ペイン（選択された機器内部のフォルダブラウザおよびナビゲーションバー）。
->   - 機器内の各フォルダ階層をドリルダウン閲覧可能。
+>   - `DeviceSyncView.xaml` の上部ペイン（選択された機器内部のディレクトリ・ファイル一覧 `DeviceDirectories` およびパスナビゲーションバー `CurrentDevicePath`）。
+>   - `DeviceManagerDialog.xaml`（選択機器内の転送済みアルバム `DeviceAlbums` および収録曲 `DeviceTrack` の一覧・削除ダイアログ）。
 
 ## 3. 属性（プロパティ）定義
 
-| プロパティ名 | 型 | 説明 | 表示箇所 | 実装プロパティ ([DeviceBrowserViewModel.cs](file:///c:/Users/tnish/vs_code_git/Audio_Effector/AudioEffector/Presentation/ViewModels/DeviceBrowserViewModel.cs)) |
-| :--- | :--- | :--- | :---: | :--- |
-| **DeviceId** | `string` | 機器固有識別子（ボリュームシリアル番号、ハードウェアUUID等） | 機器設定・内部識別 | ドライブシリアル情報 |
-| **Name / DisplayName** | `string` | デバイス名（ボリューム名等） | コンボボックス、機器ダイアログ、パネル | `RemovableDrive.Name` |
-| **RootPath** | `string` | ルートドライブパス（例：`E:\`） | コンボボックス内部データ | `RemovableDrive.RootPath` |
-| **DefaultDestinationPath**| `string` | 端末ごとに登録・記憶されたデフォルト転送先フォルダパス | 転送パネル、機器ダイアログ | アプリ設定 (`AppSettings`) と機器IDを紐付け |
-| **CurrentDirectory** | `string` | 機器内の現在閲覧中/転送先フォルダパス | ナビゲーションバー、転送パネル | `DeviceBrowserViewModel.CurrentDirectory` |
-| **Directories** | `ObservableCollection<DeviceDirectoryItem>` | 機器内のフォルダ一覧 | 上部フォルダリスト、フォルダ選択ツリー | `DeviceBrowserViewModel.Directories` |
-| **TotalSpace** | `long` | 機器ストレージ総容量 (バイト) | 機器ダイアログ、容量バー | ドライブ情報 |
-| **FreeSpace** | `long` | 機器の現在空き容量 (バイト) | 機器ダイアログ、容量バー | ドライブ情報 |
-| **ProjectedFreeSpace** | `long` | 転送後の予測空き容量 (バイト) | リアルタイム容量バー | 選択アイテム合計とFreeSpaceから算出 |
-| **HasCapacityWarning** | `bool` | 空き容量不足警告フラグ | 警告メッセージ、赤色バー表示 | 予測容量不足時にtrue |
-| **IsTransferring** | `bool` | 転送処理中かどうか | 進捗プログレスバーの表示制御 | `DeviceBrowserViewModel.IsTransferring` |
-| **IsIgnored** | `bool` | アプリ内で検出・通知を行わない（無視する）端末フラグ | 設定画面、機器ダイアログ | アプリ設定 (`AppSettings.IgnoredDeviceIds`) |
-| **IsSkipExistingTracks** | `bool` | 既存楽曲を自動スキップする差分転送フラグ | 転送パネルオプション | `DeviceBrowserViewModel.IsSkipExistingTracks` |
-| **IsTranscodeEnabled** | `bool` | 転送時の自動フォーマット変換フラグ | 転送パネルオプション | `DeviceBrowserViewModel.IsTranscodeEnabled` |
-| **TranscodeFormat** | `string` | 変換先フォーマット（MP3 / AAC 等） | 転送パネルオプション | `DeviceBrowserViewModel.TranscodeFormat` |
-| **TranscodeBitrate** | `int` | 変換先ビットレート（kbps） | 転送パネルオプション | `DeviceBrowserViewModel.TranscodeBitrate` |
+| プロパティ名 | 型 | 説明 | 表示箇所 | 状態 | 実装プロパティ ([DeviceBrowserViewModel.cs](../../AudioEffector/Presentation/ViewModels/DeviceBrowserViewModel.cs)) |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **Name** | `string` | デバイス表示名（ドライブレター＋ボリュームラベル、またはMTP機器名） | コンボボックス | 実装済み | `MainViewModel.DeviceViewModel.Name` |
+| **Drive / MtpDevice** | `DriveInfo?` / `MediaDevice?` | ファイルシステムドライブまたはMTPデバイス実体参照 | 内部転送・探索制御 | 実装済み | `DeviceViewModel.Drive`, `DeviceViewModel.MtpDevice` |
+| **CurrentDevicePath** | `string` | 機器内の現在閲覧中/転送先フォルダパス | ナビゲーションバー | 実装済み | `DeviceBrowserViewModel.CurrentDevicePath` |
+| **DeviceDirectories** | `ObservableCollection<DirectoryItem>` | 現在フォルダ配下のサブフォルダ（`📁`）およびファイル（`📄`）一覧 | 上部ディレクトリリスト | 実装済み | `DeviceBrowserViewModel.DeviceDirectories` |
+| **IsTransferring** | `bool` | 転送処理中かどうか（UI操作ロックおよびウィンドウ終了確認と連動） | 転送画面全体 | 実装済み | `DeviceBrowserViewModel.IsTransferring` |
+| **TransferProgress** | `double` | 転送進捗率（`0`〜`100`%） | 下部 `Transferring: XX%` 表示 | 実装済み | `DeviceBrowserViewModel.TransferProgress` |
+| **DeviceAlbums** | `ObservableCollection<DeviceAlbum>` | デバイス内に保存されているアルバム・楽曲一覧 | `DeviceManagerDialog.xaml` | 実装済み | `DeviceManagerViewModel.DeviceAlbums` ([DeviceManagerViewModel.cs](../../AudioEffector/Presentation/ViewModels/DeviceManagerViewModel.cs)) |
+| **DefaultDestinationPath / IgnoredDeviceIds / FreeSpace / Transcode設定** | 各種 | 端末別既定フォルダ記憶、無視端末リスト、空き容量予測、転送時フォーマット変換設定 | — | 拡張構想 (#96/#97/#233) | — |
 
 ## 4. アクション（操作）定義
 
-| アクション名 | 動詞 | トリガー / 操作 | 影響・結果 | 関連コマンド / 実装 |
-| :--- | :--- | :--- | :--- | :--- |
-| **機器選択** | Select | コンボボックスで対象機器を選択 | 機器内部のルートディレクトリ読込 | `SelectedDevice` セッター |
-| **デフォルトフォルダ自動選択** | Auto Select Folder | 端末接続検知時（自動） | 記憶されたデフォルト転送先フォルダを自動セット・展開 | 自動バインド処理 |
-| **デフォルトフォルダ登録・記憶** | Register Default Folder | パネルの「このフォルダを既定に設定」ボタン押下 | 現在フォルダを機器IDと紐づけてアプリ設定へ永続化記憶 | `SetDefaultFolderCommand` |
-| **フォルダ移動・選択** | Browse | フォルダ一覧項目のダブルクリック、フォルダ変更ボタン | 選択フォルダへ下位ドリルダウン、転送先の変更 | 内部ナビゲーション |
-| **端末を無視設定にする** | Ignore Device | パネルやトーストの「この機器を無視」、機器管理でのチェック | 対象機器を無視リストへ追加し、以降の検知・通知・自動起動を抑止 | `IgnoreDeviceCommand` |
-| **無視設定を解除する** | Unignore Device | 設定画面/機器管理ダイアログの「無視を解除」ボタン押下 | 無視リストから除外復帰し、再度検知・通知対象とする | `UnignoreDeviceCommand` |
-| **容量予測と警告** | Predict Capacity | 転送対象アルバム/楽曲の選択変更時 | 転送後空き容量をリアルタイム計算し、不足時は警告表示 | 容量計算ロジック |
-| **アルバム/楽曲転送** | Transfer | メインワークスペースで単選択・複数選択し、右クリック「端末へ転送」またはパネルの「転送開始」 | 選択アイテムの機器転送タスク開始（差分スキップ・トランスコード適用、容量不足時は抑止） | `TransferCommand` |
-| **端末から取り込み** | Import from Device | 転送パネル内の「端末からライブラリへ取り込み」ボタン押下 | 選択された端末内楽曲/フォルダをPC音楽ライブラリへコピー・差分取り込み | `ImportFromDeviceCommand` |
-| **差分転送トグル** | Toggle Skip Existing | パネル内の「既存の曲をスキップ」チェックボックス切り替え | 重複転送の自動除外 | プロパティ更新 |
-| **トランスコード設定** | Configure Transcode | パネル内の「変換して転送」チェックおよび形式選択 | 転送時オンザフライエンコードの適用 | プロパティ更新 |
-| **転送キャンセル** | Cancel | 転送中の「Cancel」ボタン押下 | ファイル転送処理の中止 | `CancelTransferCommand` |
-| **機器管理を開く** | Manage | 「⚙ Manage」ボタン押下 | `DeviceManagerDialog` モーダル表示（各端末の既定フォルダ編集、無視リスト管理も可能） | `ShowDeviceManagerCommand` |
+| アクション名 | 動詞 | トリガー / 操作 | 影響・結果 | 状態 | 関連コマンド / 実装 |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **機器検出・更新** | Refresh | `ViewType.DeviceSync` への画面切替時 | リムーバブルドライブおよびMTP機器を検出し一覧更新 | 実装済み | `RefreshDrives` ([DeviceBrowserViewModel.cs](../../AudioEffector/Presentation/ViewModels/DeviceBrowserViewModel.cs)) |
+| **機器選択** | Select | コンボボックスで対象機器を選択 | 機器ルートディレクトリ読込と転送済みアルバム照合（`CheckDeviceAlbums`） | 実装済み | `SelectedDevice` セッター |
+| **フォルダ移動・再読込** | Browse | フォルダ項目のダブルクリック、上部「`..`」（親階層へ）ボタン、「`↻`」ボタン | 選択フォルダへの移動・再読込と重複転送状態（`Album.IsOnDevice`）の再判定 | 実装済み | `NavigateUpCommand`, `RefreshDirectoryCommand` |
+| **アルバム/楽曲転送** | Transfer | 下部リストでアルバム/曲を選択し「`TRANSFER SELECTED`」ボタン押下 | `<CurrentDevicePath>\<Artist>\<Album>\<FileName>` へコピー転送（既存同名ファイルは自動スキップ） | 実装済み | `TransferSelectedCommand` ([DeviceBrowserViewModel.cs](../../AudioEffector/Presentation/ViewModels/DeviceBrowserViewModel.cs)), `TransferTracksCommand` ([DeviceSyncViewModel.cs](../../AudioEffector/Presentation/ViewModels/DeviceSyncViewModel.cs)) |
+| **機器管理を開く** | Manage | 「`⚙ Manage`」ボタン押下 | `DeviceManagerDialog` を開きデバイス内のアルバム・楽曲一覧を表示（閉じた後に転送画面を再同期） | 実装済み | `OpenDeviceManagerCommand` |
+| **端末内アルバム/曲の削除** | Delete on Device | `DeviceManagerDialog` 内のアルバム削除または曲削除ボタン押下 | デバイス上の実ファイルを削除（アルバム内最後の1曲削除時は空フォルダも自動削除） | 実装済み | `DeleteAlbumCommand`, `DeleteTrackCommand` ([DeviceManagerViewModel.cs](../../AudioEffector/Presentation/ViewModels/DeviceManagerViewModel.cs)) |
+| **全階層重複スキャン / 曲単位グレーアウト / トランスコード / 既定フォルダ記憶** | 各種 | サブフォルダ全体の重複検出、曲単位の `IsOnDevice` 制御、転送時変換、容量予測バー、キャンセル | より柔軟で安全な同期ワークフロー | 拡張構想 (#96, #97, #169, #170, #233) | — |
 
-## 5. OOUI設計上の課題と今後の指針 (To-Be)
-- **端末識別とデフォルトフォルダの記憶・管理**:
-  接続機器の固有ID（ボリュームシリアル番号やハードウェアUUID等）を識別キーとし、各端末ごとに転送先デフォルトフォルダ（例: `E:\MUSIC`）をアプリ設定に記憶・管理する。接続時に自動で右側パネルが起動した際、毎回フォルダを選び直す必要なく登録済みフォルダが即座にセットされるため、ユーザーは楽曲を選択して転送ボタンを押すだけの「ゼロステップ転送」を実現する。また、パネル内や機器管理ダイアログからワンクリックでデフォルトフォルダの変更・登録を可能とする。
-- **重複転送の自動スキップ（差分転送）とトランスコード転送**:
-  転送先フォルダに既に存在する楽曲を自動判定してスキップする「差分転送」を標準装備し、二重コピーや無駄な転送時間を削減。さらに、ハイレゾFLAC等の大容量楽曲をポータブル機器の空き容量に合わせてMP3/AACに変換しながら転送するトランスコード機能を備える。
-- **端末からの逆同期・楽曲取り込み（Import from Device）**:
-  WalkmanやUSBメモリ等の外部端末内にのみ存在する楽曲を、PCのローカル音楽ライブラリへ吸い出してバックアップできる逆同期機能を装備。重複判定による二重取り込み防止と、取り込み完了後のライブラリ自動再スキャン連携を実現する。
-- **常時接続端末等の検出無視（除外リスト）機能**:
-  外付けバックアップHDDや大容量データドライブ、常時挿入されているUSB機器など、音楽転送を目的としない端末が接続された際に誤ってトースト通知や転送パネルが起動しないよう、端末を「アプリ内で検出しない（無視する）」設定機能を提供する。トースト通知やパネルのメニューから「この機器を今後は無視する」をワンクリックで指定でき、設定ダイアログまたは機器詳細管理ダイアログにて無視端末の一覧確認と解除をいつでも行えるようにする。
-- **接続時トースト通知と右側転送パネルの自動起動**: 外部端末がPCに接続された際、トースト通知とともに画面右側に「端末転送パネル」を自動スライドイン展開。ユーザーは通常のライブラリ画面（全曲、アルバム、アーティスト、プレイリスト）を閲覧したまま、単選択または複数選択してスムーズに転送を行えるモードレスな導線を提供する。（※端末へのドラッグ＆ドロップ直接転送は一旦保留）
-- **リアルタイム空き容量予測と安全な転送**: 楽曲やアルバムの選択時に、機器の空き容量バーがリアルタイムに伸縮・警告表示（オーバー時は赤色表示）され、容量不足による転送失敗を直感的に防止する。
-
-
+## 5. 拡張設計指針
+- **重複転送防止の高度化（Issue #169, #170）**: 全サブフォルダを対象とした重複スキャンおよび、アルバム単位だけでなく曲単位での既存ファイル非活性化表示。
+- **トランスコード転送（Issue #96, #97）**: FLAC等の大容量音源をポータブル機器向けにMP3/AAC等へ変換しながら転送する機能。
+- **端末別既定フォルダ記憶・空き容量予測バー（Issue #233）**: 端末ごとの転送先フォルダ記憶、リアルタイム空き容量予測、常時接続ドライブの除外設定。

@@ -4,55 +4,47 @@
 - **オブジェクト名**: プレイリスト
 - **英語名**: UserPlaylist
 - **分類**: プライマリオブジェクト / コンテナオブジェクト
-- **責務**: ユーザーが定義した独自の楽曲コレクションを管理し、任意の再生順序およびメタデータを保持する。
+- **責務**: ユーザーが定義した独自の楽曲コレクションを管理し、任意の再生順序および2×2サムネイル情報を保持する。
 
 ## 2. コレクション / シングル構成
 
 > [!IMPORTANT]
-> **実装仕様 (As-Is)**:
+> **コレクション / シングル構成**:
 > - **コレクション表示**: `PlaylistSelectorView.xaml`
->   - 登録済みプレイリストをカード型（WrapPanel）で一覧表示。各カードには4分割サムネイル画像、タイトル、曲数が表示される。
+>   - 登録済みプレイリストをカード型（`WrapPanel`）で一覧表示。各カードには最大4枚の2×2分割サムネイル画像（ディレクトリ単位で重複排除）、タイトル、削除ボタンが表示される。
 > - **シングル表示**: `PlaylistTracksView.xaml`
 >   - プレイリストカードをクリックすることで画面遷移（`ViewType.PlaylistTracks`）して表示される。
->   - 上部に背景ぼかしアート、ヘッダー（4分割サムネイル、タイトル、曲数、閉じるボタン）、下部に収録曲リストが配置された完全なシングルビューとして実装されています。
+>   - 上部に背景ぼかしアート、ヘッダー（2×2分割サムネイル、タイトル、閉じるボタン `X`）、下部に収録曲リストが配置される。なお、「お気に入り」画面（`ViewType.Favorites`）も同じ `PlaylistTracksView.xaml` を共用して表示する。
 
 ## 3. 属性（プロパティ）定義
 
-| プロパティ名 | 型 | 説明 | コレクション表示 | シングル表示 | 実装プロパティ ([UserPlaylist.cs](file:///c:/Users/tnish/vs_code_git/Audio_Effector/AudioEffector/Domain/Entities/UserPlaylist.cs)) |
+| プロパティ名 | 型 | 説明 | コレクション表示 | シングル表示 | 実装プロパティ ([UserPlaylist.cs](../../AudioEffector/Domain/Entities/UserPlaylist.cs)) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **Id** | `PlaylistId` | プレイリストの一意識別子 | - | - | `UserPlaylist.Id` |
 | **Name** | `string` | プレイリストのタイトル | ○ | ○ | `UserPlaylist.Name` |
-| **TrackPaths** | `List<string>` | 登録楽曲のファイルパス一覧 | - | ○ (全曲リスト) | `UserPlaylist.TrackPaths` |
-| **TrackCount** | `int` | 登録曲数 | ○ | ○ | `UserPlaylist.TrackCount` |
-| **TotalDuration** | `TimeSpan` | 登録楽曲の合計再生時間 | - | ○ | `UserPlaylist.TotalDuration` |
-| **ThumbnailTrackPaths** | `ObservableCollection<string>` | 4分割サムネイル用楽曲パス | ○ (4分割アート) | ○ (ヘッダーアート) | `UserPlaylist.ThumbnailTrackPaths` |
-| **IsSmartPlaylist** | `bool` | スマートプレイリスト（動的自動抽出）かどうか | ○ (バッジ/アイコン) | ○ | プレイリスト種別 |
-| **FilterRule** | `string?` | スマートプレイリスト抽出条件式（JSON/定義） | - | ○ (編集ダイアログ) | 抽出ルール |
+| **TrackIds** | `IReadOnlyList<TrackId>` | 登録楽曲のTrackId一覧 | - | - | `UserPlaylist.TrackIds` |
+| **TrackPaths** | `List<string>` | 登録楽曲のファイルパス一覧（`playlists.json` 永続化対象） | - | ○ (全曲リスト解決用) | `UserPlaylist.TrackPaths` |
+| **TrackCount** | `int` | 登録曲数 | - | - | `UserPlaylist.TrackCount` |
+| **ThumbnailTrackPaths** | `ObservableCollection<string>` | 2×2分割サムネイル用楽曲パス（最大4件） | ○ | ○ | `UserPlaylist.ThumbnailTrackPaths` |
+| **Thumbnail1〜4** | `string?` | 固定インデクサ回避用の安全なサムネイルパス参照プロパティ | ○ | ○ | `UserPlaylist.Thumbnail1`〜`Thumbnail4` |
+| **CreatedAt / UpdatedAt** | `DateTime` | 作成日時・更新日時 | - | - | `UserPlaylist.CreatedAt`, `UserPlaylist.UpdatedAt` |
+| **TotalDuration / IsSmartPlaylist / FilterRule** | 各種 | 合計再生時間・スマートプレイリスト抽出条件 | - | - | 拡張構想 (#233) |
 
 ## 4. アクション（操作）定義
 
-| アクション名 | 動詞 | トリガー / 操作 | 影響・結果 | 関連コマンド / 実装 |
-| :--- | :--- | :--- | :--- | :--- |
-| **新規作成** | Create | 上部「+ NEW PLAYLIST」ボタン、または右クリック「新規プレイリスト作成」 | 空の新規プレイリストを作成 | `CreatePlaylistCommand` ([PlaylistViewModel.cs](file:///c:/Users/tnish/vs_code_git/Audio_Effector/AudioEffector/Presentation/ViewModels/PlaylistViewModel.cs)) |
-| **シングル詳細表示** | Open | プレイリストカードのクリック | `PlaylistTracksView` へ画面遷移 | `ShowPlaylistCommand` |
-| **一括再生する** | Play | カード右クリック「再生」 | プレイリスト全曲をキューに読み込み再生開始 | `PlayPlaylistCommand` |
-| **シャッフル再生** | Shuffle Play | カード右クリック「シャッフル再生」 | キューをシャッフルして再生開始 | `ShufflePlayPlaylistCommand` |
-| **名前を変更する** | Rename | カード右クリック「名前の変更」、またはインラインクリック | ダイアログまたはインプレース編集で更新 | `RenamePlaylistCommand` |
-| **削除する** | Delete | カード右クリック「削除」 | プレイリストを削除（Ctrl+Zで復元可能） | `DeletePlaylistCommand` |
-| **楽曲を追加する** | Add Track | 楽曲右クリック「プレイリストに追加...」、または楽曲D&D投入 | プレイリストへ楽曲を追加 | `ShowAddToPlaylistDialogCommand` |
-| **楽曲を除外する** | Remove Track | シングルビュー内の楽曲右端「✕」ボタン | プレイリストから該当曲を除外（Undo対応） | `RemoveTrackFromPlaylistCommand` |
-| **M3Uエクスポート** | Export M3U | カード/詳細右クリック「M3Uとしてエクスポート」 | 標準プレイリストファイル（.m3u/.m3u8）を保存 | `ExportPlaylistCommand` |
-| **M3Uインポート** | Import M3U | ツールバー「M3Uインポート」またはM3UファイルのD&D | 外部プレイリストを読み込み新規作成 | `ImportPlaylistCommand` |
-| **クイック検索（絞り込み）**| Filter | サイドバーヘッダー横の虫眼鏡（🔍）アイコン押下しキーワード入力 | サイドバー内のプレイリスト一覧をインクリメンタル絞り込み | `PlaylistFilterText` |
-| **セクション開閉** | Toggle Expander | サイドバーの「プレイリスト」ヘッダークリック | プレイリスト一覧の折りたたみ / 展開 | UIトグル状態 |
-| **一覧へ戻る** | Close | シングルビュー右上の閉じるボタン、または戻るボタン | 直前の表示画面へ戻る | `CloseCommand` / `GoBack` |
+| アクション名 | 動詞 | トリガー / 操作 | 影響・結果 | 状態 | 関連コマンド / 実装 |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **新規作成** | Create | 上部「`+ Create New Playlist`」ボタン | `InputBox` で名称を入力し新規プレイリストを作成・永続化 | 実装済み | `CreatePlaylistCommand` ([PlaylistViewModel.cs](../../AudioEffector/Presentation/ViewModels/PlaylistViewModel.cs)) |
+| **シングル詳細表示** | Open | プレイリストカードの左クリック、または右クリック「開く」 | `PlaylistTracksView` へ遷移し収録曲を非同期ロード（世代番号で競合防止） | 実装済み | `SelectPlaylistCommand` |
+| **一括再生する** | Play | カード右クリック「再生」 | プレイリスト全曲をキューに読み込み先頭から再生開始（空リスト時は無動作） | 実装済み | `PlayPlaylistCommand` |
+| **シャッフル再生** | Shuffle Play | カード右クリック「シャッフル再生」 | シャッフルを有効化してプレイリスト内のランダム曲から再生開始 | 実装済み | `ShufflePlayPlaylistCommand` |
+| **名前を変更する** | Rename | カード右クリック「名前の変更」 | `InputBox` ダイアログ（現在名プリセット）で名称を更新・保存 | 実装済み | `RenamePlaylistCommand` |
+| **削除する** | Delete | カード右上の「`-`」ボタン、または右クリック「削除」 | 確認 `MessageBox` のうえプレイリストを削除・保存 | 実装済み | `DeletePlaylistCommand` |
+| **楽曲を追加する** | Add Track | 楽曲/アルバムの `+` ボタン、または右クリック「プレイリストに追加...」 | `PlaylistSelectionDialog` で選択したプレイリストへ重複を除いて楽曲を追加 | 実装済み | `ShowAddToPlaylistDialogCommand` |
+| **楽曲を除外する** | Remove Track | シングルビュー内の楽曲右端「`-`」ボタン | 確認ダイアログのうえプレイリストから該当曲を除外（お気に入り表示時は確認なしで即解除） | 実装済み | `RemoveFromPlaylistCommand` |
+| **一覧へ戻る** | Close | シングルビュー右上の閉じるボタン「`X`」 | `PlaylistSelectorView`（プレイリスト一覧）へ戻る | 実装済み | `ShowPlaylistSelectorCommand` |
+| **曲順並び替え / M3U入出力 / スマートプレイリスト** | Reorder / M3U / Smart | D&D曲順変更（Domain/App層 `ReorderTrackAsync` は実装済み、UI未接続）、M3Uエクスポート/インポート | プレイリストの高度な編集・外部連携 | 拡張構想 (#233) | [PlaylistApplicationService.cs](../../AudioEffector/Application/ApplicationServices/PlaylistApplicationService.cs) |
 
-## 5. OOUI設計上の課題と今後の指針 (To-Be)
-- **直接操作（D&D投入）とモードレスなサイドバー展開**:
-  従来の「全画面を切り替えてプレイリスト詳細を開く」方式を排し、左サイドバーにプレイリスト一覧を常設展開。目的のリストをクリックするだけで右側ワークスペースに該当曲が即座に表示され、他画面から楽曲を直接ドロップして追加できる操作感を導入する。
-- **サイドバー縦長化防止（独立スクロール ＆ 折りたたみ Expander）**:
-  プレイリスト数が増加しても下部の「設定」や「ツール」項目が押し出されないよう、プレイリスト部分専用の独立スクロールコンテナ（`ScrollViewer` + UI仮想化）を採用。ヘッダークリックによるセクション全体の折りたたみ（Expander）にも対応する。
-- **インラインクイック検索（ヘッダー横の虫眼鏡アイコン）**:
-  多数のプレイリストを保有している場合でも、サイドバーヘッダー横の虫眼鏡アイコンから即座にキーワード絞り込み（リアルタイムフィルター）を行えるようにし、目的のプレイリストへのクイックアクセスを可能とする。
-- **スマートプレイリスト（動的抽出）の導入**: 「最近追加された10アルバム」「再生回数トップ100」等、ルールに基づく自動更新プレイリストを通常プレイリストと統一的に管理・再生可能にする。
-- **誤操作の取り消し（Undo）**: 楽曲の除外や並び替え、誤った削除を `Ctrl+Z` で直前の状態へ安全に取り消せるようにする。
+## 5. 拡張設計指針
+- **UI上でのD&D曲順並び替え接続**: Domain層（`UserPlaylist.Reorder`）およびApplication層（`PlaylistApplicationService.ReorderTrackAsync`）に実装済みの順序変更ロジックを `PlaylistTracksView` のドラッグ＆ドロップ操作へ接続する。
+- **スマートプレイリスト・M3U連携**: 条件抽出による動的プレイリストおよび標準 `.m3u` / `.m3u8` ファイルのインポート・エクスポートへの拡張。

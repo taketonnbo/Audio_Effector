@@ -32,36 +32,42 @@
 +---------------------------------------------------+
 ```
 
+> **構想要素・統合予定に関する注記**: モックアップ内の件数・全クリアバーおよび下部閉じるボタンは構想要素です。また、本独立ダイアログ（`PlayQueueDialog`）は Issue #217 にてミニプレイヤー下部の連結パネルへ統合・置き換え予定です。
+
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-タイトル「再生リスト」、400×500。見出し `Auto` とスクロール領域 `*` の2行。各曲は左40、曲情報 `*`、時間 `Auto` の3列。
+ウィンドウタイトル「再生リスト」、`400×500px`、`WindowStartupLocation="CenterOwner"`。見出し `Auto`（「`再生キュー (Play Queue)`」）とスクロール領域 `*` の2行構成。各曲は左列 `40px`（`30×30px` アート）、曲情報 `*`、再生時間 `Auto` の3列。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | 画面背景 |
+| `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | 画面・行背景 |
 | `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主テキスト |
-| `AlwaysNeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | テーマ共通アクセント |
+| `SecondaryTextForegroundBrush` | <span style="background-color:#A0AEC0;color:#161920;padding:2px 8px;border-radius:3px;">■ #A0AEC0</span> | `#A0AEC0` | アーティスト名 |
+| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 再生時間 |
+| `AlwaysNeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 見出しおよび再生状態アイコン |
 
-見出し18/Bold、アート30×30、曲名14/SemiBold、アーティスト・時間12。
+見出し `18pt / Bold`、アート `30×30px`、曲名 `14pt / SemiBold`、アーティスト・時間 `12pt`。
 
 ## 5. 構成要素と共通コントロール
 
-「再生キュー (Play Queue)」と `PlayQueue` の行を表示する。再生中フラグとアプリの再生状態でアート上に再生／一時停止アイコンを重ねる。行はButtonで、左端3px選択バーは描画しない。
+- 見出し「`再生キュー (Play Queue)`」と `PlayQueue` の楽曲行を表示する。
+- アート画像は `Track.AlbumArt` プロパティへ直接バインドし、`IsPlaying` フラグに応じて半透明黒オーバーレイと再生/一時停止アイコンを重ねる。
+- `PlayerControlViewModel.ShowQueueDialog()` によって単一インスタンス管理され、既に開いている場合は新規生成せず既存ウィンドウをアクティブ化する。
 
 ## 6. アニメーションとインタラクション
 
-行クリックは `PlayFromQueueCommand`。右クリックから再生／停止、キューから削除、お気に入り、プレイリスト追加、プロパティ、ファイル場所。閉じる操作はウィンドウ枠で行う。メインのスライドパネルとは別ウィンドウで、タブを置かない。
+- 行クリックで `PlayFromQueueCommand` を実行。
+- 右クリックコンテキストメニューから「再生 / 停止」「キューから削除」「お気に入りに追加 / 解除」「プレイリストに追加...」「プロパティ」「ファイルの場所を開く」を実行。
+- ウィンドウ内の左ボタンドラッグで `DragMove()` によるウィンドウ移動が可能。
 
 ## 7. パフォーマンス最適化要件
 
-ScrollViewer内のItemsControlで全件描画する構成。UI仮想化の4条件は付いていない。多数の曲を扱う場合の評価ではこの点を含める。アートはAlbumArtLoaderで取得する。
-
-共通要件は[パフォーマンス最適化](../../詳細設計/パフォーマンス最適化.md)に従う。多数の項目の標準指定は `IsVirtualizing=True / VirtualizationMode=Recycling / ScrollUnit=Pixel / CanContentScroll=True`。上記の個別構成と区別して適用範囲を判断する。
+`ScrollViewer` 内の `ItemsControl` で描画する構成であり、UI仮想化の4属性は指定していない（メイン画面の `PlayQueueSidePanel` または Issue #217 の連結キュー移行対象）。
 
 ## 8. 関連Issue・仕様書
 
