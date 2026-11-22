@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -13,9 +13,9 @@ namespace AudioEffector.Presentation.Views;
 /// </summary>
 public partial class MiniPlayerWindow : Window
 {
-    private const int WmSysCommand = 0x0112;
-    private const int ScMaximize = 0xF030;
-    private const int SysCommandMask = 0xFFF0;
+    private const int WM_SYSCOMMAND = 0x0112;
+    private const int SC_MAXIMIZE = 0xF030;
+    private const int SYSCOMMAND_MASK = 0xFFF0;
 
     private readonly ISettingsService _settingsService;
     private MiniPlayerTopmostBehavior _currentBehavior;
@@ -23,6 +23,7 @@ public partial class MiniPlayerWindow : Window
     private double? _lastNormalTop;
     private double? _lastNormalLeft;
     private bool _isClosingOrRestoring;
+    private bool _isRestoringFromMaximize;
     private bool _isClosed;
 
     /// <summary>
@@ -103,7 +104,7 @@ public partial class MiniPlayerWindow : Window
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (msg == WmSysCommand && (unchecked((int)wParam.ToInt64()) & SysCommandMask) == ScMaximize)
+        if (msg == WM_SYSCOMMAND && (unchecked((int)wParam.ToInt64()) & SYSCOMMAND_MASK) == SC_MAXIMIZE)
         {
             handled = true;
             RequestRestoreToMainWindow();
@@ -122,8 +123,8 @@ public partial class MiniPlayerWindow : Window
 
         if (this.WindowState == WindowState.Maximized)
         {
-            this.WindowState = WindowState.Normal;
             RequestRestoreToMainWindow();
+            this.WindowState = WindowState.Normal;
         }
     }
 
@@ -135,6 +136,13 @@ public partial class MiniPlayerWindow : Window
         }
 
         _isClosingOrRestoring = true;
+        _isRestoringFromMaximize = true;
+
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
         Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() =>
         {
             if (!_isClosed)
@@ -202,10 +210,17 @@ public partial class MiniPlayerWindow : Window
             _hwndSource = null;
         }
 
-        // Save window position (prefer current normal-state coordinates; fall back to last recorded normal coordinates if maximized/minimized)
+        // Save window position:
+        // - When closing via maximize-suppression restore flow, prioritize the last recorded normal coordinates.
+        // - Otherwise, use current coordinates when Normal, or fall back to last recorded normal coordinates.
         bool isCurrentNormal = this.WindowState == WindowState.Normal && !double.IsNaN(this.Top) && !double.IsNaN(this.Left);
-        double? topToSave = isCurrentNormal ? this.Top : _lastNormalTop;
-        double? leftToSave = isCurrentNormal ? this.Left : _lastNormalLeft;
+        double? topToSave = _isRestoringFromMaximize
+            ? (_lastNormalTop ?? (isCurrentNormal ? this.Top : null))
+            : (isCurrentNormal ? this.Top : _lastNormalTop);
+        double? leftToSave = _isRestoringFromMaximize
+            ? (_lastNormalLeft ?? (isCurrentNormal ? this.Left : null))
+            : (isCurrentNormal ? this.Left : _lastNormalLeft);
+
         if (topToSave.HasValue && leftToSave.HasValue)
         {
             var settings = _settingsService.LoadSettings();
