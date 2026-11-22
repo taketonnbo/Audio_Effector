@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -80,17 +80,20 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         }
     }
 
-    private async Task EnsureLoadedAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// JSONファイルの初回読み込みを行います。一時的なI/O失敗時は_isLoadedをfalseのまま維持しfalseを返します
+    /// </summary>
+    private async Task<bool> EnsureLoadedAsync(CancellationToken cancellationToken)
     {
         if (_isLoaded)
         {
-            return;
+            return true;
         }
 
         if (!File.Exists(_filePath))
         {
             _isLoaded = true;
-            return;
+            return true;
         }
 
         bool migratedFromLegacy = false;
@@ -131,21 +134,33 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
                                 continue;
                             }
 
-                            var migratedEntry = CreateEntryFromLegacyPath(rawValue.Trim());
+                            // 起動時UIブロック回避のため同期TagLib I/Oは行わず高速移行し、後続のReconcileでメタデータ補完する
+                            var migratedEntry = FavoriteTrackEntry.FromLegacyFilePath(rawValue.Trim());
                             AddWithoutDuplicate(_entries, migratedEntry);
                             migratedFromLegacy = true;
                         }
                     }
                 }
             }
-        }
-        catch
-        {
-            // 読み込みエラー（破損JSON等）時は空コレクションのまま安全に起動
-            _entries.Clear();
-        }
 
-        _isLoaded = true;
+            _isLoaded = true;
+        }
+        catch (OperationCanceledException)
+        {
+            // キャンセル時は _isLoaded を確定させず再スローし、既存データの誤上書きを防止
+            throw;
+        }
+        catch (JsonException)
+        {
+            // 破損JSONの場合は空コレクションとして安全に起動確定
+            _entries.Clear();
+            _isLoaded = true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 一時的なファイルロック・アクセス障害時は _isLoaded を false のまま維持して次回再試行可能にする
+            return false;
+        }
 
         if (migratedFromLegacy)
         {
@@ -153,11 +168,17 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
             {
                 await SaveToFileAsync(cancellationToken).ConfigureAwait(false);
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch
             {
                 // 自動マイグレーション保存失敗時もアプリ起動は継続
             }
         }
+
+        return true;
     }
 
     private async Task SaveToFileAsync(CancellationToken cancellationToken)
@@ -172,43 +193,27 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         string json = JsonSerializer.Serialize(dtos, JSON_OPTIONS);
 
         string tempPath = $"{_filePath}.tmp";
-        await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
-        File.Move(tempPath, _filePath, overwrite: true);
-    }
-
-    private static FavoriteTrackEntry CreateEntryFromLegacyPath(string filePath)
-    {
-        if (File.Exists(filePath))
+        try
+        {
+            await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
+            File.Move(tempPath, _filePath, overwrite: true);
+        }
+        catch
         {
             try
             {
-                using var tagFile = TagLib.File.Create(filePath);
-                string title = !string.IsNullOrWhiteSpace(tagFile.Tag.Title)
-                    ? tagFile.Tag.Title
-                    : Path.GetFileNameWithoutExtension(filePath);
-                string artist = !string.IsNullOrWhiteSpace(tagFile.Tag.FirstPerformer)
-                    ? tagFile.Tag.FirstPerformer
-                    : (!string.IsNullOrWhiteSpace(tagFile.Tag.FirstAlbumArtist) ? tagFile.Tag.FirstAlbumArtist : "Unknown Artist");
-                string album = !string.IsNullOrWhiteSpace(tagFile.Tag.Album)
-                    ? tagFile.Tag.Album
-                    : "Unknown Album";
-
-                return new FavoriteTrackEntry(
-                    title: title,
-                    artist: artist,
-                    album: album,
-                    trackNumber: tagFile.Tag.Track,
-                    durationSeconds: tagFile.Properties.Duration.TotalSeconds,
-                    lastKnownFilePath: filePath,
-                    addedAt: DateTime.Now);
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
             }
             catch
             {
-                // タグ解析失敗時はパスのみ保持し、後のライブラリ照合で補完する
+                // 一時ファイル削除失敗時は元の例外を優先
             }
-        }
 
-        return FavoriteTrackEntry.FromLegacyFilePath(filePath);
+            throw;
+        }
     }
 
     private static void AddWithoutDuplicate(List<FavoriteTrackEntry> list, FavoriteTrackEntry candidate)
@@ -237,10 +242,16 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
     /// <inheritdoc />
     public async Task<IReadOnlyList<FavoriteTrackEntry>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            if (!await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return Array.Empty<FavoriteTrackEntry>();
+            }
+
             return _entries.ToList();
         }
         finally
@@ -252,12 +263,18 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
     /// <inheritdoc />
     public async Task AddOrUpdateAsync(FavoriteTrackEntry entry, CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(entry);
 
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            // 一時的I/O失敗で既存データを読み込めなかった場合は、既存ファイルの上書き破壊を防ぐため保存を行わない
+            if (!await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return;
+            }
+
             int existingIndex = _entries.FindIndex(existing => FavoriteTrackMatcher.AreSameEntry(existing, entry));
             if (existingIndex >= 0)
             {
@@ -288,12 +305,17 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
     /// <inheritdoc />
     public async Task RemoveAsync(Track track, CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(track);
 
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            if (!await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return;
+            }
+
             int removedCount = _entries.RemoveAll(entry => FavoriteTrackMatcher.IsMatchForRemoval(entry, track));
             if (removedCount > 0)
             {
@@ -309,12 +331,12 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
     /// <inheritdoc />
     public async Task SaveAllAsync(IReadOnlyList<FavoriteTrackEntry> entries, CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(entries);
 
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
             _entries.Clear();
             foreach (var entry in entries)
             {
@@ -327,6 +349,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
             }
 
             await SaveToFileAsync(cancellationToken).ConfigureAwait(false);
+            _isLoaded = true;
         }
         finally
         {
@@ -337,12 +360,17 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
     /// <inheritdoc />
     public async Task<bool> ContainsAsync(Track track, CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(track);
 
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            if (!await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
             return FavoriteTrackMatcher.FindBestMatchingEntry(track, _entries) != null;
         }
         finally
