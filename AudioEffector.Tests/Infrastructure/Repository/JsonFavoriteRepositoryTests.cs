@@ -1,15 +1,15 @@
 using System;
 using System.IO;
-using System.Threading;
+using System.Text.Json;
 using System.Threading.Tasks;
-using AudioEffector.Domain.ValueObjects;
+using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Repository;
 using Xunit;
 
 namespace AudioEffector.Tests.Infrastructure.Repository;
 
 /// <summary>
-/// JsonFavoriteRepositoryのお気に入りトラックID永続化およびCRUD操作を検証するテストクラス
+/// JsonFavoriteRepositoryのメタデータベース永続化、旧形式後方互換マイグレーション、および破損JSON耐性を検証するテストクラス
 /// </summary>
 public sealed class JsonFavoriteRepositoryTests : IDisposable
 {
@@ -40,161 +40,213 @@ public sealed class JsonFavoriteRepositoryTests : IDisposable
         }
     }
 
-    /// <summary>
-    /// 新規トラックIDをお気に入りに追加後、ContainsAsyncでtrueが返るかを検証します。
-    /// </summary>
-    [Fact]
-    public async Task AddAsyncおよびContainsAsync_新規トラックID追加_お気に入り登録状態となること()
+    private static Track CreateSampleTrack(
+        string title = "Midnight City",
+        string artist = "M83",
+        string album = "Hurry Up, We're Dreaming",
+        uint trackNumber = 2,
+        double durationSeconds = 243.5,
+        string filePath = @"D:\Music\M83\02_Midnight_City.flac")
     {
-        // Arrange
-        using var sut = CreateSut();
-        var trackId = TrackId.New();
-
-        // Act
-        await sut.AddAsync(trackId);
-        var actual = await sut.ContainsAsync(trackId);
-
-        // Assert
-        Assert.True(actual);
+        return new Track
+        {
+            Title = title,
+            Artist = artist,
+            Album = album,
+            TrackNumber = trackNumber,
+            Duration = TimeSpan.FromSeconds(durationSeconds),
+            FilePath = filePath
+        };
     }
 
     /// <summary>
-    /// 同一のトラックIDを重複して追加した場合でも、二重登録されず安全に1件として保持されるかを検証します。
+    /// 新スキーマの全メタデータプロパティがJSONオブジェクト配列として保存され、別インスタンスから正しく復元されることを検証します。
     /// </summary>
     [Fact]
-    public async Task AddAsync_重複したトラックID追加_二重登録されず正常に完了すること()
+    public async Task AddOrUpdateAsync_新スキーマ保存と別インスタンス再読込_全メタデータプロパティが正しく永続化および復元されること()
     {
         // Arrange
-        using var sut = CreateSut();
-        var trackId = TrackId.New();
+        var addedAt = new DateTime(2026, 11, 22, 23, 50, 0, DateTimeKind.Local);
+        var track = CreateSampleTrack(title: "夜に駆ける", artist: "YOASOBI", album: "THE BOOK");
+        var entry = FavoriteTrackEntry.FromTrack(track, addedAt);
+
+        using (var initialSut = CreateSut())
+        {
+            await initialSut.AddOrUpdateAsync(entry);
+        }
 
         // Act
-        await sut.AddAsync(trackId);
-        await sut.AddAsync(trackId);
-        var favorites = await sut.GetFavoriteIdsAsync();
+        string rawJson = await File.ReadAllTextAsync(_testFilePath);
+        using var document = JsonDocument.Parse(rawJson);
+        using var reloadedSut = CreateSut();
+        var reloaded = await reloadedSut.GetAllAsync();
 
         // Assert
-        Assert.Single(favorites);
-        Assert.Contains(trackId, favorites);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+        var jsonObj = document.RootElement[0];
+        Assert.Equal("夜に駆ける", jsonObj.GetProperty("Title").GetString());
+        Assert.Equal("YOASOBI", jsonObj.GetProperty("Artist").GetString());
+        Assert.Equal("THE BOOK", jsonObj.GetProperty("Album").GetString());
+        Assert.Equal(2u, jsonObj.GetProperty("TrackNumber").GetUInt32());
+        Assert.Equal(243.5, jsonObj.GetProperty("DurationSeconds").GetDouble());
+        Assert.Equal(@"D:\Music\M83\02_Midnight_City.flac", jsonObj.GetProperty("LastKnownFilePath").GetString());
+        Assert.True(jsonObj.TryGetProperty("AddedAt", out _));
+        Assert.Contains("夜に駆ける", rawJson); // 日本語がUnicodeエスケープされず可読出力されること
+
+        Assert.Single(reloaded);
+        Assert.Equal("夜に駆ける", reloaded[0].Title);
+        Assert.Equal("YOASOBI", reloaded[0].Artist);
+        Assert.Equal("THE BOOK", reloaded[0].Album);
+        Assert.Equal(2u, reloaded[0].TrackNumber);
+        Assert.Equal(243.5, reloaded[0].DurationSeconds);
+        Assert.Equal(@"D:\Music\M83\02_Midnight_City.flac", reloaded[0].LastKnownFilePath);
+        Assert.Equal(addedAt, reloaded[0].AddedAt);
     }
 
     /// <summary>
-    /// 登録済みのトラックIDをお気に入りから削除後、ContainsAsyncでfalseが返るかを検証します。
+    /// 同一メタデータの楽曲を別パスで重複登録した場合、二重登録されず1件のまま最新パスへ更新され登録日時が維持されることを検証します。
     /// </summary>
     [Fact]
-    public async Task RemoveAsync_登録済みトラックID削除_お気に入り登録解除状態となること()
+    public async Task AddOrUpdateAsync_同一メタデータの重複登録_二重登録されず最新パスへ更新されること()
     {
         // Arrange
         using var sut = CreateSut();
-        var trackId = TrackId.New();
-        await sut.AddAsync(trackId);
+        var firstAddedAt = new DateTime(2026, 11, 20, 10, 0, 0, DateTimeKind.Local);
+        var first = FavoriteTrackEntry.FromTrack(CreateSampleTrack(filePath: @"C:\Music\02_Midnight_City.mp3"), firstAddedAt);
+        var second = FavoriteTrackEntry.FromTrack(CreateSampleTrack(filePath: @"D:\HiRes\02_Midnight_City.flac"), firstAddedAt.AddDays(1));
 
         // Act
-        await sut.RemoveAsync(trackId);
-        var actual = await sut.ContainsAsync(trackId);
-        var all = await sut.GetFavoriteIdsAsync();
+        await sut.AddOrUpdateAsync(first);
+        await sut.AddOrUpdateAsync(second);
+        var all = await sut.GetAllAsync();
 
         // Assert
-        Assert.False(actual);
-        Assert.Empty(all);
+        Assert.Single(all);
+        Assert.Equal(@"D:\HiRes\02_Midnight_City.flac", all[0].LastKnownFilePath);
+        Assert.Equal(firstAddedAt, all[0].AddedAt);
     }
 
     /// <summary>
-    /// 未登録のトラックIDを削除しようとした場合、例外をスローせず安全に完了することを検証します。
+    /// 登録済み楽曲を別パス（フォルダ移動後）のTrackでContainsAsyncおよびRemoveAsyncに渡しても、メタデータ一致で判定・削除できることを検証します。
     /// </summary>
     [Fact]
-    public async Task RemoveAsync_未登録のトラックID削除_例外をスローせず安全に完了すること()
+    public async Task ContainsAsyncおよびRemoveAsync_フォルダ移動後のトラック指定_メタデータ一致で判定および削除できること()
     {
         // Arrange
         using var sut = CreateSut();
-        var unregisteredId = TrackId.New();
+        var originalTrack = CreateSampleTrack(filePath: @"C:\Old\02_Midnight_City.mp3");
+        var movedTrack = CreateSampleTrack(filePath: @"D:\Moved\MidnightCity.flac");
+        await sut.AddOrUpdateAsync(FavoriteTrackEntry.FromTrack(originalTrack));
 
         // Act
-        var exception = await Record.ExceptionAsync(() => sut.RemoveAsync(unregisteredId));
+        bool containsBeforeRemove = await sut.ContainsAsync(movedTrack);
+        await sut.RemoveAsync(movedTrack);
+        bool containsAfterRemove = await sut.ContainsAsync(movedTrack);
+        var remaining = await sut.GetAllAsync();
+
+        // Assert
+        Assert.True(containsBeforeRemove);
+        Assert.False(containsAfterRemove);
+        Assert.Empty(remaining);
+    }
+
+    /// <summary>
+    /// 未登録のトラックを削除しようとした場合、例外をスローせず安全に完了することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task RemoveAsync_未登録のトラック削除_例外をスローせず安全に完了すること()
+    {
+        // Arrange
+        using var sut = CreateSut();
+        var unregistered = CreateSampleTrack(title: "Not Registered");
+
+        // Act
+        var exception = await Record.ExceptionAsync(() => sut.RemoveAsync(unregistered));
 
         // Assert
         Assert.Null(exception);
     }
 
     /// <summary>
-    /// 複数のトラックIDを追加後、GetFavoriteIdsAsyncですべてのお気に入りIDセットが取得できるかを検証します。
+    /// 従来のファイルパス配列形式（List of string）のfavorites.jsonを読み込んだ際、エラーにならず新スキーマへ自動マイグレーションされることを検証します。
     /// </summary>
     [Fact]
-    public async Task GetFavoriteIdsAsync_複数ID追加後_すべてのお気に入りIDセットを返すこと()
+    public async Task GetAllAsync_旧形式ファイルパス配列JSONの読込_後方互換で読み込まれ新スキーマへ移行されること()
     {
         // Arrange
+        var legacyJson = JsonSerializer.Serialize(new[]
+        {
+            @"D:\Music\ArtistA\Song1.mp3",
+            @"D:\Music\ArtistB\Song2.flac",
+            @"D:\Music\ArtistA\Song1.mp3" // 重複パス
+        });
+        await File.WriteAllTextAsync(_testFilePath, legacyJson);
         using var sut = CreateSut();
-        var id1 = TrackId.New();
-        var id2 = TrackId.New();
-        var id3 = TrackId.New();
-        await sut.AddAsync(id1);
-        await sut.AddAsync(id2);
-        await sut.AddAsync(id3);
 
         // Act
-        var actual = await sut.GetFavoriteIdsAsync();
+        var entries = await sut.GetAllAsync();
+        string migratedJson = await File.ReadAllTextAsync(_testFilePath);
+        using var migratedDoc = JsonDocument.Parse(migratedJson);
 
         // Assert
-        Assert.Equal(3, actual.Count);
-        Assert.Contains(id1, actual);
-        Assert.Contains(id2, actual);
-        Assert.Contains(id3, actual);
+        Assert.Equal(2, entries.Count);
+        Assert.Equal(@"D:\Music\ArtistA\Song1.mp3", entries[0].LastKnownFilePath);
+        Assert.Equal(@"D:\Music\ArtistB\Song2.flac", entries[1].LastKnownFilePath);
+        Assert.Equal(JsonValueKind.Array, migratedDoc.RootElement.ValueKind);
+        Assert.Equal(JsonValueKind.Object, migratedDoc.RootElement[0].ValueKind);
+        Assert.Equal(@"D:\Music\ArtistA\Song1.mp3", migratedDoc.RootElement[0].GetProperty("LastKnownFilePath").GetString());
     }
 
     /// <summary>
-    /// 保存先ファイルが存在しない初期状態で、GetFavoriteIdsAsyncが空のセットを返すかを検証します。
+    /// 旧JsonFavoriteRepositoryが保存したGuid配列形式が存在してもクラッシュせず安全にスキップされることを検証します。
     /// </summary>
     [Fact]
-    public async Task GetFavoriteIdsAsync_初期状態_空のセットを返すこと()
+    public async Task GetAllAsync_旧Guid配列JSONの読込_クラッシュせず安全に空リストとして扱われること()
+    {
+        // Arrange
+        var legacyGuidJson = JsonSerializer.Serialize(new[] { Guid.NewGuid(), Guid.NewGuid() });
+        await File.WriteAllTextAsync(_testFilePath, legacyGuidJson);
+        using var sut = CreateSut();
+
+        // Act
+        var entries = await sut.GetAllAsync();
+
+        // Assert
+        Assert.Empty(entries);
+    }
+
+    /// <summary>
+    /// 保存先ファイルが存在しない初期状態で、GetAllAsyncが空のリストを返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetAllAsync_初期状態_空のリストを返すこと()
     {
         // Arrange
         using var sut = CreateSut();
 
         // Act
-        var actual = await sut.GetFavoriteIdsAsync();
+        var actual = await sut.GetAllAsync();
 
         // Assert
         Assert.Empty(actual);
     }
 
     /// <summary>
-    /// インスタンス破棄後に別インスタンスで同一ファイルを再読み込みした際、お気に入りIDが正しく復元されるかを検証します。
+    /// 破損したJSONファイルや空ファイルが存在する場合でも、例外をスローせず空コレクションとして安全に起動することを検証します。
     /// </summary>
-    [Fact]
-    public async Task 永続化検証_別インスタンスで再読込_ファイルからお気に入りIDが復元されること()
+    [Theory]
+    [InlineData("{ broken favorite json }")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("{\"unexpected\": true}")]
+    public async Task GetAllAsync_破損JSONや空ファイルの場合_エラーにならず空リストで起動すること(string invalidContent)
     {
         // Arrange
-        var id1 = TrackId.New();
-        var id2 = TrackId.New();
-
-        using (var initialSut = CreateSut())
-        {
-            await initialSut.AddAsync(id1);
-            await initialSut.AddAsync(id2);
-        }
-
-        // Act
-        using var newSut = CreateSut();
-        var actual = await newSut.GetFavoriteIdsAsync();
-
-        // Assert
-        Assert.Equal(2, actual.Count);
-        Assert.Contains(id1, actual);
-        Assert.Contains(id2, actual);
-    }
-
-    /// <summary>
-    /// 破損したJSONファイルが存在する場合でも、例外をスローせず空セットとして安全に起動することを検証します。
-    /// </summary>
-    [Fact]
-    public async Task 初期化_破損したJSONファイルが存在する場合_エラーにならず空セットで起動すること()
-    {
-        // Arrange
-        await File.WriteAllTextAsync(_testFilePath, "{ broken favorite json }");
+        await File.WriteAllTextAsync(_testFilePath, invalidContent);
         using var sut = CreateSut();
 
         // Act
-        var actual = await sut.GetFavoriteIdsAsync();
+        var actual = await sut.GetAllAsync();
 
         // Assert
         Assert.Empty(actual);
