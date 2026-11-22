@@ -46,6 +46,7 @@ git diff develop...HEAD
 - **アーキテクチャ・規約**: `設計/詳細設計/アーキテクチャ/アーキテクチャ全体設計書.md`, `設計/詳細設計/アーキテクチャ/静的解析およびコーディング規約.md`
 - **パフォーマンス**: `設計/詳細設計/パフォーマンス最適化.md`
 - **UI / デザイン / バインディング**: `設計/デザインシステム/01_デザイントークン仕様書.md`, `.agents/rules/ui_spec_rules.md`, `設計/詳細設計/XAMLバインディング検証基盤.md`, および対象画面の `設計/画面設計/<画面名>/*UI仕様書.md`
+- **仕様書同期・メンテナンス**: GitHub Wiki の `仕様書同期・メンテナンスルール` および `設計/spec_map.json`
 
 ---
 
@@ -73,6 +74,10 @@ dotnet test AudioEffector.Tests\AudioEffector.Tests.csproj
 
 # 3. XAML 変更を含む場合は静的バインディング・固定インデクサ検証
 python tools/check_equivalence.py --indexer
+
+# 4. 仕様書同期チェック（変更コードに対応する設計仕様書の更新漏れ確認）
+python tools/check_spec_sync.py --base origin/develop
+# ※ PR 対象ブランチをチェックアウトしていない場合は、PR の変更ファイル一覧を --files で渡して確認可能
 ```
 
 > **注意**: テストがバックグラウンド実行になった場合は長時間放置せずログ進行を監視し、ハング時は速やかに中断して原因を報告します。また、未コミット変更がある状態では勝手に `git checkout` を行わないでください。
@@ -99,12 +104,12 @@ python tools/check_equivalence.py --indexer
 3. **ロジック・コーディング規約・XML コメント**: Null 安全、ソート昇降順の対称性（タイブレーカー）、`public` 要素への日本語 XML コメント（句点なし・`<param>`/`<returns>` 完備）、命名規則。
 4. **パフォーマンス最適化**: `CollectionChanged` 連続発火のコアレッシング、検索デバウンス、親 `ScrollViewer` 禁止＋UI 仮想化 4 属性（`IsVirtualizing`, `VirtualizationMode="Recycling"`, `ScrollUnit="Pixel"`, `CanContentScroll`）、非表示パネルの `Visibility="Collapsed"`、高負荷エフェクト禁止、画像 `Freeze()`、安全な `Dispatcher` ガード。
 5. **UI / XAML・テーマ・インタラクション**: ダーク/ライト両テーマ視認性（ハードコード色禁止、`AlwaysNeonCyanBrush` 適用）、列ヘッダーとスクロールバーによる幅ズレ、`MouseDoubleClick` の `OriginalSource` 判定、`CommandManager.InvalidateRequerySuggested()`、実データ結合。
-6. **テスト品質・仕様書同期**: 4 層対称配置、`sut` 命名、AAA コメント、日本語テスト名・XML コメント、`using` による確実な破棄、STA スレッドの `InvokeShutdown()`、不足ケース（境界値・`Dispose` 後・実 View の `BindingErrorTraceListener` 検証）、仕様書との差分明記。
+6. **テスト品質・仕様書同期**: 4 層対称配置、`sut` 命名、AAA コメント、日本語テスト名・XML コメント、`using` による確実な破棄、STA スレッドの `InvokeShutdown()`、不足ケース（境界値・`Dispose` 後・実 View の `BindingErrorTraceListener` 検証）、**仕様書同期（`check_spec_sync.py` で検出された主要仕様書が更新されているか、仕様・UI・永続化・アーキテクチャ変更を伴うのに `設計/` が未更新でないか、PR 本文に同期結果・更新不要理由・スコープ差分が明記されているか）**。
 
 #### 重要度基準
 - 🔴 **Critical**: マージブロッカー（クラッシュ、UI フリーズ、状態破綻・イベント多重発火、データ破損）
 - 🟠 **High**: 重大な不具合・機能欠損（実アプリ上で動作しない、誤操作による意図しない挙動、明確な仕様違反）
-- 🟡 **Medium**: 品質・UX・保守性・運用規約改善（**コミット粒度の過大・単一コミット集約**、テーマ視認性低下、レイアウトズレ、デバウンス欠如、ソート不安定、`CanExecute` 更新漏れ）
+- 🟡 **Medium**: 品質・UX・保守性・運用規約改善（**コミット粒度の過大・単一コミット集約**、**仕様・UI・永続化変更に伴う該当仕様書の未更新**、テーマ視認性低下、レイアウトズレ、デバウンス欠如、ソート不安定、`CanExecute` 更新漏れ）
 - 🟢 **Low**: 軽微・改善提案（テスト拡充、`using` 化、文言・規約微調整）
 
 各指摘には必ず **根拠（ファイルパス・行番号またはコミット SHA・具体的な実行経路/再現条件）** と **具体的な改善案** を記載します。
