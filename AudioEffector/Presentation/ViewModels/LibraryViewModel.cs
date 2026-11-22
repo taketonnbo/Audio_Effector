@@ -24,9 +24,11 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     private readonly LibraryApplicationService _libraryService;
     private readonly IAudioService _audioService;
     private readonly ISettingsService _settingsService;
+    private readonly Func<string, Track> _trackMetadataLoader;
     private readonly object _favoritesLock = new();
     private readonly object _favoritesSaveLock = new();
     private readonly List<FavoriteTrackEntry> _favoriteEntries = new();
+    private readonly Dictionary<string, DateTime> _trackLastWriteTimes = new(StringComparer.OrdinalIgnoreCase);
     private long _favoritesVersion;
     private long _lastSavedFavoritesVersion;
 
@@ -34,6 +36,8 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     private Album? _selectedAlbum;
     private Album? _expandedAlbum;
     private string _searchKeyword = string.Empty;
+    private string? _currentLibraryPath;
+    private LibrarySyncResult? _lastSyncResult;
     private bool _isLoading;
     private double _scanProgress;
     private bool _isGridView = true;
@@ -104,7 +108,13 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     public bool IsLoading
     {
         get => _isLoading;
-        set => SetProperty(ref _isLoading, value);
+        set
+        {
+            if (SetProperty(ref _isLoading, value))
+            {
+                OnPropertyChanged(nameof(IsScanning));
+            }
+        }
     }
 
     /// <summary>
@@ -123,6 +133,24 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     {
         get => _scanProgress;
         set => SetProperty(ref _scanProgress, value);
+    }
+
+    /// <summary>
+    /// 現在スキャン対象となっているライブラリフォルダパス
+    /// </summary>
+    public string? CurrentLibraryPath
+    {
+        get => _currentLibraryPath;
+        private set => SetProperty(ref _currentLibraryPath, value);
+    }
+
+    /// <summary>
+    /// 直近のライブラリスキャン・差分同期結果
+    /// </summary>
+    public LibrarySyncResult? LastSyncResult
+    {
+        get => _lastSyncResult;
+        private set => SetProperty(ref _lastSyncResult, value);
     }
 
     /// <summary>
@@ -246,6 +274,9 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     /// <summary>アルバム削除通知イベント</summary>
     public event Action<Album>? AlbumRemoved;
 
+    /// <summary>ライブラリスキャン・差分同期完了通知イベント</summary>
+    public event Action<LibrarySyncResult>? LibrarySynced;
+
     /// <summary>
     /// LibraryViewModelを初期化します
     /// </summary>
@@ -253,16 +284,37 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     /// <param name="audioService">再生制御サービス</param>
     /// <param name="settingsService">設定サービス</param>
     /// <param name="playlistViewModel">プレイリスト専用ViewModel</param>
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
     public LibraryViewModel(
         LibraryApplicationService libraryService,
         IAudioService audioService,
         ISettingsService settingsService,
         PlaylistViewModel? playlistViewModel = null)
+        : this(libraryService, audioService, settingsService, playlistViewModel, trackMetadataLoader: null)
+    {
+    }
+
+    /// <summary>
+    /// カスタムメタデータローダーを指定してLibraryViewModelを初期化します（主に単体テスト用）
+    /// </summary>
+    /// <param name="libraryService">ライブラリアプリケーションサービス</param>
+    /// <param name="audioService">再生制御サービス</param>
+    /// <param name="settingsService">設定サービス</param>
+    /// <param name="playlistViewModel">プレイリスト専用ViewModel</param>
+    /// <param name="trackMetadataLoader">ファイルパスからTrackを生成するメタデータローダー（省略時はTagLibを使用）</param>
+    public LibraryViewModel(
+        LibraryApplicationService libraryService,
+        IAudioService audioService,
+        ISettingsService settingsService,
+        PlaylistViewModel? playlistViewModel,
+        Func<string, Track>? trackMetadataLoader)
     {
         _libraryService = libraryService ?? throw new ArgumentNullException(nameof(libraryService));
         _audioService = audioService ?? throw new ArgumentNullException(nameof(audioService));
         _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
+        _trackMetadataLoader = trackMetadataLoader ?? ExtractTrackFromFile;
         Playlist = playlistViewModel;
+        _currentLibraryPath = _settingsService.LoadSettings()?.LastLibraryPath;
 
         // お気に入りの読み込み
         var loadedFavorites = _libraryService.LoadFavoriteEntries();
@@ -312,24 +364,88 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 指定されたフォルダー（または保存されたパス）からライブラリをロードします。
+    /// 指定されたフォルダー（または保存されたパス）からライブラリをロード・差分同期します。
     /// </summary>
-    /// <param name="rootFolder">スキャン対象フォルダーパス（省略時は設定から読み込み）</param>
+    /// <param name="rootFolder">スキャン対象フォルダーパス（省略時は現在のパスまたは設定から読み込み）</param>
     public async void LoadLibrary(string? rootFolder = null)
     {
-        if (string.IsNullOrEmpty(rootFolder))
+        try
+        {
+            await LoadLibraryAsync(rootFolder);
+        }
+        catch (OperationCanceledException)
+        {
+            // キャンセル時は正常終了
+        }
+    }
+
+    /// <summary>
+    /// 現在設定されているライブラリフォルダを再スキャンし、追加・削除・更新された楽曲およびアルバムを差分同期します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>差分同期の実行結果</returns>
+    public Task<LibrarySyncResult> RescanCurrentFolderAsync(CancellationToken cancellationToken = default)
+    {
+        string? targetFolder = !string.IsNullOrWhiteSpace(CurrentLibraryPath)
+            ? CurrentLibraryPath
+            : _settingsService.LoadSettings()?.LastLibraryPath;
+        return LoadLibraryAsync(targetFolder, cancellationToken);
+    }
+
+    /// <summary>
+    /// 指定されたフォルダー（または保存されたパス）からライブラリを非同期でスキャンし、既存コレクションと差分同期します。
+    /// </summary>
+    /// <param name="rootFolder">スキャン対象フォルダーパス（省略時は現在のパスまたは設定から読み込み）</param>
+    /// <param name="cancellationToken">外部キャンセレーショントークン</param>
+    /// <returns>差分同期の実行結果</returns>
+    public async Task<LibrarySyncResult> LoadLibraryAsync(string? rootFolder = null, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(rootFolder))
         {
             var settings = _settingsService.LoadSettings();
-            rootFolder = settings.LastLibraryPath;
+            rootFolder = !string.IsNullOrWhiteSpace( settings?.LastLibraryPath)
+                ? settings.LastLibraryPath
+                : CurrentLibraryPath;
         }
 
-        if (string.IsNullOrEmpty(rootFolder) || !Directory.Exists(rootFolder)) return;
+        if (string.IsNullOrWhiteSpace(rootFolder) || !Directory.Exists(rootFolder))
+        {
+            return new LibrarySyncResult(0, 0, 0, Tracks.Count, Albums.Count);
+        }
 
-        _loadCts?.Cancel();
-        _loadCts = new CancellationTokenSource();
-        var token = _loadCts.Token;
+        var previousCts = _loadCts;
+        previousCts?.Cancel();
+        previousCts?.Dispose();
 
+        var currentCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _loadCts = currentCts;
+        var token = currentCts.Token;
+
+        CurrentLibraryPath = rootFolder;
+        ScanProgress = 0.0;
         IsLoading = true;
+
+        bool detectModified = _settingsService.LoadSettings()?.DetectMetadataChangesOnRescan ?? false;
+
+        Dictionary<string, Track> existingTracksByPath = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, DateTime> previousWriteTimes = new(StringComparer.OrdinalIgnoreCase);
+        RunOnUiThread(() =>
+        {
+            foreach (var track in Tracks)
+            {
+                if (!string.IsNullOrWhiteSpace(track.FilePath))
+                {
+                    existingTracksByPath.TryAdd(track.FilePath, track);
+                }
+            }
+
+            foreach (var kvp in _trackLastWriteTimes)
+            {
+                previousWriteTimes[kvp.Key] = kvp.Value;
+            }
+        });
+
+        LibrarySyncResult syncResult = new(0, 0, 0, Tracks.Count, Albums.Count);
 
         try
         {
@@ -351,85 +467,175 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
 
                 if (token.IsCancellationRequested) return;
 
-                var scannedTracks = new System.Collections.Concurrent.ConcurrentBag<Track>();
+                var diskFileSet = new HashSet<string>(files, StringComparer.OrdinalIgnoreCase);
+                var removedTracks = existingTracksByPath.Values
+                    .Where(t => !diskFileSet.Contains(t.FilePath))
+                    .ToList();
 
-                Parallel.ForEach(files, (file, loopState) =>
+                var addedPaths = new List<string>();
+                var modifiedPaths = new List<string>();
+                var currentWriteTimes = new Dictionary<string, DateTime>(files.Count, StringComparer.OrdinalIgnoreCase);
+
+                foreach (string file in files)
                 {
-                    if (token.IsCancellationRequested)
+                    DateTime lastWriteUtc = SafeGetLastWriteTimeUtc(file);
+                    currentWriteTimes[file] = lastWriteUtc;
+
+                    if (!existingTracksByPath.ContainsKey(file))
                     {
-                        loopState.Stop();
-                        return;
+                        addedPaths.Add(file);
                     }
-
-                    var track = new Track
+                    else if (detectModified &&
+                             (!previousWriteTimes.TryGetValue(file, out DateTime prevUtc) || prevUtc != lastWriteUtc))
                     {
-                        FilePath = file,
-                        Title = Path.GetFileNameWithoutExtension(file),
-                        Artist = "Unknown Artist",
-                        Album = "Unknown Album"
-                    };
-
-                    try
-                    {
-                        using var tfile = TagLib.File.Create(file);
-                        var (title, artist, album, genre) = TagLibMetadataExtractor.ExtractDisplayTags(tfile.Tag, file);
-                        track.Title = title;
-                        track.Artist = artist;
-                        track.Album = album;
-                        track.Duration = tfile.Properties.Duration;
-                        track.Year = tfile.Tag.Year;
-                        track.TrackNumber = tfile.Tag.Track;
-                        track.Genre = genre;
-
-                        track.Bitrate = tfile.Properties.AudioBitrate;
-                        track.SampleRate = tfile.Properties.AudioSampleRate;
-                        track.BitsPerSample = tfile.Properties.BitsPerSample;
-                        string ext = Path.GetExtension(file).ToLower(System.Globalization.CultureInfo.InvariantCulture);
-                        track.Format = ext.TrimStart('.').ToUpper(System.Globalization.CultureInfo.InvariantCulture);
-
-                        track.IsLossless = LosslessAudioExtensions.Contains(ext);
-                        track.IsHiRes = track.SampleRate > 48000 || track.BitsPerSample > 16;
+                        modifiedPaths.Add(file);
                     }
-                    catch { }
-
-                    scannedTracks.Add(track);
-                });
+                }
 
                 if (token.IsCancellationRequested) return;
 
-                var allTrackList = scannedTracks.ToList();
-                ReconcileFavoriteEntries(allTrackList, cancellationToken: token);
+                var pathsToParse = new List<string>(addedPaths.Count + modifiedPaths.Count);
+                pathsToParse.AddRange(addedPaths);
+                pathsToParse.AddRange(modifiedPaths);
+
+                var parsedTracksByPath = new System.Collections.Concurrent.ConcurrentDictionary<string, Track>(StringComparer.OrdinalIgnoreCase);
+
+                if (pathsToParse.Count > 0)
+                {
+                    int totalToParse = pathsToParse.Count;
+                    int processedCount = 0;
+                    long lastReportTick = Environment.TickCount64;
+
+                    Parallel.ForEach(pathsToParse, (file, loopState) =>
+                    {
+                        if (token.IsCancellationRequested)
+                        {
+                            loopState.Stop();
+                            return;
+                        }
+
+                        var parsed = _trackMetadataLoader(file);
+                        parsedTracksByPath[file] = parsed;
+
+                        int current = Interlocked.Increment(ref processedCount);
+                        long nowTick = Environment.TickCount64;
+                        long prevTick = Interlocked.Read(ref lastReportTick);
+                        if (current == totalToParse || nowTick - prevTick >= 40)
+                        {
+                            Interlocked.Exchange(ref lastReportTick, nowTick);
+                            double progressValue = (double)current / totalToParse;
+                            RunOnUiThread(() =>
+                            {
+                                if (!token.IsCancellationRequested)
+                                {
+                                    ScanProgress = progressValue;
+                                }
+                            });
+                        }
+                    });
+                }
+                else
+                {
+                    RunOnUiThread(() =>
+                    {
+                        if (!token.IsCancellationRequested)
+                        {
+                            ScanProgress = 1.0;
+                        }
+                    });
+                }
 
                 if (token.IsCancellationRequested) return;
+
+                var addedTracks = new List<Track>(addedPaths.Count);
+                foreach (string path in addedPaths)
+                {
+                    if (parsedTracksByPath.TryGetValue(path, out var addedTrack))
+                    {
+                        addedTracks.Add(addedTrack);
+                    }
+                }
+
+                long? favoriteSaveVersion = null;
 
                 RunOnUiThread(() =>
                 {
                     if (token.IsCancellationRequested) return;
 
-                    Tracks.Clear();
-                    foreach (var t in allTrackList)
+                    // 1. 削除されたトラックを除去
+                    foreach (var removed in removedTracks)
                     {
-                        Tracks.Add(t);
-                    }
-
-                    var grouped = allTrackList.GroupBy(t => t.Album);
-                    Albums.Clear();
-                    foreach (var g in grouped)
-                    {
-                        uint albumYear = g.Select(t => t.Year).Where(y => y > 0).GroupBy(y => y).OrderByDescending(z => z.Count()).FirstOrDefault()?.Key ?? 0;
-
-                        Albums.Add(new Album
+                        Tracks.Remove(removed);
+                        if (ReferenceEquals(SelectedTrack, removed))
                         {
-                            Title = g.Key,
-                            Artist = g.First().Artist,
-                            CoverImage = null,
-                            Tracks = g.OrderBy(t => t.TrackNumber).ThenBy(t => t.Title).ToList(),
-                            Year = albumYear
-                        });
+                            SelectedTrack = null;
+                        }
+                        TrackRemoved?.Invoke(removed);
                     }
 
-                    SortLibrary();
+                    // 2. 更新された既存トラックのメタデータをインプレース反映（インスタンス参照を維持）
+                    int updatedCount = 0;
+                    foreach (string modPath in modifiedPaths)
+                    {
+                        if (existingTracksByPath.TryGetValue(modPath, out var existingTrack) &&
+                            parsedTracksByPath.TryGetValue(modPath, out var parsedTrack))
+                        {
+                            CopyTrackMetadata(parsedTrack, existingTrack);
+                            updatedCount++;
+                        }
+                    }
+
+                    // 3. 新規追加されたトラックを登録
+                    foreach (var added in addedTracks)
+                    {
+                        Tracks.Add(added);
+                    }
+
+                    // 4. ファイル更新日時キャッシュを同期（実際に解析した時点のタイムスタンプのみを更新し、スキップ時は前回解析日時を維持）
+                    foreach (var removed in removedTracks)
+                    {
+                        _trackLastWriteTimes.Remove(removed.FilePath);
+                    }
+                    foreach (string addedPath in addedPaths)
+                    {
+                        if (currentWriteTimes.TryGetValue(addedPath, out DateTime writeUtc))
+                        {
+                            _trackLastWriteTimes[addedPath] = writeUtc;
+                        }
+                    }
+                    foreach (string modPath in modifiedPaths)
+                    {
+                        if (currentWriteTimes.TryGetValue(modPath, out DateTime writeUtc))
+                        {
+                            _trackLastWriteTimes[modPath] = writeUtc;
+                        }
+                    }
+
+                    // 5. アルバムコレクションを差分同期（既存Albumインスタンスを維持しつつ追加・削除・空アルバム除去）
+                    bool hasTrackDiff = removedTracks.Count > 0 || addedTracks.Count > 0 || updatedCount > 0 || (Tracks.Count > 0 && Albums.Count == 0);
+                    if (hasTrackDiff)
+                    {
+                        SyncAlbumsFromTracks();
+                    }
+
+                    // 6. お気に入り状態の再照合（フォルダ移動・パス変更時もメタデータ一致でパスを自動更新）
+                    favoriteSaveVersion = ReconcileFavoritesInMemory(Tracks.ToList(), token);
+
+                    ScanProgress = 1.0;
+                    syncResult = new LibrarySyncResult(
+                        AddedCount: addedTracks.Count,
+                        RemovedCount: removedTracks.Count,
+                        UpdatedCount: updatedCount,
+                        TotalTrackCount: Tracks.Count,
+                        TotalAlbumCount: Albums.Count);
+                    LastSyncResult = syncResult;
+                    LibrarySynced?.Invoke(syncResult);
                 });
+
+                if (favoriteSaveVersion.HasValue && !token.IsCancellationRequested)
+                {
+                    PersistFavorites(favoriteSaveVersion.Value, token);
+                }
             }, token);
         }
         catch (OperationCanceledException)
@@ -438,11 +644,215 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         }
         finally
         {
-            if (!token.IsCancellationRequested)
+            if (ReferenceEquals(_loadCts, currentCts))
             {
                 IsLoading = false;
             }
+            currentCts.Dispose();
+            if (ReferenceEquals(_loadCts, currentCts))
+            {
+                _loadCts = null;
+            }
         }
+
+        return syncResult;
+    }
+
+    private static Track ExtractTrackFromFile(string file)
+    {
+        var track = new Track
+        {
+            FilePath = file,
+            Title = Path.GetFileNameWithoutExtension(file),
+            Artist = "Unknown Artist",
+            Album = "Unknown Album"
+        };
+
+        try
+        {
+            using var tfile = TagLib.File.Create(file);
+            var (title, artist, album, genre) = TagLibMetadataExtractor.ExtractDisplayTags(tfile.Tag, file);
+            track.Title = title;
+            track.Artist = artist;
+            track.Album = album;
+            track.Duration = tfile.Properties.Duration;
+            track.Year = tfile.Tag.Year;
+            track.TrackNumber = tfile.Tag.Track;
+            track.Genre = genre;
+
+            track.Bitrate = tfile.Properties.AudioBitrate;
+            track.SampleRate = tfile.Properties.AudioSampleRate;
+            track.BitsPerSample = tfile.Properties.BitsPerSample;
+            string ext = Path.GetExtension(file).ToLower(System.Globalization.CultureInfo.InvariantCulture);
+            track.Format = ext.TrimStart('.').ToUpper(System.Globalization.CultureInfo.InvariantCulture);
+
+            track.IsLossless = LosslessAudioExtensions.Contains(ext);
+            track.IsHiRes = track.SampleRate > 48000 || track.BitsPerSample > 16;
+        }
+        catch
+        {
+            // タグ読み込み失敗時はファイル名ベースの既定値を維持
+        }
+
+        return track;
+    }
+
+    private static DateTime SafeGetLastWriteTimeUtc(string filePath)
+    {
+        try
+        {
+            return File.GetLastWriteTimeUtc(filePath);
+        }
+        catch
+        {
+            return DateTime.MinValue;
+        }
+    }
+
+    private static void CopyTrackMetadata(Track source, Track destination)
+    {
+        destination.Title = source.Title;
+        destination.Artist = source.Artist;
+        destination.Album = source.Album;
+        destination.Duration = source.Duration;
+        destination.Year = source.Year;
+        destination.TrackNumber = source.TrackNumber;
+        destination.Genre = source.Genre;
+        destination.Bitrate = source.Bitrate;
+        destination.SampleRate = source.SampleRate;
+        destination.BitsPerSample = source.BitsPerSample;
+        destination.Format = source.Format;
+        destination.IsLossless = source.IsLossless;
+        destination.IsHiRes = source.IsHiRes;
+    }
+
+    private void SyncAlbumsFromTracks()
+    {
+        var grouped = Tracks
+            .GroupBy(t => string.IsNullOrWhiteSpace(t.Album) ? "Unknown Album" : t.Album, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var existingAlbumsByTitle = new Dictionary<string, Album>(Albums.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var album in Albums)
+        {
+            existingAlbumsByTitle.TryAdd(album.Title, album);
+        }
+
+        var activeAlbumTitles = new HashSet<string>(grouped.Select(g => g.Key), StringComparer.OrdinalIgnoreCase);
+
+        // 収録曲がゼロになったアルバムを除去
+        var albumsToRemove = Albums.Where(a => !activeAlbumTitles.Contains(a.Title)).ToList();
+        foreach (var emptyAlbum in albumsToRemove)
+        {
+            if (ReferenceEquals(ExpandedAlbum, emptyAlbum))
+            {
+                CloseExpandedAlbum();
+            }
+            if (ReferenceEquals(SelectedAlbum, emptyAlbum))
+            {
+                SelectedAlbum = null;
+            }
+            Albums.Remove(emptyAlbum);
+            AlbumRemoved?.Invoke(emptyAlbum);
+        }
+
+        // 既存アルバムの更新および新規アルバムの追加
+        foreach (var group in grouped)
+        {
+            var orderedTracks = group
+                .OrderBy(t => t.TrackNumber)
+                .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            uint albumYear = orderedTracks
+                .Select(t => t.Year)
+                .Where(y => y > 0)
+                .GroupBy(y => y)
+                .OrderByDescending(z => z.Count())
+                .FirstOrDefault()?.Key ?? 0;
+            string representativeArtist = orderedTracks[0].Artist;
+
+            if (existingAlbumsByTitle.TryGetValue(group.Key, out var existingAlbum))
+            {
+                existingAlbum.Title = group.Key;
+                existingAlbum.Artist = representativeArtist;
+                existingAlbum.Year = albumYear;
+                if (!AreTrackListsIdentical(existingAlbum.Tracks, orderedTracks))
+                {
+                    existingAlbum.Tracks = orderedTracks;
+                }
+            }
+            else
+            {
+                Albums.Add(new Album
+                {
+                    Title = group.Key,
+                    Artist = representativeArtist,
+                    CoverImage = null,
+                    Tracks = orderedTracks,
+                    Year = albumYear
+                });
+            }
+        }
+
+        SortAlbumsIfOrderChanged();
+    }
+
+    private static bool AreTrackListsIdentical(List<Track> current, List<Track> target)
+    {
+        if (current.Count != target.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < current.Count; i++)
+        {
+            if (!ReferenceEquals(current[i], target[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void SortAlbumsIfOrderChanged()
+    {
+        if (Albums.Count <= 1)
+        {
+            return;
+        }
+
+        var sorted = GetSortedAlbumList(Albums);
+        bool orderChanged = false;
+        for (int i = 0; i < Albums.Count; i++)
+        {
+            if (!ReferenceEquals(Albums[i], sorted[i]))
+            {
+                orderChanged = true;
+                break;
+            }
+        }
+
+        if (!orderChanged)
+        {
+            return;
+        }
+
+        Albums.Clear();
+        foreach (var album in sorted)
+        {
+            Albums.Add(album);
+        }
+    }
+
+    private List<Album> GetSortedAlbumList(IEnumerable<Album> source)
+    {
+        return SelectedSortOption switch
+        {
+            "Artist" => IsAscending ? source.OrderBy(a => a.Artist).ToList() : source.OrderByDescending(a => a.Artist).ToList(),
+            "Album" => IsAscending ? source.OrderBy(a => a.Title).ToList() : source.OrderByDescending(a => a.Title).ToList(),
+            _ => source.ToList()
+        };
     }
 
     /// <summary>
@@ -749,6 +1159,28 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         Func<string, Track?>? fallbackTrackLoader = null,
         CancellationToken cancellationToken = default)
     {
+        var (result, targetVersion) = ReconcileFavoritesCore(tracks, fallbackTrackLoader, cancellationToken);
+        if (targetVersion.HasValue)
+        {
+            PersistFavorites(targetVersion.Value, cancellationToken);
+        }
+
+        return result;
+    }
+
+    private long? ReconcileFavoritesInMemory(
+        IReadOnlyList<Track> tracks,
+        CancellationToken cancellationToken = default)
+    {
+        var (_, targetVersion) = ReconcileFavoritesCore(tracks, fallbackTrackLoader: null, cancellationToken);
+        return targetVersion;
+    }
+
+    private (FavoriteReconciliationResult Result, long? TargetVersion) ReconcileFavoritesCore(
+        IReadOnlyList<Track> tracks,
+        Func<string, Track?>? fallbackTrackLoader = null,
+        CancellationToken cancellationToken = default)
+    {
         List<FavoriteTrackEntry> snapshot;
         lock (_favoritesLock)
         {
@@ -756,9 +1188,9 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         }
 
         var result = FavoriteTrackMatcher.Reconcile(snapshot, tracks, fallbackTrackLoader);
+        long? targetVersion = null;
         if (result.HasEntryChanges && !cancellationToken.IsCancellationRequested)
         {
-            long? targetVersion = null;
             lock (_favoritesLock)
             {
                 if (!cancellationToken.IsCancellationRequested)
@@ -783,14 +1215,9 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     }
                 }
             }
-
-            if (targetVersion.HasValue)
-            {
-                PersistFavorites(targetVersion.Value, cancellationToken);
-            }
         }
 
-        return result;
+        return (result, targetVersion);
     }
 
     private void RemoveFavoriteEntries(IEnumerable<Track> removedTracks)
@@ -919,8 +1346,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     /// <returns>非同期タスク</returns>
     public async Task ScanFolderAsync(string folderPath)
     {
-        LoadLibrary(folderPath);
-        await Task.CompletedTask;
+        await LoadLibraryAsync(folderPath);
     }
 
     /// <summary>
@@ -990,3 +1416,18 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         _disposed = true;
     }
 }
+
+/// <summary>
+/// ライブラリスキャンおよび差分同期の実行結果を表すレコード
+/// </summary>
+/// <param name="AddedCount">新規追加された楽曲数</param>
+/// <param name="RemovedCount">削除された楽曲数</param>
+/// <param name="UpdatedCount">メタデータ再解析により更新された楽曲数</param>
+/// <param name="TotalTrackCount">同期完了後の総楽曲数</param>
+/// <param name="TotalAlbumCount">同期完了後の総アルバム数</param>
+public sealed record LibrarySyncResult(
+    int AddedCount,
+    int RemovedCount,
+    int UpdatedCount,
+    int TotalTrackCount,
+    int TotalAlbumCount);

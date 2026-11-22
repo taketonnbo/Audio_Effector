@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -108,6 +108,8 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             OnPropertyChanged(nameof(TrackCount));
             OnPropertyChanged(nameof(TotalDuration));
             OnPropertyChanged(nameof(RepresentativeTrackFilePath));
+            OnPropertyChanged(nameof(ContainsHiRes));
+            OnPropertyChanged(nameof(ContainsLossless));
         }
     }
 
@@ -227,6 +229,8 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
         OnPropertyChanged(nameof(TrackCount));
         OnPropertyChanged(nameof(TotalDuration));
         OnPropertyChanged(nameof(RepresentativeTrackFilePath));
+        OnPropertyChanged(nameof(ContainsHiRes));
+        OnPropertyChanged(nameof(ContainsLossless));
     }
 
     /// <summary>
@@ -244,6 +248,8 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             OnPropertyChanged(nameof(TrackCount));
             OnPropertyChanged(nameof(TotalDuration));
             OnPropertyChanged(nameof(RepresentativeTrackFilePath));
+            OnPropertyChanged(nameof(ContainsHiRes));
+            OnPropertyChanged(nameof(ContainsLossless));
         }
         return removed;
     }

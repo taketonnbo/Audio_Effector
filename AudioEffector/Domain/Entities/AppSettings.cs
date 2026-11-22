@@ -18,6 +18,11 @@ public class AppSettings
     public string? LastLibraryPath { get; set; }
 
     /// <summary>
+    /// 再スキャン時に更新日時が変更された既存ファイルのメタデータを再解析するかどうか
+    /// </summary>
+    public bool DetectMetadataChangesOnRescan { get; set; }
+
+    /// <summary>
     /// 左カラム（サイドバー）の幅
     /// </summary>
     public double LeftColumnWidth { get; set; } = 300;
