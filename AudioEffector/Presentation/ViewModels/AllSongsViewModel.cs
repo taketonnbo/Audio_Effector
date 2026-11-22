@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -283,6 +283,7 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
 
         _libraryViewModel.Tracks.CollectionChanged += OnTracksCollectionChanged;
         _libraryViewModel.Albums.CollectionChanged += OnAlbumsCollectionChanged;
+        _libraryViewModel.LibrarySynced += OnLibrarySynced;
 
         RefreshTracks();
     }
@@ -580,6 +581,14 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
         ScheduleLibraryRefresh();
     }
 
+    private void OnLibrarySynced(LibrarySyncResult result)
+    {
+        if (result.UpdatedCount > 0)
+        {
+            ScheduleLibraryRefresh();
+        }
+    }
+
     private void OnAlbumsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         // Tracks が存在する場合は Tracks.CollectionChanged を正とする（Albumsソート等での無駄な再構築を防止）
@@ -642,6 +651,7 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
             _disposed = true;
             _libraryViewModel.Tracks.CollectionChanged -= OnTracksCollectionChanged;
             _libraryViewModel.Albums.CollectionChanged -= OnAlbumsCollectionChanged;
+            _libraryViewModel.LibrarySynced -= OnLibrarySynced;
             CancelPendingSearchDebounce();
         }
     }

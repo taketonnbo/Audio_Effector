@@ -1,4 +1,4 @@
-# 全体レイアウト・ペイン構成 UI仕様書
+﻿# 全体レイアウト・ペイン構成 UI仕様書
 
 ## 1. 概要 (Overview)
 
@@ -61,7 +61,7 @@
 | ワークスペース | `CurrentViewType`（初期値: `ViewType.Albums`）の10値を `ContentControl.ContentTemplate` の `DataTrigger` で切り替える |
 | 上部プレイヤー | 通常高 `60px`。右パネルの開状態（`IsRightPanelOpen = True`）に連動して高 `0px` へ格納 |
 | 右側情報パネル | `IsRightPanelOpen`（初期 `false`）で開閉、`IsAlbumViewMaximized`（初期 `true`）で最大化/コンパクトを切替 |
-| 読込中オーバーレイ | `IsLoading = True` でワークスペース上に半透明オーバーレイと `"LOADING..."` テキストを表示 |
+| 読込中オーバーレイ | `IsMainLoadingOverlayVisible = True`（`IsLoading = True` かつ `CurrentViewType != ViewType.Folders`）でワークスペース上に半透明オーバーレイと `"LOADING..."` テキストを表示（フォルダタブ表示中はフォルダタブ内の専用プログレスインジケーターへ表示を委譲） |
 | 下部スペクトラム | 高 `22px` の開閉バーと高 `0 / 140px` の64バンド描画領域（`ViewType.DeviceSync` 遷移時は自動で `IsSpectrumVisible = false` に格納） |
 
 ## 6. アニメーションとインタラクション

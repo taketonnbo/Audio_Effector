@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.ViewModels;
@@ -41,6 +41,7 @@ public class SettingsViewModelTests
         Assert.False(sut.StartMinimized);
         Assert.Equal(200, sut.SelectedBufferSize);
         Assert.False(sut.EnableNormalize);
+        Assert.False(sut.DetectMetadataChangesOnRescan);
         _settingsServiceMock.Verify(s => s.LoadSettings(), Times.Once);
     }
 
@@ -112,5 +113,22 @@ public class SettingsViewModelTests
         // Assert
         Assert.True(sut.EnableNormalize);
         _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.EnableNormalize == true)), Times.Once);
+    }
+
+    /// <summary>
+    /// DetectMetadataChangesOnRescanプロパティを変更した際、設定サービスへ保存されることを検証します
+    /// </summary>
+    [Fact]
+    public void DetectMetadataChangesOnRescan_変更時_設定サービスへ保存される()
+    {
+        // Arrange
+        var sut = new SettingsViewModel(_settingsServiceMock.Object, _audioServiceMock.Object);
+
+        // Act
+        sut.DetectMetadataChangesOnRescan = true;
+
+        // Assert
+        Assert.True(sut.DetectMetadataChangesOnRescan);
+        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.DetectMetadataChangesOnRescan == true)), Times.Once);
     }
 }
