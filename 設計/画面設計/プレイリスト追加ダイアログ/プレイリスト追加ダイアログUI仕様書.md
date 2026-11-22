@@ -2,7 +2,7 @@
 
 ## 1. 概要 (Overview)
 
-対象Trackを追加するUserPlaylistを選択する。
+対象楽曲（単曲、アルバム全曲、または複数選択された `Track` 群）を追加する `UserPlaylist` を選択するモーダルダイアログ。
 
 ## 2. 実装イメージ（モックアップ）
 
@@ -31,30 +31,39 @@
 +---------------------------------------------------+
 ```
 
+> **構想要素に関する注記**: モックアップ内の各プレイリスト曲数表示およびダイアログ内インライン新規プレイリスト作成は拡張構想（関連Issue: #233, #242, #254）です。
+
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-350×450、ResizeMode=NoResize、所有者中央。余白15、行は対象曲の案内 `Auto`、プレイリストListBox `*`、ADD／CANCEL `Auto`。
+`350×450px`、`ResizeMode="NoResize"`、`WindowStartupLocation="CenterOwner"`（親ウィンドウ中央表示）。3行 `Grid` で、行0が対象曲案内ラベル（`Auto`）、行1がプレイリスト選択 `ListBox`（`*`）、行2が `"ADD"` / `"CANCEL"` ボタン行（`Auto`）。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | 入力・カード背景 |
+| `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | ダイアログ背景 |
+| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | リスト・ボタン背景 |
+| `ControlBackgroundHighlightBrush` | <span style="background-color:#2F3746;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #2F3746</span> | `#2F3746` | ボタンホバー背景 |
 | `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主テキスト |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
-
-案内文14、プレイリスト名13、行Padding=10,8。ボタン80×30、間隔10、上余白15。
+| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 選択行強調・ADDボタンアクセント |
 
 ## 5. 構成要素と共通コントロール
 
-案内は `Add "{曲名}" to:`。`Playlists` と `SelectedPlaylist` にバインドする。選択行はNeonCyanBrush背景と黒文字、ホバー時はローカル暗色背景。左端3px選択バーの方式は採用しない。末尾にADD、CANCEL。
+- 上部案内ラベルは `Add "{代表曲名}" to:` を表示し、中央 `ListBox` は `Playlists` と `SelectedPlaylist` にバインドする。
+- 下部右寄せで `"ADD"` ボタンと `"CANCEL"` ボタンを配置する。
 
 ## 6. アニメーションとインタラクション
 
-行選択後ADDで選択したプレイリストを返す。未選択でADDしたときは選択を求める。CANCEL／Escは追加を取り消す。曲への追加処理は呼出元に委譲する。
+- **確定 (`ADD`)**:
+  - プレイリスト未選択のまま `"ADD"` を押下した場合は、選択を促す警告 `MessageBox` を表示する。
+  - プレイリストを選択して `"ADD"` を押下すると `DialogResult = true` で閉じ、呼び出し元（`PlaylistViewModel`）が対象トラック群を追加する。
+- **重複スキップと結果通知 (`PlaylistViewModel`)**:
+  - 対象プレイリスト内に同一 `FilePath`（大文字小文字無視）の楽曲が既に存在する場合は重複登録をスキップする。
+  - 追加完了時は結果 `MessageBox`（単曲時は追加完了または追加済み通知、複数曲/アルバム時は追加曲数または全曲追加済み通知）を表示し、対象トラックの `IsSelected` フラグリセット、2×2サムネイル更新、現在表示中プレイリストへの即時反映、および `playlists.json` 保存を実行する。
+- **取消 (`CANCEL`)**: `"CANCEL"` 押下またはウィンドウを閉じると追加をキャンセルする。
 
 ## 7. パフォーマンス最適化要件
 

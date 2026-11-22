@@ -33,14 +33,16 @@
   ^ 左サイドバー (50px)                                                      ^ 開閉ハンドル (< / >)
 ```
 
+> **構想要素に関する注記**: モックアップ内のタイトルバー再生曲表示、上部プレイヤー内音量スライダー、右パネル内歌詞/タグ表示は拡張構想（関連Issue: #121, #233）です。現行実装ではタイトルバー中央は `"AudioEffector"` 固定、上部プレイヤー右端はミュートボタンのみ、右パネルは `1* : 1*` 分割のアルバム情報・Player Pod・収録曲リスト構成となります。
+
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-`Window` の初期サイズは1000×650 DIP。ルートはタイトルバー `Auto` とクライアント領域 `*` の2行。タイトルバー高32、サイドバーは幅50でクライアント左端へ重ねる。本文は左余白50を確保し、上部プレイヤー `Auto`、中央 `*`、スペクトラム `Auto` の3行。
+`Window` の初期サイズは `1000×650` DIP。ルートはタイトルバー `Auto`（高さ `32px`）とクライアント領域 `*` の2行。左サイドバーは幅 `50px`（ホバー展開時 `200px`）でクライアント左端に `Panel.ZIndex="10"` で重ねる。本文は左余白 `50px` を確保し、上部プレイヤー `Auto`（通常 `60px` / 右パネル開時 `0px`）、中央 `*`、スペクトラム `Auto`（ハンドル `22px`＋展開時 `140px`）の3行。
 
-中央は左ワークスペース `1*`、開閉ハンドル `Auto`、右パネル `1* / 0*` の3列。固定340pxの右ペインやGridSplitterによる横幅変更は定義しない。右端には幅360のキュー用ホストが重なり、幅360のキューパネルを収める（スライド移動距離380）。 左ワークスペース列のMinWidthは200。
+中央は左ワークスペース `1*`（`MinWidth="200"`）、開閉ハンドル `Auto`、右パネル `1* / 0*` の3列（初期値は `IsRightPanelOpen = false` の閉状態、`IsAlbumViewMaximized = true` の最大化モード）。右端には幅 `360px` の再生キュー用ホスト（`Panel.ZIndex="30"`）が重なり、スライド移動距離 `380px` で開閉する。
 
 ## 4. デザイントークンの適用
 
@@ -50,23 +52,24 @@
 | `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | ペイン背景 |
 | `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
 
-XAMLの寸法単位はDIP（96dpiの画像では1 DIP＝1px）。ウィンドウのMinWidth/MinHeight指定、幅別のブレークポイント、自動オーバーレイ化はない。 上部プレイヤーの格納条件は `IsRightPanelOpen=True` で、アルバム表示の大小には依存しない。
+上部プレイヤーの格納条件は `IsRightPanelOpen = True` で、右側パネル内の最大化/コンパクト表示モードには依存しない。
 
 ## 5. 構成要素と共通コントロール
 
 | 領域 | 表示条件・構成 |
 | :--- | :--- |
-| ワークスペース | `CurrentViewType` の10値を `ContentControl.ContentTemplate` で切り替える |
-| 上部プレイヤー | 通常高60。右パネルの開状態に連動して高0へ縮む |
-| 右側情報 | `IsRightPanelOpen` と `IsAlbumViewMaximized` で開閉・大小を切替 |
-| 読込中 | `IsLoading=True` でワークスペースに半透明オーバーレイとプログレス表示 |
-| 下部 | 高22のスペクトラム開閉バーと高0／140の描画領域 |
-
-選択行のスタイルは各子画面に委譲する。サイドバーの選択バーは4px。
+| ワークスペース | `CurrentViewType`（初期値: `ViewType.Albums`）の10値を `ContentControl.ContentTemplate` の `DataTrigger` で切り替える |
+| 上部プレイヤー | 通常高 `60px`。右パネルの開状態（`IsRightPanelOpen = True`）に連動して高 `0px` へ格納 |
+| 右側情報パネル | `IsRightPanelOpen`（初期 `false`）で開閉、`IsAlbumViewMaximized`（初期 `true`）で最大化/コンパクトを切替 |
+| 読込中オーバーレイ | `IsLoading = True` でワークスペース上に半透明オーバーレイと `"LOADING..."` テキストを表示 |
+| 下部スペクトラム | 高 `22px` の開閉バーと高 `0 / 140px` の64バンド描画領域（`ViewType.DeviceSync` 遷移時は自動で `IsSpectrumVisible = false` に格納） |
 
 ## 6. アニメーションとインタラクション
 
-サイドバーの選択でワークスペースを即時切替。右ハンドルは600ms、スペクトラムは開300ms・閉250msで高さを変更する。最小化するとミニプレイヤーを表示し、メインを隠す。転送中の終了操作は確認ダイアログを表示する。
+- 左サイドバーの項目選択で中央ワークスペースを即時切り替え。
+- 右側パネル開閉ハンドルは `600ms`、スペクトラムアナライザは開 `300ms`・閉 `250ms` でサイズをアニメーション変更する。
+- `AppSettings.StartMinimized = true` の場合は起動時に最小化状態（ミニプレイヤー）で開始する。また、7種のキーボードショートカットを `MainWindow.InputBindings` に登録し、設定ダイアログ終了時の `SettingsUpdated` イベントで再登録する。
+- メインウィンドウ最小化時に `MiniPlayerWindow` を表示してメインウィンドウを非表示とし、データ転送中（`DeviceBrowser.IsTransferring`）の終了操作には確認 `MessageBox` を表示する。
 
 ## 7. パフォーマンス最適化要件
 

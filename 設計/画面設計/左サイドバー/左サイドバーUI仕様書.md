@@ -50,23 +50,21 @@
 | `ControlBackgroundHighlightBrush` | <span style="background-color:#2F3746;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #2F3746</span> | `#2F3746` | ホバー・選択背景 |
 | `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
 
-行高40、アイコン20×20、文字14、文字左余白15。画像はマウス進入後の幅200の状態。
+行高40、アイコン20×20、文字14、文字左余白15。
 
 ## 5. 構成要素と共通コントロール
 
-9個のナビゲーションRadioButtonと最下部の設定Buttonを置く。順序は「すべての曲」「アルバム」「アーティスト」「フォルダ」「お気に入り」「プレイリスト」「最近再生した曲」「イコライザー」「機器転送」。機器転送は `IsDeviceConnected=True` のとき表示。
+単一の `StackPanel` 内に9個のナビゲーション `RadioButton`（区切り線なし）と、最下部に設定 `Button` を配置する。順序は「すべての曲」「アルバム」「アーティスト」「フォルダ」「お気に入り」「プレイリスト」「最近再生した曲」「イコライザー」「機器転送」。機器転送は `IsDeviceConnected = True` のときのみ表示。
 
-`SidebarRadioButtonStyle` は通常透明、Hover/Checkedでハイライト背景。Checkedは文字がシアンになり、左端幅4pxのバーを表示する。共通標準の幅3pxに対し、このスタイルの指定値は4px。`SidebarButtonStyle` はホバー時に背景と文字色を変更する。
+`SidebarRadioButtonStyle` は通常透明、`Hover` / `Checked` でハイライト背景。`Checked` は文字とアイコンがシアンになり、左端幅 `4px` のシアンバーを表示する（プレイリスト項目は `CurrentViewType == ViewType.Playlists` にバインド）。`SidebarButtonStyle` はホバー時に背景と文字色を変更する。
 
 ## 6. アニメーションとインタラクション
 
-MouseEnterで幅50→200、MouseLeaveで200→50、いずれも200ms・QuadraticEase/EaseOut。`SwitchViewCommand` にViewTypeを渡す。設定は `ShowSettingsCommand`。プレイリスト項目をサイドバー内に列挙する領域やD&D先は設けない。
+`MouseEnter` で幅 `50` → `200`、`MouseLeave` で `200` → `50`、いずれも `200ms`・`QuadraticEase` (`EaseOut`)。各項目クリックで `SwitchViewCommand` に `ViewType` を渡す。設定ボタンは `ShowSettingsCommand` を実行する（サイドバーへのD&Dによるプレイリスト追加は Issue #71 にて構想）。
 
 ## 7. パフォーマンス最適化要件
 
-固定数のボタンのためUI仮想化の対象外。機器未接続時は該当RadioButtonをCollapsedにする。ルートのClipToBoundsで格納時のラベルを切り取る。DropShadowEffect/BlurEffectは付与しない。
-
-共通要件は[パフォーマンス最適化](../../詳細設計/パフォーマンス最適化.md)に従う。多数の項目の標準指定は `IsVirtualizing=True / VirtualizationMode=Recycling / ScrollUnit=Pixel / CanContentScroll=True`。上記の個別構成と区別して適用範囲を判断する。
+固定数のナビゲーションボタンのみで構成されるため、コレクション表示向けのUI仮想化は対象外。機器未接続時は該当 `RadioButton` を `Visibility="Collapsed"` にする。ルートの `ClipToBounds="True"` で格納時のラベル領域を切り取り、`DropShadowEffect` / `BlurEffect` は使用しない。
 
 ## 8. 関連Issue・仕様書
 

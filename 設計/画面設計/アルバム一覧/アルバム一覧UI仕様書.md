@@ -44,32 +44,43 @@
 +--------------------------------------------------------------------------------------------------------------------+
 ```
 
+> **構想要素に関する注記**: モックアップ内のアルバム検索ボックス・作品数サマリー・リスト展開楽曲の詳細列（再生時間・アーティスト・お気に入り・トラック番号・音質バッジ等）は拡張構想（関連Issue: #200, #264）です。
+
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-`CurrentViewType=Albums`、DataContextは `MainViewModel.Library`。2行Gridの上部が並べ替えのComboBox、昇降順ボタンと表示切替、下部が一覧。`IsListView` では縦ListBox、`IsGridView` ではWrapPanelのカード配置を使用。
+`CurrentViewType = Albums`（起動時初期画面）、`DataContext` は `MainViewModel.Library`（`LibraryViewModel`）。2行 `Grid` の上部がソート基準 `ComboBox`（`Artist` / `Album`）、昇降順トグルボタン、表示切替ボタン（グリッド / リスト）、下部がアルバム一覧。`IsListView` では縦 `ListBox`、`IsGridView` では `WrapPanel` のカード配置を使用する。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
 | `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | 画面背景 |
-| `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主テキスト |
-| `AlwaysNeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | テーマ共通アクセント |
-
-リストのアート40×40、アルバム名14、アーティスト11。グリッドのExpander幅160、カード余白5。収録曲トレイは140×140、ヘッダー24、曲領域110（22×5行）。
+| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | カード・トレイ・コントロール背景 |
+| `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | アルバム名・曲名テキスト |
+| `SecondaryTextForegroundBrush` | <span style="background-color:#A0AEC0;color:#161920;padding:2px 8px;border-radius:3px;">■ #A0AEC0</span> | `#A0AEC0` | アーティスト名 |
+| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 補助テキスト・トラック番号 |
+| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | テーマ連動アクセント |
+| `AlwaysNeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | アート暗幕上の再生・操作アクセント |
 
 ## 5. 構成要素と共通コントロール
 
-一覧は `Albums`、収録曲は `Tracks`。アルバムExpanderで曲を展開し、アート上の再生ボタン、収録曲切替ボタン、情報ボタンを操作する。グリッドのトレイはカード配置を押し広げずに下へ重なる。
-
-一覧のListBoxItemはContentPresenterのみのテンプレートで、標準選択背景と共通の幅3px選択バーは描画しない。転送選択時のCheckBoxは `IsSelected` に連動し、機器に存在するアルバムは選択不可。ホバーは各ボタン・カードのローカルStyleに従う。
+- 一覧は `Albums`、各アルバムの収録曲は `Tracks`。アルバムタイトル・アーティスト名およびグリッド展開トレイ内のトラックタイトルには `MarqueeTextBlock`（ホバー連動シームレスループ）を適用する。
+- グリッド表示の収録曲トレイはカード配置を押し広げずにカード直下へオーバーレイ展開され、**単一排他展開制御**（別アルバム展開時、トレイ外クリック時、ソート変更時、グリッド/リスト表示切替時に自動で閉じる）を行う。
+- リスト表示の展開曲行には、選択 `CheckBox`、曲名、お気に入りハートボタン、プレイリスト追加 `+` ボタンを配置する（詳細情報列の拡充は Issue #264 対象）。
+- 機器転送選択モード時（`IsSelectionMode = True`）の `CheckBox` は `Album.IsSelected` / `Track.IsSelected` に連動し、接続機器上に全曲存在するアルバム（`IsOnDevice = True`）は非活性となる。
 
 ## 6. アニメーションとインタラクション
 
-並べ替え項目はArtist／Album、昇降順は `ToggleSortDirectionCommand`。表示切替は `ToggleViewCommand`。アートの再生操作は `PlayAlbumCommand`、曲のボタンは `PlayTrackCommand`。右クリックで再生／次に再生／最後に再生／プレイリスト追加／削除、曲にはお気に入り・プロパティ・ファイル場所も表示する。収録曲トレイは開220ms BackEase、Opacity150ms。閉は150ms CubicEase。三点ボタンはアルバムの情報表示を開く。
+- **ソート・表示切替**: ソート項目は `Artist` / `Album`、昇降順は `ToggleSortDirectionCommand`、グリッド/リスト切替は `ToggleViewCommand`。
+- **再生**: アルバムの再生ボタンまたは右クリック「再生」は `PlayAlbumCommand`（シャッフルON時はアルバム内のランダム曲から再生開始）、展開トラックのクリックは `PlayTrackCommand`。
+- **コンテキストメニュー**:
+  - アルバム: 「再生」「次に再生」「最後に再生」「お気に入りに追加/解除」「プレイリストに追加...」「削除」
+  - トラック: 「再生」「次に再生」「最後に再生」「お気に入りに追加/解除」「プレイリストに追加...」「プロパティ」「ファイルの場所を開く」「削除」
+- **削除確認**: `DeleteAlbumCommand` / `DeleteTrackCommand` は確認 `MessageBox` を表示し、ライブラリおよびお気に入り（`favorites.json`）から除外する（ディスク上の実ファイルは削除しない）。
+- **詳細情報ボタン**: 三点ボタン（`ShowAlbumInfoCommand`）によるアルバム詳細シングルビューへの遷移は Issue #188 にて計画。
 
 ## 7. パフォーマンス最適化要件
 

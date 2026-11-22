@@ -10,42 +10,34 @@
 
 ```text
 【コンパクト表示モード (IsAlbumViewMaximized=False)】
-+------------------------------------+
-|                      [🗖 最大化] [X] |
-|       +--------------------+       |
-|       |                    |       |
-|       |  [Art 160x160]     |       |
-|       |                    |       |
-|       +--------------------+       |
-| Midnight City                      |
-| M83 — Hurry Up, We're Dreaming     |
-| [FLAC 44.1kHz / 16bit]             |
-|                                    |
-| 01:23 ========O============ 03:45  |
-|   [🔀]   [|<]   [ ▶ ]   [>|]   [🔁] |
-| 🔊 =======O=======  [★] [📋+] [≡]  |
-|                                    |
-| [ミニ歌詞 / タグ情報]              |
-| Waiting in a car...                |
-| Waiting for the right time...      |
-+------------------------------------+
-
-【最大化表示モード (IsAlbumViewMaximized=True)】
 +-----------------------------------------------------------------------------------------+
-|                                                                           [🗗 縮小] [X] |
+| [Art 50] Midnight City / M83   [Hi-Res] FLAC 96kHz/24bit                     [🗖 最大化] |
+|   [🔀] [|<] [ ▶ ] [>|] [🔁]   01:23 ========O============ 04:03   [+] [★] [≡]           |
++-----------------------------------------------------------------------------------------+
+|                                                                                         |
+| (下部拡張予約領域: リスニング統計・タグクラウド等の拡張スペース #121/#123/#124/#130)     |
+|                                                                                         |
++-----------------------------------------------------------------------------------------+
+
+【最大化表示モード (IsAlbumViewMaximized=True / 初期状態)】
++-----------------------------------------------------------------------------------------+
+|                                                                              [🗗 縮小]   |
 | +-----------------------------------+ +-----------------------------------------------+ |
-| |       +-------------------+       | | アルバム収録曲 (22曲, 73分)                   | |
+| |       +-------------------+       | | Playlist: Hurry Up, We're Dreaming  22 Tracks | |
 | |       |                   |       | |-----------------------------------------------| |
-| |       |  [Art 260x260]    |       | |  1. Intro (feat. Zola Jesus)            05:22 | |
-| |       |                   |       | | >2. Midnight City                       04:03 | |
-| |       +-------------------+       | |  3. Reunion                             03:55 | |
-| |                                   | |  4. Where the Boats Go                  01:46 | |
-| | Hurry Up, We're Dreaming (2011)   | |  5. Wait                                05:43 | |
-| | M83 • Electronic / Synthpop       | |  6. Raconte-Moi Une Histoire            04:04 | |
-| |                                   | |  7. Train to Sichuan                    01:30 | |
-| | [ ▶ アルバム全曲再生 ]            | |  8. Claudia Lewis                       04:31 | |
-| | 01:23 ============O======= 04:03  | |  ...                                          | |
-| +-----------------------------------+ +-----------------------------------------------+ |
+| |       | [Art 260/330px]   |       | | 01. Intro (feat. Zola Jesus)            05:22 | |
+| |       | (7px メタルベゼル)|       | | ▶   Midnight City                       04:03 | |
+| |       +-------------------+       | | 03. Reunion                             03:55 | |
+| | Hurry Up, We're Dreaming          | | 04. Where the Boats Go                  01:46 | |
+| | M83                               | | 05. Wait                                05:43 | |
+| | [Hi-Res] FLAC 96kHz/24bit         | | 06. Raconte-Moi Une Histoire            04:04 | |
+| | +-------------------------------+ | | ...                                           | |
+| | | Midnight City                 | | |                                               | |
+| | |                   [+] [★] [≡] | | |                                               | |
+| | |  [🔀]  [|<]  [ ▶ ]  [>|]  [🔁]| | |                                               | |
+| | |  ==============O============  | | |                                               | |
+| | |  01:23                 04:03  | | |                                               | |
+| | +-------------------------------+ | +-----------------------------------------------+ |
 +-----------------------------------------------------------------------------------------+
 ```
 
@@ -54,27 +46,33 @@
 
 ## 3. 画面配置とペインレイアウト
 
-右側Gridは最大化時 `1* / 0*`、コンパクト時 `Auto / 1*` の2行。最大化表示は左のアート・情報・再生操作、右の収録曲一覧に分ける。右上28×28の切替ボタンは表示領域に重ねる。メイン左列は維持し、OSの全画面表示には切り替えない。
+右側 `Grid` は最大化時（`IsAlbumViewMaximized = True`、初期状態）に `1* / 0*`、コンパクト時（`IsAlbumViewMaximized = False`）に `Auto / 1*` の2行構成。最大化表示は左カラム（アルバムアート・基本情報・Player Podカード）と右カラム（メタリックコンテナ内の収録曲一覧）の2列に分ける。右上端には `28×28px` の拡大/縮小トグルボタン（`ToggleAlbumViewSizeModeCommand`）を固定配置する。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
 | `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | ペイン背景 |
+| `MetallicCardBackgroundBrush` | <span style="background-color:#202734;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ グラデーション</span> | Dark / Light 両対応 | Player Pod・トラックリスト・アートベゼル背景 |
+| `MetallicCardBorderBrush` | <span style="background-color:#384556;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ グラデーション</span> | Dark / Light 両対応 | メタリックカード外枠 |
+| `ZebraOddBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #12FFFFFF</span> | Dark `#12FFFFFF` / Light `#0C000000` | トラックリスト奇数行ゼブラ背景 |
 | `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主テキスト |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
+| `NeonCyanBrush` / `AlwaysNeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 再生中曲名・インラインアイコン・シークバー |
 
-アルバム見出し24/Bold、サブタイトル13、品質バッジ9。スペクトラム表示時の左カード幅340・アート260×260、スペクトラムを閉じると幅380・アート330×330。アート角丸10・Padding7、再生カード角丸12。カードのグラデーションはDarkThemeのMetallicCardBackgroundBrush／MetallicCardBorderBrushを使用。
+アルバム見出し `24pt / Bold`、サブタイトル `13pt`、音質バッジ `9pt`。スペクトラム表示時（`PlayerControl.IsSpectrumVisible = True`）は左カラム幅 `340px`・アート `260×260px`、スペクトラム非表示時は幅 `380px`・アート `330×330px` へ伸縮する。アート枠は外枠角丸 `10px`・内枠角丸 `5px`・ベゼル `Padding="7"`＋`AlbumArtDropShadowEffect`、Player Pod と右トラックリストコンテナは角丸 `12px`＋`CardDropShadowEffect`（すべて `DarkTheme.xaml` / `LightTheme.xaml` 両テーマ対応）。
 
 ## 5. 構成要素と共通コントロール
 
-コンパクト表示は小型アート、曲名・アーティスト・品質、再生操作・シーク・キュー等。最大化表示はPlaybackListName、PlaybackListSubtitle、品質、曲名、48px再生ボタン、収録曲数とPlaybackListTracks。
-
-再生中の行は色と再生／一時停止アイコンで示す。行のホバーはローカルテンプレート、交互背景はZebraOddBackgroundBrushを使う。左端3px選択バーは含めない。
+- **コンパクト表示 (`IsAlbumViewMaximized = False`)**: 上部に `50×50px` サムネイルアート、曲名・アーティスト名（`MarqueeTextBlock`）、音質バッジ・フォーマット詳細、再生制御5ボタン・シークバー・プレイリスト追加/お気に入り/再生キューボタンを配置し、下部は拡張予約領域とする。
+- **最大化表示 (`IsAlbumViewMaximized = True`)**:
+  - 左カラム: 多層メタリックベゼルアート、`PlaybackListName` / `PlaybackListSubtitle`（`MarqueeTextBlock`）、音質バッジ、Player Pod（現在曲名 `MarqueeTextBlock`、クイックアクション3種、`48×48px` 再生ボタンを含む5ボタン、ワイドシークバー、経過/総時間）。
+  - 右カラム: ヘッダー（`Playlist: {PlaybackListName}` と `{Count} Tracks`）、および `PlaybackListTracks` 一覧（0件時は空状態「プレイリストは空です」を表示）。奇数行には `ZebraOddBackgroundBrush`、左端カラムには2桁トラック番号（`01.`）と再生中 `▶` / 一時停止 `⏸` アイコンをインライン統合し、曲名には `MarqueeTextBlock` を適用する。
 
 ## 6. アニメーションとインタラクション
 
-`ToggleAlbumViewSizeModeCommand` で `IsAlbumViewMaximized` を反転し、双方のGridをVisibilityで切り替える。スペクトラム開閉時のアート寸法は300ms・CubicEase/EaseInOut。曲クリック・右クリックで再生、キュー追加、お気に入り、プレイリスト追加などを操作する。
+- `ToggleAlbumViewSizeModeCommand` で `IsAlbumViewMaximized` を反転し、最大化GridとコンパクトGridを `Visibility`（`Visible` / `Collapsed`）で排他切り替えする。
+- スペクトラム開閉時の左カラム幅およびアート寸法は `300ms`・`CubicEase` (`EaseInOut`) でアニメーション伸縮する。
+- 右カラムの収録曲行クリックで再生開始（再生中トラックの再クリックで一時停止/再開トグル）。右クリックコンテキストメニューから「再生」「次に再生」「最後に再生」「お気に入りに追加 / 解除」「プレイリストに追加...」「プロパティ」「ファイルの場所を開く」「削除」を実行できる。
 
 ## 7. パフォーマンス最適化要件
 

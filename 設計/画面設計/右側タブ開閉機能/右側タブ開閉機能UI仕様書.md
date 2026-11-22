@@ -11,26 +11,24 @@
 ```text
 【開状態: IsRightPanelOpen=True (右パネル展開中)】
 +----+-----------------------------------------------------+--+------------------------------------+
-|    | (上部プレイヤーは高さ0pxへ格納)                     |  | [Art 160] Midnight City            |
-| [=]|                                                     |[<| M83 - 01:23 ========O===== 04:03   |
-|    | 中央ワークスペース (ライブラリ一覧等)               |  |   [🔀]   [|<]   [ ▶ ]   [>|]   [🔁] |
-| [♪]|                                                     |  | 🔊 =======O=======  [★] [📋+] [≡]  |
-|    | 幅: 1* (残りのスペース)                             |  |                                    |
-| [O]|                                                     |  | 幅: 340px (または 1*)              |
+|    | (上部プレイヤーは高さ0pxへ格納)                     |  | [大アート+Player Pod] | [収録曲一覧]|
+| [=]|                                                     |[>| Midnight City - M83                |
+|    | 中央ワークスペース (ライブラリ一覧等)               |  | 01:23 ========O===== 04:03         |
+| [♪]|                                                     |  |   [🔀]   [|<]   [ ▶ ]   [>|]   [🔁] |
+|    | 幅: 1* (左半分)                                     |  | 幅: 1* (右半分)                    |
 +----+-----------------------------------------------------+--+------------------------------------+
-                                                             ^ 開閉ハンドル [<]
+                                                             ^ 開閉ハンドル [>] (クリックで閉じる)
 
-【閉状態: IsRightPanelOpen=False (右パネル格納・ワークスペース全幅)】
+【閉状態: IsRightPanelOpen=False (右パネル格納・ワークスペース全幅 / 初期状態)】
 +----+-----------------------------------------------------------------------------------------+--+
-|    | [Play/Pause] [Prev] [Next]  01:23 ======O============= 03:45   Vol: =====O===   [≡ キュー]|  |
+|    | [Art] Title / Artist   [🔀] [|<] [ ▶ ] [>|] [🔁] [≡]   01:23 ======O======= 03:45   [🔊]|  |
 |    +-----------------------------------------------------------------------------------------+  |
 | [=]|                                                                                         |  |
-|    | 中央ワークスペース (全幅表示: 画面を広く使って楽曲・アルバムをブラウズ可能)             |[>|
+|    | 中央ワークスペース (全幅表示: 画面を広く使って楽曲・アルバムをブラウズ可能)             |[<|
 | [♪]|                                                                                         |  |
 |    | 幅: 1* (画面いっぱいに拡張)                                                             |  |
-| [O]|                                                                                         |  |
 +----+-----------------------------------------------------------------------------------------+--+
-                                                                                                 ^ 開閉ハンドル [>]
+                                                                                                 ^ 開閉ハンドル [<] (クリックで開く)
 ```
 
 ### 2.2 Figmaモックアップ
@@ -38,31 +36,32 @@
 
 ## 3. 画面配置とペインレイアウト
 
-中央Gridの左列はMinWidth=200で `1*`、中間列は開閉ボタンを収める `Auto`、右列は開時 `1*`／閉時 `0*`。ボタンは16×48。画面幅別のモード切替やGridSplitterは使用しない。
+中央 `Grid` の左列は `MinWidth="200"` で `1*`、中間列は幅 `1px` の縦区切り線（閉状態では `Visibility="Collapsed"`）と開閉 `ToggleButton`（`16×48px`）を収める `Auto`、右列は開時 `1*`／閉時 `0*`（初期値は `IsRightPanelOpen = false` の閉状態）。`GridSplitter` による手動ドラッグリサイズは設けない。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | ペイン背景 |
-| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | 入力・カード背景 |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
+| `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | ペイン・ハンドル背景 |
+| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | カード背景 |
+| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | ハンドル矢印アクセント |
 
-ハンドル角丸8、枠線1、シアンの矢印。ペイン背景はPanelBackgroundBrush。
+ハンドル角丸 `8px`、枠線 `1px`、シアンの矢印パス。
 
 ## 5. 構成要素と共通コントロール
 
-ToggleButtonのIsCheckedが `IsRightPanelOpen` に連動する。開閉に合わせて矢印方向を変える。右側には再生情報と拡張領域を置くが、EQ・歌詞・転送などを選ぶTabControlは構成しない。行選択の幅3pxバーは対象外。
+`ToggleButton.IsChecked` が `IsRightPanelOpen` に双方向バインドされる。
+- **閉状態 (`IsChecked = False`)**: 左向き矢印 `<`（`M10,6l-4,4l4,4`）を表示し、縦区切り線を `Collapsed` にする。
+- **開状態 (`IsChecked = True`)**: 右向き矢印 `>`（`M6,6l4,4l-4,4`）を表示し、縦区切り線を `Visible` にする。
+右側パネル内は `IsAlbumViewMaximized` に応じて最大化2カラムレイアウトまたはコンパクトプレイヤー＋下部拡張予約領域（関連Issue: #121, #123, #124, #130）を表示する。
 
 ## 6. アニメーションとインタラクション
 
-クリックで右列のGridLengthを0*↔1*へ600ms・CubicEase/EaseInOutで変更する。同時に上部プレイヤーを0↔60へ切り替える。右パネルを閉じてもキューや再生データは保持する。
+クリックで右列の `GridLength` を `0*` ↔ `1*` へ `600ms`・`CubicEase` (`EaseInOut`) でアニメーション変更し、同時に上部コンパクトプレイヤーの高さを `60px` ↔ `0px` へ切り替える。右パネルを閉じても再生状態や `PlaybackListTracks` はそのまま保持される。
 
 ## 7. パフォーマンス最適化要件
 
-右列は幅0で格納しClipToBoundsで切り取る。列自体にVisibility=Collapsedの連動はない。共通の非表示パネル要件ではアニメーション完了後のCollapsedが基準となるが、この画面の描画は幅変更の構成に従う。
-
-共通要件は[パフォーマンス最適化](../../詳細設計/パフォーマンス最適化.md)に従う。多数の項目の標準指定は `IsVirtualizing=True / VirtualizationMode=Recycling / ScrollUnit=Pixel / CanContentScroll=True`。上記の個別構成と区別して適用範囲を判断する。
+右列格納時は幅 `0` と `ClipToBounds="True"` で描画領域を閉じ、縦区切り線を `Visibility="Collapsed"` にする。ハンドル自体には高負荷エフェクトを使用しない。
 
 ## 8. 関連Issue・仕様書
 

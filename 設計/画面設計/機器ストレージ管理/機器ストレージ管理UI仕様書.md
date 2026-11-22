@@ -33,30 +33,40 @@
 +---------------------------------------------------------------------------------------------------+
 ```
 
+> **構想要素に関する注記**: モックアップ内の容量内訳バー・総数サマリー・再スキャンボタン・アルバムアート表示は拡張構想（関連Issue: #233, #254）です。現行実装は幅 `300px` のアルバム `Expander` カードを `WrapPanel` で折り返し表示する構成となります。
+
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-タイトル `Device Storage Manager`、800×600の所有者付きダイアログ。ヘッダー `Auto`、一覧 `*`、Close `Auto` の3行。アルバムExpanderは幅300で折り返し、ヘッダーGridは幅280。
+ウィンドウタイトル `"Device Storage Manager"`、`800×600px`、`WindowStartupLocation="CenterOwner"`。行0がヘッダー（`Auto`：`"Installed Albums on Device"`）、行1が一覧領域（`*`）、行2が `"Close"` ボタン（`Auto`）の3行構成。各アルバム `Expander` は幅 `300px` で `WrapPanel` 内に折り返し配置される。
 
 ## 4. デザイントークンの適用
 
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
-| `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | 画面背景 |
+| `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | ダイアログ背景 |
+| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | アルバムカード・ボタン背景 |
 | `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主テキスト |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 操作アクセント |
+| `SecondaryTextForegroundBrush` | <span style="background-color:#A0AEC0;color:#161920;padding:2px 8px;border-radius:3px;">■ #A0AEC0</span> | `#A0AEC0` | アーティスト名 |
+| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 曲数（`{Tracks.Count} tracks`） |
+| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 見出し・プログレスバーアクセント |
 
-Installed Albums on Deviceは24/Bold、アルバム14/Bold、アーティスト12、曲数10。Closeは100×30。削除ボタンはアルバム30×30、曲24×24。
+`"Installed Albums on Device"` 見出し `24pt / Bold`、アルバム名 `14pt / Bold`、アーティスト名 `12pt`、曲数 `10pt`。`"Close"` ボタンは `100×30px`、削除ボタンはアルバム `30×30px`、曲 `24×24px`。
 
 ## 5. 構成要素と共通コントロール
 
-走査中は `Scanning device...` と不定進捗バー。完了後は `DeviceAlbums` のアート、名称、アーティスト、曲数、アルバム削除ボタンを表示する。Expander内は曲名と曲削除ボタン。選択行の幅3pxバーは適用対象なし。
+- デバイス走査中（`IsLoading = True`）は `"Scanning device..."` と不定進捗バー（`ProgressBar IsIndeterminate="True"`）を表示する。
+- 走査完了後は `DeviceAlbums`（`DeviceAlbum`）の名称（`Title`）、アーティスト名（`Artist`）、収録曲数（`{Tracks.Count} tracks`）、およびアルバム削除ボタンを表示する（アルバムアート画像は表示しない）。
+- `Expander` 展開時は配下の `DeviceTrack` 一覧（表示名は実ファイル名）と曲単位の削除ボタンを表示する。
 
 ## 6. アニメーションとインタラクション
 
-アルバム展開で収録曲を表示。削除は `DeleteAlbumCommand`／`DeleteTrackCommand` を実行し、確認を経て機器上のデータを削除する。Closeはダイアログを閉じる。
+- アルバム `Expander` の展開で収録曲一覧を表示する。
+- **アルバム削除 (`DeleteAlbumCommand`)**: 確認 `MessageBox` を表示した上でデバイス上のアルバムフォルダを削除し、親アーティストフォルダが空になった場合はあわせて削除する。
+- **楽曲削除 (`DeleteTrackCommand`)**: デバイス上の対象楽曲ファイルを削除する。アルバム内の最後の1曲を削除した場合は、確認ダイアログなしで親アルバムフォルダ（および空になったアーティストフォルダ）も自動削除し、`DeviceAlbums` から該当アルバムカードを除去する。
+- **ダイアログ終了時連携**: `"Close"` ボタンでダイアログを閉じた後、呼び出し元の `DeviceBrowserViewModel` が `CheckDeviceAlbums()` と `LoadDeviceDirectories()` を再実行し、転送画面側のグレーアウト状態とディレクトリ表示を最新化する。
 
 ## 7. パフォーマンス最適化要件
 

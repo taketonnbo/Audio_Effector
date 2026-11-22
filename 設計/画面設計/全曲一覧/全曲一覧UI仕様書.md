@@ -2,10 +2,10 @@
 
 ## 1. 概要 (Overview)
 
-ライブラリ内のすべての楽曲（`Track` オブジェクト）をフラットなデータグリッド形式で一覧表示し、ブラウズ・検索・一括管理・再生を行うメイン画面。
+ライブラリ内のすべての楽曲（`Track` オブジェクト）をフラットな仮想化リスト形式で一覧表示し、ブラウズ・横断検索・ソート・再生を行うメイン画面。
 
-- **主要操作対象オブジェクト**: [楽曲 (`Track`)](../../主要オブジェクト/01_楽曲_Track.md)
-- **ユーザー体験**: ライブラリ全体からの高速な楽曲絞り込み、柔軟なソート、複数選択による一括操作（キュー投入、プレイリスト追加、タグ編集、端末転送）。
+- **主要操作対象オブジェクト**: [楽曲 (`Track`)](../../主要オブジェクト/01_楽曲_Track.md)（UI行ラッパー: `AllSongsTrackItem`）
+- **ユーザー体験**: ライブラリ全体からの高速な楽曲絞り込み（200msデバウンス）、5項目ソート、ダブルクリックによる即時再生、コンテキストメニューからのキュー・プレイリスト連携。
 
 ---
 
@@ -15,20 +15,17 @@
 
 ```text
 +--------------------------------------------------------------------------------------------------------------------+
-| [▶ すべて再生]  [🔀 シャッフル]    [🔍 楽曲を検索...                            ]               全 1,248 曲 (78.5 時間) |
+| [▶ すべて再生] [シャッフル]   [🔍 楽曲を検索...                 ✕]   [ソート: タイトル ▼] [▲]   全 1,248 曲 (78.5 時間) |
 +--------------------------------------------------------------------------------------------------------------------+
-|    | #   | ★ | タイトル                     | アーティスト          | アルバム              | 時間  | 形式  | ジャンル |
-|----+-----+---+------------------------------+-----------------------+-----------------------+-------+-------+----------|
-| || | 1   | ★ | Midnight City                | M83                   | Hurry Up, We're D...  | 04:03 | FLAC  | Synthpop |
-|    | 2   | ☆ | Starboy                      | The Weeknd            | Starboy               | 03:50 | MP3   | R&B      |
-| >  | 3   | ★ | Get Lucky (feat. Pharrell)   | Daft Punk             | Random Access Memo... | 06:09 | HiRes | Disco    |
-|    | 4   | ☆ | Instant Crush                | Daft Punk             | Random Access Memo... | 05:37 | HiRes | Synthpop |
-|    | 5   | ☆ | Lose Yourself to Dance       | Daft Punk             | Random Access Memo... | 05:53 | HiRes | Disco    |
-|    | 6   | ★ | The Less I Know The Better   | Tame Impala           | Currents              | 03:36 | FLAC  | Psyche   |
-|    | 7   | ☆ | Let It Happen                | Tame Impala           | Currents              | 07:48 | FLAC  | Psyche   |
-|    | ... |   | ...                          | ...                   | ...                   | ...   | ...   | ...      |
+|    | [Art] | #   | ★ | タイトル                     | アーティスト          | アルバム              | ジャンル | 時間  |
+|----+-------+-----+---+------------------------------+-----------------------+-----------------------+----------+-------|
+| || | [24]  | 1   | ★ | Midnight City                | M83                   | Hurry Up, We're D...  | Synthpop | 04:03 |
+|    | [24]  | 2   | ☆ | Starboy                      | The Weeknd            | Starboy               | R&B      | 03:50 |
+| || | [▶24] | 3   | ★ | Get Lucky (feat. Pharrell)   | Daft Punk             | Random Access Memo... | Disco    | 06:09 |
+|    | [24]  | 4   | ☆ | Instant Crush                | Daft Punk             | Random Access Memo... | Synthpop | 05:37 |
+|    | ...   | ... |   | ...                          | ...                   | ...                   | ...      | ...   |
 +--------------------------------------------------------------------------------------------------------------------+
-  ^ 選択行: 左端3pxシアンバー (||)      ^ 再生中アイコン (>)
+  ^ 選択行または再生中行: 左端3pxシアンバー (||) / 再生中サムネイルオーバーレイ ([▶24])
 ```
 
 ### 2.2 Figmaモックアップ
@@ -38,11 +35,12 @@
 
 ## 3. 画面配置とペインレイアウト
 
-- **位置付け**: MainWindowの中央ワークスペース列（`CurrentViewType=AllSongs`）。
-- **グリッド構造**:
-  - 行0 (`Auto`): ツールバー（一括再生アクション、検索ボックス、楽曲総数・総時間サマリー）。
-  - 行1 (`*`): UI仮想化対応の全曲データグリッド（`VirtualizedListBox` / `DataGrid`）。
-- **サイズ要件**: ワークスペースの幅・高さに100%追従（MinWidth: 400px）。
+- **位置付け**: `MainWindow` の中央ワークスペース列（`CurrentViewType = AllSongs`、`DataContext = MainViewModel.AllSongs`）。
+- **グリッド構造（3行構成）**:
+  - 行0 (`Auto`): ツールバー（「▶ すべて再生」「シャッフル」ボタン、検索ボックス＋クリア `✕` ボタン、ソート基準 `ComboBox`＋昇降順トグルボタン、楽曲総数・総再生時間サマリー）。
+  - 行1 (`Auto`, 高さ `30px`): 固定カラムヘッダー行（`#`, `★`, `タイトル`, `アーティスト`, `アルバム`, `ジャンル`, `時間`）。縦スクロールバーの表示幅に連動して右パディングを自動同期し、行データとの列ズレを防止する。
+  - 行2 (`*`): UI仮想化対応の楽曲リスト（`ListBox`）および0件時の Empty State オーバーレイ（「表示する楽曲がありません」）。
+- **サイズ要件**: ワークスペースの幅・高さに100%追従。
 
 ---
 
@@ -51,78 +49,71 @@
 | トークン名 | カラー見本 (Preview) | カラーコード | 用途 |
 | :--- | :---: | :--- | :--- |
 | `WindowBackgroundBrush` | <span style="background-color:#161920;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | 画面背景 |
-| `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | ヘッダーおよびツールバー背景 |
+| `PanelBackgroundBrush` | <span style="background-color:#1B2028;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #1B2028</span> | `#1B2028` | ツールバーおよび列ヘッダー背景 |
+| `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | セカンダリボタン・検索ボックス・ソートComboBox背景 |
 | `ControlBackgroundHighlightBrush` | <span style="background-color:#2F3746;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #2F3746</span> | `#2F3746` | 行選択・ホバー背景 |
-| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 選択行アクセントバー（3px）、再生中アイコン |
+| `BorderBrush` | <span style="background-color:#343E4E;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #343E4E</span> | `#343E4E` | ツールバー・列ヘッダー下部境界線、入力枠線 |
+| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | プライマリボタン背景、左端3pxアクセントバー、再生中曲名強調 |
+| `AlwaysNeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | アルバムアート暗幕上の再生中 `▶` アイコン（両テーマ不変） |
+| `InverseTextForegroundBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #161920</span> | `#161920` | プライマリボタン（「▶ すべて再生」）文字色 |
 | `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主要テキスト（曲名） |
-| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 補助テキスト（アーティスト、アルバム、時間） |
+| `SecondaryTextForegroundBrush` | <span style="background-color:#A0AEC0;color:#161920;padding:2px 8px;border-radius:3px;">■ #A0AEC0</span> | `#A0AEC0` | アーティスト名、アルバム名 |
+| `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 列ヘッダー、連番、ジャンル、再生時間、プレースホルダー |
 
-- **タイポグラフィ**: 曲名: `Body (13pt) / SemiBold`、メタデータ: `Caption (11pt) / Regular`。
-- **行高**: 36px（リスト表示の標準行高）。
+- **タイポグラフィ**: 曲名: `13pt`（再生中は `SemiBold`＋`NeonCyanBrush`）、アーティスト・アルバム: `12pt`、列ヘッダー・ジャンル・時間: `11pt`。
+- **行高**: `36px`。
 
 ---
 
 ## 5. 構成要素と共通コントロール
 
 1. **ツールバー領域**:
-   - `PrimaryButton`: 「すべて再生」（ライブラリ全曲をキューに追加して先頭から再生）。
-   - `SecondaryButton`: 「シャッフル」（全曲をシャッフルして即時再生）。
-   - `SearchBox`: リアルタイムインクリメンタル検索（曲名、アーティスト、アルバムを横断フィルタ）。
-   - カウント表示: `全 N 曲 (HH.H 時間)` のテキスト表示。
-2. **データグリッド列構成**:
-   - 左端アクセント: 選択時に幅3pxのネオンシアンバーを表示。
-   - 再生状態アイコン: 再生中（`IsPlaying=True`）の波形・再生アイコン。
-   - `#`: トラック連番（ソート状態追従）。
-   - `★`: お気に入りトグルボタン（クリックで即時反転）。
-   - `タイトル`: 楽曲タイトル（文字色: `TextForegroundBrush`）。
-   - `アーティスト`: アーティスト名（クリックでアーティスト画面へ遷移可能）。
-   - `アルバム`: アルバム名（クリックでアルバム詳細へ遷移可能）。
-   - `時間`: 再生時間（`mm:ss` 形式、右寄せ）。
-   - `形式`: 音声フォーマット・バッジ（FLAC, Hi-Res, MP3等）。
-   - `ジャンル`: 音楽ジャンル。
+   - `ToolbarPrimaryButtonStyle`: 「▶ すべて再生」（フィルタ適用後の表示リスト先頭から連続再生）。
+   - `ToolbarSecondaryButtonStyle`: 「シャッフル」（表示リストをシャッフルして即時再生し、`AlbumQueue` と同期）。
+   - 検索ボックス: 曲名・アーティスト・アルバム・ジャンル（`Genre`）の4項目横断インクリメンタル検索（200msデバウンス、クリア `✕` 押下時は即時解除）。
+   - ソートコントロール: `AllSongsSortOption`（タイトル / アーティスト / アルバム / 時間 / ジャンル）の `ComboBox`（`NeonComboBoxStyle`）および昇順（`▲`）/ 降順（`▼`）トグルボタン（同一値時はタイブレーカーで順序安定化）。
+   - サマリー表示: 合計時間が1時間未満の場合は `全 N 曲 (M 分)`、1時間以上の場合は `全 N 曲 (H.H 時間)`。
+2. **リスト列構成 (`AllSongsTrackItem`)**:
+   - 左端アクセントバー: 行選択時（`IsSelected`）または再生中（`Track.IsPlaying`）に幅 `3px` の `NeonCyanBrush` 縦バーを表示。
+   - サムネイル列: `24×24px`（角丸 `3px`）のアルバムアートサムネイル（`AlbumArtLoader` 非同期読込）＋再生中（`Track.IsPlaying=True`）は半透明黒オーバーレイ上に `AlwaysNeonCyanBrush` の `▶` アイコンを表示。
+   - `#`: `AllSongsTrackItem.Index` による1始まりの連番（仮想化リサイクリング時も連番崩れを起こさない事前採番）。
+   - `★`: お気に入りトグルボタン（`★` / `☆`）。
+   - `タイトル` / `アーティスト` / `アルバム` / `ジャンル` / `時間`（`DurationString`）。
 
 ---
 
 ## 6. アニメーションとインタラクション
 
-- **ダブルクリック**: 対象楽曲を即時再生（`PlayTrackCommand`）。
-- **シングルクリック**: 行の選択（`IsSelected` 反転）。
-- **複数選択 (マルチセレクト)**:
-  - `Ctrl + Click`: 個別追加選択。
-  - `Shift + Click`: 範囲連続選択。
-  - `Ctrl + A`: リスト内全選択。
+- **ダブルクリック**: 対象楽曲から表示リスト全体をコンテキストとして即時再生（`PlayTrackCommand`）。ただし `e.OriginalSource` を検証し、お気に入りボタン・スクロールバー・アイテム外余白のダブルクリックでは発火させない。
+- **シングルクリック**: 行の選択（`SelectedItem` 更新）。
 - **右クリック（コンテキストメニュー）**:
-  - 「再生」「次に再生」「最後に再生（キューに追加）」
-  - 「お気に入りに追加 / 解除」
-  - 「プレイリストに追加...」（サブメニューまたはダイアログ表示）
-  - 「端末へ転送」（接続機器がある場合）
-  - 「プロパティ」（メタデータ・タグ表示）
-  - 「ファイルの場所を開く」
-  - 「ライブラリから削除」（Ctrl+Z Undo対応）
-- **ドラッグ＆ドロップ (D&D)**:
-  - 選択した1曲または複数曲を右側再生キューパネルへドロップしてキュー割り込み投入。
-  - 左サイドバーのプレイリスト項目へドロップしてプレイリストへ楽曲追加。
+  - 「再生」「次に再生」「最後に再生」
+  - 「お気に入りに追加 / お気に入りから解除」
+  - 「プレイリストに追加...」
+  - 「プロパティ」「ファイルの場所を開く」「削除」
+- **拡張構想（関連Issue #188, #233）**:
+  - アーティスト/アルバム名クリックによる詳細遷移（#188）、複数選択一括操作・再生キュー/サイドバーへのドラッグ＆ドロップ投入（#233）。
 
 ---
 
 ## 7. パフォーマンス最適化要件
 
-数万曲規模の大規模ライブラリにおいても60fpsの滑らかなスクロールを維持するため、以下のUI仮想化を必須とします：
-
-```xml
-VirtualizingPanel.IsVirtualizing="True"
-VirtualizingPanel.VirtualizationMode="Recycling"
-VirtualizingPanel.ScrollUnit="Pixel"
-ScrollViewer.CanContentScroll="True"
-```
-
-- 親コンテナによる `ScrollViewer` 内包を禁止し、リスト自身の仮想化スクローラーを使用。
-- 各行セル内のバインディングは極力シンプルに保ち、過度なコンバーターや高負荷エフェクト（DropShadowEffect/BlurEffect）を排除。
+- 大規模ライブラリにおいても滑らかなスクロールを維持するため、親 `ScrollViewer` の内包を禁止し、以下のUI仮想化4属性を適用：
+  ```xml
+  VirtualizingPanel.IsVirtualizing="True"
+  VirtualizingPanel.VirtualizationMode="Recycling"
+  VirtualizingPanel.ScrollUnit="Pixel"
+  ScrollViewer.CanContentScroll="True"
+  ```
+- `LibraryViewModel.Tracks.CollectionChanged` の連続発火時は `DispatcherPriority.Background` で1回の再構築へコアレッシングし、$O(N^2)$ のUIフリーズを防止する。
+- 検索キーワード入力時は `DispatcherTimer`（200ms）によるデバウンスを適用する。
+- 各行に `DropShadowEffect` や `BlurEffect` 等の高負荷エフェクトを使用しない。
 
 ---
 
 ## 8. 関連Issue・仕様書
 
+- [AllSongsView.xaml](../../../AudioEffector/Presentation/Views/AllSongsView.xaml) / [AllSongsViewModel.cs](../../../AudioEffector/Presentation/ViewModels/AllSongsViewModel.cs)
 - [主要オブジェクト仕様: 楽曲 (`Track`)](../../主要オブジェクト/01_楽曲_Track.md)
 - [インタラクション標準化ガイドライン](../../主要オブジェクト/インタラクション標準化ガイドライン.md)
 - [ユースケース: 楽曲ライブラリ管理](../../ユースケース/02_楽曲ライブラリ管理.md)
