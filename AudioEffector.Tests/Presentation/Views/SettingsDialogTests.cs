@@ -20,9 +20,6 @@ namespace AudioEffector.Tests.Presentation.Views;
 /// </summary>
 public sealed class SettingsDialogTests
 {
-    private static readonly Uri DarkThemeUri = new("pack://application:,,,/AudioEffector;component/Presentation/Themes/DarkTheme.xaml", UriKind.Absolute);
-    private static readonly Uri ScrollBarResourcesUri = new("pack://application:,,,/AudioEffector;component/Presentation/Themes/ScrollBarResources.xaml", UriKind.Absolute);
-
     private static void RunInStaThread(Action action)
     {
         Exception? threadEx = null;
@@ -30,12 +27,6 @@ public sealed class SettingsDialogTests
         {
             try
             {
-                if (System.Windows.Application.Current == null)
-                {
-                    _ = new System.Windows.Application();
-                }
-
-                EnsureThemeResourcesLoaded();
                 action();
             }
             catch (Exception ex)
@@ -55,20 +46,6 @@ public sealed class SettingsDialogTests
         if (threadEx != null)
         {
             throw threadEx;
-        }
-    }
-
-    private static void EnsureThemeResourcesLoaded()
-    {
-        var dictionaries = System.Windows.Application.Current!.Resources.MergedDictionaries;
-        if (!dictionaries.Any(d => d.Source == DarkThemeUri))
-        {
-            dictionaries.Add(new ResourceDictionary { Source = DarkThemeUri });
-        }
-
-        if (!dictionaries.Any(d => d.Source == ScrollBarResourcesUri))
-        {
-            dictionaries.Add(new ResourceDictionary { Source = ScrollBarResourcesUri });
         }
     }
 
