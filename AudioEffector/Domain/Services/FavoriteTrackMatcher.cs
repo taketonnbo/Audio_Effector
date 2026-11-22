@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using AudioEffector.Domain.Entities;
@@ -14,6 +14,70 @@ public static class FavoriteTrackMatcher
     /// MP3とFLAC間の差し替え等による軽微な再生時間差を許容するしきい値（秒）
     /// </summary>
     public const double DURATION_TOLERANCE_SECONDS = 5.0;
+
+    private readonly record struct CoreMetadataKey(string Title, string Artist, string Album);
+
+    private sealed class CoreMetadataKeyComparer : IEqualityComparer<CoreMetadataKey>
+    {
+        public static readonly CoreMetadataKeyComparer INSTANCE = new();
+
+        public bool Equals(CoreMetadataKey x, CoreMetadataKey y)
+        {
+            return string.Equals(x.Title, y.Title, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(x.Artist, y.Artist, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(x.Album, y.Album, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public int GetHashCode(CoreMetadataKey obj)
+        {
+            return HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Title),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Artist),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Album));
+        }
+    }
+
+    private sealed class TrackLookupIndex
+    {
+        public Dictionary<string, List<int>> PathToIndices { get; }
+        public Dictionary<CoreMetadataKey, List<int>> MetadataToIndices { get; }
+        public double[] NormalizedDurations { get; }
+
+        public TrackLookupIndex(IReadOnlyList<Track> tracks)
+        {
+            PathToIndices = new Dictionary<string, List<int>>(tracks.Count, StringComparer.OrdinalIgnoreCase);
+            MetadataToIndices = new Dictionary<CoreMetadataKey, List<int>>(tracks.Count, CoreMetadataKeyComparer.INSTANCE);
+            NormalizedDurations = new double[tracks.Count];
+
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                var track = tracks[i];
+                NormalizedDurations[i] = FavoriteTrackEntry.NormalizeDuration(track.Duration.TotalSeconds);
+
+                string normalizedPath = FavoriteTrackEntry.NormalizeText(track.FilePath);
+                if (!string.IsNullOrEmpty(normalizedPath))
+                {
+                    if (!PathToIndices.TryGetValue(normalizedPath, out var pathIndices))
+                    {
+                        pathIndices = new List<int>(1);
+                        PathToIndices[normalizedPath] = pathIndices;
+                    }
+                    pathIndices.Add(i);
+                }
+
+                var key = new CoreMetadataKey(
+                    FavoriteTrackEntry.NormalizeText(track.Title),
+                    FavoriteTrackEntry.NormalizeText(track.Artist),
+                    FavoriteTrackEntry.NormalizeText(track.Album));
+                if (!MetadataToIndices.TryGetValue(key, out var metadataIndices))
+                {
+                    metadataIndices = new List<int>(1);
+                    MetadataToIndices[key] = metadataIndices;
+                }
+                metadataIndices.Add(i);
+            }
+        }
+    }
 
     /// <summary>
     /// お気に入りエントリ一覧とライブラリトラック一覧を一括照合し、各トラックのIsFavorite反映とエントリ自動更新を行います
@@ -35,6 +99,9 @@ public static class FavoriteTrackMatcher
         var claimedTrackIndices = new HashSet<int>();
         bool hasEntryChanges = false;
 
+        // O(T) の事前インデックス構築により、全フェーズ合計の照合計算量を O(T + F) へ削減
+        var lookupIndex = new TrackLookupIndex(tracks);
+
         // パス優先フェーズ: タグ未設定エントリや旧形式（パスのみ）エントリの誤マッチを防ぐため、
         // LastKnownFilePath が完全一致するトラックを先に確保する
         for (int i = 0; i < entries.Count; i++)
@@ -45,7 +112,7 @@ public static class FavoriteTrackMatcher
                 continue;
             }
 
-            int pathIndex = FindPathMatchTrackIndex(entry.LastKnownFilePath, tracks, claimedTrackIndices);
+            int pathIndex = FindPathMatchTrackIndex(entry.LastKnownFilePath, lookupIndex, claimedTrackIndices);
             if (pathIndex >= 0)
             {
                 matchedTrackByEntryIndex[i] = tracks[pathIndex];
@@ -67,7 +134,7 @@ public static class FavoriteTrackMatcher
                 continue;
             }
 
-            int bestIndex = FindBestMetadataMatchTrackIndex(entry, tracks, claimedTrackIndices);
+            int bestIndex = FindBestMetadataMatchTrackIndex(entry, tracks, lookupIndex, claimedTrackIndices);
             if (bestIndex >= 0)
             {
                 matchedTrackByEntryIndex[i] = tracks[bestIndex];
@@ -76,7 +143,7 @@ public static class FavoriteTrackMatcher
         }
 
         // 第2優先フェーズ（フォールバック）: タグ編集直後の LastKnownFilePath 一致、
-        // および移動されたタグ未設定曲の (Title, DurationSeconds) 照合
+        // および元パスが存在しない移動済みタグ未設定曲の (Title, DurationSeconds) 照合
         for (int i = 0; i < entries.Count; i++)
         {
             if (matchedTrackByEntryIndex[i] != null)
@@ -85,10 +152,10 @@ public static class FavoriteTrackMatcher
             }
 
             var entry = entries[i];
-            int fallbackIndex = FindPathMatchTrackIndex(entry.LastKnownFilePath, tracks, claimedTrackIndices);
+            int fallbackIndex = FindPathMatchTrackIndex(entry.LastKnownFilePath, lookupIndex, claimedTrackIndices);
             if (fallbackIndex < 0 && !entry.HasSufficientMetadata && !string.IsNullOrWhiteSpace(entry.Title))
             {
-                fallbackIndex = FindUntaggedMetadataMatchTrackIndex(entry, tracks, claimedTrackIndices);
+                fallbackIndex = FindUntaggedMetadataMatchTrackIndex(entry, tracks, lookupIndex, claimedTrackIndices);
             }
 
             if (fallbackIndex >= 0)
@@ -208,12 +275,14 @@ public static class FavoriteTrackMatcher
             }
         }
 
-        // 第3優先: タグ未設定エントリのタイトル＋再生時間一致
+        // 第3優先: タグ未設定エントリのタイトル＋再生時間一致（両者に別々の非空パスがある場合は誤マッチ防止のため除外）
         FavoriteTrackEntry? bestUntaggedMatch = null;
         double bestUntaggedDiff = double.MaxValue;
         foreach (var entry in entries)
         {
-            if (entry.HasSufficientMetadata || !IsUntaggedMetadataCompatible(entry, track, out double diff))
+            if (entry.HasSufficientMetadata ||
+                HaveDistinctNonEmptyPaths(entry.LastKnownFilePath, track.FilePath) ||
+                !IsUntaggedMetadataCompatible(entry, track, out double diff))
             {
                 continue;
             }
@@ -249,6 +318,11 @@ public static class FavoriteTrackMatcher
             return IsMetadataCompatible(entry, track);
         }
 
+        if (HaveDistinctNonEmptyPaths(entry.LastKnownFilePath, track.FilePath))
+        {
+            return false;
+        }
+
         return IsUntaggedMetadataCompatible(entry, track, out _);
     }
 
@@ -279,6 +353,7 @@ public static class FavoriteTrackMatcher
         }
 
         if (!left.HasSufficientMetadata && !right.HasSufficientMetadata &&
+            !HaveDistinctNonEmptyPaths(left.LastKnownFilePath, right.LastKnownFilePath) &&
             !string.IsNullOrWhiteSpace(left.Title) &&
             AreCoreMetadataEqual(left.Title, left.Artist, left.Album, right.Title, right.Artist, right.Album) &&
             AreTrackNumbersCompatible(left.TrackNumber, right.TrackNumber) &&
@@ -311,52 +386,63 @@ public static class FavoriteTrackMatcher
                !string.Equals(entry.LastKnownFilePath, updated.LastKnownFilePath, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static int FindPathMatchTrackIndex(string? filePath, IReadOnlyList<Track> tracks, HashSet<int> claimedTrackIndices)
+    private static int FindPathMatchTrackIndex(string? filePath, TrackLookupIndex lookupIndex, HashSet<int> claimedTrackIndices)
     {
-        if (string.IsNullOrWhiteSpace(filePath))
+        string normalizedPath = FavoriteTrackEntry.NormalizeText(filePath);
+        if (string.IsNullOrEmpty(normalizedPath) ||
+            !lookupIndex.PathToIndices.TryGetValue(normalizedPath, out var candidateIndices))
         {
             return -1;
         }
 
-        for (int i = 0; i < tracks.Count; i++)
+        foreach (int index in candidateIndices)
         {
-            if (claimedTrackIndices.Contains(i))
+            if (!claimedTrackIndices.Contains(index))
             {
-                continue;
-            }
-
-            if (IsFilePathMatch(filePath, tracks[i].FilePath))
-            {
-                return i;
+                return index;
             }
         }
 
         return -1;
     }
 
-    private static int FindBestMetadataMatchTrackIndex(FavoriteTrackEntry entry, IReadOnlyList<Track> tracks, HashSet<int> claimedTrackIndices)
+    private static int FindBestMetadataMatchTrackIndex(
+        FavoriteTrackEntry entry,
+        IReadOnlyList<Track> tracks,
+        TrackLookupIndex lookupIndex,
+        HashSet<int> claimedTrackIndices)
     {
+        var key = new CoreMetadataKey(entry.Title, entry.Artist, entry.Album);
+        if (!lookupIndex.MetadataToIndices.TryGetValue(key, out var candidateIndices))
+        {
+            return -1;
+        }
+
         int bestIndex = -1;
         int bestRank = int.MaxValue;
         double bestDurationDiff = double.MaxValue;
 
-        for (int i = 0; i < tracks.Count; i++)
+        foreach (int index in candidateIndices)
         {
-            if (claimedTrackIndices.Contains(i))
+            if (claimedTrackIndices.Contains(index))
             {
                 continue;
             }
 
-            var track = tracks[i];
-            if (!IsMetadataCompatible(entry, track))
+            var track = tracks[index];
+            double trackDuration = lookupIndex.NormalizedDurations[index];
+            bool pathMatches = IsFilePathMatch(entry.LastKnownFilePath, track.FilePath);
+
+            if (!AreTrackNumbersCompatible(entry.TrackNumber, track.TrackNumber) ||
+                !AreDurationsCompatible(entry.DurationSeconds, trackDuration, pathMatches))
             {
                 continue;
             }
 
-            int rank = CalculateMatchRank(entry, track, out double durationDiff);
+            int rank = CalculateMatchRank(entry, track, trackDuration, pathMatches, out double durationDiff);
             if (rank < bestRank || (rank == bestRank && durationDiff < bestDurationDiff))
             {
-                bestIndex = i;
+                bestIndex = index;
                 bestRank = rank;
                 bestDurationDiff = durationDiff;
             }
@@ -365,21 +451,49 @@ public static class FavoriteTrackMatcher
         return bestIndex;
     }
 
-    private static int FindUntaggedMetadataMatchTrackIndex(FavoriteTrackEntry entry, IReadOnlyList<Track> tracks, HashSet<int> claimedTrackIndices)
+    private static int FindUntaggedMetadataMatchTrackIndex(
+        FavoriteTrackEntry entry,
+        IReadOnlyList<Track> tracks,
+        TrackLookupIndex lookupIndex,
+        HashSet<int> claimedTrackIndices)
     {
+        if (entry.DurationSeconds <= 0)
+        {
+            return -1;
+        }
+
+        var key = new CoreMetadataKey(entry.Title, entry.Artist, entry.Album);
+        if (!lookupIndex.MetadataToIndices.TryGetValue(key, out var candidateIndices))
+        {
+            return -1;
+        }
+
         int bestIndex = -1;
         double bestDurationDiff = double.MaxValue;
 
-        for (int i = 0; i < tracks.Count; i++)
+        foreach (int index in candidateIndices)
         {
-            if (claimedTrackIndices.Contains(i))
+            if (claimedTrackIndices.Contains(index))
             {
                 continue;
             }
 
-            if (IsUntaggedMetadataCompatible(entry, tracks[i], out double diff) && diff < bestDurationDiff)
+            var track = tracks[index];
+            if (!AreTrackNumbersCompatible(entry.TrackNumber, track.TrackNumber))
             {
-                bestIndex = i;
+                continue;
+            }
+
+            double trackDuration = lookupIndex.NormalizedDurations[index];
+            if (trackDuration <= 0)
+            {
+                continue;
+            }
+
+            double diff = Math.Abs(entry.DurationSeconds - trackDuration);
+            if (diff <= DURATION_TOLERANCE_SECONDS && diff < bestDurationDiff)
+            {
+                bestIndex = index;
                 bestDurationDiff = diff;
             }
         }
@@ -435,10 +549,20 @@ public static class FavoriteTrackMatcher
     private static int CalculateMatchRank(FavoriteTrackEntry entry, Track track, out double durationDiff)
     {
         bool pathMatches = IsFilePathMatch(entry.LastKnownFilePath, track.FilePath);
-        bool trackNumberMatches = entry.TrackNumber > 0 && track.TrackNumber > 0 && entry.TrackNumber == track.TrackNumber;
         double trackDuration = FavoriteTrackEntry.NormalizeDuration(track.Duration.TotalSeconds);
-        durationDiff = (entry.DurationSeconds > 0 && trackDuration > 0)
-            ? Math.Abs(entry.DurationSeconds - trackDuration)
+        return CalculateMatchRank(entry, track, trackDuration, pathMatches, out durationDiff);
+    }
+
+    private static int CalculateMatchRank(
+        FavoriteTrackEntry entry,
+        Track track,
+        double normalizedTrackDuration,
+        bool pathMatches,
+        out double durationDiff)
+    {
+        bool trackNumberMatches = entry.TrackNumber > 0 && track.TrackNumber > 0 && entry.TrackNumber == track.TrackNumber;
+        durationDiff = (entry.DurationSeconds > 0 && normalizedTrackDuration > 0)
+            ? Math.Abs(entry.DurationSeconds - normalizedTrackDuration)
             : double.MaxValue;
 
         if (pathMatches)
@@ -496,6 +620,15 @@ public static class FavoriteTrackMatcher
         return !string.IsNullOrEmpty(left) &&
                !string.IsNullOrEmpty(right) &&
                string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HaveDistinctNonEmptyPaths(string? leftPath, string? rightPath)
+    {
+        string left = FavoriteTrackEntry.NormalizeText(leftPath);
+        string right = FavoriteTrackEntry.NormalizeText(rightPath);
+        return !string.IsNullOrEmpty(left) &&
+               !string.IsNullOrEmpty(right) &&
+               !string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
     }
 }
 
