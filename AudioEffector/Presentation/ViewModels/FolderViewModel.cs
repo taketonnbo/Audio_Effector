@@ -9,11 +9,11 @@ using Microsoft.Win32;
 namespace AudioEffector.Presentation.ViewModels;
 
 /// <summary>
-/// フォルダー選択および指定済みフォルダの差分再スキャン・ライブラリ同期を管理するViewModel。
+/// フォルダー選択および指定済みフォルダの差分再スキャン・ライブラリ同期を管理するViewModel
 /// </summary>
 public class FolderViewModel : ViewModelBase, IDisposable
 {
-    private const string UnsetFolderDisplayText = "未設定（フォルダが選択されていません）";
+    private const string UNSET_FOLDER_DISPLAY_TEXT = "未設定（フォルダが選択されていません）";
 
     private readonly ISettingsService _settingsService;
     private readonly LibraryViewModel? _libraryViewModel;
@@ -52,7 +52,7 @@ public class FolderViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// 画面表示用のフォルダパス文字列（未設定時は案内文言）を取得します
     /// </summary>
-    public string DisplayFolderPath => HasCurrentFolderPath ? _currentFolderPath : UnsetFolderDisplayText;
+    public string DisplayFolderPath => HasCurrentFolderPath ? _currentFolderPath : UNSET_FOLDER_DISPLAY_TEXT;
 
     /// <summary>
     /// 現在スキャン処理を実行中かどうかを取得します
@@ -191,7 +191,7 @@ public class FolderViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// フォルダ選択ダイアログを開き、選択されたパスを設定へ保存します（スキャンは実行しません）。
+    /// フォルダ選択ダイアログを開き、選択されたパスを設定へ保存します（スキャンは実行しません）
     /// </summary>
     public void SelectFolderOnly()
     {
@@ -211,7 +211,7 @@ public class FolderViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// フォルダ選択ダイアログを開き、新たに指定されたフォルダを保存して即時スキャンを実行します。
+    /// フォルダ選択ダイアログを開き、新たに指定されたフォルダを保存して即時スキャンを実行します
     /// </summary>
     public void ScanNewFolder()
     {
@@ -231,7 +231,7 @@ public class FolderViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 現在指定済みのフォルダを再スキャンし、追加・削除された楽曲やアルバムをライブラリへ差分同期します。
+    /// 現在指定済みのフォルダを再スキャンし、追加・削除された楽曲やアルバムをライブラリへ差分同期します
     /// </summary>
     public void RescanCurrentFolder()
     {

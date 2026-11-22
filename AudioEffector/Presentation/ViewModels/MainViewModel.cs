@@ -1002,8 +1002,8 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         /// <summary>
-        /// メイン画面の全画面ローディングオーバーレイを表示するかどうかを取得します。
-        /// フォルダタブ表示中はフォルダタブ内のプログレスインジケーターを使用するため非表示とします。
+        /// メイン画面の全画面ローディングオーバーレイを表示するかどうかを取得します
+        /// フォルダタブ表示中はフォルダタブ内のプログレスインジケーターを使用するため非表示とします
         /// </summary>
         public bool IsMainLoadingOverlayVisible => IsLoading && CurrentViewType != ViewType.Folders;
 
