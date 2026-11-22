@@ -295,7 +295,7 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
     public void AddFavoriteTrack(Track track)
     {
         ArgumentNullException.ThrowIfNull(track);
-        if (IsFavoritesView && !PlaylistTracks.Any(item => PathsEqual(item.FilePath, track.FilePath)))
+        if (IsFavoritesView && !PlaylistTracks.Any(item => ReferenceEquals(item, track) || (!string.IsNullOrEmpty(track.FilePath) && PathsEqual(item.FilePath, track.FilePath))))
         {
             RunOnUiThread(() => PlaylistTracks.Add(track));
         }
@@ -310,7 +310,7 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
         ArgumentNullException.ThrowIfNull(track);
         RunOnUiThread(() =>
         {
-            var displayedTrack = PlaylistTracks.FirstOrDefault(item => PathsEqual(item.FilePath, track.FilePath));
+            var displayedTrack = PlaylistTracks.FirstOrDefault(item => ReferenceEquals(item, track) || (!string.IsNullOrEmpty(track.FilePath) && PathsEqual(item.FilePath, track.FilePath)));
             if (displayedTrack != null)
             {
                 PlaylistTracks.Remove(displayedTrack);
