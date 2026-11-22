@@ -27,7 +27,9 @@
             </Grid.ColumnDefinitions>
 
             <!-- Navigation Menu -->
-            <ListBox Grid.Column="0" ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory, Mode=TwoWay}" 
+            <ListBox x:Name="CategoryListBox"
+                     Grid.Column="0" ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory, Mode=TwoWay}" 
+                     SelectionChanged="CategoryListBox_SelectionChanged"
                      Background="Transparent" BorderThickness="0" Foreground="{DynamicResource TextForegroundBrush}" FontSize="16">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
@@ -61,7 +63,12 @@
             <Rectangle Grid.Column="1" Fill="{DynamicResource BorderBrush}" Width="1" HorizontalAlignment="Center" Margin="0,10"/>
 
             <!-- Settings Content -->
-            <Grid Grid.Column="2">
+            <ScrollViewer x:Name="SettingsContentScrollViewer"
+                          Grid.Column="2"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Padding="0,0,6,0">
+                <Grid MinHeight="{Binding ViewportHeight, ElementName=SettingsContentScrollViewer}">
                 <!-- General Settings Panel -->
                 <StackPanel Margin="10">
                     <StackPanel.Style>
@@ -179,17 +186,15 @@
                     </StackPanel.Style>
                     <TextBlock Text="キーボードショートカット設定" FontSize="20" FontWeight="Bold" Margin="0,0,0,20"/>
                     
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="450">
-                        <StackPanel Margin="0,0,10,0">
-                            <local:ShortcutInputBox Label="再生 / 一時停止" Shortcut="{Binding PlayPauseShortcut, Mode=TwoWay}"/>
-                            <local:ShortcutInputBox Label="停止" Shortcut="{Binding StopShortcut, Mode=TwoWay}"/>
-                            <local:ShortcutInputBox Label="次の曲へ" Shortcut="{Binding NextShortcut, Mode=TwoWay}"/>
-                            <local:ShortcutInputBox Label="前の曲へ" Shortcut="{Binding PreviousShortcut, Mode=TwoWay}"/>
-                            <local:ShortcutInputBox Label="ミュート切り替え" Shortcut="{Binding MuteShortcut, Mode=TwoWay}"/>
-                            <local:ShortcutInputBox Label="音量を上げる" Shortcut="{Binding VolumeUpShortcut, Mode=TwoWay}"/>
-                            <local:ShortcutInputBox Label="音量を下げる" Shortcut="{Binding VolumeDownShortcut, Mode=TwoWay}"/>
-                        </StackPanel>
-                    </ScrollViewer>
+                    <StackPanel Margin="0,0,10,0">
+                        <local:ShortcutInputBox Label="再生 / 一時停止" Shortcut="{Binding PlayPauseShortcut, Mode=TwoWay}"/>
+                        <local:ShortcutInputBox Label="停止" Shortcut="{Binding StopShortcut, Mode=TwoWay}"/>
+                        <local:ShortcutInputBox Label="次の曲へ" Shortcut="{Binding NextShortcut, Mode=TwoWay}"/>
+                        <local:ShortcutInputBox Label="前の曲へ" Shortcut="{Binding PreviousShortcut, Mode=TwoWay}"/>
+                        <local:ShortcutInputBox Label="ミュート切り替え" Shortcut="{Binding MuteShortcut, Mode=TwoWay}"/>
+                        <local:ShortcutInputBox Label="音量を上げる" Shortcut="{Binding VolumeUpShortcut, Mode=TwoWay}"/>
+                        <local:ShortcutInputBox Label="音量を下げる" Shortcut="{Binding VolumeDownShortcut, Mode=TwoWay}"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- Placeholder for other categories -->
@@ -216,7 +221,8 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
-            </Grid>
+                </Grid>
+            </ScrollViewer>
         </Grid>
 
         <!-- Bottom Actions -->
