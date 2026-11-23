@@ -26,7 +26,7 @@ namespace AudioEffector.Presentation.ViewModels
     /// アプリケーションのメインViewModel。
     /// UIのロジック、データバインディング、およびサービス間の連携を担当します。
     /// </summary>
-    public class MainViewModel : ViewModelBase, IDisposable
+    public class MainViewModel : ViewModelBase, IDisposable, IShortcutCommandTarget
     {
         private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
         private static readonly string[] SupportedAudioExtensions = [".mp3", ".wav", ".aiff", ".wma", ".m4a", ".mp4", ".flac", ".aac", ".ogg", ".opus", ".alac"];
