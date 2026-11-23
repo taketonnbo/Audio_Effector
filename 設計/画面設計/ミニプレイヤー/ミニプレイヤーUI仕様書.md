@@ -32,18 +32,34 @@
 |     Daft Punk                                                     |
 |  ... (UI仮想化 ListBox・ピクセルスクロール)                        |
 +-------------------------------------------------------------------+
+
+正方形デザイン（アルバムアート前面 / 220×220px、回転ON時は丸い窓）:
++---------------------------------------+
+|                                  [⤢]  |
+|        . - - - - - - - - - .          |
+|      /     (Album Art)       \        |
+|     |   +-------------------+ |       |
+|     |   |  [⏮]  [▶/⏸]  [⏭]  | |       |
+|     |   +-------------------+ |       |
+|      \     (時計回り回転)     /        |
+|        ' - - - - - - - - - '          |
++---------------------------------------+
 ```
 
-> **構想要素に関する注記**: ミニプレイヤーの正方形（アルバムアート前面・回転アニメーション）デザイン切替は Issue #261 にて計画されています。下部連結の再生キュー展開は Issue #217、最小化時のコンパクトプレイヤー非表示設定は Issue #189 にて実装済みです。
+> **実装済み拡張に関する注記**: 下部連結の再生キュー展開は Issue #217、最小化時のコンパクトプレイヤー非表示設定は Issue #189、正方形（アルバムアート前面・丸い窓・回転アニメーション）デザイン切替は Issue #261 にて実装済みです。
 
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-幅 `350px`、通常時高さ `100px`／キュー展開時高さ `350px`、`WindowStyle="None"`、`AllowsTransparency="True"`、`ResizeMode="NoResize"`。角丸 `8px`・外枠 `1px`（`BorderBrush`、`ClipToBounds="True"`）内に、縦2行構成（行0: 高さ `98px` のコンパクトミニプレイヤーヘッダー、行1 `*`: 下部連結再生キュー領域 `QueueDrawerContainer`、初期 `Visibility="Collapsed"`）で配置する。
+`WindowStyle="None"`、`AllowsTransparency="True"`、`ResizeMode="NoResize"`。角丸 `8px`・外枠 `1px`（`BorderBrush`、`ClipToBounds="True"`）内に、縦2行構成（行0 `Auto`: 横長／正方形切替ヘッダー `MiniPlayerHeaderHost`、行1 `*`: 下部連結再生キュー領域 `QueueDrawerContainer`、初期 `Visibility="Collapsed"`）で配置する。
 
-- **行0（コンパクトヘッダー）**: 横3列構成（列0: `78×78px` アルバムアート、列1 `*`: 曲名・アーティスト名、列2 `Auto`: 操作ボタン5個 `⏮` `⏯` `⏭` `☰(キュー開閉)` `⤢` の横1列）。
+- **横長デザイン（`Standard` / 既定）**: 幅 `350px`、通常時高さ `100px`／キュー展開時高さ `350px`。行0の `StandardLayoutGrid`（高さ `98px`）に横3列構成（列0: `78×78px` アルバムアート、列1 `*`: 曲名・アーティスト名、列2 `Auto`: 操作ボタン5個 `⏮` `⏯` `⏭` `☰(キュー開閉)` `⤢` の横1列）を配置。
+- **正方形デザイン（`SquareAlbumArt` / Issue #261）**: 幅 `220px`、通常時高さ `220px`／キュー展開時高さ `470px`。行0の `SquareLayoutGrid`（`218×218px`）に以下のレイヤー構成で配置：
+  - **回転ON時（`MiniPlayerRotateAlbumArt == true`）**: 中央に直径 `184×184px` の丸い窓（`SquareCircularArtContainer`、`EllipseGeometry` 円形クリップ）を配置し、内部のアルバムアート（未設定時は `♫` フォールバック）へ `RotateTransform` を適用。
+  - **回転OFF時（`MiniPlayerRotateAlbumArt == false`）**: 正方形前面にアルバムアートを静止表示（`SquareStaticAlbumArtContainer`）。
+  - **前面オーバーレイ層（回転しない、`SquareOverlayControlsLayer`）**: 右上隅に復帰ボタン「`⤢`」（半透明ダーク円形背景）、中央に半透明ダークカプセル（`#B3161920`）で「`⏮`」「`▶` / `⏸`（`NeonCyanBrush`）」「`⏭`」を配置。
 - **行1（下部連結キュー領域）**: サブヘッダー（タイトル「`再生キュー (件数)`」、全クリアボタン、格納ボタン）とコンテンツ領域（空状態メッセージまたはUI仮想化 `ListBox` `MiniQueueListBox`）。各行は再生ボタン・曲名/アーティスト（クリックで再生）・削除ボタンの3列構成。
 
 ## 4. デザイントークンの適用
@@ -69,12 +85,14 @@
 - **移動と復帰**: ウィンドウのドラッグで一体型（連結キュー含む）のまま自由移動し、復帰ボタン「`⤢`」でメイン画面へ復帰する。
 - **最大化ショートカット時の安全復帰 (Issue #72)**: OSの最大化ショートカット（`Win + ↑` / Aero Snap の `WM_WINDOWPOSCHANGING`・`WM_SIZE(SIZE_MAXIMIZED)`・`WM_SYSCOMMAND(SC_MAXIMIZE)`）またはメインウィンドウ側への復元要求を受けた場合は、想定高さ（通常 `100px`／キュー展開時 `350px`）を超える拡大を抑止して閉じ、メイン画面を正常な可視・描画状態でシームレスに復帰する。
 - **ショートカット・ハードウェアメディアキー操作**: メイン画面と同様に、設定済みカスタムショートカット（`PreviewKeyDown` ベース、設定変更時は `SettingsUpdated` で追従）およびハードウェアメディアキー（`Key.Media*` / Win32 `WM_APPCOMMAND`、二重発火抑止付き）による再生・停止・曲送り操作に対応する（ハードウェアのミュート・音量上げ/下げキーは OS のシステムオーディオへ委譲）。`OnClosed` 時にフックおよびイベント購読を確実に解除する。
-- **右クリックメニュー**: 「お気に入りに追加 / 解除」「プレイリストに追加...」「プロパティ表示」「ファイルの場所を開く」「再生キューを表示 / 再生キューを閉じる」（`ToggleMiniPlayerQueueCommand`）「削除」。
+- **右クリックメニュー**: 「お気に入りに追加 / 解除」「プレイリストに追加...」「プロパティ表示」「ファイルの場所を開く」「再生キューを表示 / 再生キューを閉じる」（`ToggleMiniPlayerQueueCommand`）「削除」。横長・正方形どちらのデザインでも共通提供する。
+- **正方形デザインの回転アニメーションとリアルタイム反映 (Issue #261)**: `AppSettings.MiniPlayerDesignStyle == SquareAlbumArt` かつ `AppSettings.MiniPlayerRotateAlbumArt == true` の場合、`IsPlaying == true` の間、丸い窓内のアルバムアートを時計回り（`0° → 360°`、周期20秒、`RepeatBehavior.Forever`）に連続回転させる。一時停止・停止時はアニメーションを一時停止（`Pause`）し、再開時に元の角度から滑らかに再開（`Resume`）する。回転OFFまたは横長切替・ウィンドウ終了時（`OnClosed`）にはアニメーションクロックを確実に停止・解放する。設定画面からの変更は `UpdateDesignSettings()` により表示中のウィンドウへ即時反映する。
 - **最前面表示制御**: `AppSettings.MiniPlayerTopmostBehavior`（「常に最前面に表示」「音楽を再生中のみ最前面に表示」「最前面に表示しない」）に従い、再生状態変更時および設定変更時にリアルタイム反映する。
 
 ## 7. パフォーマンス最適化要件
 
-- **非表示時の完全描画抑止**: 下部連結キュー領域（`QueueDrawerContainer`）は初期状態および格納完了時に `Visibility="Collapsed"` / `IsHitTestVisible="False"` とし、非展開時のレイアウト計算・コンテナ生成オーバーヘッドをゼロに抑える。
+- **非表示時の完全描画抑止**: 下部連結キュー領域（`QueueDrawerContainer`）は初期状態および格納完了時に `Visibility="Collapsed"` / `IsHitTestVisible="False"` とし、横長レイアウト（`StandardLayoutGrid`）と正方形レイアウト（`SquareLayoutGrid`）、および丸い窓コンテナと静止全面コンテナも排他的に `Visibility="Collapsed"` とすることで非アクティブ側のレイアウト計算・描画オーバーヘッドをゼロに抑える。
+- **高負荷エフェクトの排除**: 正方形オーバーレイや回転ターゲットには `DropShadowEffect` / `BlurEffect` を使用せず、半透明ダーク背景と `RotateTransform` により軽量に描画する。
 - **UI仮想化**: `MiniQueueListBox` には `VirtualizingPanel.IsVirtualizing="True"`、`VirtualizingPanel.VirtualizationMode="Recycling"`、`VirtualizingPanel.ScrollUnit="Pixel"`、`ScrollViewer.CanContentScroll="True"` を適用し、大量のキュー項目でも軽量にスクロール描画する。
 - **MarqueeTextBlock**: 長い曲名・アーティスト名の `MarqueeTextBlock` は `MiniPlayerInfoArea` にマウスが乗っており、かつ文字列が表示幅を超えている場合のみアニメーションを実行する。
 
