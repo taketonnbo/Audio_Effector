@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -257,6 +257,50 @@ public sealed class SettingsDialogTests
 
             // Assert
             Assert.True(vm.DisableMiniPlayerOnMinimize);
+            Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
+
+    /// <summary>
+    /// 一般カテゴリにミニプレイヤーのデザイン選択コンボボックスとアルバムアート回転チェックボックスが配置されており、
+    /// 正方形デザイン選択時のみ回転チェックボックスが有効化され、双方向反映およびバインディングエラー0件であることを検証します。
+    /// </summary>
+    [Fact]
+    public void 一般カテゴリ_ミニプレイヤーデザインと回転設定操作時_ViewModelへ双方向反映され有効状態が連動しバインディングエラーがないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var listener = new BindingErrorTraceListener();
+            var vm = CreateViewModel();
+            vm.SelectedCategory = "一般";
+
+            var sut = new SettingsDialog(vm);
+            var rootContent = Assert.IsAssignableFrom<FrameworkElement>(sut.Content);
+            rootContent.Measure(new Size(760, 520));
+            rootContent.Arrange(new Rect(0, 0, 760, 520));
+            rootContent.UpdateLayout();
+
+            var designComboBox = Assert.IsType<ComboBox>(sut.FindName("MiniPlayerDesignStyleComboBox"));
+            var rotateCheckBox = Assert.IsType<CheckBox>(sut.FindName("MiniPlayerRotateAlbumArtCheckBox"));
+
+            // Act & Assert: 初期状態は横長（標準）のため回転チェックボックスは無効
+            Assert.Equal("横長（標準）", designComboBox.SelectedItem);
+            Assert.False(rotateCheckBox.IsEnabled);
+            Assert.True(rotateCheckBox.IsChecked);
+
+            // Act: 正方形デザインへ切替 → 回転チェックボックスが有効化される
+            designComboBox.SelectedItem = "正方形（アルバムアート）";
+            rootContent.UpdateLayout();
+            Assert.Equal("正方形（アルバムアート）", vm.SelectedMiniPlayerDesignStyle);
+            Assert.True(rotateCheckBox.IsEnabled);
+
+            // Act: 回転チェックボックスを OFF へ変更
+            rotateCheckBox.IsChecked = false;
+            rootContent.UpdateLayout();
+
+            // Assert
+            Assert.False(vm.MiniPlayerRotateAlbumArt);
             Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
         });
     }

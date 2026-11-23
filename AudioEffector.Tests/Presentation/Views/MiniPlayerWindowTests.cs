@@ -982,4 +982,148 @@ public sealed class MiniPlayerWindowTests
             }
         });
     }
+
+    /// <summary>
+    /// 正方形（アルバムアート）デザインかつ回転ONで MiniPlayerWindow を表示した際、サイズが 220x220 となり、
+    /// 丸い窓コンテナが表示・横長レイアウトおよび静止全面コンテナが非表示となり、バインディングエラーが発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerWindow_正方形デザイン回転ON設定時_220x220サイズで丸い窓が表示されバインディングエラーが0件であること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = new ResourceDictionary
+            {
+                Source = new Uri("/AudioEffector;component/Presentation/Themes/DarkTheme.xaml", UriKind.Relative)
+            };
+
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+            {
+                MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                MiniPlayerRotateAlbumArt = true
+            });
+
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+            playerVm.CurrentTrack = new Track
+            {
+                FilePath = @"C:\Music\square.mp3",
+                Title = "Square Track",
+                Artist = "Square Artist"
+            };
+
+            using var listener = new BindingErrorTraceListener();
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+            sut.Resources.MergedDictionaries.Add(themeDict);
+
+            try
+            {
+                // Act
+                sut.Show();
+                sut.UpdateLayout();
+                PumpDispatcher();
+
+                var standardGrid = Assert.IsAssignableFrom<UIElement>(sut.FindName("StandardLayoutGrid"));
+                var squareGrid = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareLayoutGrid"));
+                var circularContainer = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareCircularArtContainer"));
+                var staticContainer = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareStaticAlbumArtContainer"));
+
+                // Assert
+                Assert.Equal(220, sut.ActualWidth);
+                Assert.Equal(220, sut.ActualHeight);
+                Assert.Equal(Visibility.Collapsed, standardGrid.Visibility);
+                Assert.Equal(Visibility.Visible, squareGrid.Visibility);
+                Assert.Equal(Visibility.Visible, circularContainer.Visibility);
+                Assert.Equal(Visibility.Collapsed, staticContainer.Visibility);
+                Assert.False(listener.HasErrors, $"正方形ミニプレイヤーでバインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 正方形デザインかつ回転ON時、IsPlaying の変化に応じてアルバムアート回転アニメーションが開始・一時停止し、
+    /// 回転OFFや標準デザインへのリアルタイム切替時にレイアウトとサイズ・アニメーションが正しく切り替わることを検証します。
+    /// </summary>
+    [Fact]
+    public void UpdateDesignSettings_再生状態と設定切替時_回転アニメーションおよびレイアウトサイズがリアルタイムに連動すること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+            {
+                MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                MiniPlayerRotateAlbumArt = true
+            });
+
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+
+            try
+            {
+                sut.Show();
+                PumpDispatcher();
+
+                var rotateTransform = Assert.IsType<System.Windows.Media.RotateTransform>(sut.FindName("SquareAlbumArtRotateTransform"));
+                var circularContainer = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareCircularArtContainer"));
+                var staticContainer = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareStaticAlbumArtContainer"));
+                var standardGrid = Assert.IsAssignableFrom<UIElement>(sut.FindName("StandardLayoutGrid"));
+                var squareGrid = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareLayoutGrid"));
+
+                // Assert: 停止中はアニメーション未開始
+                Assert.False(rotateTransform.HasAnimatedProperties);
+
+                // Act: 再生開始 → 回転アニメーションが開始される
+                playerVm.IsPlaying = true;
+                PumpDispatcher();
+                Assert.True(rotateTransform.HasAnimatedProperties);
+
+                // Act: 回転OFFへリアルタイム切替 → アニメーション停止＆静止全面表示へ切替
+                sut.UpdateDesignSettings(MiniPlayerDesignStyle.SquareAlbumArt, rotateAlbumArt: false);
+                PumpDispatcher();
+                Assert.False(rotateTransform.HasAnimatedProperties);
+                Assert.Equal(0.0, rotateTransform.Angle);
+                Assert.Equal(Visibility.Collapsed, circularContainer.Visibility);
+                Assert.Equal(Visibility.Visible, staticContainer.Visibility);
+                Assert.Equal(220, sut.Width);
+                Assert.Equal(220, sut.Height);
+
+                // Act: 標準デザインへリアルタイム切替 → 350x100 に戻る
+                sut.UpdateDesignSettings(MiniPlayerDesignStyle.Standard, rotateAlbumArt: true);
+                PumpDispatcher();
+                Assert.Equal(Visibility.Visible, standardGrid.Visibility);
+                Assert.Equal(Visibility.Collapsed, squareGrid.Visibility);
+                Assert.Equal(350, sut.Width);
+                Assert.Equal(100, sut.Height);
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
 }
