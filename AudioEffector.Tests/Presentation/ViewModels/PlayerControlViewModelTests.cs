@@ -1141,5 +1141,40 @@ public sealed class PlayerControlViewModelTests
         Assert.Equal(string.Empty, sut.AlbumQueueSourceName);
         Assert.Equal("次のアルバムから: Fallback Album", sut.AlbumQueueTitle);
     }
+
+    /// <summary>
+    /// ToggleMiniPlayerQueueCommand および CloseMiniPlayerQueueCommand の実行により、IsMiniPlayerQueueOpen が期待通り切り替わり通知されることを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerQueueCommands_開閉コマンド実行時_IsMiniPlayerQueueOpenが切り替わり変更通知が発火する()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var notifiedProperties = new List<string?>();
+        sut.PropertyChanged += (_, e) => notifiedProperties.Add(e.PropertyName);
+
+        // Act & Assert (初期状態)
+        Assert.False(sut.IsMiniPlayerQueueOpen);
+
+        // Act & Assert (トグルで展開)
+        sut.ToggleMiniPlayerQueueCommand.Execute(null);
+        Assert.True(sut.IsMiniPlayerQueueOpen);
+        Assert.Contains(nameof(PlayerControlViewModel.IsMiniPlayerQueueOpen), notifiedProperties);
+
+        // Act & Assert (クローズで格納)
+        sut.CloseMiniPlayerQueueCommand.Execute(null);
+        Assert.False(sut.IsMiniPlayerQueueOpen);
+
+        // Act & Assert (再度トグルで展開→再度トグルで格納)
+        sut.ToggleMiniPlayerQueueCommand.Execute(null);
+        Assert.True(sut.IsMiniPlayerQueueOpen);
+        sut.ToggleMiniPlayerQueueCommand.Execute(null);
+        Assert.False(sut.IsMiniPlayerQueueOpen);
+    }
 }
 

@@ -1,12 +1,16 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Domain.Services;
 using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
 using Moq;
@@ -712,6 +716,198 @@ public sealed class MiniPlayerWindowTests
             finally
             {
                 sut.Close();
+            }
+        });
+    }
+
+    private static void WaitUntil(Func<bool> condition, int timeoutMs = 1500)
+    {
+        var sw = Stopwatch.StartNew();
+        while (!condition() && sw.ElapsedMilliseconds < timeoutMs)
+        {
+            PumpDispatcher();
+            Thread.Sleep(15);
+        }
+        PumpDispatcher();
+    }
+
+    private static PlayerControlViewModel CreateTestPlayerControlViewModel(ISettingsService settingsService)
+    {
+        var audioServiceMock = new Mock<IAudioService>();
+        var audioEngineMock = new Mock<IAudioEngine>();
+        var eventBus = new InMemoryEventBus();
+        return new PlayerControlViewModel(
+            audioServiceMock.Object,
+            audioEngineMock.Object,
+            eventBus,
+            settingsService);
+    }
+
+    /// <summary>
+    /// 下部連結再生キューをコマンドで展開・格納した際、アニメーション完了後にウィンドウ高さが 100px ⇔ 350px へ遷移し、格納時は Collapsed になることを検証します。
+    /// また、展開によって誤って最大化抑止クローズが発火しないことを確認します。
+    /// </summary>
+    [Fact]
+    public void ToggleMiniPlayerQueueCommand_展開と格納を切り替えた場合_高さと可視状態が正しく遷移しウィンドウが閉じられないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+
+            bool closed = false;
+            sut.Closed += (_, _) => closed = true;
+
+            try
+            {
+                sut.Show();
+                var drawer = Assert.IsType<Border>(sut.FindName("QueueDrawerContainer"));
+                Assert.Equal(Visibility.Collapsed, drawer.Visibility);
+                Assert.Equal(100, sut.ActualHeight);
+
+                // Act (展開)
+                playerVm.ToggleMiniPlayerQueueCommand.Execute(null);
+                WaitUntil(() => Math.Abs(sut.ActualHeight - 350) < 1.0);
+
+                // Assert (展開後)
+                Assert.False(closed, "キュー展開による高さ延長でウィンドウが閉じられてはなりません。");
+                Assert.Equal(Visibility.Visible, drawer.Visibility);
+                Assert.True(drawer.IsHitTestVisible);
+                Assert.Equal(350, sut.ActualHeight);
+
+                // Act (格納)
+                playerVm.CloseMiniPlayerQueueCommand.Execute(null);
+                WaitUntil(() => Math.Abs(sut.ActualHeight - 100) < 1.0 && drawer.Visibility == Visibility.Collapsed);
+
+                // Assert (格納後)
+                Assert.False(closed);
+                Assert.Equal(Visibility.Collapsed, drawer.Visibility);
+                Assert.False(drawer.IsHitTestVisible);
+                Assert.Equal(100, sut.ActualHeight);
+            }
+            finally
+            {
+                if (!closed)
+                {
+                    sut.Close();
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// ミニプレイヤーの連結キュー用 ListBox に、パフォーマンス設計書準拠のUI仮想化属性が適用されていることを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniQueueListBox_初期化時_UI仮想化およびピクセルスクロール属性が設定されていること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+
+            // Act
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object);
+            var listBox = Assert.IsType<ListBox>(sut.FindName("MiniQueueListBox"));
+
+            // Assert
+            Assert.True(VirtualizingPanel.GetIsVirtualizing(listBox));
+            Assert.Equal(VirtualizationMode.Recycling, VirtualizingPanel.GetVirtualizationMode(listBox));
+            Assert.Equal(ScrollUnit.Pixel, VirtualizingPanel.GetScrollUnit(listBox));
+            Assert.True(ScrollViewer.GetCanContentScroll(listBox));
+        });
+    }
+
+    /// <summary>
+    /// 再生キュー展開中（高さ 350px）であっても、想定サイズを超える最大化要求（1920x1080）は引き続き抑止して閉じられることを検証します。
+    /// </summary>
+    [Fact]
+    public void WndProc_キュー展開中に最大化サイズ変更を受信した場合_拡大を抑止しミニプレイヤーを閉じること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var savedSettings = new AppSettings();
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(() => savedSettings);
+            settingsServiceMock.Setup(s => s.SaveSettings(It.IsAny<AppSettings>()))
+                .Callback<AppSettings>(s => savedSettings = s);
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+            playerVm.IsMiniPlayerQueueOpen = true;
+
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 115,
+                Top = 165,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+
+            bool closed = false;
+            sut.Closed += (_, _) => closed = true;
+
+            IntPtr wpPtr = IntPtr.Zero;
+            try
+            {
+                sut.Show();
+                PumpDispatcher();
+                Assert.False(closed);
+                Assert.Equal(350, sut.ActualHeight);
+
+                IntPtr hwnd = new WindowInteropHelper(sut).Handle;
+                var wp = new WINDOWPOS
+                {
+                    Hwnd = hwnd,
+                    X = 0,
+                    Y = 0,
+                    Cx = 1920,
+                    Cy = 1080,
+                    Flags = 0
+                };
+                wpPtr = Marshal.AllocHGlobal(Marshal.SizeOf<WINDOWPOS>());
+                Marshal.StructureToPtr(wp, wpPtr, false);
+
+                // Act
+                SendMessage(hwnd, WM_WINDOWPOSCHANGING, IntPtr.Zero, wpPtr);
+                var updatedWp = Marshal.PtrToStructure<WINDOWPOS>(wpPtr);
+                PumpDispatcher();
+
+                // Assert
+                Assert.True((updatedWp.Flags & SWP_NOSIZE) != 0);
+                Assert.True((updatedWp.Flags & SWP_NOMOVE) != 0);
+                Assert.True(closed);
+                Assert.False(playerVm.IsMiniPlayerQueueOpen);
+                Assert.Equal(165, savedSettings.MiniPlayerTop);
+                Assert.Equal(115, savedSettings.MiniPlayerLeft);
+            }
+            finally
+            {
+                if (wpPtr != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(wpPtr);
+                }
+
+                if (!closed)
+                {
+                    sut.Close();
+                }
             }
         });
     }
