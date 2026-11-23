@@ -64,7 +64,7 @@
   - **上部アート領域（`218×218px`、`SquareArtAreaGrid`）**:
     - **回転ON時（`MiniPlayerRotateAlbumArt == true`）**: 中央に直径 `184×184px` の丸い窓（`SquareCircularArtContainer`、`EllipseGeometry` 円形クリップ）を配置し、内部のアルバムアート（未設定時は `♫` フォールバック）へ `RotateTransform` を適用。
     - **回転OFF時（`MiniPlayerRotateAlbumArt == false`）**: 正方形前面にアルバムアートを静止表示（`SquareStaticAlbumArtContainer`）。
-    - **前面オーバーレイ層（回転しない、`SquareOverlayControlsLayer`）**: 通常時は非表示（`Visibility="Collapsed"`）としてジャケット写真の視認性を維持し、正方形ミニプレイヤーへのマウスオーバー時のみ表示する（各オーバーレイボタンは `Focusable="False"` とし、クリック後のフォーカス残留による表示継続を防止）。右上隅に復帰ボタン「`⤢`」（半透明ダーク円形背景）、中央に半透明ダークカプセル（`#B3161920`）で「`⏮`」「`▶` / `⏸`（`AlwaysNeonCyanBrush`）」「`⏭`」を配置。
+    - **前面オーバーレイ層（回転しない、`SquareOverlayControlsLayer`）**: 通常時は非表示（`Visibility="Collapsed"`）としてジャケット写真の視認性を維持し、上部アート領域（`SquareArtAreaGrid`）へのマウスオーバー時のみ表示する（下部ドック操作時にジャケットを遮らず、各オーバーレイボタンは `Focusable="False"` としクリック後のフォーカス残留による表示継続も防止）。右上隅に復帰ボタン「`⤢`」（半透明ダーク円形背景）、中央に半透明ダークカプセル（`#B3161920`）で「`⏮`」「`▶` / `⏸`（`AlwaysNeonCyanBrush`）」「`⏭`」を配置。
   - **下部情報＆シークドック（高さ `64px`、`SquareInfoDockGrid`）**: 上部境界線 `1px`（`BorderBrush`）、背景 `WindowBackgroundBrush` 内に縦3行で配置し、ジャケット領域へ重ならないレコードカード風構成とする：
     - 行0: **曲名**（`SquareTrackTitleText`、`MarqueeTextBlock`、`12.5pt / Bold`、`TextForegroundBrush`、未設定時 `No Track`、`SquareInfoDockGrid.IsMouseOver` 連動）。
     - 行1: **アルバム名**（`SquareTrackAlbumText`、`MarqueeTextBlock`、`11pt`、`SecondaryTextForegroundBrush`、`AlbumDisplayFallbackConverter` により `CurrentTrack.Album` → `CurrentTrack.Artist` → `Unknown Album` の順でフォールバック、`SquareInfoDockGrid.IsMouseOver` 連動）。
@@ -107,7 +107,7 @@
 - **高負荷エフェクトの排除**: 正方形オーバーレイ・回転ターゲット・シークバー（`MiniPlayerSeekSliderStyle`）には `DropShadowEffect` / `BlurEffect` を使用せず、半透明ダーク背景・軽量ベクター描画・`RotateTransform` により軽量に描画する。
 - **高解像度アートワークの再利用と世代管理 (Issue #283)**: 一覧サムネイル用の `Track.AlbumArt`（`DecodePixelWidth = 100`）は省メモリ維持のまま変更せず、ミニプレイヤーでは再生中 1 曲分の実ジャケットのみを保持する `MiniPlayerAlbumArtImage`（`DecodePixelWidth = 500`・`Freeze()` 済み、未設定時 `null`）を参照し、`RenderOptions.BitmapScalingMode="HighQuality"` により高DPI・回転時の画質と省メモリを両立する。また、非同期画像読み込みは曲変更ごとの世代番号で保護し、高速曲送りや再生停止時に古い曲の読み込み結果で上書きされる競合を防止する。
 - **UI仮想化**: `MiniQueueListBox` には `VirtualizingPanel.IsVirtualizing="True"`、`VirtualizingPanel.VirtualizationMode="Recycling"`、`VirtualizingPanel.ScrollUnit="Pixel"`、`ScrollViewer.CanContentScroll="True"` を適用し、大量のキュー項目でも軽量にスクロール描画する。
-- **MarqueeTextBlock**: 長い曲名・アーティスト名の `MarqueeTextBlock` は `MiniPlayerInfoArea` にマウスが乗っており、かつ文字列が表示幅を超えている場合のみアニメーションを実行する。
+- **MarqueeTextBlock**: 長い曲名・アーティスト名・アルバム名の `MarqueeTextBlock` は `MiniPlayerInfoArea`（横長）または `SquareInfoDockGrid`（正方形下部ドック）にマウスが乗っており、かつ文字列が表示幅を超えている場合のみアニメーションを実行する。
 
 ## 8. 関連Issue・仕様書
 
