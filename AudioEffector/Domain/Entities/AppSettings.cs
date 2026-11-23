@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace AudioEffector.Domain.Entities;
 
@@ -73,6 +73,16 @@ public class AppSettings
     public bool DisableMiniPlayerOnMinimize { get; set; }
 
     /// <summary>
+    /// ミニプレイヤーのデザイン種別
+    /// </summary>
+    public MiniPlayerDesignStyle MiniPlayerDesignStyle { get; set; } = MiniPlayerDesignStyle.Standard;
+
+    /// <summary>
+    /// 正方形ミニプレイヤーで楽曲再生中にアルバムアートを時計回りに回転させるかどうか
+    /// </summary>
+    public bool MiniPlayerRotateAlbumArt { get; set; } = true;
+
+    /// <summary>
     /// ミニプレイヤーの前回の表示位置（Y座標）
     /// </summary>
     public double? MiniPlayerTop { get; set; }
@@ -142,6 +152,17 @@ public enum MiniPlayerTopmostBehavior
     OnDisplayOnly,
     /// <summary>最前面に表示しない（通常のウィンドウ）</summary>
     None
+}
+
+/// <summary>
+/// ミニプレイヤーのデザイン種別
+/// </summary>
+public enum MiniPlayerDesignStyle
+{
+    /// <summary>従来の横長長方形デザイン</summary>
+    Standard,
+    /// <summary>アルバムアートを前面に表示する正方形デザイン</summary>
+    SquareAlbumArt
 }
 
 /// <summary>
