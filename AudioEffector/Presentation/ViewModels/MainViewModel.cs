@@ -142,6 +142,7 @@ namespace AudioEffector.Presentation.ViewModels
             {
                 if (_currentViewType != value)
                 {
+                    var previousViewType = _currentViewType;
                     _currentViewType = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(IsLibraryVisible));
@@ -153,6 +154,11 @@ namespace AudioEffector.Presentation.ViewModels
                     OnPropertyChanged(nameof(IsDeviceSyncVisible));
                     OnPropertyChanged(nameof(IsFavoritesView));
                     OnPropertyChanged(nameof(IsMainLoadingOverlayVisible));
+
+                    if (previousViewType == ViewType.AlbumDetail && _currentViewType != ViewType.AlbumDetail)
+                    {
+                        AlbumDetail?.SetAlbum(null);
+                    }
 
                     if (_currentViewType == ViewType.DeviceSync)
                     {
