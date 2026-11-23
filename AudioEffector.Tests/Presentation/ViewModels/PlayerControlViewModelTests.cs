@@ -432,6 +432,7 @@ public sealed class PlayerControlViewModelTests
             Duration = TimeSpan.FromMinutes(3)
         };
         sut.SetPlaybackList(new[] { track }, "Test Album", "Test Artist");
+        _audioServiceMock.Raise(a => a.PlaylistChanged += null, new List<Track> { track });
         sut.CurrentTrack = track;
 
         // Act
