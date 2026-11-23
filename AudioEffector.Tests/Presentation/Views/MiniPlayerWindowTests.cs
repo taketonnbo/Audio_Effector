@@ -1126,4 +1126,76 @@ public sealed class MiniPlayerWindowTests
             }
         });
     }
+
+    /// <summary>
+    /// 正方形デザインかつ回転ON時、IsPlaying の true / false / true 遷移に応じて、
+    /// 再生中に回転角度が進み、一時停止中は角度が維持され、再開時は 0 度へ戻らず一時停止時の角度の続きから進むことを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerWindow_正方形デザイン再生一時停止再開時_角度が進行し一時停止で維持され再開で続きから進むこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+            {
+                MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                MiniPlayerRotateAlbumArt = true
+            });
+
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+
+            try
+            {
+                sut.Show();
+                PumpDispatcher();
+
+                var rotateTransform = Assert.IsType<System.Windows.Media.RotateTransform>(sut.FindName("SquareAlbumArtRotateTransform"));
+
+                // Act 1: 再生開始 → 角度が 0 度より進むこと
+                playerVm.IsPlaying = true;
+                WaitUntil(() => rotateTransform.Angle > 1.0, timeoutMs: 2000);
+                double playingAngle = rotateTransform.Angle;
+                Assert.True(playingAngle > 1.0, $"再生中に角度が進むべきです (Angle={playingAngle})");
+
+                // Act 2: 一時停止 → 一定時間経過後も角度が維持されること
+                playerVm.IsPlaying = false;
+                PumpDispatcher();
+                double pausedAngle = rotateTransform.Angle;
+                Thread.Sleep(150);
+                PumpDispatcher();
+                double afterPauseWaitAngle = rotateTransform.Angle;
+
+                // Assert 2: 一時停止中は角度が変化しないこと（許容誤差 0.1 度）
+                Assert.True(
+                    Math.Abs(afterPauseWaitAngle - pausedAngle) < 0.1,
+                    $"一時停止中は角度が維持されるべきです (Paused={pausedAngle}, AfterWait={afterPauseWaitAngle})");
+
+                // Act 3: 再生再開 → 0 度へ戻らず、一時停止時の角度の続きからさらに進むこと
+                playerVm.IsPlaying = true;
+                WaitUntil(() => rotateTransform.Angle > pausedAngle + 1.0, timeoutMs: 2000);
+                double resumedAngle = rotateTransform.Angle;
+
+                // Assert 3
+                Assert.True(
+                    resumedAngle > pausedAngle + 1.0,
+                    $"再開後は一時停止時の角度から続きで進むべきです (Paused={pausedAngle}, Resumed={resumedAngle})");
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
 }
