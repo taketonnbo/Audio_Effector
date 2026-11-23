@@ -14,7 +14,9 @@
 >   - `LibraryView.xaml`: グリッド表示（カード形式）とリスト表示（行形式）をツールバーの `ToggleViewCommand` で切り替え可能。ソート基準（`Artist`, `Album`）および昇順/降順の切り替えに対応。
 >   - `ArtistsView.xaml`: 選択アーティストの右ペイン上部にて所属アルバムカードを横スクロール一覧表示。
 > - **展開・詳細表示**:
->   - `LibraryView.xaml` の各アルバムカード/行において、インラインで収録曲リストを展開表示（グリッド時はソケット風オーバーレイトレイ、リスト時はExpander）します。また、メイン画面右側パネルに選択・再生中アルバムのアートワークと収録曲リストが表示されます（独立した `AlbumDetailView` 画面への遷移は Issue #188 にて計画）。
+>   - `LibraryView.xaml` の各アルバムカード/行において、インラインで収録曲リストを展開表示（グリッド時はソケット風オーバーレイトレイ、リスト時はExpander）します。
+>   - 独立したシングル詳細画面 `AlbumDetailView.xaml`（`ViewType.AlbumDetail`、[アルバム情報UI仕様書](../画面設計/アルバム情報/アルバム情報UI仕様書.md)）にて、大判高精細カバーアート・アルバムメタデータ・音質バッジ・クイックアクションボタン群・UI仮想化収録曲リストを中央ワークスペースにフルビュー表示します。
+>   - また、メイン画面右側パネルに選択・再生中アルバムのアートワークと収録曲リストが表示されます。
 
 ## 3. 属性（プロパティ）定義
 
@@ -45,8 +47,8 @@
 | **プレイリスト追加** | Add to Playlist | アルバム内 `+` ボタン、または右クリック「プレイリストに追加...」 | プレイリスト選択ダイアログからアルバム収録曲を一括追加 | 実装済み | `ShowAddToPlaylistDialogCommand` ([PlaylistViewModel.cs](../../AudioEffector/Presentation/ViewModels/PlaylistViewModel.cs)) |
 | **削除する** | Delete | アルバム右クリック「削除」 | 確認ダイアログのうえアルバムと収録曲をライブラリ・お気に入りから除外 | 実装済み | `DeleteAlbumCommand` ([LibraryViewModel.cs](../../AudioEffector/Presentation/ViewModels/LibraryViewModel.cs)) |
 | **フォルダスキャン** | Scan Folder | フォルダ画面の「SCAN FOLDER」ボタン | 指定フォルダを走査しアルバム・楽曲を構築 | 実装済み | `ScanFolderAsync` ([LibraryApplicationService.cs](../../AudioEffector/Application/ApplicationServices/LibraryApplicationService.cs)) |
-| **詳細情報画面の表示** | Show Details | アルバムの三点リーダーボタン等 | アルバム詳細シングルビューの表示 | 拡張構想 (#188) | `ShowAlbumInfoCommand` ([LibraryViewModel.cs](../../AudioEffector/Presentation/ViewModels/LibraryViewModel.cs)) |
+| **詳細情報画面の表示** | Show Details | グリッド右下情報ボタン、または右クリック「アルバム詳細情報を表示」 | 中央ワークスペースに `AlbumDetailView`（`ViewType.AlbumDetail`）を表示し、詳細メタデータと全収録曲を操作可能にする | 仕様策定済み (#188 / #289) | `ShowAlbumInfoCommand` ([LibraryViewModel.cs](../../AudioEffector/Presentation/ViewModels/LibraryViewModel.cs)) / `AlbumDetailViewModel` |
 
-## 5. 拡張設計指針
-- **アルバム詳細シングルビュー（Issue #188）**: インライン展開に加え、選択アルバムの大アート・メタ情報・全トラックテーブルを中央ワークスペースで閲覧・操作できる詳細ビューへの遷移。
+## 5. 関連仕様・設計指針
+- **アルバム詳細シングルビュー（Issue #188 / #289）**: インライン展開に加え、選択アルバムの大判高精細アート・メタ情報・音質バッジ・クイックアクション・UI仮想化収録曲リストを中央ワークスペースで閲覧・操作できる詳細ビュー（[アルバム情報UI仕様書](../画面設計/アルバム情報/アルバム情報UI仕様書.md)）を提供する。
 - **リスト表示の展開トラック情報拡充（Issue #264）**: リスト表示で展開したトラック行への再生時間・アーティスト・お気に入り・トラック番号・音質バッジの表示拡充。
