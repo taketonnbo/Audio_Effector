@@ -373,7 +373,7 @@
                                 <Style TargetType="Grid">
                                     <Setter Property="Visibility" Value="Collapsed"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsMouseOver, ElementName=SquareLayoutGrid}" Value="True">
+                                        <DataTrigger Binding="{Binding IsMouseOver, ElementName=SquareArtAreaGrid}" Value="True">
                                             <Setter Property="Visibility" Value="Visible"/>
                                         </DataTrigger>
                                     </Style.Triggers>

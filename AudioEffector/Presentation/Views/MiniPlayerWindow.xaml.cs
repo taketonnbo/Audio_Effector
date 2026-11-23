@@ -143,6 +143,8 @@ public partial class MiniPlayerWindow : Window
             UIElement.PreviewMouseLeftButtonUpEvent,
             new MouseButtonEventHandler(SquareSeekSlider_PreviewMouseLeftButtonUp),
             handledEventsToo: true);
+        SquareSeekSlider.LostMouseCapture += SquareSeekSlider_LostMouseCapture;
+        SquareSeekSlider.MouseLeave += SquareSeekSlider_MouseLeave;
     }
 
     private void MiniPlayerWindow_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -537,6 +539,15 @@ public partial class MiniPlayerWindow : Window
         _rotateAlbumArt = rotateAlbumArt;
 
         bool isSquare = style == MiniPlayerDesignStyle.SquareAlbumArt;
+        if (!isSquare)
+        {
+            _isSeekPointerPressed = false;
+            if (_isSeekDragging)
+            {
+                EndSeekDrag(this.DataContext);
+            }
+        }
+
         StandardLayoutGrid.Visibility = isSquare ? Visibility.Collapsed : Visibility.Visible;
         SquareLayoutGrid.Visibility = isSquare ? Visibility.Visible : Visibility.Collapsed;
         SquareCircularArtContainer.Visibility = (isSquare && rotateAlbumArt) ? Visibility.Visible : Visibility.Collapsed;
@@ -634,8 +645,8 @@ public partial class MiniPlayerWindow : Window
     }
 
     /// <summary>
-    /// 指定されたマウス操作起点要素からウィンドウのドラッグ移動（DragMove）を開始してよいかを判定します。
-    /// シークバー（Slider およびそのビジュアルツリー子要素）上での操作時は競合防止のため false を返します。
+    /// 指定されたマウス操作起点要素からウィンドウのドラッグ移動（DragMove）を開始してよいかを判定します
+    /// シークバー（Slider およびそのビジュアルツリー子要素）上での操作時は競合防止のため false を返します
     /// </summary>
     /// <param name="source">マウスイベントの起点要素</param>
     /// <returns>ウィンドウドラッグを開始してよい場合は true、シークバー等の操作領域上の場合は false</returns>
@@ -701,6 +712,22 @@ public partial class MiniPlayerWindow : Window
 
         double value = sender is Slider slider ? slider.Value : SquareSeekSlider.Value;
         SeekToProgress(this.DataContext, value);
+    }
+
+    private void SquareSeekSlider_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (!_isSeekDragging)
+        {
+            _isSeekPointerPressed = false;
+        }
+    }
+
+    private void SquareSeekSlider_MouseLeave(object sender, MouseEventArgs e)
+    {
+        if (Mouse.LeftButton == MouseButtonState.Released && !_isSeekDragging)
+        {
+            _isSeekPointerPressed = false;
+        }
     }
 
     private void BeginSeekDrag(object? dataContext)
@@ -792,6 +819,8 @@ public partial class MiniPlayerWindow : Window
         SquareSeekSlider.RemoveHandler(
             UIElement.PreviewMouseLeftButtonUpEvent,
             new MouseButtonEventHandler(SquareSeekSlider_PreviewMouseLeftButtonUp));
+        SquareSeekSlider.LostMouseCapture -= SquareSeekSlider_LostMouseCapture;
+        SquareSeekSlider.MouseLeave -= SquareSeekSlider_MouseLeave;
         StopAlbumArtRotation();
         DetachSettingsUpdatedHandler();
         DetachQueueStateSource();
