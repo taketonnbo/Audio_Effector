@@ -75,7 +75,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     private string _playbackListName = "No Album Selected";
     private string _playbackListSubtitle = string.Empty;
     private string _albumQueueSourceName = string.Empty;
-    private PlayQueueDialog? _playQueueDialog;
+    private bool _isMiniPlayerQueueOpen;
 
     // スペクトラム描画フィールド
     private bool _isSpectrumVisible = true;
@@ -613,9 +613,23 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public ICommand PlayFromQueueCommand { get; }
 
     /// <summary>
-    /// 再生キューダイアログ表示コマンド
+    /// ミニプレイヤーの連結再生キューが開いているかどうか
     /// </summary>
-    public ICommand ShowQueueDialogCommand { get; }
+    public bool IsMiniPlayerQueueOpen
+    {
+        get => _isMiniPlayerQueueOpen;
+        set => SetProperty(ref _isMiniPlayerQueueOpen, value);
+    }
+
+    /// <summary>
+    /// ミニプレイヤーの連結再生キュー開閉を切り替えるコマンド
+    /// </summary>
+    public ICommand ToggleMiniPlayerQueueCommand { get; }
+
+    /// <summary>
+    /// ミニプレイヤーの連結再生キューを閉じるコマンド
+    /// </summary>
+    public ICommand CloseMiniPlayerQueueCommand { get; }
 
     /// <summary>
     /// キューからトラックを削除するコマンド
@@ -719,7 +733,8 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         PlayNextCommand = new RelayCommand(o => PlayNext(o));
         EnqueueTrackCommand = new RelayCommand(o => EnqueueTrack(o));
         PlayFromQueueCommand = new RelayCommand(o => PlayFromQueue(o));
-        ShowQueueDialogCommand = new RelayCommand(_ => ShowQueueDialog());
+        ToggleMiniPlayerQueueCommand = new RelayCommand(_ => IsMiniPlayerQueueOpen = !IsMiniPlayerQueueOpen);
+        CloseMiniPlayerQueueCommand = new RelayCommand(_ => IsMiniPlayerQueueOpen = false);
         RemoveFromQueueCommand = new RelayCommand(o => RemoveFromQueue(o));
         ClearQueueCommand = new RelayCommand(_ => ClearQueue());
         ClearUserQueueCommand = new RelayCommand(_ => ClearUserQueue());
@@ -1097,33 +1112,6 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     private void OnAudioServiceTrackPlaybackEnded(Track track)
     {
         AddTrackToHistory(track);
-    }
-
-
-    /// <summary>
-    /// 再生キューダイアログを表示します（多重起動を防止し単一インスタンス管理）
-    /// </summary>
-    /// <param name="ownerDataContext">ダイアログのオーナーDataContext（未指定時は自身）</param>
-    public void ShowQueueDialog(object? ownerDataContext = null)
-    {
-        if (_playQueueDialog == null || !_playQueueDialog.IsLoaded)
-        {
-            _playQueueDialog = new PlayQueueDialog
-            {
-                Owner = System.Windows.Application.Current?.MainWindow,
-                DataContext = ownerDataContext ?? this
-            };
-            _playQueueDialog.Closed += (s, e) => _playQueueDialog = null;
-            _playQueueDialog.Show();
-        }
-        else
-        {
-            if (_playQueueDialog.WindowState == WindowState.Minimized)
-            {
-                _playQueueDialog.WindowState = WindowState.Normal;
-            }
-            _playQueueDialog.Activate();
-        }
     }
 
     #endregion
@@ -1563,12 +1551,6 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         _eventBus.Unsubscribe<TrackChangedEvent>(HandleAsync);
         _eventBus.Unsubscribe<PlaybackStateChangedEvent>(HandleAsync);
         _eventBus.Unsubscribe<VolumeChangedEvent>(HandleAsync);
-
-        if (_playQueueDialog != null && _playQueueDialog.IsLoaded)
-        {
-            _playQueueDialog.Close();
-            _playQueueDialog = null;
-        }
 
         _disposed = true;
         GC.SuppressFinalize(this);
