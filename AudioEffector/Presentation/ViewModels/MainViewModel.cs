@@ -1,4 +1,4 @@
-﻿using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Presentation.Views;
@@ -390,6 +390,36 @@ namespace AudioEffector.Presentation.ViewModels
         /// 予約キューのみを全クリアするコマンド
         /// </summary>
         public ICommand? ClearUserQueueCommand => PlayerControl?.ClearUserQueueCommand;
+
+        /// <summary>
+        /// 予約キュー内の指定インデックスにあるトラックを別の位置へ移動します
+        /// </summary>
+        /// <param name="fromIndex">移動元のインデックス（0始まり）</param>
+        /// <param name="toIndex">移動先のインデックス（0始まり）</param>
+        public void MoveUserQueueItem(int fromIndex, int toIndex)
+        {
+            PlayerControl?.MoveUserQueueItem(fromIndex, toIndex);
+        }
+
+        /// <summary>
+        /// アルバム残り曲キュー内の指定インデックスにあるトラックを別の位置へ移動します
+        /// </summary>
+        /// <param name="fromIndex">移動元のインデックス（0始まり）</param>
+        /// <param name="toIndex">移動先のインデックス（0始まり）</param>
+        public void MoveAlbumQueueItem(int fromIndex, int toIndex)
+        {
+            PlayerControl?.MoveAlbumQueueItem(fromIndex, toIndex);
+        }
+
+        /// <summary>
+        /// アルバム残り曲キューの指定トラックを予約キューの指定位置へ昇格移動します
+        /// </summary>
+        /// <param name="fromAlbumIndex">移動元のアルバムキューインデックス（0始まり）</param>
+        /// <param name="toUserIndex">移動先の予約キュー挿入インデックス（0始まり）</param>
+        public void MoveAlbumQueueItemToUserQueue(int fromAlbumIndex, int toUserIndex)
+        {
+            PlayerControl?.MoveAlbumQueueItemToUserQueue(fromAlbumIndex, toUserIndex);
+        }
 
         /// <summary>
         /// 最後に再生コマンド（旧: キューに追加）

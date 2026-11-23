@@ -968,6 +968,36 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     }
 
     /// <summary>
+    /// 予約キュー内の指定インデックスにあるトラックを別の位置へ移動します
+    /// </summary>
+    /// <param name="fromIndex">移動元のインデックス（0始まり）</param>
+    /// <param name="toIndex">移動先のインデックス（0始まり）</param>
+    public void MoveUserQueueItem(int fromIndex, int toIndex)
+    {
+        _audioService.MoveUserQueueItem(fromIndex, toIndex);
+    }
+
+    /// <summary>
+    /// アルバム残り曲キュー内の指定インデックスにあるトラックを別の位置へ移動します
+    /// </summary>
+    /// <param name="fromIndex">移動元のインデックス（0始まり）</param>
+    /// <param name="toIndex">移動先のインデックス（0始まり）</param>
+    public void MoveAlbumQueueItem(int fromIndex, int toIndex)
+    {
+        _audioService.MoveAlbumQueueItem(fromIndex, toIndex);
+    }
+
+    /// <summary>
+    /// アルバム残り曲キューの指定トラックを予約キューの指定位置へ昇格移動します
+    /// </summary>
+    /// <param name="fromAlbumIndex">移動元のアルバムキューインデックス（0始まり）</param>
+    /// <param name="toUserIndex">移動先の予約キュー挿入インデックス（0始まり）</param>
+    public void MoveAlbumQueueItemToUserQueue(int fromAlbumIndex, int toUserIndex)
+    {
+        _audioService.MoveAlbumQueueItemToUserQueue(fromAlbumIndex, toUserIndex);
+    }
+
+    /// <summary>
     /// 再生履歴を全クリアします
     /// </summary>
     public void ClearHistory()
