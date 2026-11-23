@@ -11,6 +11,7 @@ using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -20,12 +21,14 @@ using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
+using AudioEffector.Presentation.Controls;
 using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
 using AudioEffector.Tests.Presentation.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Xunit;
+using Track = AudioEffector.Domain.Entities.Track;
 
 namespace AudioEffector.Tests.Presentation.Views;
 
@@ -74,6 +77,19 @@ public sealed class MiniPlayerWindowTests
 
     private static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex) =>
         IntPtr.Size == 8 ? GetWindowLongPtr64(hWnd, nIndex) : new IntPtr(GetWindowLong32(hWnd, nIndex));
+
+    private static ResourceDictionary LoadThemeDictionary(string themePath = "/AudioEffector;component/Presentation/Themes/DarkTheme.xaml")
+    {
+        if (System.Windows.Application.Current == null && !UriParser.IsKnownScheme("pack"))
+        {
+            _ = new System.Windows.Application();
+        }
+
+        return new ResourceDictionary
+        {
+            Source = new Uri(themePath, UriKind.Relative)
+        };
+    }
 
     private static void RunInStaThread(Action action)
     {
@@ -992,19 +1008,16 @@ public sealed class MiniPlayerWindowTests
     }
 
     /// <summary>
-    /// 正方形（アルバムアート）デザインかつ回転ONで MiniPlayerWindow を表示した際、サイズが 220x220 となり、
+    /// 正方形（アルバムアート）デザインかつ回転ONで MiniPlayerWindow を表示した際、サイズが 220x284（上部アート218x218＋下部ドック64＋枠2）となり、
     /// 丸い窓コンテナが表示・横長レイアウトおよび静止全面コンテナが非表示となり、バインディングエラーが発生しないことを検証します。
     /// </summary>
     [Fact]
-    public void MiniPlayerWindow_正方形デザイン回転ON設定時_220x220サイズで丸い窓が表示されバインディングエラーが0件であること()
+    public void MiniPlayerWindow_正方形デザイン回転ON設定時_220x284サイズで丸い窓が表示されバインディングエラーが0件であること()
     {
         RunInStaThread(() =>
         {
             // Arrange
-            var themeDict = new ResourceDictionary
-            {
-                Source = new Uri("/AudioEffector;component/Presentation/Themes/DarkTheme.xaml", UriKind.Relative)
-            };
+            var themeDict = LoadThemeDictionary();
 
             var settingsServiceMock = new Mock<ISettingsService>();
             settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
@@ -1018,7 +1031,8 @@ public sealed class MiniPlayerWindowTests
             {
                 FilePath = @"C:\Music\square.mp3",
                 Title = "Square Track",
-                Artist = "Square Artist"
+                Artist = "Square Artist",
+                Album = "Square Album"
             };
 
             using var listener = new BindingErrorTraceListener();
@@ -1043,13 +1057,18 @@ public sealed class MiniPlayerWindowTests
 
                 var standardGrid = Assert.IsAssignableFrom<UIElement>(sut.FindName("StandardLayoutGrid"));
                 var squareGrid = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareLayoutGrid"));
+                var artAreaGrid = Assert.IsAssignableFrom<FrameworkElement>(sut.FindName("SquareArtAreaGrid"));
+                var infoDockGrid = Assert.IsAssignableFrom<FrameworkElement>(sut.FindName("SquareInfoDockGrid"));
                 var circularContainer = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareCircularArtContainer"));
                 var staticContainer = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareStaticAlbumArtContainer"));
                 var overlayLayer = Assert.IsAssignableFrom<FrameworkElement>(sut.FindName("SquareOverlayControlsLayer"));
 
                 // Assert
                 Assert.Equal(220, sut.ActualWidth);
-                Assert.Equal(220, sut.ActualHeight);
+                Assert.Equal(284, sut.ActualHeight);
+                Assert.Equal(218, artAreaGrid.ActualWidth);
+                Assert.Equal(218, artAreaGrid.ActualHeight);
+                Assert.Equal(Visibility.Visible, infoDockGrid.Visibility);
                 Assert.Equal(Visibility.Collapsed, standardGrid.Visibility);
                 Assert.Equal(Visibility.Visible, squareGrid.Visibility);
                 Assert.Equal(Visibility.Visible, circularContainer.Visibility);
@@ -1059,7 +1078,7 @@ public sealed class MiniPlayerWindowTests
                 Assert.Contains(
                     overlayLayer.Style.Triggers.OfType<DataTrigger>(),
                     t => t.Binding is System.Windows.Data.Binding b
-                        && b.ElementName == "SquareLayoutGrid"
+                        && b.ElementName == "SquareArtAreaGrid"
                         && b.Path?.Path == nameof(UIElement.IsMouseOver)
                         && string.Equals(t.Value?.ToString(), "True", StringComparison.OrdinalIgnoreCase));
                 Assert.False(listener.HasErrors, $"正方形ミニプレイヤーでバインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
@@ -1127,7 +1146,7 @@ public sealed class MiniPlayerWindowTests
                 Assert.Equal(Visibility.Collapsed, circularContainer.Visibility);
                 Assert.Equal(Visibility.Visible, staticContainer.Visibility);
                 Assert.Equal(220, sut.Width);
-                Assert.Equal(220, sut.Height);
+                Assert.Equal(284, sut.Height);
 
                 // Act: 標準デザインへリアルタイム切替 → 350x100 に戻る
                 sut.UpdateDesignSettings(MiniPlayerDesignStyle.Standard, rotateAlbumArt: true);
@@ -1557,7 +1576,7 @@ public sealed class MiniPlayerWindowTests
             Assert.Single(dataTriggers);
             var trigger = dataTriggers[0];
             var binding = Assert.IsType<System.Windows.Data.Binding>(trigger.Binding);
-            Assert.Equal("SquareLayoutGrid", binding.ElementName);
+            Assert.Equal("SquareArtAreaGrid", binding.ElementName);
             Assert.Equal(nameof(UIElement.IsMouseOver), binding.Path?.Path);
             Assert.Equal("True", trigger.Value?.ToString(), ignoreCase: true);
             Assert.DoesNotContain(
@@ -1637,6 +1656,470 @@ public sealed class MiniPlayerWindowTests
             finally
             {
                 sut.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 正方形デザインで下部連結再生キューを展開・格納した際、ウィンドウサイズが 220x534 および 220x284 へ正しく遷移することを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerWindow_正方形デザインで再生キュー展開格納時_220x534と220x284へ遷移すること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = LoadThemeDictionary();
+
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+            {
+                MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                MiniPlayerRotateAlbumArt = true
+            });
+
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+            using var listener = new BindingErrorTraceListener();
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+            sut.Resources.MergedDictionaries.Add(themeDict);
+
+            try
+            {
+                sut.Show();
+                sut.UpdateLayout();
+                PumpDispatcher();
+                Assert.Equal(220, sut.ActualWidth);
+                Assert.Equal(284, sut.ActualHeight);
+
+                // Act: キュー展開
+                playerVm.ToggleMiniPlayerQueueCommand.Execute(null);
+                WaitUntil(() => Math.Abs(sut.ActualHeight - 534) < 1.0);
+                sut.UpdateLayout();
+
+                // Assert: 展開時 220x534
+                Assert.Equal(220, sut.ActualWidth);
+                Assert.Equal(534, sut.ActualHeight);
+
+                // Act: キュー格納
+                playerVm.CloseMiniPlayerQueueCommand.Execute(null);
+                WaitUntil(() => Math.Abs(sut.ActualHeight - 284) < 1.0);
+                sut.UpdateLayout();
+
+                // Assert: 格納時 220x284
+                Assert.Equal(220, sut.ActualWidth);
+                Assert.Equal(284, sut.ActualHeight);
+                Assert.False(listener.HasErrors, $"正方形キュー開閉でバインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 正方形ミニプレイヤーの下部情報ドックに曲名・アルバム名（空アルバム時のフォールバック含む）・経過時間・合計時間・シークバーが正しくバインドされ、
+    /// ダーク／ライト両テーマでバインディングエラーが 0 件であることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("/AudioEffector;component/Presentation/Themes/DarkTheme.xaml")]
+    [InlineData("/AudioEffector;component/Presentation/Themes/LightTheme.xaml")]
+    public void SquareInfoDock_曲名アルバム名シークバー表示時_フォールバック含め正しくバインドされエラーが0件であること(string themePath)
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = LoadThemeDictionary(themePath);
+
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+            {
+                MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                MiniPlayerRotateAlbumArt = true
+            });
+
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+            playerVm.CurrentTrack = new Track
+            {
+                FilePath = @"C:\Music\midnight.mp3",
+                Title = "Midnight City",
+                Artist = "M83",
+                Album = "Hurry Up, We're Dreaming"
+            };
+            playerVm.CurrentTimeDisplay = "01:23";
+            playerVm.TotalTimeDisplay = "04:03";
+            playerVm.Progress = 34.5;
+
+            using var listener = new BindingErrorTraceListener();
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+            sut.Resources.MergedDictionaries.Add(themeDict);
+
+            try
+            {
+                // Act 1: 通常トラック表示
+                sut.Show();
+                sut.UpdateLayout();
+                PumpDispatcher();
+
+                var titleText = Assert.IsType<MarqueeTextBlock>(sut.FindName("SquareTrackTitleText"));
+                var albumText = Assert.IsType<MarqueeTextBlock>(sut.FindName("SquareTrackAlbumText"));
+                var currentTimeText = Assert.IsType<TextBlock>(sut.FindName("SquareCurrentTimeText"));
+                var totalTimeText = Assert.IsType<TextBlock>(sut.FindName("SquareTotalTimeText"));
+                var seekSlider = Assert.IsType<Slider>(sut.FindName("SquareSeekSlider"));
+
+                // Assert 1
+                Assert.Equal("Midnight City", titleText.Text);
+                Assert.Equal("Hurry Up, We're Dreaming", albumText.Text);
+                Assert.Equal("01:23", currentTimeText.Text);
+                Assert.Equal("04:03", totalTimeText.Text);
+                Assert.Equal(34.5, seekSlider.Value, precision: 2);
+                Assert.True(seekSlider.IsMoveToPointEnabled);
+                Assert.False(seekSlider.Focusable);
+
+                // Act 2: アルバム名が空の楽曲 → アーティスト名へフォールバック
+                playerVm.CurrentTrack = new Track
+                {
+                    FilePath = @"C:\Music\single.mp3",
+                    Title = "Single Track",
+                    Artist = "Fallback Artist",
+                    Album = "   "
+                };
+                PumpDispatcher();
+
+                // Assert 2
+                Assert.Equal("Single Track", titleText.Text);
+                Assert.Equal("Fallback Artist", albumText.Text);
+
+                // Act 3: アルバム名・アーティスト名ともに空 → Unknown Album へフォールバック
+                playerVm.CurrentTrack = new Track
+                {
+                    FilePath = @"C:\Music\unknown.mp3",
+                    Title = "Mystery Track",
+                    Artist = string.Empty,
+                    Album = string.Empty
+                };
+                PumpDispatcher();
+
+                // Assert 3
+                Assert.Equal("Unknown Album", albumText.Text);
+                Assert.False(listener.HasErrors, $"下部ドックバインディングでエラーが発生しました ({themePath}): {string.Join("; ", listener.Errors)}");
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// SquareSeekSlider のドラッグ開始／完了およびトラック直接クリック時に、
+    /// MainViewModel の IsDraggingProgress・PauseForSeek / ResumeAfterSeek・SeekTo が正しく呼ばれることを検証します。
+    /// </summary>
+    [Fact]
+    public void SquareSeekSlider_ドラッグ開始完了およびクリックシーク時_IsDraggingProgressとSeekToが正しく呼ばれること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = new ResourceDictionary
+            {
+                Source = new Uri("/AudioEffector;component/Presentation/Themes/DarkTheme.xaml", UriKind.Relative)
+            };
+
+            var (mainVm, audioServiceMock, settingsServiceMock, scope) = CreateTestMainViewModel();
+            using (scope)
+            {
+                settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+                {
+                    MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                    MiniPlayerRotateAlbumArt = true
+                });
+
+                var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+                {
+                    DataContext = mainVm,
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = 100,
+                    Top = 100,
+                    Opacity = 0,
+                    ShowInTaskbar = false,
+                    ShowActivated = false
+                };
+                sut.Resources.MergedDictionaries.Add(themeDict);
+
+                try
+                {
+                    sut.Show();
+                    sut.UpdateLayout();
+                    PumpDispatcher();
+
+                    var seekSlider = Assert.IsType<Slider>(sut.FindName("SquareSeekSlider"));
+
+                    // Act 1: ドラッグ開始
+                    seekSlider.RaiseEvent(new DragStartedEventArgs(0, 0)
+                    {
+                        RoutedEvent = Thumb.DragStartedEvent,
+                        Source = seekSlider
+                    });
+
+                    // Assert 1
+                    Assert.True(mainVm.IsDraggingProgress);
+                    audioServiceMock.Verify(a => a.PauseForSeek(), Times.Once);
+
+                    // Act 2: ドラッグ完了
+                    seekSlider.Value = 45.0;
+                    seekSlider.RaiseEvent(new DragCompletedEventArgs(10, 0, false)
+                    {
+                        RoutedEvent = Thumb.DragCompletedEvent,
+                        Source = seekSlider
+                    });
+
+                    // Assert 2
+                    Assert.False(mainVm.IsDraggingProgress);
+                    audioServiceMock.Verify(a => a.SeekTo(45.0), Times.AtLeastOnce);
+                    audioServiceMock.Verify(a => a.ResumeAfterSeek(), Times.Once);
+
+                    // Act 3: Thumb ドラッグを経由しないトラック直接クリックシーク
+                    seekSlider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                    {
+                        RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent,
+                        Source = seekSlider
+                    });
+                    seekSlider.Value = 72.5;
+                    seekSlider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                    {
+                        RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent,
+                        Source = seekSlider
+                    });
+
+                    // Assert 3
+                    Assert.False(mainVm.IsDraggingProgress);
+                    audioServiceMock.Verify(a => a.SeekTo(72.5), Times.Once);
+                }
+                finally
+                {
+                    sut.Close();
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// シークバーのドラッグ中にミニプレイヤーが閉じられた場合、OnClosed で IsDraggingProgress が安全に解除され、
+    /// ResumeAfterSeek が呼ばれてドラッグ状態がリークしないことを検証します。
+    /// </summary>
+    [Fact]
+    public void OnClosed_シークバードラッグ中に閉じた場合_IsDraggingProgressが解除されリークしないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = new ResourceDictionary
+            {
+                Source = new Uri("/AudioEffector;component/Presentation/Themes/DarkTheme.xaml", UriKind.Relative)
+            };
+
+            var (mainVm, audioServiceMock, settingsServiceMock, scope) = CreateTestMainViewModel();
+            using (scope)
+            {
+                settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+                {
+                    MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                    MiniPlayerRotateAlbumArt = true
+                });
+
+                var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+                {
+                    DataContext = mainVm,
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = 100,
+                    Top = 100,
+                    Opacity = 0,
+                    ShowInTaskbar = false,
+                    ShowActivated = false
+                };
+                sut.Resources.MergedDictionaries.Add(themeDict);
+
+                sut.Show();
+                sut.UpdateLayout();
+                PumpDispatcher();
+
+                var seekSlider = Assert.IsType<Slider>(sut.FindName("SquareSeekSlider"));
+                seekSlider.RaiseEvent(new DragStartedEventArgs(0, 0)
+                {
+                    RoutedEvent = Thumb.DragStartedEvent,
+                    Source = seekSlider
+                });
+                Assert.True(mainVm.IsDraggingProgress);
+
+                // Act: ドラッグ完了を経由せずウィンドウを閉じる
+                sut.Close();
+                PumpDispatcher();
+
+                // Assert: ドラッグ状態が解除され、ResumeAfterSeek が呼ばれること
+                Assert.False(mainVm.IsDraggingProgress);
+                audioServiceMock.Verify(a => a.ResumeAfterSeek(), Times.Once);
+            }
+        });
+    }
+
+    /// <summary>
+    /// ShouldStartWindowDrag がシークバー（Slider およびそのビジュアルツリー子要素）上では false を返し、
+    /// アート領域や曲名テキスト等の通常領域では true を返すことでウィンドウ DragMove との競合を防止することを検証します。
+    /// </summary>
+    [Fact]
+    public void ShouldStartWindowDrag_シークバーおよび子要素上ではFalseを返し通常領域ではTrueを返すこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = LoadThemeDictionary();
+
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+            {
+                MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                MiniPlayerRotateAlbumArt = true
+            });
+
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+            sut.Resources.MergedDictionaries.Add(themeDict);
+
+            try
+            {
+                sut.Show();
+                sut.UpdateLayout();
+                PumpDispatcher();
+
+                var seekSlider = Assert.IsType<Slider>(sut.FindName("SquareSeekSlider"));
+                seekSlider.ApplyTemplate();
+                var track = seekSlider.Template.FindName("PART_Track", seekSlider) as System.Windows.Controls.Primitives.Track;
+                var artAreaGrid = Assert.IsAssignableFrom<DependencyObject>(sut.FindName("SquareArtAreaGrid"));
+                var titleText = Assert.IsAssignableFrom<DependencyObject>(sut.FindName("SquareTrackTitleText"));
+
+                // Act & Assert
+                Assert.False(MiniPlayerWindow.ShouldStartWindowDrag(seekSlider));
+                Assert.NotNull(track);
+                Assert.False(MiniPlayerWindow.ShouldStartWindowDrag(track));
+                Assert.NotNull(track!.Thumb);
+                Assert.False(MiniPlayerWindow.ShouldStartWindowDrag(track.Thumb));
+                Assert.True(MiniPlayerWindow.ShouldStartWindowDrag(artAreaGrid));
+                Assert.True(MiniPlayerWindow.ShouldStartWindowDrag(titleText));
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// シークバー上で左ボタンを押下した後にスライダー外でマウスを離した（MouseLeave / LostMouseCapture）場合、
+    /// 次回の離しイベントで誤シークが発生しないこと、およびドラッグ中に横長デザインへ切り替えた際にドラッグ状態が安全に解除されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SquareSeekSlider_スライダー外解放および横長切替時_誤シークせずドラッグ状態が安全に解除されること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = LoadThemeDictionary();
+            var (mainVm, audioServiceMock, settingsServiceMock, scope) = CreateTestMainViewModel();
+            using (scope)
+            {
+                settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+                {
+                    MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                    MiniPlayerRotateAlbumArt = true
+                });
+
+                var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+                {
+                    DataContext = mainVm,
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = 100,
+                    Top = 100,
+                    Opacity = 0,
+                    ShowInTaskbar = false,
+                    ShowActivated = false
+                };
+                sut.Resources.MergedDictionaries.Add(themeDict);
+
+                try
+                {
+                    sut.Show();
+                    sut.UpdateLayout();
+                    PumpDispatcher();
+
+                    var seekSlider = Assert.IsType<Slider>(sut.FindName("SquareSeekSlider"));
+
+                    // Act 1: 押下 → マウスキャプチャ喪失（スライダー外解放相当）→ 後続の PreviewMouseLeftButtonUp
+                    seekSlider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                    {
+                        RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent,
+                        Source = seekSlider
+                    });
+                    seekSlider.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount)
+                    {
+                        RoutedEvent = UIElement.LostMouseCaptureEvent,
+                        Source = seekSlider
+                    });
+                    seekSlider.Value = 88.0;
+                    seekSlider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                    {
+                        RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent,
+                        Source = seekSlider
+                    });
+
+                    // Assert 1: 誤シークが発生しないこと
+                    audioServiceMock.Verify(a => a.SeekTo(88.0), Times.Never);
+
+                    // Act 2: ドラッグ開始状態で横長デザインへ切替
+                    seekSlider.RaiseEvent(new DragStartedEventArgs(0, 0)
+                    {
+                        RoutedEvent = Thumb.DragStartedEvent,
+                        Source = seekSlider
+                    });
+                    Assert.True(mainVm.IsDraggingProgress);
+
+                    sut.UpdateDesignSettings(MiniPlayerDesignStyle.Standard, rotateAlbumArt: true);
+
+                    // Assert 2: ドラッグ状態が解除され ResumeAfterSeek が呼ばれること
+                    Assert.False(mainVm.IsDraggingProgress);
+                    audioServiceMock.Verify(a => a.ResumeAfterSeek(), Times.Once);
+                }
+                finally
+                {
+                    sut.Close();
+                }
             }
         });
     }
