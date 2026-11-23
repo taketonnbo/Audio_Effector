@@ -74,10 +74,18 @@ public sealed class QueueInsertionAdorner : Adorner
 
     private static Brush ResolveIndicatorBrush(UIElement element)
     {
-        if (element is FrameworkElement fe &&
-            fe.TryFindResource("AlwaysNeonCyanBrush") is Brush resourceBrush)
+        if (element is FrameworkElement fe)
         {
-            return resourceBrush;
+            // ダーク（#00FFFF）・ライト（#0078D7）両テーマで視認性を確保するため NeonCyanBrush を優先参照
+            if (fe.TryFindResource("NeonCyanBrush") is Brush themeAccentBrush)
+            {
+                return themeAccentBrush;
+            }
+
+            if (fe.TryFindResource("AlwaysNeonCyanBrush") is Brush fallbackAccentBrush)
+            {
+                return fallbackAccentBrush;
+            }
         }
 
         return DefaultCyanBrush;

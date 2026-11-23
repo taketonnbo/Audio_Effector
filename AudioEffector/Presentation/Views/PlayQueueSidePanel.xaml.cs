@@ -74,6 +74,7 @@ public partial class PlayQueueSidePanel : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        HideEmptyUserQueueDropZone();
         RemoveInsertionAdorner();
         ResetDragState();
         UnsubscribeViewModel();
@@ -187,14 +188,15 @@ public partial class PlayQueueSidePanel : UserControl
             return;
         }
 
-        var track = FindTrackFromVisual(source);
-        if (track == null)
+        // 同一 Track の重複行でもクリック元のコンテナから正確な行インデックスを特定する
+        var container = ItemsControl.ContainerFromElement(itemsControl, source);
+        if (container == null)
         {
             return;
         }
 
-        int index = itemsControl.Items.IndexOf(track);
-        if (index < 0)
+        int index = itemsControl.ItemContainerGenerator.IndexFromContainer(container);
+        if (index < 0 || index >= itemsControl.Items.Count || itemsControl.Items[index] is not Track track)
         {
             return;
         }
@@ -233,12 +235,18 @@ public partial class PlayQueueSidePanel : UserControl
         var dataObject = new DataObject(PlayQueueDragDropHelper.DragDataFormat, payload);
 
         _isDragging = true;
+        if (_dragSourceSection == QueueSection.AlbumQueue && DataContext is MainViewModel vm && !vm.HasUserQueue)
+        {
+            ShowEmptyUserQueueDropZone();
+        }
+
         try
         {
             DragDrop.DoDragDrop(_dragSourceControl, dataObject, DragDropEffects.Move);
         }
         finally
         {
+            HideEmptyUserQueueDropZone();
             RemoveInsertionAdorner();
             ResetDragState();
         }
@@ -250,6 +258,54 @@ public partial class PlayQueueSidePanel : UserControl
         {
             ResetDragState();
         }
+    }
+
+    private void OnEmptyUserQueueDragOver(object sender, DragEventArgs e)
+    {
+        if (!TryGetDragPayload(e, out var payload) ||
+            !PlayQueueDragDropHelper.CanDrop(payload.SourceSection, QueueSection.UserQueue))
+        {
+            e.Effects = DragDropEffects.None;
+            e.Handled = true;
+            return;
+        }
+
+        RemoveInsertionAdorner();
+        SetEmptyDropZoneHighlight(isHighlighted: true);
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
+    }
+
+    private void OnEmptyUserQueueDragLeave(object sender, DragEventArgs e)
+    {
+        SetEmptyDropZoneHighlight(isHighlighted: false);
+    }
+
+    private void OnEmptyUserQueueDrop(object sender, DragEventArgs e)
+    {
+        SetEmptyDropZoneHighlight(isHighlighted: false);
+
+        if (!TryGetDragPayload(e, out var payload) ||
+            !PlayQueueDragDropHelper.CanDrop(payload.SourceSection, QueueSection.UserQueue))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var sourceControl = GetItemsControlForSection(payload.SourceSection);
+        int resolvedSourceIndex = PlayQueueDragDropHelper.ResolveCurrentSourceIndex(
+            sourceControl.Items,
+            payload.SourceIndex,
+            payload.Track);
+
+        if (resolvedSourceIndex >= 0 &&
+            payload.SourceSection == QueueSection.AlbumQueue &&
+            DataContext is MainViewModel vm)
+        {
+            vm.MoveAlbumQueueItemToUserQueue(resolvedSourceIndex, 0);
+        }
+
+        e.Handled = true;
     }
 
     private void OnUserQueueDragOver(object sender, DragEventArgs e)
@@ -273,9 +329,10 @@ public partial class PlayQueueSidePanel : UserControl
             return;
         }
 
+        // 自動スクロールを先に実行してから挿入ライン位置を算出する
+        HandleAutoScroll(e.GetPosition(QueueScrollViewer));
         var (_, indicatorY) = ResolveDropPosition(itemsControl, e.GetPosition(itemsControl));
         ShowOrUpdateInsertionAdorner(itemsControl, indicatorY);
-        HandleAutoScroll(e.GetPosition(QueueScrollViewer));
 
         e.Effects = DragDropEffects.Move;
         e.Handled = true;
@@ -317,10 +374,23 @@ public partial class PlayQueueSidePanel : UserControl
             return;
         }
 
+        // ドラッグ中の非同期キュー変動（次曲自動遷移等）によるインデックス陳腐化を検証・再解決する
+        var sourceControl = GetItemsControlForSection(payload.SourceSection);
+        int resolvedSourceIndex = PlayQueueDragDropHelper.ResolveCurrentSourceIndex(
+            sourceControl.Items,
+            payload.SourceIndex,
+            payload.Track);
+
+        if (resolvedSourceIndex < 0)
+        {
+            e.Handled = true;
+            return;
+        }
+
         var (rawInsertIndex, _) = ResolveDropPosition(itemsControl, e.GetPosition(itemsControl));
         int targetIndex = PlayQueueDragDropHelper.CalculateTargetIndex(
             payload.SourceSection,
-            payload.SourceIndex,
+            resolvedSourceIndex,
             targetSection,
             rawInsertIndex,
             itemsControl.Items.Count);
@@ -329,19 +399,56 @@ public partial class PlayQueueSidePanel : UserControl
         {
             if (payload.SourceSection == QueueSection.UserQueue && targetSection == QueueSection.UserQueue)
             {
-                vm.MoveUserQueueItem(payload.SourceIndex, targetIndex);
+                vm.MoveUserQueueItem(resolvedSourceIndex, targetIndex);
             }
             else if (payload.SourceSection == QueueSection.AlbumQueue && targetSection == QueueSection.AlbumQueue)
             {
-                vm.MoveAlbumQueueItem(payload.SourceIndex, targetIndex);
+                vm.MoveAlbumQueueItem(resolvedSourceIndex, targetIndex);
             }
             else if (payload.SourceSection == QueueSection.AlbumQueue && targetSection == QueueSection.UserQueue)
             {
-                vm.MoveAlbumQueueItemToUserQueue(payload.SourceIndex, targetIndex);
+                vm.MoveAlbumQueueItemToUserQueue(resolvedSourceIndex, targetIndex);
             }
         }
 
         e.Handled = true;
+    }
+
+    private ItemsControl GetItemsControlForSection(QueueSection section)
+    {
+        return section == QueueSection.UserQueue ? UserQueueItemsControl : AlbumQueueItemsControl;
+    }
+
+    private void ShowEmptyUserQueueDropZone()
+    {
+        if (EmptyUserQueueDropZone != null)
+        {
+            SetEmptyDropZoneHighlight(isHighlighted: false);
+            EmptyUserQueueDropZone.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void HideEmptyUserQueueDropZone()
+    {
+        if (EmptyUserQueueDropZone != null)
+        {
+            SetEmptyDropZoneHighlight(isHighlighted: false);
+            EmptyUserQueueDropZone.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void SetEmptyDropZoneHighlight(bool isHighlighted)
+    {
+        if (EmptyUserQueueDropZone == null)
+        {
+            return;
+        }
+
+        var brushKey = isHighlighted ? "ControlBackgroundHighlightBrush" : "ControlBackgroundBrush";
+        if (TryFindResource(brushKey) is Brush brush)
+        {
+            EmptyUserQueueDropZone.Background = brush;
+        }
     }
 
     private static bool TryGetDragPayload(DragEventArgs e, out QueueDragPayload payload)
@@ -461,21 +568,6 @@ public partial class PlayQueueSidePanel : UserControl
         }
 
         return false;
-    }
-
-    private static Track? FindTrackFromVisual(DependencyObject current)
-    {
-        DependencyObject? node = current;
-        while (node != null)
-        {
-            if (node is FrameworkElement fe && fe.DataContext is Track track)
-            {
-                return track;
-            }
-            node = GetParentObject(node);
-        }
-
-        return null;
     }
 
     private static DependencyObject? GetParentObject(DependencyObject child)
