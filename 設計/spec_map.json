@@ -138,6 +138,22 @@
       ]
     },
     {
+      "id": "album-detail",
+      "name": "アルバム情報（詳細画面）",
+      "code_patterns": [
+        "AudioEffector/**/*AlbumDetail*"
+      ],
+      "primary_specs": [
+        "設計/画面設計/アルバム情報/アルバム情報UI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/画面設計/画面遷移・ナビゲーション設計書.md",
+        "設計/画面設計/アルバム一覧/アルバム一覧UI仕様書.md",
+        "設計/主要オブジェクト/02_アルバム_Album.md",
+        "設計/ユースケース/02_楽曲ライブラリ管理.md"
+      ]
+    },
+    {
       "id": "playlists",
       "name": "プレイリスト一覧・プレイリスト内楽曲・追加ダイアログ",
       "code_patterns": [
