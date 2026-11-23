@@ -206,4 +206,193 @@ public sealed class AudioServiceSectionQueueTests
         Assert.Equal("A2", receivedPlaylist[0].Title);
         Assert.Equal("A3", receivedPlaylist[1].Title);
     }
+
+    /// <summary>
+    /// MoveUserQueueItem 実行時、予約キューの順序と PlaylistChanged イベントが正しく同期され、
+    /// 次曲再生（Next）で変更後の順序通りに再生されることを検証します。
+    /// </summary>
+    [Fact]
+    public void MoveUserQueueItem_正常なインデックス移動時_予約キュー順序と次曲再生順が同期される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var albumTracks = CreateSampleTracks("A", 2); // A1再生、AlbumQueue: [A2]
+        sut.SetPlaylist(albumTracks, albumTracks[0]);
+
+        var userTracks = CreateSampleTracks("U", 3); // U1, U2, U3
+        sut.EnqueueTracks(userTracks, playNext: true);
+
+        List<Track>? receivedPlaylist = null;
+        sut.PlaylistChanged += p => receivedPlaylist = p;
+
+        Track? currentTrack = null;
+        sut.TrackChanged += t => currentTrack = t;
+
+        // Act - 先頭の U1(0) を末尾(2)へ移動 -> [U2, U3, U1]
+        sut.MoveUserQueueItem(0, 2);
+
+        // Assert
+        Assert.Equal(new[] { "U2", "U3", "U1" }, sut.UserQueue.Select(t => t.Title).ToArray());
+        Assert.Single(sut.AlbumQueue);
+        Assert.Equal("A2", sut.AlbumQueue[0].Title);
+        Assert.NotNull(receivedPlaylist);
+        Assert.Equal(new[] { "U2", "U3", "U1", "A2" }, receivedPlaylist.Select(t => t.Title).ToArray());
+
+        // Act & Assert - 後ろから前へ移動: U1(2) を先頭(0)へ -> [U1, U2, U3]
+        sut.MoveUserQueueItem(2, 0);
+        Assert.Equal(new[] { "U1", "U2", "U3" }, sut.UserQueue.Select(t => t.Title).ToArray());
+
+        // 次曲再生で U1 が優先再生されること
+        sut.Next();
+        Assert.NotNull(currentTrack);
+        Assert.Equal("U1", currentTrack.Title);
+    }
+
+    /// <summary>
+    /// MoveUserQueueItem に範囲外または同一インデックスを指定した場合、状態が変更されずイベントも発火しないことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, 5)]
+    [InlineData(1, 1)]
+    public void MoveUserQueueItem_範囲外または同一インデックス時_状態不変かつイベント未発火である(int fromIndex, int toIndex)
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var userTracks = CreateSampleTracks("U", 3);
+        sut.EnqueueTracks(userTracks, playNext: true);
+
+        int eventCount = 0;
+        sut.PlaylistChanged += _ => eventCount++;
+
+        // Act
+        sut.MoveUserQueueItem(fromIndex, toIndex);
+
+        // Assert
+        Assert.Equal(0, eventCount);
+        Assert.Equal(new[] { "U1", "U2", "U3" }, sut.UserQueue.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// MoveAlbumQueueItem 実行時、アルバムキューの順序と PlaylistChanged イベントが同期され、
+    /// 次曲再生（Next）で変更後の順序通りに再生されることを検証します。
+    /// </summary>
+    [Fact]
+    public void MoveAlbumQueueItem_正常なインデックス移動時_アルバムキュー順序と次曲再生順が同期される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var albumTracks = CreateSampleTracks("A", 4); // A1再生、AlbumQueue: [A2, A3, A4]
+        sut.SetPlaylist(albumTracks, albumTracks[0]);
+
+        List<Track>? receivedPlaylist = null;
+        sut.PlaylistChanged += p => receivedPlaylist = p;
+
+        Track? currentTrack = null;
+        sut.TrackChanged += t => currentTrack = t;
+
+        // Act - A4(2) を先頭(0)へ移動 -> [A4, A2, A3]
+        sut.MoveAlbumQueueItem(2, 0);
+
+        // Assert
+        Assert.Equal(new[] { "A4", "A2", "A3" }, sut.AlbumQueue.Select(t => t.Title).ToArray());
+        Assert.NotNull(receivedPlaylist);
+        Assert.Equal(new[] { "A4", "A2", "A3" }, receivedPlaylist.Select(t => t.Title).ToArray());
+
+        // 次曲再生で A4 が再生されること
+        sut.Next();
+        Assert.NotNull(currentTrack);
+        Assert.Equal("A4", currentTrack.Title);
+    }
+
+    /// <summary>
+    /// MoveAlbumQueueItem に範囲外または同一インデックスを指定した場合、状態が変更されずイベントも発火しないことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(-1, 1)]
+    [InlineData(0, 3)]
+    [InlineData(0, 0)]
+    public void MoveAlbumQueueItem_範囲外または同一インデックス時_状態不変かつイベント未発火である(int fromIndex, int toIndex)
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var albumTracks = CreateSampleTracks("A", 4); // AlbumQueue: [A2, A3, A4]
+        sut.SetPlaylist(albumTracks, albumTracks[0]);
+
+        int eventCount = 0;
+        sut.PlaylistChanged += _ => eventCount++;
+
+        // Act
+        sut.MoveAlbumQueueItem(fromIndex, toIndex);
+
+        // Assert
+        Assert.Equal(0, eventCount);
+        Assert.Equal(new[] { "A2", "A3", "A4" }, sut.AlbumQueue.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// MoveAlbumQueueItemToUserQueue 実行時、アルバムキューの楽曲が予約キューの指定位置へ昇格移動し、
+    /// 次曲再生順にも即座に反映されることを検証します。
+    /// </summary>
+    [Fact]
+    public void MoveAlbumQueueItemToUserQueue_正常な移動時_予約キューへ昇格し優先再生される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var albumTracks = CreateSampleTracks("A", 4); // A1再生、AlbumQueue: [A2, A3, A4]
+        sut.SetPlaylist(albumTracks, albumTracks[0]);
+
+        var userTracks = CreateSampleTracks("U", 2); // UserQueue: [U1, U2]
+        sut.EnqueueTracks(userTracks, playNext: true);
+
+        List<Track>? receivedPlaylist = null;
+        sut.PlaylistChanged += p => receivedPlaylist = p;
+
+        Track? currentTrack = null;
+        sut.TrackChanged += t => currentTrack = t;
+
+        // Act - AlbumQueue の A4(index=2) を UserQueue の先頭(index=0)へ昇格
+        sut.MoveAlbumQueueItemToUserQueue(2, 0);
+
+        // Assert
+        Assert.Equal(new[] { "A4", "U1", "U2" }, sut.UserQueue.Select(t => t.Title).ToArray());
+        Assert.Equal(new[] { "A2", "A3" }, sut.AlbumQueue.Select(t => t.Title).ToArray());
+        Assert.NotNull(receivedPlaylist);
+        Assert.Equal(new[] { "A4", "U1", "U2", "A2", "A3" }, receivedPlaylist.Select(t => t.Title).ToArray());
+
+        // Act 2 - AlbumQueue の A3(index=1) を UserQueue の末尾(index=3)へ昇格
+        sut.MoveAlbumQueueItemToUserQueue(1, 3);
+        Assert.Equal(new[] { "A4", "U1", "U2", "A3" }, sut.UserQueue.Select(t => t.Title).ToArray());
+        Assert.Equal(new[] { "A2" }, sut.AlbumQueue.Select(t => t.Title).ToArray());
+
+        // 次曲再生で昇格した A4 が最優先再生されること
+        sut.Next();
+        Assert.NotNull(currentTrack);
+        Assert.Equal("A4", currentTrack.Title);
+    }
+
+    /// <summary>
+    /// MoveAlbumQueueItemToUserQueue に範囲外の移動元インデックスを指定した場合、状態が変更されないことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(2, 0)]
+    public void MoveAlbumQueueItemToUserQueue_範囲外の移動元インデックス時_状態不変かつイベント未発火である(int fromAlbumIndex, int toUserIndex)
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var albumTracks = CreateSampleTracks("A", 3); // AlbumQueue: [A2, A3]
+        sut.SetPlaylist(albumTracks, albumTracks[0]);
+
+        int eventCount = 0;
+        sut.PlaylistChanged += _ => eventCount++;
+
+        // Act
+        sut.MoveAlbumQueueItemToUserQueue(fromAlbumIndex, toUserIndex);
+
+        // Assert
+        Assert.Equal(0, eventCount);
+        Assert.Empty(sut.UserQueue);
+        Assert.Equal(new[] { "A2", "A3" }, sut.AlbumQueue.Select(t => t.Title).ToArray());
+    }
 }

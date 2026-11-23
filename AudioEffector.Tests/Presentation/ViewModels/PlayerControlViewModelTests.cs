@@ -736,5 +736,65 @@ public sealed class PlayerControlViewModelTests
         Assert.True(newQueueTrack1.IsPlaying);
         Assert.False(newQueueTrack2.IsPlaying);
     }
+
+    /// <summary>
+    /// MoveUserQueueItem 呼び出し時、AudioService の MoveUserQueueItem に委譲されることを検証します。
+    /// </summary>
+    [Fact]
+    public void MoveUserQueueItem_呼び出し時_AudioServiceへ委譲される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        // Act
+        sut.MoveUserQueueItem(0, 2);
+
+        // Assert
+        _audioServiceMock.Verify(a => a.MoveUserQueueItem(0, 2), Times.Once);
+    }
+
+    /// <summary>
+    /// MoveAlbumQueueItem 呼び出し時、AudioService の MoveAlbumQueueItem に委譲されることを検証します。
+    /// </summary>
+    [Fact]
+    public void MoveAlbumQueueItem_呼び出し時_AudioServiceへ委譲される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        // Act
+        sut.MoveAlbumQueueItem(2, 0);
+
+        // Assert
+        _audioServiceMock.Verify(a => a.MoveAlbumQueueItem(2, 0), Times.Once);
+    }
+
+    /// <summary>
+    /// MoveAlbumQueueItemToUserQueue 呼び出し時、AudioService の MoveAlbumQueueItemToUserQueue に委譲されることを検証します。
+    /// </summary>
+    [Fact]
+    public void MoveAlbumQueueItemToUserQueue_呼び出し時_AudioServiceへ委譲される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        // Act
+        sut.MoveAlbumQueueItemToUserQueue(1, 0);
+
+        // Assert
+        _audioServiceMock.Verify(a => a.MoveAlbumQueueItemToUserQueue(1, 0), Times.Once);
+    }
 }
 

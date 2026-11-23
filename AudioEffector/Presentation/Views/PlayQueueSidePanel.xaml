@@ -54,14 +54,27 @@
 
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/> <!-- Drag Handle -->
                         <ColumnDefinition Width="Auto"/> <!-- Album Art -->
                         <ColumnDefinition Width="*"/>    <!-- Track Details -->
                         <ColumnDefinition Width="Auto"/> <!-- Duration -->
                         <ColumnDefinition Width="Auto"/> <!-- Actions: Remove -->
                     </Grid.ColumnDefinitions>
 
+                    <!-- Drag Handle Grip Icon -->
+                    <Border Grid.Column="0" Background="Transparent" Cursor="SizeAll"
+                            VerticalAlignment="Center" Margin="0,0,6,0" Padding="2,4"
+                            ToolTip="ドラッグして再生順を変更">
+                        <Path x:Name="DragHandleIcon"
+                              Data="M9,3H11V5H9V3M13,3H15V5H13V3M9,7H11V9H9V7M13,7H15V9H13V7M9,11H11V13H9V11M13,11H15V13H13V11M9,15H11V17H9V15M13,15H15V17H13V15Z"
+                              Fill="{DynamicResource MutedTextForegroundBrush}"
+                              Opacity="0.45"
+                              Width="8" Height="14" Stretch="Uniform"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+
                     <!-- Album Art (Clickable to Play) - アイコン・黒オーバーレイなしのシンプル表示 -->
-                    <Button Grid.Column="0"
+                    <Button Grid.Column="1"
                             Command="{Binding DataContext.PlayFromQueueCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
                             Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand"
@@ -78,7 +91,7 @@
                     </Button>
 
                     <!-- Track Title & Artist (Clickable to Play) -->
-                    <Button Grid.Column="1"
+                    <Button Grid.Column="2"
                             Command="{Binding DataContext.PlayFromQueueCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
                             Background="Transparent" BorderThickness="0" Padding="0" HorizontalContentAlignment="Left" Cursor="Hand">
@@ -97,13 +110,14 @@
                     </Button>
 
                     <!-- Duration -->
-                    <TextBlock Grid.Column="2"
+                    <TextBlock Grid.Column="3"
                                Text="{Binding Duration, StringFormat='{}{0:mm\\:ss}'}"
                                FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}"
                                VerticalAlignment="Center" Margin="8,0,8,0"/>
 
                     <!-- Action Button: Remove -->
-                    <Button Grid.Column="3"
+                    <Button Grid.Column="4"
+                            Tag="NoDrag"
                             Command="{Binding DataContext.RemoveFromQueueCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             CommandParameter="{Binding}"
                             ToolTip="キューから削除"
@@ -128,6 +142,7 @@
             <DataTemplate.Triggers>
                 <Trigger Property="IsMouseOver" Value="True" SourceName="ItemBorder">
                     <Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource ControlBackgroundBrush}"/>
+                    <Setter TargetName="DragHandleIcon" Property="Opacity" Value="0.95"/>
                 </Trigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -312,7 +327,7 @@
                 </StackPanel>
 
                 <!-- Sections ScrollViewer -->
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ScrollViewer x:Name="QueueScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <ScrollViewer.Style>
                         <Style TargetType="ScrollViewer">
                             <Setter Property="Visibility" Value="Visible"/>
@@ -323,50 +338,92 @@
                             </Style.Triggers>
                         </Style>
                     </ScrollViewer.Style>
-                    <StackPanel Margin="0,4,0,12">
-                        <!-- Section 1: 予約キュー (UserQueue) -->
-                        <Border Visibility="{Binding HasUserQueue, Converter={StaticResource BoolToVis}}" Margin="0,0,0,10">
-                            <StackPanel>
-                                <!-- Header -->
-                                <Border Background="{DynamicResource ControlBackgroundBrush}" Padding="10,6" Margin="8,2,8,4" CornerRadius="4">
-                                    <Grid>
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="予約キュー" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}"/>
-                                            <TextBlock Text="{Binding UserQueue.Count, StringFormat=' ({0})'}" FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" Margin="4,0,0,0" VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                        <Button HorizontalAlignment="Right"
-                                                Command="{Binding ClearUserQueueCommand}"
-                                                Content="予約をクリア" FontSize="11"
-                                                Background="Transparent" BorderThickness="0"
-                                                Foreground="{DynamicResource AlwaysNeonCyanBrush}" Cursor="Hand" Padding="4,2"/>
-                                    </Grid>
-                                </Border>
-                                <!-- UserQueue Items -->
-                                <ItemsControl ItemsSource="{Binding UserQueue}"
-                                              ItemTemplate="{StaticResource QueueTrackItemTemplate}"
-                                              Margin="8,0"/>
-                            </StackPanel>
-                        </Border>
+                    <AdornerDecorator>
+                        <StackPanel Margin="0,4,0,12">
+                            <!-- Section 1 Placeholder: 予約キューが空かつ AlbumQueue ドラッグ中のみ表示する昇格ドロップ領域 -->
+                            <Border x:Name="EmptyUserQueueDropZone"
+                                    Visibility="Collapsed"
+                                    AllowDrop="True"
+                                    MinHeight="44"
+                                    Margin="8,2,8,10"
+                                    Padding="10,8"
+                                    CornerRadius="6"
+                                    Background="{DynamicResource ControlBackgroundBrush}"
+                                    BorderBrush="{DynamicResource NeonCyanBrush}"
+                                    BorderThickness="1.5"
+                                    DragOver="OnEmptyUserQueueDragOver"
+                                    DragLeave="OnEmptyUserQueueDragLeave"
+                                    Drop="OnEmptyUserQueueDrop">
+                                <TextBlock Text="ここにドロップして予約キューへ追加"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource NeonCyanBrush}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
+                            </Border>
 
-                        <!-- Section 2: アルバムの残り曲 (AlbumQueue) -->
-                        <Border Visibility="{Binding HasAlbumQueue, Converter={StaticResource BoolToVis}}" Margin="0,0,0,4">
-                            <StackPanel>
-                                <!-- Header -->
-                                <Border Background="{DynamicResource ControlBackgroundBrush}" Padding="10,6" Margin="8,2,8,4" CornerRadius="4">
-                                    <Grid>
-                                        <TextBlock Text="{Binding AlbumQueueTitle}" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock HorizontalAlignment="Right"
-                                                   Text="{Binding AlbumQueue.Count, StringFormat='{}残り {0} 曲'}"
-                                                   FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" VerticalAlignment="Center"/>
-                                    </Grid>
-                                </Border>
-                                <!-- AlbumQueue Items -->
-                                <ItemsControl ItemsSource="{Binding AlbumQueue}"
-                                              ItemTemplate="{StaticResource QueueTrackItemTemplate}"
-                                              Margin="8,0"/>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
+                            <!-- Section 1: 予約キュー (UserQueue) -->
+                            <Border Visibility="{Binding HasUserQueue, Converter={StaticResource BoolToVis}}" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <!-- Header -->
+                                    <Border Background="{DynamicResource ControlBackgroundBrush}" Padding="10,6" Margin="8,2,8,4" CornerRadius="4">
+                                        <Grid>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="予約キュー" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}"/>
+                                                <TextBlock Text="{Binding UserQueue.Count, StringFormat=' ({0})'}" FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <Button HorizontalAlignment="Right"
+                                                    Command="{Binding ClearUserQueueCommand}"
+                                                    Content="予約をクリア" FontSize="11"
+                                                    Background="Transparent" BorderThickness="0"
+                                                    Foreground="{DynamicResource AlwaysNeonCyanBrush}" Cursor="Hand" Padding="4,2"/>
+                                        </Grid>
+                                    </Border>
+                                    <!-- UserQueue Items -->
+                                    <ItemsControl x:Name="UserQueueItemsControl"
+                                                  ItemsSource="{Binding UserQueue}"
+                                                  ItemTemplate="{StaticResource QueueTrackItemTemplate}"
+                                                  AllowDrop="True"
+                                                  Background="Transparent"
+                                                  Margin="8,0"
+                                                  PreviewMouseLeftButtonDown="OnUserQueuePreviewMouseLeftButtonDown"
+                                                  PreviewMouseMove="OnQueuePreviewMouseMove"
+                                                  PreviewMouseLeftButtonUp="OnQueuePreviewMouseLeftButtonUp"
+                                                  DragOver="OnUserQueueDragOver"
+                                                  DragLeave="OnQueueDragLeave"
+                                                  Drop="OnUserQueueDrop"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Section 2: アルバムの残り曲 (AlbumQueue) -->
+                            <Border Visibility="{Binding HasAlbumQueue, Converter={StaticResource BoolToVis}}" Margin="0,0,0,4">
+                                <StackPanel>
+                                    <!-- Header -->
+                                    <Border Background="{DynamicResource ControlBackgroundBrush}" Padding="10,6" Margin="8,2,8,4" CornerRadius="4">
+                                        <Grid>
+                                            <TextBlock Text="{Binding AlbumQueueTitle}" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock HorizontalAlignment="Right"
+                                                       Text="{Binding AlbumQueue.Count, StringFormat='{}残り {0} 曲'}"
+                                                       FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                    <!-- AlbumQueue Items -->
+                                    <ItemsControl x:Name="AlbumQueueItemsControl"
+                                                  ItemsSource="{Binding AlbumQueue}"
+                                                  ItemTemplate="{StaticResource QueueTrackItemTemplate}"
+                                                  AllowDrop="True"
+                                                  Background="Transparent"
+                                                  Margin="8,0"
+                                                  PreviewMouseLeftButtonDown="OnAlbumQueuePreviewMouseLeftButtonDown"
+                                                  PreviewMouseMove="OnQueuePreviewMouseMove"
+                                                  PreviewMouseLeftButtonUp="OnQueuePreviewMouseLeftButtonUp"
+                                                  DragOver="OnAlbumQueueDragOver"
+                                                  DragLeave="OnQueueDragLeave"
+                                                  Drop="OnAlbumQueueDrop"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </AdornerDecorator>
                 </ScrollViewer>
             </Grid>
 

@@ -68,6 +68,30 @@ public interface IAudioService : IDisposable
     void ClearUserQueue();
 
     /// <summary>
+    /// 予約キュー内の指定インデックスにあるトラックを別の位置へ移動します
+    /// </summary>
+    /// <param name="fromIndex">移動元のインデックス（0始まり）</param>
+    /// <param name="toIndex">移動先のインデックス（0始まり）</param>
+    [LogDescription("予約キュー内の再生順を変更します")]
+    void MoveUserQueueItem(int fromIndex, int toIndex);
+
+    /// <summary>
+    /// アルバム残り曲キュー内の指定インデックスにあるトラックを別の位置へ移動します
+    /// </summary>
+    /// <param name="fromIndex">移動元のインデックス（0始まり）</param>
+    /// <param name="toIndex">移動先のインデックス（0始まり）</param>
+    [LogDescription("アルバムキュー内の再生順を変更します")]
+    void MoveAlbumQueueItem(int fromIndex, int toIndex);
+
+    /// <summary>
+    /// アルバム残り曲キューの指定トラックを予約キューの指定位置へ昇格移動します
+    /// </summary>
+    /// <param name="fromAlbumIndex">移動元のアルバムキューインデックス（0始まり）</param>
+    /// <param name="toUserIndex">移動先の予約キュー挿入インデックス（0始まり、末尾追加時は件数と一致）</param>
+    [LogDescription("アルバムキューの楽曲を予約キューへ移動します")]
+    void MoveAlbumQueueItemToUserQueue(int fromAlbumIndex, int toUserIndex);
+
+    /// <summary>
     /// 現在再生中かどうか
     /// </summary>
     bool IsPlaying { get; }

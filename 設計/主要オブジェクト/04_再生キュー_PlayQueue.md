@@ -42,8 +42,7 @@
 | **予約キューのみクリア** | Clear User Queue | 予約キュー見出しの「予約をクリア」ボタン押下 | `AlbumQueue` を維持したまま `UserQueue` のみを全消去 | 実装済み | `ClearUserQueueCommand` |
 | **1曲削除（キュー/履歴）** | Remove | 各行の「✕」ボタン、または右クリック「キューから削除」「履歴から削除」 | 該当トラックをキューまたは履歴から除外 | 実装済み | `RemoveFromQueueCommand`, `RemoveFromHistoryCommand` |
 | **現在タブの全クリア** | Clear Current Tab | パネルヘッダー右上のゴミ箱アイコン押下 | 選択中タブに応じてキュー全消去（＋再生停止）または履歴全消去 | 実装済み | `ClearCurrentTabCommand` (`ClearQueueCommand` / `ClearHistoryCommand`) |
-| **D&D並び替え** | Reorder | キュー行のドラッグ＆ドロップ操作 | キュー内の再生順序を直接入れ替え | 拡張構想 (#216) | — |
+| **D&D並び替え** | Reorder | キュー行のドラッグ＆ドロップ操作 | セクション内並び替えおよび `AlbumQueue` → `UserQueue` 昇格移動を `IAudioService` と即時同期 | 実装済み | `MoveUserQueueItem` / `MoveAlbumQueueItem` / `MoveAlbumQueueItemToUserQueue` ([PlayQueueSidePanel.xaml.cs](../../AudioEffector/Presentation/Views/PlayQueueSidePanel.xaml.cs)) |
 
 ## 5. 拡張設計指針
-- **キュー内D&D並び替え（Issue #216）**: キュー内の楽曲カードをドラッグ＆ドロップして再生順序を自由に入れ替える操作の導入。
 - **ミニプレイヤー下部への再生キュー連結（Issue #217）**: ミニプレイヤーから再生キューを展開する際、別ウィンドウ（`PlayQueueDialog`）ではなくミニプレイヤー下部に一体型として連結展開するUIへの統合。
