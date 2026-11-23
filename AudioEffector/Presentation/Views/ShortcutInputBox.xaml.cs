@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -17,8 +17,16 @@ public partial class ShortcutInputBox : UserControl
 {
     private const double MediaKeyDuplicateGuardMs = 150.0;
 
+    private enum MediaKeyCaptureSource
+    {
+        None,
+        KeyDown,
+        AppCommand
+    }
+
     private HwndSource? _hwndSource;
     private Key _lastCapturedMediaKey = Key.None;
+    private MediaKeyCaptureSource _lastCapturedMediaKeySource = MediaKeyCaptureSource.None;
     private long _lastCapturedMediaKeyTimestamp;
 
     /// <summary>
@@ -127,13 +135,13 @@ public partial class ShortcutInputBox : UserControl
         handled = true;
 
         // 直前に PreviewKeyDown 経由で同じメディアキーを処理済みの場合は二重処理を抑止する
-        if (IsRecentMediaKeyCapture(mediaKey))
+        if (IsCrossSourceRecentMediaKeyCapture(mediaKey, MediaKeyCaptureSource.AppCommand))
         {
             return new IntPtr(1);
         }
 
+        RecordMediaKeyCapture(mediaKey, MediaKeyCaptureSource.AppCommand);
         TryAssignShortcut(mediaKey, Keyboard.Modifiers);
-        RecordMediaKeyCapture(mediaKey);
         return new IntPtr(1);
     }
 
@@ -163,13 +171,19 @@ public partial class ShortcutInputBox : UserControl
             return;
         }
 
-        var modifiers = Keyboard.Modifiers;
-
+        // 直前に WM_APPCOMMAND 経由で同じメディアキーを処理済みの場合は二重処理を抑止する
         if (ShortcutKeyHelper.IsMediaKey(key))
         {
-            RecordMediaKeyCapture(key);
+            if (IsCrossSourceRecentMediaKeyCapture(key, MediaKeyCaptureSource.KeyDown))
+            {
+                e.Handled = true;
+                return;
+            }
+
+            RecordMediaKeyCapture(key, MediaKeyCaptureSource.KeyDown);
         }
 
+        var modifiers = Keyboard.Modifiers;
         TryAssignShortcut(key, modifiers);
         e.Handled = true;
     }
@@ -261,9 +275,11 @@ public partial class ShortcutInputBox : UserControl
         return true;
     }
 
-    private bool IsRecentMediaKeyCapture(Key mediaKey)
+    private bool IsCrossSourceRecentMediaKeyCapture(Key mediaKey, MediaKeyCaptureSource currentSource)
     {
-        if (_lastCapturedMediaKey != mediaKey)
+        if (_lastCapturedMediaKey != mediaKey ||
+            _lastCapturedMediaKeySource == MediaKeyCaptureSource.None ||
+            _lastCapturedMediaKeySource == currentSource)
         {
             return false;
         }
@@ -272,9 +288,10 @@ public partial class ShortcutInputBox : UserControl
         return elapsedMs >= 0 && elapsedMs <= MediaKeyDuplicateGuardMs;
     }
 
-    private void RecordMediaKeyCapture(Key mediaKey)
+    private void RecordMediaKeyCapture(Key mediaKey, MediaKeyCaptureSource source)
     {
         _lastCapturedMediaKey = mediaKey;
+        _lastCapturedMediaKeySource = source;
         _lastCapturedMediaKeyTimestamp = Stopwatch.GetTimestamp();
     }
 
