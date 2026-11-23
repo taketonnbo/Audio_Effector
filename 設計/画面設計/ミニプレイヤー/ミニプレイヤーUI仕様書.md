@@ -76,7 +76,7 @@
 
 ## 5. 構成要素と共通コントロール
 
-アルバムアート（`CurrentTrack.AlbumArt`）、曲名（`CurrentTrack.Title`）、アーティスト名（`CurrentTrack.Artist`）、前の曲「`⏮`」、再生切替「`⏯`」、次の曲「`⏭`」、キュー開閉トグル「`☰`」（`ToggleMiniPlayerQueueCommand`、展開時は `NeonCyanBrush` で強調）、メイン画面へ戻る「`⤢`」、および下部連結キュー領域（`PlayQueue` バインドの `MiniQueueListBox`、`PlayFromQueueCommand` / `RemoveFromQueueCommand` / `ClearQueueCommand` / `CloseMiniPlayerQueueCommand`）で構成する。
+アルバムアート（高解像度再生中ソース `NowPlayingImage`、`DecodePixelWidth = 500`・`Freeze()` 済み、各 `<Image>` へ `RenderOptions.BitmapScalingMode="HighQuality"` を適用）、曲名（`CurrentTrack.Title`）、アーティスト名（`CurrentTrack.Artist`）、前の曲「`⏮`」、再生切替「`⏯`」、次の曲「`⏭`」、キュー開閉トグル「`☰`」（`ToggleMiniPlayerQueueCommand`、展開時は `NeonCyanBrush` で強調）、メイン画面へ戻る「`⤢`」、および下部連結キュー領域（`PlayQueue` バインドの `MiniQueueListBox`、`PlayFromQueueCommand` / `RemoveFromQueueCommand` / `ClearQueueCommand` / `CloseMiniPlayerQueueCommand`）で構成する。
 
 ## 6. アニメーションとインタラクション
 
@@ -93,6 +93,7 @@
 
 - **非表示時の完全描画抑止**: 下部連結キュー領域（`QueueDrawerContainer`）は初期状態および格納完了時に `Visibility="Collapsed"` / `IsHitTestVisible="False"` とし、横長レイアウト（`StandardLayoutGrid`）と正方形レイアウト（`SquareLayoutGrid`）、および丸い窓コンテナと静止全面コンテナも排他的に `Visibility="Collapsed"` とすることで非アクティブ側のレイアウト計算・描画オーバーヘッドをゼロに抑える。
 - **高負荷エフェクトの排除**: 正方形オーバーレイや回転ターゲットには `DropShadowEffect` / `BlurEffect` を使用せず、半透明ダーク背景と `RotateTransform` により軽量に描画する。
+- **高解像度アートワークの再利用 (Issue #283)**: 一覧サムネイル用の `Track.AlbumArt`（`DecodePixelWidth = 100`）は省メモリ維持のまま変更せず、ミニプレイヤーでは再生中 1 曲分のみ保持される `NowPlayingImage`（`DecodePixelWidth = 500`・`Freeze()` 済み）を再利用し、`RenderOptions.BitmapScalingMode="HighQuality"` により高DPI・回転時の画質と省メモリを両立する。
 - **UI仮想化**: `MiniQueueListBox` には `VirtualizingPanel.IsVirtualizing="True"`、`VirtualizingPanel.VirtualizationMode="Recycling"`、`VirtualizingPanel.ScrollUnit="Pixel"`、`ScrollViewer.CanContentScroll="True"` を適用し、大量のキュー項目でも軽量にスクロール描画する。
 - **MarqueeTextBlock**: 長い曲名・アーティスト名の `MarqueeTextBlock` は `MiniPlayerInfoArea` にマウスが乗っており、かつ文字列が表示幅を超えている場合のみアニメーションを実行する。
 
