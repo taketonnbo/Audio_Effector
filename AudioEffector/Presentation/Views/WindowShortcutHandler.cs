@@ -154,7 +154,7 @@ public sealed class WindowShortcutHandler
     public bool HandleAppCommand(IntPtr lParam, IShortcutCommandTarget? viewModel)
     {
         int appCommand = ShortcutKeyHelper.GetAppCommand(lParam);
-        return HandleAppCommandCode(appCommand, viewModel);
+        return HandleAppCommandCode(appCommand, viewModel, Keyboard.Modifiers);
     }
 
     /// <summary>
@@ -162,8 +162,9 @@ public sealed class WindowShortcutHandler
     /// </summary>
     /// <param name="appCommand">アプリケーションコマンド番号</param>
     /// <param name="viewModel">対象となるコマンド実行先</param>
+    /// <param name="modifiers">押下中の修飾キー</param>
     /// <returns>コマンドを処理した場合は <c>true</c></returns>
-    public bool HandleAppCommandCode(int appCommand, IShortcutCommandTarget? viewModel)
+    public bool HandleAppCommandCode(int appCommand, IShortcutCommandTarget? viewModel, ModifierKeys modifiers = ModifierKeys.None)
     {
         if (viewModel == null)
         {
@@ -181,12 +182,18 @@ public sealed class WindowShortcutHandler
             return true;
         }
 
-        // ユーザーが該当メディアキーを別機能へ明示的に割り当てている場合はユーザー設定を優先する
-        if (TryResolveCustomCommand(mediaKey, ModifierKeys.None, viewModel, out var customCommand, out _))
+        // ユーザーが該当メディアキー（修飾キー付きを含む）を明示的に割り当てている場合はユーザー設定を優先する
+        if (TryResolveCustomCommand(mediaKey, modifiers, viewModel, out var customCommand, out _))
         {
             ExecuteCommand(customCommand);
             RecordMediaKey(mediaKey, MediaKeySource.AppCommand);
             return true;
+        }
+
+        // 修飾キーが押下されている場合は標準メディアキー動作へフォールバックしない
+        if (modifiers != ModifierKeys.None)
+        {
+            return false;
         }
 
         // APPCOMMAND_MEDIA_PLAY / APPCOMMAND_MEDIA_PAUSE は現在の再生状態に応じて意図通りの操作を行う
