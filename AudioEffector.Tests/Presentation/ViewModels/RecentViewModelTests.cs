@@ -410,6 +410,9 @@ public sealed class RecentViewModelTests
         public float[] Frequencies { get; } = new float[10];
 
         public void ClearUserQueue() { }
+        public void MoveUserQueueItem(int fromIndex, int toIndex) { }
+        public void MoveAlbumQueueItem(int fromIndex, int toIndex) { }
+        public void MoveAlbumQueueItemToUserQueue(int fromAlbumIndex, int toUserIndex) { }
         public void SetPlaylist(List<Track> tracks, Track? startTrack = null)
         {
             OnSetPlaylist?.Invoke();
