@@ -54,7 +54,8 @@
 | `ControlBackgroundBrush` | <span style="background-color:#232934;color:#F0F4F8;padding:2px 8px;border-radius:3px;">■ #232934</span> | `#232934` | セクションヘッダー背景 |
 | `TextForegroundBrush` | <span style="background-color:#F0F4F8;color:#161920;padding:2px 8px;border-radius:3px;">■ #F0F4F8</span> | `#F0F4F8` | 主テキスト |
 | `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 非選択タブ・再生時間・空状態テキスト |
-| `AlwaysNeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | アクティブタブ文字・下端2pxインジケーター・「予約をクリア」文字・D&D挿入ラインインジケーター |
+| `AlwaysNeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | アクティブタブ文字・下端2pxインジケーター・「予約をクリア」文字 |
+| `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> / <span style="background-color:#0078D7;color:#FFFFFF;padding:2px 8px;border-radius:3px;">■ #0078D7</span> | ダーク `#00FFFF` / ライト `#0078D7` | D&D挿入ラインインジケーター・空予約キュードロップ領域枠/ガイド文字 |
 
 タブ高 `36px`、選択インジケーター高 `2px`。ヘッダー操作ボタン `28×28px`、曲アート `36×36px`。曲名 `13pt / SemiBold`、アーティスト `11pt`、時間 `mm:ss`。
 
@@ -74,9 +75,9 @@
 - **再生リスト操作**: アイテムクリックまたは右クリック「再生」で `PlayFromQueueCommand`、行末「✕」または右クリック「キューから削除」で `RemoveFromQueueCommand`。「予約をクリア」で予約キューのみ消去。
 - **ドラッグ＆ドロップによる再生順並び替え**:
   - 楽曲カード左端にドラッグハンドル（8ドットグリップアイコン）を配置し、削除ボタン以外のカード領域を左ドラッグすることで並び替え操作を開始する。誤操作防止のためシステム規定のドラッグ閾値（`SystemParameters.MinimumHorizontalDragDistance` / `MinimumVerticalDragDistance`）以上移動した場合にのみ開始する。
-  - ドラッグ中は対象アイテム境界に `AlwaysNeonCyanBrush` の `2px` 水平挿入ライン（`QueueInsertionAdorner`、軽量GPU描画）を表示し、スクロール領域上下端付近では自動スクロールを行う。
+  - ドラッグ中は対象アイテム境界にテーマ追従トークン `NeonCyanBrush`（ダーク `#00FFFF` / ライト `#0078D7`）の `2px` 水平挿入ライン（`QueueInsertionAdorner`、軽量GPU描画、`ScrollViewer` 内 `AdornerDecorator` によりクリップ）を表示し、スクロール領域上下端付近では自動スクロールを行う。
   - **セクション内並び替え**: `予約キュー` 内（`MoveUserQueueItem`）および `アルバムの残り曲` 内（`MoveAlbumQueueItem`）の順序変更に対応。
-  - **セクション間移動ルール**: `アルバムの残り曲` → `予約キュー` へのドロップは予約キューへの昇格移動（`MoveAlbumQueueItemToUserQueue`）として許可し、逆方向（`予約キュー` → `アルバムの残り曲`）は移動不可（`DragDropEffects.None`）とする。
+  - **セクション間移動ルール**: `アルバムの残り曲` → `予約キュー` へのドロップは予約キューへの昇格移動（`MoveAlbumQueueItemToUserQueue`）として許可し、逆方向（`予約キュー` → `アルバムの残り曲`）は移動不可（`DragDropEffects.None`）とする。予約キューが空（0件）の状態で `アルバムの残り曲` をドラッグ開始した場合は、上部に一時的なドロップ領域（「ここにドロップして予約キューへ追加」）を表示し、空状態からの昇格移動を可能とする。
   - ドロップ完了時に即座に `IAudioService` の内部キュー（`_userQueue` / `_albumQueue` / `_playlist`）へ単一情報源（SSOT）で同期され、現在再生中の楽曲には影響を与えずに次曲遷移へ反映される。
 - **履歴操作**: アイテムクリックまたは右クリック「再生」で `PlayFromHistoryCommand`（対象曲を再生開始し、自動的にタブ0「再生リスト」へ切り替え）。右クリック「次に再生」「最後に再生」「履歴から削除」（`RemoveFromHistoryCommand`）に対応。
 - **現在タブ全クリア**: ヘッダー右上のゴミ箱ボタン（`ClearCurrentTabCommand`）は、タブ0選択時は `ClearQueue()`（全キュー消去＋再生停止）、タブ1選択時は `ClearHistory()`（履歴全消去）を実行する。
