@@ -69,7 +69,7 @@ AlbumDetailView (Root Grid)
 | :--- | :--- | :--- |
 | 上部ナビゲーションバー | パディング `16px, 12px, 16px, 8px` | 横幅に追従（左寄せ配置） |
 | Hero セクション | パディング `16px, 8px, 16px, 16px`、アートと右列の間隔 `Spacing.XL (24px)`、下部境界線 `1px` (`BorderBrush`) | 右列が横幅に追従。タイトル・アーティスト名は `TextTrimming="CharacterEllipsis"`＋`ToolTip` で省略表示し、クイックアクションボタン群は `WrapPanel` で自動折り返し |
-| 収録曲リスト領域 | 列ヘッダー高さ `32px`、各楽曲行高さ `40px`（推奨） | ウィンドウ縦リサイズ時は収録曲 `ListBox` のみ伸縮し、上部ナビゲーションバーと Hero セクションは固定表示する |
+| 収録曲リスト領域 | 列ヘッダー高さ `32px`、各楽曲行高さ `40px`（推奨） | ウィンドウ縦リサイズ時は収録曲 `ListBox` のみ伸縮し、上部ナビゲーションバーと Hero セクションは固定表示する。列ヘッダーとデータ行は同一の `ColumnDefinitions` および左右パディングを共有し、`ListBoxItem` は `Padding="0"`・`HorizontalContentAlignment="Stretch"` とする。縦スクロールバー表示時の水平ズレを防ぐため、`AllSongsView` と同様に `ComputedVerticalScrollBarVisibility` に連動した列ヘッダー右余白補正（スクロールバー幅相当）を設ける |
 
 ---
 
@@ -91,7 +91,6 @@ AlbumDetailView (Root Grid)
 | `InverseTextForegroundBrush` | <span style="background-color:#00FFFF; color:#161920; padding:2px 8px; border-radius:3px; font-weight:bold; font-family:monospace;">■ #161920</span> / <span style="background-color:#0078D7; color:#FFFFFF; padding:2px 8px; border-radius:3px; font-weight:bold; font-family:monospace;">■ #FFFFFF</span> | `#161920` / `#FFFFFF` | PrimaryButton（「全曲再生」）上の文字・アイコン色 |
 | `NeonCyanBrush` | <span style="background-color:#00FFFF; color:#161920; padding:2px 8px; border-radius:3px; font-weight:bold; font-family:monospace;">■ #00FFFF</span> / <span style="background-color:#0078D7; color:#FFFFFF; padding:2px 8px; border-radius:3px; font-weight:bold; font-family:monospace;">■ #0078D7</span> | `#00FFFF` / `#0078D7` | 「全曲再生」ボタン背景、再生中行の左端 3px アクセントバー、再生中曲名・`▶`、お気に入り `★`、`Hi-Res` バッジ強調 |
 | `DarkNeonCyanBrush` | <span style="background-color:#00E5FF; color:#161920; padding:2px 8px; border-radius:3px; font-weight:bold; font-family:monospace;">■ #00E5FF</span> / <span style="background-color:#005A9E; color:#FFFFFF; padding:2px 8px; border-radius:3px; font-weight:bold; font-family:monospace;">■ #005A9E</span> | `#00E5FF` / `#005A9E` | PrimaryButton ホバー時のアクセント強調 |
-| `AlwaysNeonCyanBrush` | <span style="background-color:#00FFFF; color:#161920; padding:2px 8px; border-radius:3px; font-weight:bold; font-family:monospace;">■ #00FFFF</span> / <span style="background-color:#00FFFF; color:#161920; padding:2px 8px; border-radius:3px; font-weight:bold; font-family:monospace;">■ #00FFFF</span> | `#00FFFF` / `#00FFFF` | 暗色オーバーレイ上の固定シアン強調 |
 
 ### 4.2 タイポグラフィ・角丸・スペーシング
 
@@ -122,16 +121,19 @@ AlbumDetailView (Root Grid)
 2. **アルバムメタデータ**:
    - **アルバムタイトル**: `AlbumTitle`（`Album.Title`）。
    - **アーティスト名**: `Artist`（`Album.Artist`）。
-   - **メタデータ行**: 有効値のみを中黒（`•`）区切りで連結表示する（例: `2013 • Electronic • 13 曲 • 1:14:24`）。リリース年が `0` の場合やジャンルが空文字の場合は該当項目を省略し、余分な区切り文字を出さない。
+   - **メタデータ行**: 有効値のみを中黒（`•`）区切りで連結表示する（例: `2013 • Electronic • 13 曲 • 1:14:24`）。各集計ルールは以下の通りとする。
+     - **リリース年**: `Album.Year > 0` の場合はその値を採用する。`0` の場合は収録曲の先頭の非 0 年をフォールバック採用し、全曲 `0` の場合は項目を省略する。
+     - **ジャンル**: 収録曲のうち空文字でない `Track.Genre` の最頻値（同数の場合はトラック順で先頭のもの）を採用する。全曲空の場合は項目を省略する。
+     - 余分な区切り文字（`•`）が生じないよう、非空項目のみを結合して表示する。
    - **音質／フォーマットバッジ**:
-     - 代表フォーマットバッジ（例: `FLAC`, `WAV`, `MP3` 等、代表トラックの `Format`）。
+     - 代表フォーマットバッジ（例: `FLAC`, `WAV`, `MP3` 等）: 収録曲のうち空文字でない `Track.Format` の最頻値（同数の場合はトラック順で先頭のもの）を採用する。該当値がない場合は `Visibility="Collapsed"` とする。
      - 音質バッジ：`ContainsHiRes == True` のとき `Hi-Res` バッジ（`NeonCyanBrush` 強調）、`ContainsHiRes == False` かつ `ContainsLossless == True` のとき `Lossless` バッジを表示。非該当バッジは `Visibility="Collapsed"` とする。
 3. **クイックアクションボタン群（`WrapPanel`）**:
    - **全曲再生 (`▶ 全曲再生`)**: `PrimaryButton` バリアント（`PlayAllCommand`）。
    - **シャッフル再生 (`🔀 シャッフル`)**: `SecondaryButton` バリアント（`ShufflePlayCommand`）。
    - **次に再生 (`⏭ 次に再生`)**: `SecondaryButton` バリアント（`PlayNextAlbumCommand`）。
    - **最後に再生 (`＋ 最後に再生`)**: `SecondaryButton` バリアント（`EnqueueAlbumCommand`）。
-   - **プレイリストに追加 (`＋ プレイリストに追加`)**: `SecondaryButton` バリアント（`AddAlbumToPlaylistCommand`）。
+   - **プレイリストに追加 (`＋ プレイリストに追加`)**: `SecondaryButton` バリアント（`Playlist.ShowAddAlbumToPlaylistDialogCommand`、`CommandParameter` に `CurrentAlbum` を渡す）。
    - **削除 (`🗑 削除`)**: `SecondaryButton` バリアント（`DeleteAlbumCommand`）。
    - 収録曲が 0 件（`Tracks.Count == 0`）の場合、再生・キュー・プレイリスト追加ボタンは無効状態（Disabled: `Opacity="0.4"`）とする。
 
@@ -194,7 +196,7 @@ stateDiagram-v2
 - **シャッフル再生 (`ShufflePlayCommand`)**: アルバム全曲をシャッフル順で再生キューに展開し、先頭曲から再生を開始する。
 - **次に再生 (`PlayNextAlbumCommand`)**: アルバム全曲を予約キューの先頭に一括挿入する。
 - **最後に再生 (`EnqueueAlbumCommand`)**: アルバム全曲を再生キューの末尾に追加する。
-- **プレイリストに追加 (`AddAlbumToPlaylistCommand`)**: `PlaylistSelectionDialog` を開き、選択したプレイリストへアルバム全曲を一括追加する。
+- **プレイリストに追加 (`Playlist.ShowAddAlbumToPlaylistDialogCommand`)**: `PlaylistSelectionDialog` を開き、選択したプレイリストへ `CurrentAlbum` の全収録曲を一括追加する。
 - **削除 (`DeleteAlbumCommand`)**: 確認 `MessageBox` を表示し、承認された場合はアルバムと全収録曲をライブラリおよびお気に入り（`favorites.json`）から除外した上で `ViewType.Albums` へ自動復帰する（ディスク上の実ファイルは削除しない）。
 
 ### 6.3 収録曲リストのインタラクション
@@ -210,7 +212,8 @@ stateDiagram-v2
   7. *(区切り線)*
   8. プロパティ（`MessageBox` でメタデータ詳細を表示）
   9. ファイルの場所を開く（Windows エクスプローラーで選択表示）
-  10. 削除（確認 `MessageBox` 後、ライブラリおよびお気に入りから除外。実ファイルは削除しない）
+  10. *(区切り線)*
+  11. 削除（確認 `MessageBox` 後、ライブラリおよびお気に入りから除外。実ファイルは削除しない）
 
 ---
 
