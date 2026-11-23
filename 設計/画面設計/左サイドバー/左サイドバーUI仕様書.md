@@ -56,7 +56,7 @@
 
 単一の `StackPanel` 内に9個のナビゲーション `RadioButton`（区切り線なし）と、最下部に設定 `Button` を配置する。順序は「すべての曲」「アルバム」「アーティスト」「フォルダ」「お気に入り」「プレイリスト」「最近再生した曲」「イコライザー」「機器転送」。機器転送は `IsDeviceConnected = True` のときのみ表示。
 
-`SidebarRadioButtonStyle` は通常透明、`Hover` / `Checked` でハイライト背景。`Checked` は文字とアイコンがシアンになり、左端幅 `4px` のシアンバーを表示する（プレイリスト項目は `CurrentViewType == ViewType.Playlists` にバインド）。`SidebarButtonStyle` はホバー時に背景と文字色を変更する。
+`SidebarRadioButtonStyle` は通常透明、`Hover` / `Checked` でハイライト背景。`Checked` は文字とアイコンがシアンになり、左端幅 `4px` のシアンバーを表示する（「アルバム」項目は `IsAlbumsSectionActive` に `OneWay` バインドし、`ViewType.Albums` および `ViewType.AlbumDetail` 表示中もアクティブ状態を維持する。プレイリスト項目は `CurrentViewType == ViewType.Playlists` にバインド）。`SidebarButtonStyle` はホバー時に背景と文字色を変更する。
 
 ## 6. アニメーションとインタラクション
 
