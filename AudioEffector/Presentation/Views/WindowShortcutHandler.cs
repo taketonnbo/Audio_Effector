@@ -296,7 +296,6 @@ public sealed class WindowShortcutHandler
             Key.MediaStop => viewModel.StopCommand,
             Key.MediaNextTrack => viewModel.NextCommand,
             Key.MediaPreviousTrack => viewModel.PreviousCommand,
-            Key.VolumeMute => viewModel.ToggleMuteCommand,
             _ => null
         };
 

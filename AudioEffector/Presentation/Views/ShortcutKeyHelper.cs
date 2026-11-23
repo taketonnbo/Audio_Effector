@@ -98,9 +98,6 @@ public static class ShortcutKeyHelper
             case APPCOMMAND_MEDIA_PREVIOUSTRACK:
                 key = Key.MediaPreviousTrack;
                 return true;
-            case APPCOMMAND_VOLUME_MUTE:
-                key = Key.VolumeMute;
-                return true;
             default:
                 key = Key.None;
                 return false;
@@ -174,7 +171,7 @@ public static class ShortcutKeyHelper
     }
 
     /// <summary>
-    /// 指定されたキーがアプリ側で標準対応するハードウェアメディアキーかどうかを判定します
+    /// 指定されたキーがアプリ側で標準対応するハードウェアメディアキー（再生制御系）かどうかを判定します
     /// </summary>
     /// <param name="key">判定対象キー</param>
     /// <returns>標準対応するハードウェアメディアキーの場合は <c>true</c></returns>
@@ -186,7 +183,6 @@ public static class ShortcutKeyHelper
             Key.MediaStop => true,
             Key.MediaNextTrack => true,
             Key.MediaPreviousTrack => true,
-            Key.VolumeMute => true,
             _ => false
         };
     }
