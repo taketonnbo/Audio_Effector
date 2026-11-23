@@ -63,6 +63,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     private string _currentTimeDisplay = "00:00";
     private string _totalTimeDisplay = "00:00";
     private ImageSource? _nowPlayingImage;
+    private int _trackArtworkGeneration;
 
     // キュー・履歴関連フィールド
     private const int MaxHistoryCount = 100;
@@ -368,8 +369,19 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public ImageSource? NowPlayingImage
     {
         get => _nowPlayingImage;
-        set => SetProperty(ref _nowPlayingImage, value);
+        set
+        {
+            if (SetProperty(ref _nowPlayingImage, value))
+            {
+                OnPropertyChanged(nameof(MiniPlayerAlbumArtImage));
+            }
+        }
     }
+
+    /// <summary>
+    /// ミニプレイヤー表示用の現在再生中トラックの実アルバムアート画像を取得します（未再生・未設定時は null）
+    /// </summary>
+    public ImageSource? MiniPlayerAlbumArtImage => _nowPlayingImage;
 
     #endregion
 
@@ -1249,6 +1261,8 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
 
     private void UpdateTrackDisplays(Track? track)
     {
+        int artworkGeneration = Interlocked.Increment(ref _trackArtworkGeneration);
+
         if (track == null)
         {
             TotalTimeDisplay = "00:00";
@@ -1274,11 +1288,21 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
                 try
                 {
                     using var tfile = TagLib.File.Create(track.FilePath);
+                    if (Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
+                    {
+                        return;
+                    }
+
                     if (tfile.Tag.Pictures.Length > 0)
                     {
                         var bin = tfile.Tag.Pictures[0].Data.Data;
                         RunOnUiThread(() =>
                         {
+                            if (Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
+                            {
+                                return;
+                            }
+
                             try
                             {
                                 var image = new BitmapImage();
@@ -1291,22 +1315,44 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
                                 image.StreamSource = mem;
                                 image.EndInit();
                                 image.Freeze();
+
+                                if (Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
+                                {
+                                    return;
+                                }
+
                                 NowPlayingImage = image;
                             }
                             catch
                             {
-                                NowPlayingImage = null;
+                                if (Volatile.Read(ref _trackArtworkGeneration) == artworkGeneration)
+                                {
+                                    NowPlayingImage = null;
+                                }
                             }
                         });
                     }
                     else
                     {
-                        RunOnUiThread(() => NowPlayingImage = null);
+                        RunOnUiThread(() =>
+                        {
+                            if (Volatile.Read(ref _trackArtworkGeneration) == artworkGeneration)
+                            {
+                                NowPlayingImage = null;
+                            }
+                        });
                     }
                 }
                 catch
                 {
-                    // 画像読み込み失敗時は無視
+                    // 画像読み込み失敗時は最新世代のみクリア
+                    RunOnUiThread(() =>
+                    {
+                        if (Volatile.Read(ref _trackArtworkGeneration) == artworkGeneration)
+                        {
+                            NowPlayingImage = null;
+                        }
+                    });
                 }
             });
         }
