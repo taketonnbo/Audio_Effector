@@ -63,7 +63,7 @@
 
 - **タブ0「再生リスト」 (`SelectedQueueTabIndex == 0`)**:
   - **セクション1「予約キュー (`UserQueue`)」**: `HasUserQueue == True` 時のみ表示。ヘッダー左に `予約キュー ({UserQueue.Count})`、右端に「`予約をクリア`」ボタン（`ClearUserQueueCommand`）を配置。
-  - **セクション2「アルバムの残り曲 (`AlbumQueue`)」**: `HasAlbumQueue == True` 時のみ表示。ヘッダー左に `AlbumQueueTitle`（`次のアルバムから: {PlaybackListName}`、未選択時は `アルバムの残り曲`）、右端に `残り {AlbumQueue.Count} 曲` を表示。
+  - **セクション2「アルバムの残り曲 (`AlbumQueue`)」**: `HasAlbumQueue == True` 時のみ表示。ヘッダー左に `AlbumQueueTitle`（`次のアルバムから: {AlbumQueueSourceName}`、未選択時は `アルバムの残り曲`）、右端に `残り {AlbumQueue.Count} 曲` を表示。
   - **空状態表示**: `PlayQueue.Count == 0` の場合、「再生キューは空です」「楽曲を右クリックして「最後に再生」または「次に再生」できます」を表示。
 - **タブ1「履歴」 (`SelectedQueueTabIndex == 1`)**:
   - `PlayHistory`（`IAudioService.TrackPlaybackEnded` 発火時に先頭追加、同一曲は先頭へ再配置、インメモリ最大 `100` 件）を仮想化 `ListBox` で表示。
