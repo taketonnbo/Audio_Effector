@@ -384,6 +384,7 @@ public sealed class AlbumDetailViewModel : ViewModelBase, IDisposable
         OnPropertyChanged(nameof(IsHiRes));
         OnPropertyChanged(nameof(IsLossless));
         OnPropertyChanged(nameof(QualityLabel));
+        CommandManager.InvalidateRequerySuggested();
     }
 
     private void StartArtworkLoad(string? filePath)
@@ -568,13 +569,42 @@ public sealed class AlbumDetailViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        var tracks = Tracks.ToList();
-        _audioService.IsShuffleEnabled = true;
-        var startTrack = tracks[Random.Shared.Next(tracks.Count)];
+        var list = Tracks.ToList();
+        for (int i = list.Count - 1; i > 0; i--)
+        {
+            int j = Random.Shared.Next(i + 1);
+            (list[i], list[j]) = (list[j], list[i]);
+        }
+
+        var startTrack = list[0];
         startTrack.IsPlaying = true;
-        PlaybackRequested?.Invoke(tracks, startTrack, AlbumTitle, Artist);
-        _audioService.SetPlaylist(tracks, startTrack);
+        _audioService.SetPlaylist(list, startTrack);
+
+        var effectiveList = _audioService.IsShuffleEnabled
+            ? BuildEffectiveShuffleList(startTrack, list, _audioService.AlbumQueue)
+            : list;
+
+        PlaybackRequested?.Invoke(effectiveList, startTrack, AlbumTitle, Artist);
         _audioService.PlayTrack(startTrack);
+    }
+
+    private static List<Track> BuildEffectiveShuffleList(Track firstTrack, List<Track> fallbackList, IReadOnlyList<Track>? albumQueue)
+    {
+        if (albumQueue == null || albumQueue.Count == 0)
+        {
+            return fallbackList;
+        }
+
+        var result = new List<Track>(albumQueue.Count + 1) { firstTrack };
+        foreach (var track in albumQueue)
+        {
+            if (!ReferenceEquals(track, firstTrack))
+            {
+                result.Add(track);
+            }
+        }
+
+        return result;
     }
 
     private void EnqueueAlbum(bool playNext)
@@ -615,7 +645,11 @@ public sealed class AlbumDetailViewModel : ViewModelBase, IDisposable
         RunOnUiThread(() => IsPlaying = isPlaying);
     }
 
-    private void OnLibraryTrackRemoved(Track removedTrack)
+    /// <summary>
+    /// ライブラリからのトラック削除通知を受け取り、収録曲・メタデータ・代表アートワークを更新します
+    /// </summary>
+    /// <param name="removedTrack">削除されたトラック</param>
+    internal void OnLibraryTrackRemoved(Track removedTrack)
     {
         if (_disposed || _currentAlbum == null)
         {
@@ -643,7 +677,7 @@ public sealed class AlbumDetailViewModel : ViewModelBase, IDisposable
 
             NotifyMetadataPropertiesChanged();
 
-            string newArtworkPath = _currentAlbum.RepresentativeTrackFilePath;
+            string newArtworkPath = Tracks.FirstOrDefault(t => !string.IsNullOrWhiteSpace(t.FilePath))?.FilePath ?? string.Empty;
             if (!string.Equals(_loadedArtworkFilePath, newArtworkPath, StringComparison.OrdinalIgnoreCase))
             {
                 StartArtworkLoad(newArtworkPath);
@@ -651,7 +685,11 @@ public sealed class AlbumDetailViewModel : ViewModelBase, IDisposable
         });
     }
 
-    private void OnLibraryAlbumRemoved(Album removedAlbum)
+    /// <summary>
+    /// ライブラリからのアルバム削除通知を受け取り、表示中アルバムと一致する場合は表示をクリアして一覧へ復帰します
+    /// </summary>
+    /// <param name="removedAlbum">削除されたアルバム</param>
+    internal void OnLibraryAlbumRemoved(Album removedAlbum)
     {
         if (_disposed || _currentAlbum == null)
         {
@@ -715,17 +753,16 @@ public sealed class AlbumDetailViewModel : ViewModelBase, IDisposable
         if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished || dispatcher.CheckAccess())
         {
             action();
+            return;
         }
-        else
+
+        try
         {
-            try
-            {
-                dispatcher.Invoke(action);
-            }
-            catch (TaskCanceledException)
-            {
-                action();
-            }
+            dispatcher.Invoke(action);
+        }
+        catch (TaskCanceledException)
+        {
+            // アプリ終了等によるキャンセル時はバックグラウンドスレッドでの UI 更新を破棄
         }
     }
 
