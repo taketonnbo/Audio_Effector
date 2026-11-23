@@ -39,6 +39,7 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly bool _ownsAllSongs;
         private readonly bool _ownsArtists;
         private readonly bool _ownsRecent;
+        private readonly bool _ownsAlbumDetail;
         private bool _disposed;
 
         /// <summary>
@@ -55,6 +56,11 @@ namespace AudioEffector.Presentation.ViewModels
         /// ライブラリ専用ViewModel
         /// </summary>
         public Presentation.ViewModels.LibraryViewModel? Library { get; }
+
+        /// <summary>
+        /// アルバム情報詳細画面専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.AlbumDetailViewModel AlbumDetail { get; }
 
         /// <summary>
         /// すべての曲専用ViewModel
@@ -139,6 +145,7 @@ namespace AudioEffector.Presentation.ViewModels
                     _currentViewType = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(IsLibraryVisible));
+                    OnPropertyChanged(nameof(IsAlbumsSectionActive));
                     OnPropertyChanged(nameof(IsFolderViewVisible));
                     OnPropertyChanged(nameof(IsPlaylistSelectorVisible));
                     OnPropertyChanged(nameof(IsPlaylistTracksVisible));
@@ -163,6 +170,11 @@ namespace AudioEffector.Presentation.ViewModels
         /// 表示ビューを切り替えるコマンドを取得します
         /// </summary>
         public ICommand SwitchViewCommand { get; }
+
+        /// <summary>
+        /// アルバム情報画面からアルバム一覧画面へ戻るコマンドを取得します
+        /// </summary>
+        public ICommand BackToAlbumsCommand { get; }
 
         private bool _isRightPanelOpen;
         /// <summary>
@@ -692,7 +704,26 @@ namespace AudioEffector.Presentation.ViewModels
                         ShowFavorites();
                     }
                 };
+                Library.AlbumDetailRequested += OnLibraryAlbumDetailRequested;
             }
+
+            var resolvedAlbumDetail = App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.AlbumDetailViewModel>(App.ServiceProvider)
+                : null;
+            if (resolvedAlbumDetail != null)
+            {
+                AlbumDetail = resolvedAlbumDetail;
+                _ownsAlbumDetail = false;
+            }
+            else
+            {
+                AlbumDetail = new Presentation.ViewModels.AlbumDetailViewModel(Library!, _audioService, Playlist);
+                _ownsAlbumDetail = true;
+            }
+
+            AlbumDetail.PlaybackRequested += OnAlbumDetailPlaybackRequested;
+            AlbumDetail.EnqueueRequested += OnAlbumDetailEnqueueRequested;
+            AlbumDetail.BackRequested += OnAlbumDetailBackRequested;
 
             var resolvedAllSongs = App.ServiceProvider != null
                 ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.AllSongsViewModel>(App.ServiceProvider)
@@ -818,6 +849,7 @@ namespace AudioEffector.Presentation.ViewModels
                 }
             });
             ShowLibraryCommand = new RelayCommand(o => ShowLibrary());
+            BackToAlbumsCommand = new RelayCommand(_ => CurrentViewType = ViewType.Albums);
             ShowFolderCommand = new RelayCommand(o => ShowFolder());
             ToggleSelectionModeCommand = new RelayCommand(o => IsSelectionMode = !IsSelectionMode);
 
@@ -2383,6 +2415,22 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         /// <summary>
+        /// アルバムセクション（アルバム一覧またはアルバム情報詳細）がアクティブかどうかを示す値を取得します
+        /// </summary>
+        public bool IsAlbumsSectionActive => CurrentViewType is ViewType.Albums or ViewType.AlbumDetail;
+
+        /// <summary>
+        /// 指定されたアルバムの詳細情報画面へ遷移します
+        /// </summary>
+        /// <param name="album">表示対象のアルバム</param>
+        public void NavigateToAlbumDetail(Album album)
+        {
+            ArgumentNullException.ThrowIfNull(album);
+            AlbumDetail.SetAlbum(album);
+            CurrentViewType = ViewType.AlbumDetail;
+        }
+
+        /// <summary>
         /// プレイリストセクションがアクティブかどうかを示す値を取得します
         /// </summary>
         public bool IsPlaylistSectionActive => CurrentViewType is ViewType.Playlists or ViewType.PlaylistTracks;
@@ -2548,6 +2596,29 @@ namespace AudioEffector.Presentation.ViewModels
             PlayerControl?.SetPlaybackList(tracks, name, subtitle, updateAudioService: false);
         }
 
+        private void OnLibraryAlbumDetailRequested(Album album)
+        {
+            NavigateToAlbumDetail(album);
+        }
+
+        private void OnAlbumDetailPlaybackRequested(IReadOnlyList<Track> tracks, Track? startTrack, string name, string subtitle)
+        {
+            PlaybackListName = name;
+            PlaybackListSubtitle = subtitle;
+            PlaybackListTracks = new ObservableCollection<Track>(tracks);
+            PlayerControl?.SetPlaybackList(tracks, name, subtitle, updateAudioService: false);
+        }
+
+        private void OnAlbumDetailEnqueueRequested(IReadOnlyList<Track> tracks, bool playNext)
+        {
+            _audioService.EnqueueTracks(tracks, playNext);
+        }
+
+        private void OnAlbumDetailBackRequested()
+        {
+            CurrentViewType = ViewType.Albums;
+        }
+
         private void OnRecentEnqueueRequested(IReadOnlyList<Track> tracks, bool playNext)
         {
             _audioService.EnqueueTracks(tracks, playNext);
@@ -2564,6 +2635,20 @@ namespace AudioEffector.Presentation.ViewModels
                 if (disposing)
                 {
                     _timer?.Stop();
+                    if (Library != null)
+                    {
+                        Library.AlbumDetailRequested -= OnLibraryAlbumDetailRequested;
+                    }
+                    if (AlbumDetail != null)
+                    {
+                        AlbumDetail.PlaybackRequested -= OnAlbumDetailPlaybackRequested;
+                        AlbumDetail.EnqueueRequested -= OnAlbumDetailEnqueueRequested;
+                        AlbumDetail.BackRequested -= OnAlbumDetailBackRequested;
+                        if (_ownsAlbumDetail)
+                        {
+                            AlbumDetail.Dispose();
+                        }
+                    }
                     if (AllSongs != null)
                     {
                         AllSongs.PlaybackRequested -= OnAllSongsPlaybackRequested;
