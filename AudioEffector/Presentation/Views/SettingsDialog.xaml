@@ -108,6 +108,12 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
+
+                        <CheckBox Content="画面最小化時にコンパクトプレイヤーを表示しない"
+                                  IsChecked="{Binding DisableMiniPlayerOnMinimize, Mode=TwoWay}"
+                                  Margin="0,0,0,10"
+                                  Foreground="{DynamicResource TextForegroundBrush}"
+                                  VerticalContentAlignment="Center"/>
                     </StackPanel>
 
                     <!-- Audio Devices Settings Panel -->

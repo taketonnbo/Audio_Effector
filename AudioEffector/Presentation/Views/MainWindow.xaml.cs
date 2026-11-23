@@ -278,6 +278,11 @@ public partial class MainWindow : Window
 
         if (this.WindowState == WindowState.Minimized)
         {
+            if (_settingsService.LoadSettings().DisableMiniPlayerOnMinimize)
+            {
+                return;
+            }
+
             this.Hide();
             if (_miniPlayer == null)
             {
