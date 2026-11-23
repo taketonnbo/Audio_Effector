@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.Windows;
+using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.Views;
 using Xunit;
 
@@ -157,6 +159,80 @@ public sealed class PlayQueueDragDropHelperTests
             QueueSection.AlbumQueue,
             1,
             3);
+
+        // Assert
+        Assert.Equal(-1, actual);
+    }
+
+    /// <summary>
+    /// ドロップ時点で元インデックスの要素が一致している場合、元のインデックスがそのまま返されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ResolveCurrentSourceIndex_位置変動なしの場合_元のインデックスを返す()
+    {
+        // Arrange
+        var track1 = new Track { FilePath = @"C:\Music\1.mp3", Title = "1" };
+        var track2 = new Track { FilePath = @"C:\Music\2.mp3", Title = "2" };
+        var items = new List<Track> { track1, track2 };
+
+        // Act
+        int actual = PlayQueueDragDropHelper.ResolveCurrentSourceIndex(items, 1, track2);
+
+        // Assert
+        Assert.Equal(1, actual);
+    }
+
+    /// <summary>
+    /// ドラッグ中に先頭曲が自動消費されてインデックスが前へずれた場合、最新位置へ正しく再解決されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ResolveCurrentSourceIndex_ドラッグ中に先頭消費された場合_最新のインデックスを再解決する()
+    {
+        // Arrange
+        var track2 = new Track { FilePath = @"C:\Music\2.mp3", Title = "2" };
+        var track3 = new Track { FilePath = @"C:\Music\3.mp3", Title = "3" };
+        // 元は [track1, track2, track3] で index=2 (track3) を掴んでいたが、track1 が消費された想定
+        var currentItems = new List<Track> { track2, track3 };
+
+        // Act
+        int actual = PlayQueueDragDropHelper.ResolveCurrentSourceIndex(currentItems, 2, track3);
+
+        // Assert
+        Assert.Equal(1, actual);
+    }
+
+    /// <summary>
+    /// 同一 Track インスタンスが重複して存在する場合、元インデックスに最も近い一致位置が選ばれることを検証します。
+    /// </summary>
+    [Fact]
+    public void ResolveCurrentSourceIndex_同一インスタンス重複時に位置がずれた場合_元位置に最も近いインデックスを返す()
+    {
+        // Arrange
+        var duplicated = new Track { FilePath = @"C:\Music\dup.mp3", Title = "Dup" };
+        var other = new Track { FilePath = @"C:\Music\other.mp3", Title = "Other" };
+        // 元は index=3 を掴んでいたが先頭が消費されて [dup(0), other(1), dup(2)] になった想定
+        var currentItems = new List<Track> { duplicated, other, duplicated };
+
+        // Act
+        int actual = PlayQueueDragDropHelper.ResolveCurrentSourceIndex(currentItems, 3, duplicated);
+
+        // Assert
+        Assert.Equal(2, actual);
+    }
+
+    /// <summary>
+    /// ドラッグ対象のトラックがドロップ時点でキューから既に削除されている場合、-1 を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public void ResolveCurrentSourceIndex_対象トラックが消失している場合_マイナス1を返す()
+    {
+        // Arrange
+        var track1 = new Track { FilePath = @"C:\Music\1.mp3", Title = "1" };
+        var removedTrack = new Track { FilePath = @"C:\Music\removed.mp3", Title = "Removed" };
+        var currentItems = new List<Track> { track1 };
+
+        // Act
+        int actual = PlayQueueDragDropHelper.ResolveCurrentSourceIndex(currentItems, 1, removedTrack);
 
         // Assert
         Assert.Equal(-1, actual);
