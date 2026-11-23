@@ -39,6 +39,7 @@ public class SettingsViewModelTests
 
         // Assert
         Assert.False(sut.StartMinimized);
+        Assert.False(sut.DisableMiniPlayerOnMinimize);
         Assert.Equal(200, sut.SelectedBufferSize);
         Assert.False(sut.EnableNormalize);
         Assert.False(sut.DetectMetadataChangesOnRescan);
@@ -130,5 +131,27 @@ public class SettingsViewModelTests
         // Assert
         Assert.True(sut.DetectMetadataChangesOnRescan);
         _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.DetectMetadataChangesOnRescan == true)), Times.Once);
+    }
+
+    /// <summary>
+    /// DisableMiniPlayerOnMinimizeプロパティを変更した際、設定サービスへ保存されPropertyChangedイベントが発火することを検証します。
+    /// </summary>
+    [Fact]
+    public void DisableMiniPlayerOnMinimize_変更時_設定サービスへ保存されPropertyChangedが発火する()
+    {
+        // Arrange
+        var sut = new SettingsViewModel(_settingsServiceMock.Object, _audioServiceMock.Object);
+        var notified = new List<string?>();
+        sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        // Act
+        sut.DisableMiniPlayerOnMinimize = true;
+        sut.DisableMiniPlayerOnMinimize = true; // 同値再代入では再保存されないこと
+
+        // Assert
+        Assert.True(sut.DisableMiniPlayerOnMinimize);
+        Assert.Contains(nameof(SettingsViewModel.DisableMiniPlayerOnMinimize), notified);
+        Assert.Single(notified);
+        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.DisableMiniPlayerOnMinimize == true)), Times.Once);
     }
 }

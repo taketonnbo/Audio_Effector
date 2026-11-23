@@ -226,4 +226,38 @@ public sealed class SettingsDialogTests
             Assert.Equal(0, contentScrollViewer.VerticalOffset);
         });
     }
+
+    /// <summary>
+    /// 一般カテゴリに「画面最小化時にコンパクトプレイヤーを表示しない」チェックボックスが配置されており、
+    /// チェック操作が SettingsViewModel.DisableMiniPlayerOnMinimize へ TwoWay 反映されバインディングエラーが発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void 一般カテゴリ_最小化時コンパクトプレイヤー非表示チェックボックス操作時_ViewModelへ双方向反映されバインディングエラーがないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var listener = new BindingErrorTraceListener();
+            var vm = CreateViewModel();
+            vm.SelectedCategory = "一般";
+
+            var sut = new SettingsDialog(vm);
+            var rootContent = Assert.IsAssignableFrom<FrameworkElement>(sut.Content);
+            rootContent.Measure(new Size(760, 520));
+            rootContent.Arrange(new Rect(0, 0, 760, 520));
+            rootContent.UpdateLayout();
+
+            var checkBox = FindLogicalChildren<CheckBox>(sut)
+                .Single(cb => Equals(cb.Content, "画面最小化時にコンパクトプレイヤーを表示しない"));
+
+            // Act
+            Assert.False(checkBox.IsChecked);
+            checkBox.IsChecked = true;
+            rootContent.UpdateLayout();
+
+            // Assert
+            Assert.True(vm.DisableMiniPlayerOnMinimize);
+            Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
 }
