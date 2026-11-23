@@ -1037,6 +1037,7 @@ public sealed class MiniPlayerWindowTests
                 var squareGrid = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareLayoutGrid"));
                 var circularContainer = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareCircularArtContainer"));
                 var staticContainer = Assert.IsAssignableFrom<UIElement>(sut.FindName("SquareStaticAlbumArtContainer"));
+                var overlayLayer = Assert.IsAssignableFrom<FrameworkElement>(sut.FindName("SquareOverlayControlsLayer"));
 
                 // Assert
                 Assert.Equal(220, sut.ActualWidth);
@@ -1045,6 +1046,14 @@ public sealed class MiniPlayerWindowTests
                 Assert.Equal(Visibility.Visible, squareGrid.Visibility);
                 Assert.Equal(Visibility.Visible, circularContainer.Visibility);
                 Assert.Equal(Visibility.Collapsed, staticContainer.Visibility);
+                Assert.Equal(Visibility.Collapsed, overlayLayer.Visibility);
+                Assert.NotNull(overlayLayer.Style);
+                Assert.Contains(
+                    overlayLayer.Style.Triggers.OfType<DataTrigger>(),
+                    t => t.Binding is System.Windows.Data.Binding b
+                        && b.ElementName == "SquareLayoutGrid"
+                        && b.Path?.Path == nameof(UIElement.IsMouseOver)
+                        && string.Equals(t.Value?.ToString(), "True", StringComparison.OrdinalIgnoreCase));
                 Assert.False(listener.HasErrors, $"正方形ミニプレイヤーでバインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
             }
             finally
@@ -1169,8 +1178,9 @@ public sealed class MiniPlayerWindowTests
                 double playingAngle = rotateTransform.Angle;
                 Assert.True(playingAngle > 1.0, $"再生中に角度が進むべきです (Angle={playingAngle})");
 
-                // Act 2: 一時停止 → 一定時間経過後も角度が維持されること
+                // Act 2: 一時停止 → WPFクロックの Pause 反映ティック後に角度を記録し、さらに経過しても維持されること
                 playerVm.IsPlaying = false;
+                Thread.Sleep(60);
                 PumpDispatcher();
                 double pausedAngle = rotateTransform.Angle;
                 Thread.Sleep(150);
