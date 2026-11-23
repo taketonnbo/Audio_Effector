@@ -1,8 +1,11 @@
 ﻿using System;
+using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using AudioEffector.Domain.Entities;
 
 namespace AudioEffector.Presentation.Views;
@@ -12,6 +15,12 @@ namespace AudioEffector.Presentation.Views;
 /// </summary>
 public partial class ShortcutInputBox : UserControl
 {
+    private const double MediaKeyDuplicateGuardMs = 150.0;
+
+    private HwndSource? _hwndSource;
+    private Key _lastCapturedMediaKey = Key.None;
+    private long _lastCapturedMediaKeyTimestamp;
+
     /// <summary>
     /// ショートカットキー設定を表す依存関係プロパティ
     /// </summary>
@@ -48,12 +57,18 @@ public partial class ShortcutInputBox : UserControl
     public ShortcutInputBox()
     {
         InitializeComponent();
+        this.Unloaded += ShortcutInputBox_Unloaded;
     }
 
     private static void OnShortcutChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var control = (ShortcutInputBox)d;
         control.UpdateDisplayText();
+    }
+
+    private void ShortcutInputBox_Unloaded(object sender, RoutedEventArgs e)
+    {
+        DetachAppCommandHook();
     }
 
     private void InputTextBox_PreviewMouseDown(object sender, MouseButtonEventArgs e)
@@ -66,74 +81,113 @@ public partial class ShortcutInputBox : UserControl
     {
         InputTextBox.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(30, 0, 120, 215));
         InputTextBox.Text = "キーを入力してください...";
+        AttachAppCommandHook();
     }
 
     private void InputTextBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
+        DetachAppCommandHook();
         InputTextBox.Background = System.Windows.Media.Brushes.Transparent;
         UpdateDisplayText();
     }
 
+    private void AttachAppCommandHook()
+    {
+        DetachAppCommandHook();
+
+        if (PresentationSource.FromVisual(this) is HwndSource source)
+        {
+            _hwndSource = source;
+            _hwndSource.AddHook(WndProc);
+        }
+    }
+
+    private void DetachAppCommandHook()
+    {
+        if (_hwndSource != null)
+        {
+            _hwndSource.RemoveHook(WndProc);
+            _hwndSource = null;
+        }
+    }
+
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != ShortcutKeyHelper.WM_APPCOMMAND || !InputTextBox.IsKeyboardFocused)
+        {
+            return IntPtr.Zero;
+        }
+
+        int appCommand = ShortcutKeyHelper.GetAppCommand(lParam);
+        if (!ShortcutKeyHelper.TryMapAppCommandToKey(appCommand, out Key mediaKey))
+        {
+            return IntPtr.Zero;
+        }
+
+        handled = true;
+
+        // 直前に PreviewKeyDown 経由で同じメディアキーを処理済みの場合は二重処理を抑止する
+        if (IsRecentMediaKeyCapture(mediaKey))
+        {
+            return new IntPtr(1);
+        }
+
+        TryAssignShortcut(mediaKey, Keyboard.Modifiers);
+        RecordMediaKeyCapture(mediaKey);
+        return new IntPtr(1);
+    }
+
     private void UpdateDisplayText()
     {
-        if (Shortcut == null || Shortcut.Key == Key.None)
-        {
-            InputTextBox.Text = "割り当てなし";
-        }
-        else
-        {
-            string mods = "";
-            if (Shortcut.Modifiers.HasFlag(ModifierKeys.Control)) mods += "Ctrl + ";
-            if (Shortcut.Modifiers.HasFlag(ModifierKeys.Shift)) mods += "Shift + ";
-            if (Shortcut.Modifiers.HasFlag(ModifierKeys.Alt)) mods += "Alt + ";
-            if (Shortcut.Modifiers.HasFlag(ModifierKeys.Windows)) mods += "Win + ";
-            InputTextBox.Text = mods + Shortcut.Key.ToString();
-        }
+        InputTextBox.Text = ShortcutKeyHelper.FormatShortcutText(Shortcut);
     }
 
     private void InputTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Ignore modifiers themselves
-        if (e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl ||
-            e.Key == Key.LeftAlt || e.Key == Key.RightAlt ||
-            e.Key == Key.LeftShift || e.Key == Key.RightShift ||
-            e.Key == Key.LWin || e.Key == Key.RWin ||
-            (e.Key == Key.System && (e.SystemKey == Key.LeftAlt || e.SystemKey == Key.RightAlt)))
+        var key = ShortcutKeyHelper.ResolveKey(e);
+
+        // 修飾キー単体やIMEモード切替キーは無視する
+        if (ShortcutKeyHelper.IsIgnoredKey(key))
         {
             e.Handled = true;
             return;
         }
 
-        var key = e.Key == Key.System ? e.SystemKey : e.Key;
-
-        // Allow Delete or Backspace to clear shortcut
+        // Delete または BackSpace で割り当てをクリアする
         if (key == Key.Delete || key == Key.Back)
         {
             Shortcut = new ShortcutKeyConfig { Key = Key.None, Modifiers = ModifierKeys.None };
             WarningTextBlock.Visibility = Visibility.Collapsed;
+            UpdateDisplayText();
             e.Handled = true;
             return;
         }
 
         var modifiers = Keyboard.Modifiers;
 
-        // Check if WPF KeyGesture supports this combination
-        try
+        if (ShortcutKeyHelper.IsMediaKey(key))
         {
-            var gesture = new System.Windows.Input.KeyGesture(key, modifiers);
-        }
-        catch (System.NotSupportedException)
-        {
-            System.Windows.MessageBox.Show(
-                "このキーの組み合わせはシステム（WPF）の制約によりショートカットとして設定できません。\nCtrl や Alt などの修飾キーを組み合わせるか、別のキーをお試しください。",
-                "無効なショートカット",
-                System.Windows.MessageBoxButton.OK,
-                System.Windows.MessageBoxImage.Error);
-            e.Handled = true;
-            return; // Prevent setting the shortcut
+            RecordMediaKeyCapture(key);
         }
 
-        // Check for internal duplicates (within the app's settings)
+        TryAssignShortcut(key, modifiers);
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// 指定されたキーと修飾キーの組み合わせを検証し、問題なければショートカットとして割り当てます
+    /// </summary>
+    /// <param name="key">割り当てる実キー</param>
+    /// <param name="modifiers">修飾キー</param>
+    /// <returns>割り当てに成功した場合は <c>true</c></returns>
+    public bool TryAssignShortcut(Key key, ModifierKeys modifiers)
+    {
+        if (ShortcutKeyHelper.IsIgnoredKey(key))
+        {
+            return false;
+        }
+
+        // アプリ内他機能との重複チェック
         bool isInternalDuplicate = false;
         if (this.DataContext != null)
         {
@@ -160,46 +214,68 @@ public partial class ShortcutInputBox : UserControl
                 "ショートカットの重複エラー",
                 System.Windows.MessageBoxButton.OK,
                 System.Windows.MessageBoxImage.Warning);
-            e.Handled = true;
-            return; // Prevent setting the shortcut
+            return false;
         }
 
-        try
+        // ハードウェアメディアキーはOSや他メディアアプリがグローバル利用しているケースが多いため、
+        // アプリ内ショートカット設定時は RegisterHotKey 競合でブロックしない
+        if (!ShortcutKeyHelper.IsMediaKey(key))
         {
-            // Try register to check if it's already in use
-            if (IsShortcutInUse(key, modifiers))
+            try
             {
-                System.Windows.MessageBox.Show(
-                    "このショートカットは他のアプリまたはシステムで既に使われているため、正しく動作しない可能性があります。\n別のキーの組み合わせをお試しください。",
-                    "ショートカットの競合警告",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Warning);
+                if (IsShortcutInUse(key, modifiers))
+                {
+                    System.Windows.MessageBox.Show(
+                        "このショートカットは他のアプリまたはシステムで既に使われているため、正しく動作しない可能性があります。\n別のキーの組み合わせをお試しください。",
+                        "ショートカットの競合警告",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
 
-                WarningTextBlock.Text = "⚠️ このショートカットは他のアプリで既に使われています。";
-                WarningTextBlock.Visibility = System.Windows.Visibility.Visible;
+                    WarningTextBlock.Text = "⚠️ このショートカットは他のアプリで既に使われています。";
+                    WarningTextBlock.Visibility = System.Windows.Visibility.Visible;
 
-                e.Handled = true;
-                return; // Prevent setting the shortcut
+                    return false;
+                }
+                else
+                {
+                    WarningTextBlock.Visibility = System.Windows.Visibility.Collapsed;
+                }
             }
-            else
+            catch
             {
-                WarningTextBlock.Visibility = System.Windows.Visibility.Collapsed;
+                // Ignore PInvoke exceptions
+                WarningTextBlock.Visibility = Visibility.Collapsed;
             }
         }
-        catch
+        else
         {
-            // Ignore PInvoke exceptions
             WarningTextBlock.Visibility = Visibility.Collapsed;
         }
 
-        // Always create a new object to trigger ViewModel setter
+        // ViewModelのsetterを確実に発火させるため新しいインスタンスを生成する
         var newConfig = new ShortcutKeyConfig { Key = key, Modifiers = modifiers };
         Shortcut = newConfig;
 
-        // Force text update in case binding doesn't trigger property changed
+        // バインディング通知が発生しないケースに備えて表示テキストを強制更新する
         UpdateDisplayText();
+        return true;
+    }
 
-        e.Handled = true;
+    private bool IsRecentMediaKeyCapture(Key mediaKey)
+    {
+        if (_lastCapturedMediaKey != mediaKey)
+        {
+            return false;
+        }
+
+        double elapsedMs = (Stopwatch.GetTimestamp() - _lastCapturedMediaKeyTimestamp) * 1000.0 / Stopwatch.Frequency;
+        return elapsedMs >= 0 && elapsedMs <= MediaKeyDuplicateGuardMs;
+    }
+
+    private void RecordMediaKeyCapture(Key mediaKey)
+    {
+        _lastCapturedMediaKey = mediaKey;
+        _lastCapturedMediaKeyTimestamp = Stopwatch.GetTimestamp();
     }
 
     [DllImport("user32.dll")]
