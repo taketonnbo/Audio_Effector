@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
@@ -270,6 +271,26 @@ public sealed class LibraryViewTests
                 .Where(b => b.Name == "FavoriteToggleButton")
                 .Select(b => Assert.IsType<TextBlock>(b.Content).Text)
                 .ToArray();
+            var formatTexts = FindVisualChildren<TextBlock>(expander)
+                .Where(tb => tb.Name == "TrackFormatText")
+                .Select(tb => tb.Text)
+                .ToArray();
+            var formatBadgeVisibilities = FindVisualChildren<Border>(expander)
+                .Where(b => b.Name == "TrackFormatBadge")
+                .Select(b => b.Visibility)
+                .ToArray();
+            var qualityTexts = FindVisualChildren<TextBlock>(expander)
+                .Where(tb => tb.Name == "TrackQualityText")
+                .Select(tb => tb.Text)
+                .ToArray();
+            var qualityBadgeVisibilities = FindVisualChildren<Border>(expander)
+                .Where(b => b.Name == "TrackQualityBadge")
+                .Select(b => b.Visibility)
+                .ToArray();
+            var qualityTooltips = FindVisualChildren<StackPanel>(expander)
+                .Where(sp => sp.Name == "TrackQualityPanel")
+                .Select(sp => sp.ToolTip as string)
+                .ToArray();
 
             // Assert
             Assert.False(listener.HasErrors, $"LibraryView ({themeFileName}) でバインディングエラーが検出されました: {string.Join("; ", listener.Errors)}");
@@ -278,6 +299,11 @@ public sealed class LibraryViewTests
             Assert.Equal(["Artist A", "Artist B feat. C", "Artist A"], trackArtistTexts);
             Assert.Equal(["04:34", "05:12", "03:05"], trackDurationTexts);
             Assert.Equal(["★", "☆", "☆"], favoriteIcons);
+            Assert.Equal(["FLAC", "WAV", "MP3"], formatTexts);
+            Assert.Equal([Visibility.Visible, Visibility.Visible, Visibility.Visible], formatBadgeVisibilities);
+            Assert.Equal(["Hi-Res", "Lossless", ""], qualityTexts);
+            Assert.Equal([Visibility.Visible, Visibility.Visible, Visibility.Collapsed], qualityBadgeVisibilities);
+            Assert.Equal([track1.QualityInfo, track2.QualityInfo, track3.QualityInfo], qualityTooltips);
         });
     }
 
@@ -390,6 +416,181 @@ public sealed class LibraryViewTests
             Assert.False(fromButton);
             Assert.False(fromCheckBox);
             Assert.False(fromNull);
+        });
+    }
+
+    /// <summary>
+    /// トラックの Format が空文字の場合、空の形式バッジ枠が表示されず Collapsed になることを検証します。
+    /// </summary>
+    [Fact]
+    public void ListView展開楽曲リスト_Format空文字の場合_形式バッジ枠が非表示になること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var vm = CreateViewModel();
+            vm.IsGridView = false;
+
+            var track = new Track
+            {
+                Title = "No Format Song",
+                Artist = "Artist Z",
+                Album = "Album Z",
+                Format = string.Empty,
+                FilePath = string.Empty
+            };
+            var album = new Album("Album Z", "Artist Z");
+            album.Tracks.Add(track);
+            vm.Albums.Add(album);
+
+            using var listener = new BindingErrorTraceListener();
+            EnsureApplicationResources();
+            var host = new Grid
+            {
+                Name = "MainWindowRoot",
+                DataContext = new MainWindowHostStub()
+            };
+            NameScope.SetNameScope(host, new NameScope());
+            host.RegisterName("MainWindowRoot", host);
+
+            var sut = new LibraryView
+            {
+                DataContext = vm
+            };
+            AttachThemeResources(sut.Resources, "DarkTheme.xaml");
+            host.Children.Add(sut);
+
+            // Act
+            host.Measure(new Size(960, 640));
+            host.Arrange(new Rect(0, 0, 960, 640));
+            host.UpdateLayout();
+
+            var expander = FindVisualChildren<Expander>(sut).First();
+            expander.IsExpanded = true;
+            host.Measure(new Size(960, 640));
+            host.Arrange(new Rect(0, 0, 960, 640));
+            host.UpdateLayout();
+
+            var formatBadge = FindVisualChildren<Border>(expander).Single(b => b.Name == "TrackFormatBadge");
+
+            // Assert
+            Assert.False(listener.HasErrors, $"バインディングエラーが検出されました: {string.Join("; ", listener.Errors)}");
+            Assert.Equal(Visibility.Collapsed, formatBadge.Visibility);
+        });
+    }
+
+    /// <summary>
+    /// ルーティングイベント経由で行上押下→離上した場合のみ再生が発火し、ボタン押下キャンセルやMouseLeave時は発火しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void ListTrackRow_ルーティングイベント経由のクリック操作_同一行内押下離上のみで再生が発火すること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var vm = CreateViewModel();
+            vm.IsGridView = false;
+
+            var playedTracks = new List<Track?>();
+            vm.PlaybackRequested += (_, startTrack, _, _) => playedTracks.Add(startTrack);
+
+            var track = new Track(
+                TrackId.New(),
+                AudioPath.Create(@"C:\Music\click_test.flac"),
+                "Click Song",
+                "Artist C",
+                "Album C",
+                TimeSpan.FromMinutes(4),
+                trackNumber: 1,
+                format: "FLAC")
+            {
+                FilePath = string.Empty
+            };
+            var album = new Album("Album C", "Artist C");
+            album.Tracks.Add(track);
+            vm.Albums.Add(album);
+
+            EnsureApplicationResources();
+            var host = new Grid
+            {
+                Name = "MainWindowRoot",
+                DataContext = new MainWindowHostStub()
+            };
+            NameScope.SetNameScope(host, new NameScope());
+            host.RegisterName("MainWindowRoot", host);
+
+            var sut = new LibraryView
+            {
+                DataContext = vm
+            };
+            AttachThemeResources(sut.Resources, "DarkTheme.xaml");
+            host.Children.Add(sut);
+
+            host.Measure(new Size(960, 640));
+            host.Arrange(new Rect(0, 0, 960, 640));
+            host.UpdateLayout();
+
+            var expander = FindVisualChildren<Expander>(sut).First();
+            expander.IsExpanded = true;
+            host.Measure(new Size(960, 640));
+            host.Arrange(new Rect(0, 0, 960, 640));
+            host.UpdateLayout();
+
+            var rowBorder = FindVisualChildren<Border>(expander).Single(b => b.Name == "TrackRowBorder");
+            var titleText = FindVisualChildren<TextBlock>(expander).Single(tb => tb.Name == "TrackTitleText");
+            var favButton = FindVisualChildren<Button>(expander).Single(b => b.Name == "FavoriteToggleButton");
+            var favIcon = Assert.IsType<TextBlock>(favButton.Content);
+
+            // Act 1: ボタン上で押下し、曲名領域で離上（ボタン押下キャンセル相当）→ 再生されない
+            favIcon.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.MouseDownEvent,
+                Source = favIcon
+            });
+            titleText.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.MouseUpEvent,
+                Source = titleText
+            });
+
+            // Assert 1
+            Assert.Empty(playedTracks);
+
+            // Act 2: 行上で押下後、MouseLeave してから再度離上（ドラッグキャンセル相当）→ 再生されない
+            titleText.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.MouseDownEvent,
+                Source = titleText
+            });
+            rowBorder.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, 0)
+            {
+                RoutedEvent = UIElement.MouseLeaveEvent,
+                Source = rowBorder
+            });
+            titleText.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.MouseUpEvent,
+                Source = titleText
+            });
+
+            // Assert 2
+            Assert.Empty(playedTracks);
+
+            // Act 3: 同一行の曲名領域で押下→離上 → 再生が1回発火する
+            titleText.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.MouseDownEvent,
+                Source = titleText
+            });
+            titleText.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.MouseUpEvent,
+                Source = titleText
+            });
+
+            // Assert 3
+            var played = Assert.Single(playedTracks);
+            Assert.Same(track, played);
         });
     }
 }
