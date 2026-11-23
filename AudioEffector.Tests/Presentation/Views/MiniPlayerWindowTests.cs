@@ -1078,7 +1078,7 @@ public sealed class MiniPlayerWindowTests
                 Assert.Contains(
                     overlayLayer.Style.Triggers.OfType<DataTrigger>(),
                     t => t.Binding is System.Windows.Data.Binding b
-                        && b.ElementName == "SquareLayoutGrid"
+                        && b.ElementName == "SquareArtAreaGrid"
                         && b.Path?.Path == nameof(UIElement.IsMouseOver)
                         && string.Equals(t.Value?.ToString(), "True", StringComparison.OrdinalIgnoreCase));
                 Assert.False(listener.HasErrors, $"正方形ミニプレイヤーでバインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
@@ -1576,7 +1576,7 @@ public sealed class MiniPlayerWindowTests
             Assert.Single(dataTriggers);
             var trigger = dataTriggers[0];
             var binding = Assert.IsType<System.Windows.Data.Binding>(trigger.Binding);
-            Assert.Equal("SquareLayoutGrid", binding.ElementName);
+            Assert.Equal("SquareArtAreaGrid", binding.ElementName);
             Assert.Equal(nameof(UIElement.IsMouseOver), binding.Path?.Path);
             Assert.Equal("True", trigger.Value?.ToString(), ignoreCase: true);
             Assert.DoesNotContain(
@@ -2037,6 +2037,89 @@ public sealed class MiniPlayerWindowTests
             finally
             {
                 sut.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// シークバー上で左ボタンを押下した後にスライダー外でマウスを離した（MouseLeave / LostMouseCapture）場合、
+    /// 次回の離しイベントで誤シークが発生しないこと、およびドラッグ中に横長デザインへ切り替えた際にドラッグ状態が安全に解除されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SquareSeekSlider_スライダー外解放および横長切替時_誤シークせずドラッグ状態が安全に解除されること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = LoadThemeDictionary();
+            var (mainVm, audioServiceMock, settingsServiceMock, scope) = CreateTestMainViewModel();
+            using (scope)
+            {
+                settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+                {
+                    MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                    MiniPlayerRotateAlbumArt = true
+                });
+
+                var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+                {
+                    DataContext = mainVm,
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = 100,
+                    Top = 100,
+                    Opacity = 0,
+                    ShowInTaskbar = false,
+                    ShowActivated = false
+                };
+                sut.Resources.MergedDictionaries.Add(themeDict);
+
+                try
+                {
+                    sut.Show();
+                    sut.UpdateLayout();
+                    PumpDispatcher();
+
+                    var seekSlider = Assert.IsType<Slider>(sut.FindName("SquareSeekSlider"));
+
+                    // Act 1: 押下 → マウスキャプチャ喪失（スライダー外解放相当）→ 後続の PreviewMouseLeftButtonUp
+                    seekSlider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                    {
+                        RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent,
+                        Source = seekSlider
+                    });
+                    seekSlider.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, Environment.TickCount)
+                    {
+                        RoutedEvent = UIElement.LostMouseCaptureEvent,
+                        Source = seekSlider
+                    });
+                    seekSlider.Value = 88.0;
+                    seekSlider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+                    {
+                        RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent,
+                        Source = seekSlider
+                    });
+
+                    // Assert 1: 誤シークが発生しないこと
+                    audioServiceMock.Verify(a => a.SeekTo(88.0), Times.Never);
+
+                    // Act 2: ドラッグ開始状態で横長デザインへ切替
+                    seekSlider.RaiseEvent(new DragStartedEventArgs(0, 0)
+                    {
+                        RoutedEvent = Thumb.DragStartedEvent,
+                        Source = seekSlider
+                    });
+                    Assert.True(mainVm.IsDraggingProgress);
+
+                    sut.UpdateDesignSettings(MiniPlayerDesignStyle.Standard, rotateAlbumArt: true);
+
+                    // Assert 2: ドラッグ状態が解除され ResumeAfterSeek が呼ばれること
+                    Assert.False(mainVm.IsDraggingProgress);
+                    audioServiceMock.Verify(a => a.ResumeAfterSeek(), Times.Once);
+                }
+                finally
+                {
+                    sut.Close();
+                }
             }
         });
     }
