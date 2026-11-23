@@ -68,7 +68,7 @@
 
 - 左サイドバーの項目選択で中央ワークスペースを即時切り替え。
 - 右側パネル開閉ハンドルは `600ms`、スペクトラムアナライザは開 `300ms`・閉 `250ms` でサイズをアニメーション変更する。
-- `AppSettings.StartMinimized = true` の場合は起動時に最小化状態（ミニプレイヤー）で開始する。また、7種のキーボードショートカットを `MainWindow.InputBindings` に登録し、設定ダイアログ終了時の `SettingsUpdated` イベントで再登録する。
+- `AppSettings.StartMinimized = true` の場合は起動時に最小化状態（ミニプレイヤー）で開始する。また、7種のキーボードショートカットおよびハードウェアメディアキーを `PreviewKeyDown` / `WM_APPCOMMAND`（`WindowShortcutHandler`）で処理し、設定ダイアログ終了時の `SettingsUpdated` イベントで最新設定を反映する。
 - メインウィンドウ最小化時に `MiniPlayerWindow` を表示してメインウィンドウを非表示とし、データ転送中（`DeviceBrowser.IsTransferring`）の終了操作には確認 `MessageBox` を表示する。
 
 ## 7. パフォーマンス最適化要件

@@ -66,7 +66,7 @@
 - **自動起動変更**: `StartupManager.SetAutoStart()` により Windows レジストリ（`Run` キー）を更新。
 - **最前面挙動変更**: 表示中の `MiniPlayerWindow` に対して `UpdateTopmostBehavior()` を即時反映。
 - **サンプルレート / バッファサイズ変更**: `IAudioService.UpdateAudioProperties()` へ即時反映。
-- **ショートカット変更**: ダイアログを閉じた後に `MainViewModel.SettingsUpdated` イベント経由で `MainWindow` のキーバインディングを再登録。
+- **ショートカット変更**: ダイアログを閉じた後に `MainViewModel.SettingsUpdated` イベント経由で `MainWindow` および `MiniPlayerWindow` の `WindowShortcutHandler` へ最新設定を反映。
 
 ## 7. パフォーマンス最適化要件
 

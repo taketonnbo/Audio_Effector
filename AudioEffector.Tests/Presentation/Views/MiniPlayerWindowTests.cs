@@ -2,10 +2,12 @@
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
 using Moq;
 using Xunit;
@@ -570,6 +572,146 @@ public sealed class MiniPlayerWindowTests
                 {
                     sut.Close();
                 }
+            }
+        });
+    }
+
+    private sealed class FakeShortcutTarget : IShortcutCommandTarget
+    {
+        public bool IsPlaying { get; set; }
+        public int TogglePlayPauseCount { get; private set; }
+        public int StopCount { get; private set; }
+        public int NextCount { get; private set; }
+        public int PreviousCount { get; private set; }
+        public int ToggleMuteCount { get; private set; }
+        public int IncreaseVolumeCount { get; private set; }
+        public int DecreaseVolumeCount { get; private set; }
+
+        public ICommand TogglePlayPauseCommand { get; }
+        public ICommand StopCommand { get; }
+        public ICommand NextCommand { get; }
+        public ICommand PreviousCommand { get; }
+        public ICommand ToggleMuteCommand { get; }
+        public ICommand IncreaseVolumeCommand { get; }
+        public ICommand DecreaseVolumeCommand { get; }
+
+        public FakeShortcutTarget()
+        {
+            TogglePlayPauseCommand = new RelayCommand(_ =>
+            {
+                TogglePlayPauseCount++;
+                IsPlaying = !IsPlaying;
+            });
+            StopCommand = new RelayCommand(_ => StopCount++);
+            NextCommand = new RelayCommand(_ => NextCount++);
+            PreviousCommand = new RelayCommand(_ => PreviousCount++);
+            ToggleMuteCommand = new RelayCommand(_ => ToggleMuteCount++);
+            IncreaseVolumeCommand = new RelayCommand(_ => IncreaseVolumeCount++);
+            DecreaseVolumeCommand = new RelayCommand(_ => DecreaseVolumeCount++);
+        }
+    }
+
+    /// <summary>
+    /// ミニプレイヤー表示中に WM_APPCOMMAND（再生/一時停止・次の曲）を受信した際、対応するコマンドが実行されることを検証します。
+    /// </summary>
+    [Fact]
+    public void WndProc_WM_APPCOMMAND受信時_対応するメディアコマンドを実行すること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+
+            var target = new FakeShortcutTarget();
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = target,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+
+            try
+            {
+                sut.Show();
+                IntPtr hwnd = new WindowInteropHelper(sut).Handle;
+
+                // Act
+                SendMessage(hwnd, ShortcutKeyHelper.WM_APPCOMMAND, hwnd, new IntPtr(ShortcutKeyHelper.APPCOMMAND_MEDIA_PLAY_PAUSE << 16));
+                SendMessage(hwnd, ShortcutKeyHelper.WM_APPCOMMAND, hwnd, new IntPtr(ShortcutKeyHelper.APPCOMMAND_MEDIA_NEXTTRACK << 16));
+
+                // Assert
+                Assert.Equal(1, target.TogglePlayPauseCount);
+                Assert.Equal(1, target.NextCount);
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// ミニプレイヤーで設定済みカスタムショートカット（Space / 単一キー）が PreviewKeyDown 経由で発火することを検証します。
+    /// </summary>
+    [Fact]
+    public void OnPreviewKeyDown_設定済みカスタムショートカット押下時_対応するコマンドを実行すること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var settings = new AppSettings
+            {
+                PlayPauseShortcut = new ShortcutKeyConfig { Key = Key.Space, Modifiers = ModifierKeys.None },
+                MuteShortcut = new ShortcutKeyConfig { Key = Key.M, Modifiers = ModifierKeys.None }
+            };
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(settings);
+
+            var target = new FakeShortcutTarget();
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = target,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+
+            try
+            {
+                sut.Show();
+                var presentationSource = PresentationSource.FromVisual(sut);
+                Assert.NotNull(presentationSource);
+
+                var spaceArgs = new KeyEventArgs(Keyboard.PrimaryDevice, presentationSource!, 0, Key.Space)
+                {
+                    RoutedEvent = Keyboard.PreviewKeyDownEvent
+                };
+                var mArgs = new KeyEventArgs(Keyboard.PrimaryDevice, presentationSource!, 0, Key.M)
+                {
+                    RoutedEvent = Keyboard.PreviewKeyDownEvent
+                };
+
+                // Act
+                sut.RaiseEvent(spaceArgs);
+                sut.RaiseEvent(mArgs);
+
+                // Assert
+                Assert.True(spaceArgs.Handled);
+                Assert.True(mArgs.Handled);
+                Assert.Equal(1, target.TogglePlayPauseCount);
+                Assert.Equal(1, target.ToggleMuteCount);
+            }
+            finally
+            {
+                sut.Close();
             }
         });
     }

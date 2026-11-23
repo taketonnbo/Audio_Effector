@@ -2,6 +2,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using AudioEffector.Application.ApplicationServices;
@@ -26,6 +27,9 @@ public partial class MainWindow : Window
     private const int SIZE_MAXIMIZED = 2;
 
     private readonly ISettingsService _settingsService;
+    private readonly WindowShortcutHandler _shortcutHandler = new();
+    private MainViewModel? _subscribedViewModel;
+    private Action? _settingsUpdatedHandler;
     private HwndSource? _hwndSource;
     private MiniPlayerWindow? _miniPlayer;
     private bool _isRestoringFromMiniPlayer;
@@ -53,6 +57,7 @@ public partial class MainWindow : Window
             ?? viewModel.SettingsService
             ?? SettingsApplicationService.Default;
 
+        _shortcutHandler.UpdateSettings(_settingsService.LoadSettings());
         this.Loaded += MainWindow_Loaded;
     }
 
@@ -64,41 +69,45 @@ public partial class MainWindow : Window
             this.WindowState = WindowState.Minimized;
         }
 
-        if (this.DataContext is MainViewModel vm)
+        if (this.DataContext is MainViewModel vm && _subscribedViewModel != vm)
         {
-            vm.SettingsUpdated += () => UpdateShortcuts(_settingsService.LoadSettings());
+            DetachSettingsUpdatedHandler();
+            _subscribedViewModel = vm;
+            _settingsUpdatedHandler = () => UpdateShortcuts(_settingsService.LoadSettings());
+            _subscribedViewModel.SettingsUpdated += _settingsUpdatedHandler;
         }
         UpdateShortcuts(appSettings);
+    }
+
+    private void DetachSettingsUpdatedHandler()
+    {
+        if (_subscribedViewModel != null && _settingsUpdatedHandler != null)
+        {
+            _subscribedViewModel.SettingsUpdated -= _settingsUpdatedHandler;
+        }
+
+        _subscribedViewModel = null;
+        _settingsUpdatedHandler = null;
     }
 
     private void UpdateShortcuts(AudioEffector.Domain.Entities.AppSettings settings)
     {
         this.InputBindings.Clear();
-        if (this.DataContext is MainViewModel vm)
-        {
-            AddShortcut(settings.PlayPauseShortcut, vm.TogglePlayPauseCommand);
-            AddShortcut(settings.StopShortcut, vm.StopCommand);
-            AddShortcut(settings.NextShortcut, vm.NextCommand);
-            AddShortcut(settings.PreviousShortcut, vm.PreviousCommand);
-            AddShortcut(settings.MuteShortcut, vm.ToggleMuteCommand);
-            AddShortcut(settings.VolumeUpShortcut, vm.IncreaseVolumeCommand);
-            AddShortcut(settings.VolumeDownShortcut, vm.DecreaseVolumeCommand);
-        }
+        _shortcutHandler.UpdateSettings(settings);
     }
 
-    private void AddShortcut(AudioEffector.Domain.Entities.ShortcutKeyConfig config, System.Windows.Input.ICommand command)
+    /// <summary>
+    /// トンネリングキー押下イベントでカスタムショートカットおよびハードウェアメディアキーを処理します
+    /// </summary>
+    /// <param name="e">キーイベントデータ</param>
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (config != null && config.Key != System.Windows.Input.Key.None)
+        if (!_isClosed && _shortcutHandler.HandlePreviewKeyDown(e, DataContext as IShortcutCommandTarget, Keyboard.FocusedElement))
         {
-            try
-            {
-                this.InputBindings.Add(new System.Windows.Input.KeyBinding(command, config.Key, config.Modifiers));
-            }
-            catch (System.NotSupportedException)
-            {
-                // WPF's KeyGesture doesn't support some combinations (e.g. Shift+P). Ignore them safely.
-            }
+            return;
         }
+
+        base.OnPreviewKeyDown(e);
     }
 
     /// <summary>
@@ -115,7 +124,23 @@ public partial class MainWindow : Window
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if (_isClosed || _isRestoringFromMiniPlayer)
+        if (_isClosed)
+        {
+            return IntPtr.Zero;
+        }
+
+        if (msg == ShortcutKeyHelper.WM_APPCOMMAND)
+        {
+            if (_shortcutHandler.HandleAppCommand(lParam, DataContext as IShortcutCommandTarget))
+            {
+                handled = true;
+                return new IntPtr(1);
+            }
+
+            return IntPtr.Zero;
+        }
+
+        if (_isRestoringFromMiniPlayer)
         {
             return IntPtr.Zero;
         }
@@ -299,6 +324,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(System.EventArgs e)
     {
         _isClosed = true;
+        DetachSettingsUpdatedHandler();
 
         if (_hwndSource != null)
         {

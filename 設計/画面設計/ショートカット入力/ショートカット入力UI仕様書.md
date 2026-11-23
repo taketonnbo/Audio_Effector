@@ -57,16 +57,19 @@
 ## 5. 構成要素と共通コントロール
 
 - `Label` と `Shortcut`（`ShortcutKeyConfig`、`BindsTwoWayByDefault`）の依存関係プロパティに連動する。
-- 割当済みは `Ctrl` / `Shift` / `Alt` / `Win` ＋ キー名、未割当は `"割り当てなし"`、フォーカス待機中は `"キーを入力してください..."` を表示する。
+- 割当済みは `Ctrl` / `Shift` / `Alt` / `Win` ＋ キー名（ハードウェアメディアキーは `MediaPlayPause (再生/一時停止)` 等の可読表記）、未割当は `"割り当てなし"`、フォーカス待機中は `"キーを入力してください..."` を表示する。
 - 操作ヒント（「クリックしてショートカットキーを入力 (BackSpaceまたはDeleteでクリア)」）は `InputTextBox.ToolTip` として提供する。
 
 ## 6. アニメーションとインタラクション
 
-- クリックで入力欄へフォーカスし入力待機状態に移行。修飾キー単体の押下は無視し、`Delete` または `BackSpace` で割り当てをクリア（`Key.None`）する。
-- **3段階の検証と警告**:
-  1. **WPF `KeyBinding` 非対応キー組合せ**: エラー `MessageBox` を表示して割り当てを拒否する。
-  2. **アプリ内他機能との重複**: 重複警告 `MessageBox` を表示して割り当てを拒否する（`WarningTextBlock` は表示しない）。
-  3. **OS／他アプリとの競合検知**: Win32 API `RegisterHotKey` / `UnregisterHotKey` によるテスト登録を行い、失敗した場合に `WarningTextBlock`（「⚠️ このショートカットは他のアプリで既に使われています。」）を `Visible` にして注意喚起する。
+- クリックで入力欄へフォーカスし入力待機状態に移行。修飾キー単体やIMEモード切替キー（`ImeConvert` / `KanaMode` / `CapsLock` 等）の押下は無視し、`Delete` または `BackSpace` で割り当てをクリア（`Key.None`）する。
+- **キー解決およびハードウェアメディアキー受付**:
+  - `PreviewKeyDown` では `Key.System`・`Key.ImeProcessed`・`Key.DeadCharProcessed` を実キーへ解決し、日本語IME有効時でも正しいキーとして割り当てられる。
+  - 修飾キーなしの単一キー（`A`〜`Z`, `D0`〜`D9`, `Space` 等）やハードウェアメディアキー（`Key.MediaPlayPause` 等）も制約なく割り当て可能とする。
+  - 入力欄のキーボードフォーカス中のみ `HwndSource` フックで Win32 `WM_APPCOMMAND` を受信し、`WM_KEYDOWN` を送出しないドライバ環境のメディアキー（`F4` 再生/一時停止等）も割り当て可能とする（フォーカス喪失および `Unloaded` 時にフックを確実に解除）。
+- **2段階の検証と警告**:
+  1. **アプリ内他機能との重複**: 重複警告 `MessageBox` を表示して割り当てを拒否する（`WarningTextBlock` は表示しない）。
+  2. **OS／他アプリとの競合検知**: ハードウェアメディアキー以外のキーに対して Win32 API `RegisterHotKey` / `UnregisterHotKey` によるテスト登録を行い、失敗した場合に `WarningTextBlock`（「⚠️ このショートカットは他のアプリで既に使われています。」）を `Visible` にして注意喚起する。
 - フォーカスを外すと現在の `Shortcut` の表示文字列へ戻す。
 
 ## 7. パフォーマンス最適化要件

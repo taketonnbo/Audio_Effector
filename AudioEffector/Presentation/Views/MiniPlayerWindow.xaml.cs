@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Presentation.ViewModels;
 
 namespace AudioEffector.Presentation.Views;
 
@@ -39,6 +40,9 @@ public partial class MiniPlayerWindow : Window
     private const int RESIZE_TOLERANCE_PX = 4;
 
     private readonly ISettingsService _settingsService;
+    private readonly WindowShortcutHandler _shortcutHandler = new();
+    private MainViewModel? _subscribedViewModel;
+    private Action? _settingsUpdatedHandler;
     private MiniPlayerTopmostBehavior _currentBehavior;
     private HwndSource? _hwndSource;
     private double? _lastNormalTop;
@@ -101,6 +105,8 @@ public partial class MiniPlayerWindow : Window
                 : null)
             ?? SettingsApplicationService.Default;
 
+        _shortcutHandler.UpdateSettings(_settingsService.LoadSettings());
+
         this.Loaded += MiniPlayerWindow_Loaded;
         this.Deactivated += MiniPlayerWindow_Deactivated;
         this.LocationChanged += MiniPlayerWindow_LocationChanged;
@@ -109,6 +115,16 @@ public partial class MiniPlayerWindow : Window
     private void MiniPlayerWindow_Loaded(object sender, RoutedEventArgs e)
     {
         var settings = _settingsService.LoadSettings();
+        _shortcutHandler.UpdateSettings(settings);
+
+        if (this.DataContext is MainViewModel vm && _subscribedViewModel != vm)
+        {
+            DetachSettingsUpdatedHandler();
+            _subscribedViewModel = vm;
+            _settingsUpdatedHandler = () => _shortcutHandler.UpdateSettings(_settingsService.LoadSettings());
+            _subscribedViewModel.SettingsUpdated += _settingsUpdatedHandler;
+        }
+
         _currentBehavior = settings.MiniPlayerTopmostBehavior;
         ApplyTopmostBehavior();
 
@@ -177,8 +193,49 @@ public partial class MiniPlayerWindow : Window
         }
     }
 
+    private void DetachSettingsUpdatedHandler()
+    {
+        if (_subscribedViewModel != null && _settingsUpdatedHandler != null)
+        {
+            _subscribedViewModel.SettingsUpdated -= _settingsUpdatedHandler;
+        }
+
+        _subscribedViewModel = null;
+        _settingsUpdatedHandler = null;
+    }
+
+    /// <summary>
+    /// トンネリングキー押下イベントでカスタムショートカットおよびハードウェアメディアキーを処理します
+    /// </summary>
+    /// <param name="e">キーイベントデータ</param>
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        if (!_isClosed && _shortcutHandler.HandlePreviewKeyDown(e, DataContext as IShortcutCommandTarget, Keyboard.FocusedElement))
+        {
+            return;
+        }
+
+        base.OnPreviewKeyDown(e);
+    }
+
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (_isClosed)
+        {
+            return IntPtr.Zero;
+        }
+
+        if (msg == ShortcutKeyHelper.WM_APPCOMMAND)
+        {
+            if (_shortcutHandler.HandleAppCommand(lParam, DataContext as IShortcutCommandTarget))
+            {
+                handled = true;
+                return new IntPtr(1);
+            }
+
+            return IntPtr.Zero;
+        }
+
         if (msg == WM_NCCALCSIZE && wParam != IntPtr.Zero)
         {
             // WS_THICKFRAME 付与に伴う非クライアント領域（標準枠）を 0px に保ち透過角丸デザインを維持する
@@ -325,6 +382,7 @@ public partial class MiniPlayerWindow : Window
     {
         _isClosed = true;
         _isClosingOrRestoring = true;
+        DetachSettingsUpdatedHandler();
 
         if (_hwndSource != null)
         {
