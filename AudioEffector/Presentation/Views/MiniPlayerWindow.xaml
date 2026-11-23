@@ -56,6 +56,7 @@
             <Setter Property="Foreground" Value="#F0F4F8"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Focusable" Value="False"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -269,16 +270,13 @@
                                RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Grid>
 
-                    <!-- Non-Rotating Overlay Controls (Visible on Hover / Keyboard Focus) -->
+                    <!-- Non-Rotating Overlay Controls (Visible on Hover Only) -->
                     <Grid x:Name="SquareOverlayControlsLayer" Panel.ZIndex="2" Background="Transparent">
                         <Grid.Style>
                             <Style TargetType="Grid">
                                 <Setter Property="Visibility" Value="Collapsed"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsMouseOver, ElementName=SquareLayoutGrid}" Value="True">
-                                        <Setter Property="Visibility" Value="Visible"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=SquareLayoutGrid}" Value="True">
                                         <Setter Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
                                 </Style.Triggers>
