@@ -8,6 +8,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -1520,6 +1522,121 @@ public sealed class MiniPlayerWindowTests
 
                 // Assert: null のまま維持されること
                 Assert.Null(mainVm.MiniPlayerAlbumArtImage);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 正方形デザインのオーバーレイ層が SquareLayoutGrid.IsMouseOver トリガーのみを持ち、
+    /// クリック後残留の原因となる IsKeyboardFocusWithin トリガーを含まないこと、および各オーバーレイボタンが Focusable=False であることを検証します。
+    /// </summary>
+    [Fact]
+    public void SquareOverlayControlsLayer_正方形デザイン初期化時_IsMouseOverトリガーのみを持ちオーバーレイボタンがFocusableFalseであること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+            {
+                MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                MiniPlayerRotateAlbumArt = true
+            });
+
+            // Act
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object);
+            var overlayLayer = Assert.IsAssignableFrom<FrameworkElement>(sut.FindName("SquareOverlayControlsLayer"));
+            var restoreButton = Assert.IsType<Button>(sut.FindName("SquareRestoreButton"));
+            var previousButton = Assert.IsType<Button>(sut.FindName("SquarePreviousButton"));
+            var playPauseButton = Assert.IsType<Button>(sut.FindName("SquarePlayPauseButton"));
+            var nextButton = Assert.IsType<Button>(sut.FindName("SquareNextButton"));
+
+            // Assert
+            Assert.NotNull(overlayLayer.Style);
+            var dataTriggers = overlayLayer.Style.Triggers.OfType<DataTrigger>().ToList();
+            Assert.Single(dataTriggers);
+            var trigger = dataTriggers[0];
+            var binding = Assert.IsType<System.Windows.Data.Binding>(trigger.Binding);
+            Assert.Equal("SquareLayoutGrid", binding.ElementName);
+            Assert.Equal(nameof(UIElement.IsMouseOver), binding.Path?.Path);
+            Assert.Equal("True", trigger.Value?.ToString(), ignoreCase: true);
+            Assert.DoesNotContain(
+                dataTriggers,
+                t => t.Binding is System.Windows.Data.Binding b
+                    && b.Path?.Path == nameof(UIElement.IsKeyboardFocusWithin));
+
+            Assert.False(restoreButton.Focusable);
+            Assert.False(previousButton.Focusable);
+            Assert.False(playPauseButton.Focusable);
+            Assert.False(nextButton.Focusable);
+        });
+    }
+
+    /// <summary>
+    /// 正方形ミニプレイヤーでオーバーレイ内の再生操作ボタンへフォーカス試行およびクリック操作を行った後でも、
+    /// コマンドは正常に実行され、非ホバー状態では SquareOverlayControlsLayer が Collapsed を維持することを検証します。
+    /// </summary>
+    [Fact]
+    public void SquareOverlayControlsLayer_オーバーレイボタンへフォーカスや操作を行った後_非ホバー状態ではCollapsedを維持すること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+            {
+                MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                MiniPlayerRotateAlbumArt = true
+            });
+
+            var target = new FakeShortcutTarget();
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = target,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+
+            try
+            {
+                sut.Show();
+                sut.UpdateLayout();
+                PumpDispatcher();
+
+                var squareGrid = Assert.IsAssignableFrom<FrameworkElement>(sut.FindName("SquareLayoutGrid"));
+                var overlayLayer = Assert.IsAssignableFrom<FrameworkElement>(sut.FindName("SquareOverlayControlsLayer"));
+                var previousButton = Assert.IsType<Button>(sut.FindName("SquarePreviousButton"));
+                var playPauseButton = Assert.IsType<Button>(sut.FindName("SquarePlayPauseButton"));
+                var nextButton = Assert.IsType<Button>(sut.FindName("SquareNextButton"));
+
+                // Act: フォーカス試行およびクリック操作を実行
+                bool focusedPrevious = previousButton.Focus();
+                bool focusedPlayPause = playPauseButton.Focus();
+                bool focusedNext = nextButton.Focus();
+
+                ((IInvokeProvider)new ButtonAutomationPeer(previousButton).GetPattern(PatternInterface.Invoke)).Invoke();
+                ((IInvokeProvider)new ButtonAutomationPeer(playPauseButton).GetPattern(PatternInterface.Invoke)).Invoke();
+                ((IInvokeProvider)new ButtonAutomationPeer(nextButton).GetPattern(PatternInterface.Invoke)).Invoke();
+                PumpDispatcher();
+
+                // Assert
+                Assert.False(focusedPrevious);
+                Assert.False(focusedPlayPause);
+                Assert.False(focusedNext);
+                Assert.False(squareGrid.IsKeyboardFocusWithin);
+                Assert.Equal(1, target.PreviousCount);
+                Assert.Equal(1, target.TogglePlayPauseCount);
+                Assert.Equal(1, target.NextCount);
+                Assert.False(squareGrid.IsMouseOver);
+                Assert.Equal(Visibility.Collapsed, overlayLayer.Visibility);
+            }
+            finally
+            {
+                sut.Close();
             }
         });
     }
