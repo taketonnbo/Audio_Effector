@@ -281,6 +281,56 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+
+        <!-- Column Header Text Style (#264, aligned with AllSongsView) -->
+        <Style x:Key="ColumnHeaderTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextForegroundBrush}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+        <!-- List View Expanded Track Row Container Style (#264) -->
+        <Style x:Key="ListTrackRowBorderStyle" TargetType="Border">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Padding" Value="0,3,6,3"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Flat Icon Button Style for List Track Row Actions (#264) -->
+        <Style x:Key="ListTrackIconButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="IconButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="IconButtonBorder" Property="Background" Value="{DynamicResource ControlBackgroundBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="IconButtonBorder" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid>
@@ -322,11 +372,14 @@
                         </Button>
                     </Grid>
             <Grid Grid.Row="1">
-                <ListBox ItemsSource="{Binding Albums}" 
+                <ListBox x:Name="AlbumListBox"
+                         ItemsSource="{Binding Albums}" 
                          Visibility="{Binding IsListView, Converter={StaticResource BoolToVis}}"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.CanContentScroll="True"
                          VirtualizingStackPanel.IsVirtualizing="True"
                          VirtualizingStackPanel.VirtualizationMode="Recycling"
+                         VirtualizingStackPanel.ScrollUnit="Pixel"
                          Background="Transparent"
                          BorderThickness="0"
                          Padding="0">
@@ -434,76 +487,307 @@
                                         </StackPanel>
                                     </Grid>
                                 </Expander.Header>
-                                <ItemsControl ItemsSource="{Binding Tracks}" Margin="20,5,0,0">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Button Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    Command="{Binding DataContext.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}"
-                                                    HorizontalContentAlignment="Left" Margin="0,2" Background="Transparent" BorderThickness="0">
-                                                <Button.ContextMenu>
-                                                    <ContextMenu>
-                                                        <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
-                                                            <MenuItem.Style>
-                                                                <Style TargetType="MenuItem">
-                                                                    <Setter Property="Header" Value="再生" />
-                                                                    <Style.Triggers>
-                                                                        <MultiDataTrigger>
-                                                                            <MultiDataTrigger.Conditions>
-                                                                                <Condition Binding="{Binding IsPlaying}" Value="True" />
-                                                                                <Condition Binding="{Binding PlacementTarget.Tag.IsPlaying, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue=False}" Value="True" />
-                                                                            </MultiDataTrigger.Conditions>
-                                                                            <Setter Property="Header" Value="停止" />
-                                                                        </MultiDataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </MenuItem.Style>
-                                                        </MenuItem>
-                                                        <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                                        <MenuItem Header="最後に再生" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                                        <Separator/>
-                                                        <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
-                                                            <MenuItem.Style>
-                                                                <Style TargetType="MenuItem">
-                                                                    <Setter Property="Header" Value="お気に入りに追加" />
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding IsFavorite}" Value="True">
-                                                                            <Setter Property="Header" Value="お気に入りから解除" />
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </MenuItem.Style>
-                                                        </MenuItem>
-                                                        <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                                        <Separator/>
-                                                        <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                                        <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                                        <Separator/>
-                                                        <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
-                                                    </ContextMenu>
-                                                </Button.ContextMenu>
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Center" Margin="0,0,5,0"
-                                                              Visibility="{Binding DataContext.IsSelectionMode, ElementName=MainWindowRoot, Converter={StaticResource BoolToVis}}"
-                                                              IsEnabled="{Binding DataContext.DeviceBrowser.IsTransferring, ElementName=MainWindowRoot, Converter={StaticResource InvertBool}}"/>
-                                                    <TextBlock Grid.Column="1" Text="{Binding Title}" Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" TextTrimming="CharacterEllipsis"/>
-                                                    <Path Grid.Column="2" Data="M12,21.35L10.55,20.03C5.4,15.36 2,12.27 2,8.5C2,5.41 4.42,3 7.5,3C9.24,3 10.91,3.81 12,5.08C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.41 22,8.5C22,12.27 18.6,15.36 13.45,20.03L12,21.35Z" 
-                                                          Fill="#FF4081" Width="10" Height="10" Stretch="Uniform" Visibility="{Binding IsFavorite, Converter={StaticResource BoolToVis}}" Margin="0,0,5,0"/>
-                                                    <Button Grid.Column="3" Content="+" ToolTip="Add to Playlist" 
-                                                            Command="{Binding DataContext.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                            CommandParameter="{Binding}"
-                                                            Width="18" Height="18" FontSize="14" FontWeight="Bold"
-                                                            Background="Transparent" Foreground="{StaticResource NeonCyanBrush}" BorderThickness="0" Padding="0" Margin="0"/>
-                                                </Grid>
-                                            </Button>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                <Border Margin="20,4,4,6"
+                                        Background="{DynamicResource PanelBackgroundBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Padding="0,0,0,2">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+
+                                        <!-- コンパクトな列ヘッダー行 (#264) -->
+                                        <Border Grid.Row="0"
+                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                BorderThickness="0,0,0,1"
+                                                Padding="0,5,6,5">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="4"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="34"/>
+                                                    <ColumnDefinition Width="30"/>
+                                                    <ColumnDefinition Width="2.2*"/>
+                                                    <ColumnDefinition Width="1.5*"/>
+                                                    <ColumnDefinition Width="104"/>
+                                                    <ColumnDefinition Width="54"/>
+                                                    <ColumnDefinition Width="28"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <!-- 転送選択モード時のチェックボックス列スペーサー -->
+                                                <Border Grid.Column="1"
+                                                        Width="22"
+                                                        Margin="4,0,2,0"
+                                                        Visibility="{Binding DataContext.IsSelectionMode, ElementName=MainWindowRoot, Converter={StaticResource BoolToVis}}"/>
+
+                                                <TextBlock Grid.Column="2" Text="#" Style="{StaticResource ColumnHeaderTextStyle}" HorizontalAlignment="Center"/>
+                                                <TextBlock Grid.Column="3" Text="★" Style="{StaticResource ColumnHeaderTextStyle}" HorizontalAlignment="Center"/>
+                                                <TextBlock Grid.Column="4" Text="タイトル" Style="{StaticResource ColumnHeaderTextStyle}" Margin="6,0,4,0"/>
+                                                <TextBlock Grid.Column="5" Text="アーティスト" Style="{StaticResource ColumnHeaderTextStyle}" Margin="4,0"/>
+                                                <TextBlock Grid.Column="6" Text="形式" Style="{StaticResource ColumnHeaderTextStyle}" HorizontalAlignment="Center"/>
+                                                <TextBlock Grid.Column="7" Text="時間" Style="{StaticResource ColumnHeaderTextStyle}" HorizontalAlignment="Right" Margin="4,0,6,0"/>
+                                            </Grid>
+                                        </Border>
+
+                                        <!-- 展開楽曲リスト (#264) -->
+                                        <ItemsControl Grid.Row="1"
+                                                      ItemsSource="{Binding Tracks}"
+                                                      Margin="0,2,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border x:Name="TrackRowBorder"
+                                                            Style="{StaticResource ListTrackRowBorderStyle}"
+                                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            MouseLeftButtonUp="ListTrackRow_MouseLeftButtonUp">
+                                                        <Border.ContextMenu>
+                                                            <ContextMenu>
+                                                                <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
+                                                                    <MenuItem.Style>
+                                                                        <Style TargetType="MenuItem">
+                                                                            <Setter Property="Header" Value="再生" />
+                                                                            <Style.Triggers>
+                                                                                <MultiDataTrigger>
+                                                                                    <MultiDataTrigger.Conditions>
+                                                                                        <Condition Binding="{Binding IsPlaying}" Value="True" />
+                                                                                        <Condition Binding="{Binding PlacementTarget.Tag.IsPlaying, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue=False}" Value="True" />
+                                                                                    </MultiDataTrigger.Conditions>
+                                                                                    <Setter Property="Header" Value="停止" />
+                                                                                </MultiDataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </MenuItem.Style>
+                                                                </MenuItem>
+                                                                <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                                <MenuItem Header="最後に再生" Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                                <Separator/>
+                                                                <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
+                                                                    <MenuItem.Style>
+                                                                        <Style TargetType="MenuItem">
+                                                                            <Setter Property="Header" Value="お気に入りに追加" />
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                                    <Setter Property="Header" Value="お気に入りから解除" />
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </MenuItem.Style>
+                                                                </MenuItem>
+                                                                <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                                <Separator/>
+                                                                <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                                <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                                <Separator/>
+                                                                <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                            </ContextMenu>
+                                                        </Border.ContextMenu>
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="4"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="34"/>
+                                                                <ColumnDefinition Width="30"/>
+                                                                <ColumnDefinition Width="2.2*"/>
+                                                                <ColumnDefinition Width="1.5*"/>
+                                                                <ColumnDefinition Width="104"/>
+                                                                <ColumnDefinition Width="54"/>
+                                                                <ColumnDefinition Width="28"/>
+                                                            </Grid.ColumnDefinitions>
+
+                                                            <!-- 左端3px再生中アクセントバー -->
+                                                            <Border Grid.Column="0"
+                                                                    Width="3"
+                                                                    HorizontalAlignment="Left"
+                                                                    CornerRadius="1.5"
+                                                                    Background="{DynamicResource NeonCyanBrush}">
+                                                                <Border.Style>
+                                                                    <Style TargetType="Border">
+                                                                        <Setter Property="Opacity" Value="0"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                                <Setter Property="Opacity" Value="1"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Border.Style>
+                                                            </Border>
+
+                                                            <!-- 転送選択チェックボックス -->
+                                                            <CheckBox Grid.Column="1"
+                                                                      Width="22"
+                                                                      IsChecked="{Binding IsSelected}"
+                                                                      HorizontalAlignment="Center"
+                                                                      VerticalAlignment="Center"
+                                                                      Margin="4,0,2,0"
+                                                                      Visibility="{Binding DataContext.IsSelectionMode, ElementName=MainWindowRoot, Converter={StaticResource BoolToVis}}"
+                                                                      IsEnabled="{Binding DataContext.DeviceBrowser.IsTransferring, ElementName=MainWindowRoot, Converter={StaticResource InvertBool}}"/>
+
+                                                            <!-- トラック番号 / 再生中インジケーター -->
+                                                            <TextBlock x:Name="TrackNumberText"
+                                                                       Grid.Column="2"
+                                                                       FontSize="11"
+                                                                       HorizontalAlignment="Center"
+                                                                       VerticalAlignment="Center">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Text" Value="{Binding TrackNumber}"/>
+                                                                        <Setter Property="Foreground" Value="{DynamicResource MutedTextForegroundBrush}"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding TrackNumber}" Value="0">
+                                                                                <Setter Property="Text" Value="-"/>
+                                                                            </DataTrigger>
+                                                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                                <Setter Property="Text" Value="▶"/>
+                                                                                <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                                                                <Setter Property="FontWeight" Value="Bold"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+
+                                                            <!-- お気に入りトグルボタン -->
+                                                            <Button x:Name="FavoriteToggleButton"
+                                                                    Grid.Column="3"
+                                                                    Command="{Binding DataContext.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    Style="{StaticResource ListTrackIconButtonStyle}"
+                                                                    Width="26" Height="26"
+                                                                    ToolTip="お気に入り切り替え">
+                                                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13">
+                                                                    <TextBlock.Style>
+                                                                        <Style TargetType="TextBlock">
+                                                                            <Setter Property="Text" Value="☆"/>
+                                                                            <Setter Property="Foreground" Value="{DynamicResource MutedTextForegroundBrush}"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                                    <Setter Property="Text" Value="★"/>
+                                                                                    <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </TextBlock.Style>
+                                                                </TextBlock>
+                                                            </Button>
+
+                                                            <!-- 曲名 -->
+                                                            <TextBlock x:Name="TrackTitleText"
+                                                                       Grid.Column="4"
+                                                                       Text="{Binding Title}"
+                                                                       ToolTip="{Binding Title}"
+                                                                       FontSize="12"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       VerticalAlignment="Center"
+                                                                       Margin="6,0,4,0">
+                                                                <TextBlock.Style>
+                                                                    <Style TargetType="TextBlock">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                                                        <Setter Property="FontWeight" Value="Normal"/>
+                                                                        <Style.Triggers>
+                                                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                                                <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </TextBlock.Style>
+                                                            </TextBlock>
+
+                                                            <!-- アーティスト -->
+                                                            <TextBlock x:Name="TrackArtistText"
+                                                                       Grid.Column="5"
+                                                                       Text="{Binding Artist}"
+                                                                       ToolTip="{Binding Artist}"
+                                                                       Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                                                       FontSize="11"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       VerticalAlignment="Center"
+                                                                       Margin="4,0"/>
+
+                                                            <!-- フォーマット / 音質バッジ -->
+                                                            <StackPanel Grid.Column="6"
+                                                                        Orientation="Horizontal"
+                                                                        HorizontalAlignment="Center"
+                                                                        VerticalAlignment="Center"
+                                                                        ToolTip="{Binding QualityInfo}">
+                                                                <Border Background="{DynamicResource ControlBackgroundBrush}"
+                                                                        BorderBrush="{DynamicResource BorderBrush}"
+                                                                        BorderThickness="1"
+                                                                        CornerRadius="3"
+                                                                        Padding="4,1"
+                                                                        VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding Format}"
+                                                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                                                               FontSize="10"
+                                                                               FontWeight="SemiBold"/>
+                                                                </Border>
+                                                                <Border CornerRadius="3"
+                                                                        BorderThickness="1"
+                                                                        Padding="4,1"
+                                                                        Margin="4,0,0,0"
+                                                                        VerticalAlignment="Center">
+                                                                    <Border.Style>
+                                                                        <Style TargetType="Border">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                            <Setter Property="Background" Value="{DynamicResource ControlBackgroundBrush}"/>
+                                                                            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding QualityLabel}" Value="">
+                                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                </DataTrigger>
+                                                                                <DataTrigger Binding="{Binding IsHiRes}" Value="True">
+                                                                                    <Setter Property="BorderBrush" Value="{DynamicResource NeonCyanBrush}"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Border.Style>
+                                                                    <TextBlock Text="{Binding QualityLabel}"
+                                                                               FontSize="9"
+                                                                               FontWeight="SemiBold">
+                                                                        <TextBlock.Style>
+                                                                            <Style TargetType="TextBlock">
+                                                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextForegroundBrush}"/>
+                                                                                <Style.Triggers>
+                                                                                    <DataTrigger Binding="{Binding IsHiRes}" Value="True">
+                                                                                        <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                                                                    </DataTrigger>
+                                                                                </Style.Triggers>
+                                                                            </Style>
+                                                                        </TextBlock.Style>
+                                                                    </TextBlock>
+                                                                </Border>
+                                                            </StackPanel>
+
+                                                            <!-- 再生時間 -->
+                                                            <TextBlock x:Name="TrackDurationText"
+                                                                       Grid.Column="7"
+                                                                       Text="{Binding DurationString}"
+                                                                       Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                                                       FontSize="11"
+                                                                       HorizontalAlignment="Right"
+                                                                       VerticalAlignment="Center"
+                                                                       Margin="4,0,6,0"/>
+
+                                                            <!-- プレイリスト追加ボタン -->
+                                                            <Button x:Name="AddToPlaylistButton"
+                                                                    Grid.Column="8"
+                                                                    Content="+"
+                                                                    ToolTip="プレイリストに追加"
+                                                                    Command="{Binding DataContext.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    Style="{StaticResource ListTrackIconButtonStyle}"
+                                                                    Width="24" Height="24"
+                                                                    FontSize="14" FontWeight="Bold"
+                                                                    Foreground="{DynamicResource NeonCyanBrush}"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Grid>
+                                </Border>
                             </Expander>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

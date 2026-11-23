@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.ViewModels;
 
 namespace AudioEffector.Presentation.Views;
@@ -37,6 +38,35 @@ public partial class LibraryView : UserControl
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// リスト表示の展開楽曲行クリック時、子ボタン・チェックボックス以外の領域であれば楽曲を再生します
+    /// </summary>
+    private void ListTrackRow_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!ShouldTriggerRowPlay(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        if (sender is FrameworkElement { DataContext: AudioEffector.Domain.Entities.Track track } &&
+            DataContext is LibraryViewModel vm &&
+            vm.PlayTrackCommand.CanExecute(track))
+        {
+            vm.PlayTrackCommand.Execute(track);
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// クリック元要素が楽曲行クリック再生を発火すべき対象かどうかを判定します
+    /// </summary>
+    /// <param name="originalSource">クリックされた元の要素</param>
+    /// <returns>子ボタンやチェックボックス以外の領域であれば true</returns>
+    public static bool ShouldTriggerRowPlay(DependencyObject? originalSource)
+    {
+        return originalSource != null && FindVisualAncestor<ButtonBase>(originalSource) == null;
     }
 
     private static T? FindVisualAncestor<T>(DependencyObject? current, Func<T, bool>? predicate = null)
