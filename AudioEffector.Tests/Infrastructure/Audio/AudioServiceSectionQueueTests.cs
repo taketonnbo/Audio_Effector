@@ -395,4 +395,54 @@ public sealed class AudioServiceSectionQueueTests
         Assert.Empty(sut.UserQueue);
         Assert.Equal(new[] { "A2", "A3" }, sut.AlbumQueue.Select(t => t.Title).ToArray());
     }
+
+    /// <summary>
+    /// シャッフルOFF時にアルバム（9曲）の途中曲・先頭曲・最終曲を開始トラックに指定して SetPlaylist を実行した際、
+    /// 選択曲より前のトラックおよび選択曲自身は含まれず、後続トラックのみが AlbumQueue に格納されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(6, new[] { "A8", "A9" })]
+    [InlineData(8, new string[0])]
+    [InlineData(0, new[] { "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9" })]
+    public void SetPlaylist_シャッフルOFFで途中曲を指定時_後続トラックのみがAlbumQueueに格納される(
+        int startIndex,
+        string[] expectedTitles)
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var albumTracks = CreateSampleTracks("A", 9);
+
+        // Act
+        sut.SetPlaylist(albumTracks, albumTracks[startIndex]);
+
+        // Assert
+        Assert.Empty(sut.UserQueue);
+        Assert.Equal(expectedTitles, sut.AlbumQueue.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// シャッフルON時にアルバム（9曲）の途中曲（7曲目）を開始トラックに指定して SetPlaylist を実行した際、
+    /// 選択曲自身は含まれず残りの未再生曲のみがシャッフルされて AlbumQueue に格納されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SetPlaylist_シャッフルONで途中曲を指定時_選択曲以外の未再生曲のみがAlbumQueueに格納される()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        sut.IsShuffleEnabled = true;
+        var albumTracks = CreateSampleTracks("A", 9);
+        var startTrack = albumTracks[6]; // A7
+
+        // Act
+        sut.SetPlaylist(albumTracks, startTrack);
+
+        // Assert
+        Assert.Empty(sut.UserQueue);
+        Assert.Equal(8, sut.AlbumQueue.Count);
+        Assert.DoesNotContain(sut.AlbumQueue, t => t.Title == "A7");
+
+        var expected = albumTracks.Where(t => t.Title != "A7").Select(t => t.Title).OrderBy(t => t).ToList();
+        var actual = sut.AlbumQueue.Select(t => t.Title).OrderBy(t => t).ToList();
+        Assert.Equal(expected, actual);
+    }
 }

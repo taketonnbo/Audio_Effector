@@ -758,16 +758,17 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     /// <param name="name">再生リスト名</param>
     /// <param name="subtitle">サブタイトル</param>
     /// <param name="updateAudioService">AudioServiceへプレイリストを設定するかどうか（呼び出し元で既に設定済みの場合はfalse）</param>
-    public void SetPlaybackList(IEnumerable<Track> tracks, string name, string subtitle, bool updateAudioService = true)
+    /// <param name="startTrack">最初に再生対象とするトラック（省略可）</param>
+    public void SetPlaybackList(IEnumerable<Track> tracks, string name, string subtitle, bool updateAudioService = true, Track? startTrack = null)
     {
         var trackList = tracks.ToList();
         PlaybackListName = name;
         PlaybackListSubtitle = subtitle;
         PlaybackListTracks = new ObservableCollection<Track>(trackList);
-        PlayQueue = new ObservableCollection<Track>(trackList);
         if (updateAudioService)
         {
-            _audioService.SetPlaylist(trackList);
+            // PlayQueue / UserQueue / AlbumQueue は AudioService.SetPlaylist が発火する PlaylistChanged 経由で同期する
+            _audioService.SetPlaylist(trackList, startTrack);
         }
         SyncTrackPlayingStates(_currentTrack);
     }
@@ -856,16 +857,16 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     {
         if (obj is not Track track) return;
 
-        // 外部ハンドラ（MainViewModelのアルバム・プレイリスト解決）があれば優先実行
-        if (TrackPlayHandler != null && TrackPlayHandler(track))
+        // 同一トラックなら再生/一時停止をトグル（キューを再構築しない）
+        if (CurrentTrack != null && IsSameTrack(CurrentTrack, track))
         {
+            _audioService.TogglePlayPause();
             return;
         }
 
-        // 同一トラックなら再生/一時停止をトグル
-        if (CurrentTrack != null && CurrentTrack.Equals(track))
+        // 外部ハンドラ（MainViewModelのアルバム・プレイリスト解決）があれば優先実行
+        if (TrackPlayHandler != null && TrackPlayHandler(track))
         {
-            _audioService.TogglePlayPause();
             return;
         }
 

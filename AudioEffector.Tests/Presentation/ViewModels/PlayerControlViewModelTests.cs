@@ -432,6 +432,7 @@ public sealed class PlayerControlViewModelTests
             Duration = TimeSpan.FromMinutes(3)
         };
         sut.SetPlaybackList(new[] { track }, "Test Album", "Test Artist");
+        _audioServiceMock.Raise(a => a.PlaylistChanged += null, new List<Track> { track });
         sut.CurrentTrack = track;
 
         // Act
@@ -795,6 +796,209 @@ public sealed class PlayerControlViewModelTests
 
         // Assert
         _audioServiceMock.Verify(a => a.MoveAlbumQueueItemToUserQueue(1, 0), Times.Once);
+    }
+
+    /// <summary>
+    /// SetPlaybackList に startTrack を渡した場合、IAudioService.SetPlaylist へ開始トラックが正しく伝播されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SetPlaybackList_startTrack指定時_AudioServiceのSetPlaylistに開始トラックが渡される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var tracks = Enumerable.Range(1, 9)
+            .Select(i => new Track { FilePath = $@"C:\Music\track{i}.mp3", Title = $"Track {i}", TrackNumber = (uint)i })
+            .ToList();
+        var startTrack = tracks[6]; // 7曲目
+
+        // Act
+        sut.SetPlaybackList(tracks, "Album A", "Artist A", updateAudioService: true, startTrack: startTrack);
+
+        // Assert
+        _audioServiceMock.Verify(
+            a => a.SetPlaylist(
+                It.Is<List<Track>>(l => l.Count == 9),
+                It.Is<Track?>(t => ReferenceEquals(t, startTrack))),
+            Times.Once);
+        Assert.Equal(9, sut.PlaybackListTracks.Count);
+        Assert.Empty(sut.PlayQueue);
+    }
+
+    /// <summary>
+    /// SetPlaybackList で updateAudioService に false を指定した際、既存の PlayQueue（未再生キュー）が全曲リストで上書きされないことを検証します。
+    /// </summary>
+    [Fact]
+    public void SetPlaybackList_updateAudioServiceがFalseの場合_PlayQueueが全曲で上書きされない()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var tracks = Enumerable.Range(1, 5)
+            .Select(i => new Track { FilePath = $@"C:\Music\track{i}.mp3", Title = $"Track {i}", TrackNumber = (uint)i })
+            .ToList();
+        sut.PlayQueue = new ObservableCollection<Track> { tracks[3], tracks[4] }; // 4〜5曲目のみ未再生
+
+        // Act
+        sut.SetPlaybackList(tracks, "Album A", "Artist A", updateAudioService: false);
+
+        // Assert
+        _audioServiceMock.Verify(a => a.SetPlaylist(It.IsAny<List<Track>>(), It.IsAny<Track?>()), Times.Never);
+        Assert.Equal(5, sut.PlaybackListTracks.Count);
+        Assert.Equal(new[] { "Track 4", "Track 5" }, sut.PlayQueue.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// アルバム（9曲）の途中曲・先頭曲・最終曲を PlayTrackCommand および TrackPlayHandler 経由で再生した際、
+    /// AlbumQueue および PlayQueue に選択曲の後続トラックのみが格納され、選択曲より前と選択曲自身が含まれないことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(6, new[] { "Track 8", "Track 9" })]
+    [InlineData(8, new string[0])]
+    [InlineData(0, new[] { "Track 2", "Track 3", "Track 4", "Track 5", "Track 6", "Track 7", "Track 8", "Track 9" })]
+    public void PlayTrackCommand_TrackPlayHandler経由でアルバム途中曲を再生時_後続トラックのみがキューに格納される(
+        int startIndex,
+        string[] expectedQueueTitles)
+    {
+        // Arrange
+        using var audioService = new AudioEffector.Infrastructure.Audio.AudioService();
+        using var sut = new PlayerControlViewModel(
+            audioService,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var albumTracks = Enumerable.Range(1, 9)
+            .Select(i => new Track { FilePath = $@"C:\Music\album_{i}.mp3", Title = $"Track {i}", TrackNumber = (uint)i })
+            .ToList();
+
+        sut.TrackPlayHandler = track =>
+        {
+            sut.SetPlaybackList(albumTracks, "Test Album", "Test Artist", startTrack: track);
+            return false;
+        };
+
+        var targetTrack = albumTracks[startIndex];
+
+        // Act
+        sut.PlayTrackCommand.Execute(targetTrack);
+
+        // Assert
+        Assert.Equal(targetTrack.Title, sut.CurrentTrack?.Title);
+        Assert.Equal(expectedQueueTitles, sut.AlbumQueue.Select(t => t.Title).ToArray());
+        Assert.Equal(expectedQueueTitles, sut.PlayQueue.Select(t => t.Title).ToArray());
+        Assert.DoesNotContain(sut.AlbumQueue, t => t.Title == targetTrack.Title);
+    }
+
+    /// <summary>
+    /// LibraryViewModel 経由でアルバムの途中曲を再生し、PlaybackRequested ハンドラで SetPlaybackList(updateAudioService: false) を呼んだ際、
+    /// AudioService.SetPlaylist が二重呼び出しされず後続曲のみがキューに残ることを検証します。
+    /// </summary>
+    [Fact]
+    public void LibraryViewModel経由の途中曲再生_updateAudioServiceFalse連携時_SetPlaylistが二重呼び出しされず後続曲のみが残る()
+    {
+        // Arrange
+        var trackRepoMock = new Mock<AudioEffector.Domain.Repositories.ITrackRepository>();
+        var favoriteRepoMock = new Mock<AudioEffector.Domain.Repositories.IFavoriteRepository>();
+        var libraryService = new LibraryApplicationService(
+            trackRepoMock.Object,
+            favoriteRepoMock.Object,
+            new AudioEffector.Infrastructure.Library.TagLibMetadataExtractor(),
+            _eventBus);
+
+        using var audioService = new AudioEffector.Infrastructure.Audio.AudioService();
+        int setPlaylistCallCount = 0;
+        var countingAudioServiceMock = new Mock<IAudioService>();
+        countingAudioServiceMock
+            .Setup(a => a.SetPlaylist(It.IsAny<List<Track>>(), It.IsAny<Track?>()))
+            .Callback<List<Track>, Track?>((tracks, start) =>
+            {
+                setPlaylistCallCount++;
+                audioService.SetPlaylist(tracks, start);
+            });
+        countingAudioServiceMock
+            .Setup(a => a.PlayTrack(It.IsAny<Track>()))
+            .Callback<Track>(t => audioService.PlayTrack(t));
+        countingAudioServiceMock.SetupGet(a => a.UserQueue).Returns(() => audioService.UserQueue);
+        countingAudioServiceMock.SetupGet(a => a.AlbumQueue).Returns(() => audioService.AlbumQueue);
+        audioService.PlaylistChanged += list => countingAudioServiceMock.Raise(a => a.PlaylistChanged += null, list);
+        audioService.TrackChanged += t =>
+        {
+            if (t != null)
+            {
+                countingAudioServiceMock.Raise(a => a.TrackChanged += null, t);
+            }
+        };
+
+        using var playerControl = new PlayerControlViewModel(
+            countingAudioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        using var sut = new LibraryViewModel(libraryService, countingAudioServiceMock.Object, _settingsServiceMock.Object);
+
+        var albumTracks = Enumerable.Range(1, 9)
+            .Select(i => new Track { FilePath = $@"C:\Music\lib_{i}.mp3", Title = $"Track {i}", Album = "Album X", Artist = "Artist X", TrackNumber = (uint)i })
+            .ToList();
+        var album = new Album { Title = "Album X", Artist = "Artist X" };
+        foreach (var t in albumTracks)
+        {
+            album.Tracks.Add(t);
+        }
+        sut.Albums.Add(album);
+
+        sut.PlaybackRequested += (tracks, _, name, subtitle) =>
+        {
+            playerControl.SetPlaybackList(tracks, name, subtitle, updateAudioService: false);
+        };
+
+        // Act - 7曲目から再生開始
+        sut.PlayTrackCommand.Execute(albumTracks[6]);
+
+        // Assert - SetPlaylist は 1 回のみ呼ばれ、8〜9曲目のみがキューに残ること
+        Assert.Equal(1, setPlaylistCallCount);
+        Assert.Equal(new[] { "Track 8", "Track 9" }, playerControl.AlbumQueue.Select(t => t.Title).ToArray());
+        Assert.Equal(new[] { "Track 8", "Track 9" }, playerControl.PlayQueue.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// 既に再生中の同一トラックを PlayTrackCommand で指定した際、TrackPlayHandler でキューを再構築せず TogglePlayPause のみを呼ぶことを検証します。
+    /// </summary>
+    [Fact]
+    public void PlayTrackCommand_現在再生中と同一トラック指定時_キューを再構築せずTogglePlayPauseが呼ばれる()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track = new Track { FilePath = @"C:\Music\same.mp3", Title = "Same Track" };
+        sut.CurrentTrack = track;
+        bool handlerCalled = false;
+        sut.TrackPlayHandler = _ =>
+        {
+            handlerCalled = true;
+            return false;
+        };
+
+        // Act
+        sut.PlayTrackCommand.Execute(track);
+
+        // Assert
+        Assert.False(handlerCalled);
+        _audioServiceMock.Verify(a => a.TogglePlayPause(), Times.Once);
+        _audioServiceMock.Verify(a => a.PlayTrack(It.IsAny<Track>()), Times.Never);
     }
 }
 

@@ -534,11 +534,10 @@ namespace AudioEffector.Presentation.ViewModels
                 };
                 Playlist.PlaybackRequested += (tracks, name, subtitle) =>
                 {
-                    PlayQueue = new ObservableCollection<Track>(tracks);
                     PlaybackListName = name;
                     PlaybackListSubtitle = subtitle;
                     PlaybackListTracks = new ObservableCollection<Track>(tracks);
-                    PlayerControl?.SetPlaybackList(tracks, name, subtitle);
+                    PlayerControl?.SetPlaybackList(tracks, name, subtitle, updateAudioService: false);
                 };
                 Playlist.FavoriteRemovalRequested += track =>
                 {
@@ -592,13 +591,13 @@ namespace AudioEffector.Presentation.ViewModels
                 {
                     if (IsPlaylistTracksVisible && Playlist is { PlaylistTracks.Count: > 0 } playlistViewModel && playlistViewModel.PlaylistTracks.Contains(track))
                     {
-                        PlayerControl.SetPlaybackList(playlistViewModel.PlaylistTracks, playlistViewModel.CurrentPlaylistName, playlistViewModel.IsFavoritesView ? "Selected You" : "Playlist");
+                        PlayerControl.SetPlaybackList(playlistViewModel.PlaylistTracks, playlistViewModel.CurrentPlaylistName, playlistViewModel.IsFavoritesView ? "Selected You" : "Playlist", startTrack: track);
                         return false;
                     }
                     var album = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
                     if (album != null)
                     {
-                        PlayerControl.SetPlaybackList(album.Tracks, album.Title, album.Artist);
+                        PlayerControl.SetPlaybackList(album.Tracks, album.Title, album.Artist, startTrack: track);
                         return false;
                     }
                     return false;
@@ -636,11 +635,10 @@ namespace AudioEffector.Presentation.ViewModels
             {
                 Library.PlaybackRequested += (tracks, startTrack, name, subtitle) =>
                 {
-                    PlayQueue = new ObservableCollection<Track>(tracks);
                     PlaybackListName = name;
                     PlaybackListSubtitle = subtitle;
                     PlaybackListTracks = new ObservableCollection<Track>(tracks);
-                    PlayerControl?.SetPlaybackList(tracks, name, subtitle);
+                    PlayerControl?.SetPlaybackList(tracks, name, subtitle, updateAudioService: false);
                 };
                 Library.EnqueueRequested += (tracks, playNext) =>
                 {
@@ -2246,11 +2244,10 @@ namespace AudioEffector.Presentation.ViewModels
                                         startTrack = tracks.First();
                                     }
 
-                                    PlayQueue = new ObservableCollection<Track>(tracks);
                                     PlaybackListName = nextAlbum.Title;
                                     PlaybackListSubtitle = nextAlbum.Artist;
                                     PlaybackListTracks = new ObservableCollection<Track>(tracks);
-                                    PlayerControl?.SetPlaybackList(tracks, nextAlbum.Title, nextAlbum.Artist);
+                                    PlayerControl?.SetPlaybackList(tracks, nextAlbum.Title, nextAlbum.Artist, updateAudioService: false);
 
                                     _audioService.SetPlaylist(tracks, startTrack);
                                     _audioService.PlayTrack(startTrack);
@@ -2414,7 +2411,6 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void OnAllSongsPlaybackRequested(IReadOnlyList<Track> tracks, Track? startTrack, string name, string subtitle)
         {
-            PlayQueue = new ObservableCollection<Track>(tracks);
             PlaybackListName = name;
             PlaybackListSubtitle = subtitle;
             PlaybackListTracks = new ObservableCollection<Track>(tracks);
@@ -2428,7 +2424,6 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void OnArtistsPlaybackRequested(IReadOnlyList<Track> tracks, Track? startTrack, string name, string subtitle)
         {
-            PlayQueue = new ObservableCollection<Track>(tracks);
             PlaybackListName = name;
             PlaybackListSubtitle = subtitle;
             PlaybackListTracks = new ObservableCollection<Track>(tracks);
@@ -2442,7 +2437,6 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void OnRecentPlaybackRequested(IReadOnlyList<Track> tracks, Track? startTrack, string name, string subtitle)
         {
-            PlayQueue = new ObservableCollection<Track>(tracks);
             PlaybackListName = name;
             PlaybackListSubtitle = subtitle;
             PlaybackListTracks = new ObservableCollection<Track>(tracks);
