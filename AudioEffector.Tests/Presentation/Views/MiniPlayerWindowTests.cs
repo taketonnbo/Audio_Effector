@@ -1208,4 +1208,81 @@ public sealed class MiniPlayerWindowTests
             }
         });
     }
+
+    /// <summary>
+    /// MiniPlayerWindow の横長および正方形（回転ON/OFF）の各アルバムアート Image が
+    /// 高解像度ソース（NowPlayingImage）へバインドされ、RenderOptions.BitmapScalingMode="HighQuality" が適用されており、
+    /// バインディングエラーが発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerWindow_アルバムアート表示_全ImageがNowPlayingImageバインドかつHighQualityスケーリングであること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = new ResourceDictionary
+            {
+                Source = new Uri("/AudioEffector;component/Presentation/Themes/DarkTheme.xaml", UriKind.Relative)
+            };
+
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+            {
+                MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                MiniPlayerRotateAlbumArt = true
+            });
+
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+            var highResBitmap = new System.Windows.Media.Imaging.WriteableBitmap(500, 500, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null);
+            highResBitmap.Freeze();
+            playerVm.NowPlayingImage = highResBitmap;
+
+            using var listener = new BindingErrorTraceListener();
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+            sut.Resources.MergedDictionaries.Add(themeDict);
+
+            try
+            {
+                // Act
+                sut.Show();
+                sut.UpdateLayout();
+                PumpDispatcher();
+
+                var standardImage = Assert.IsType<Image>(sut.FindName("StandardAlbumArtImage"));
+                var squareCircularImage = Assert.IsType<Image>(sut.FindName("SquareCircularAlbumArtImage"));
+                var squareStaticImage = Assert.IsType<Image>(sut.FindName("SquareStaticAlbumArtImage"));
+
+                // Assert
+                Assert.Same(highResBitmap, standardImage.Source);
+                Assert.Same(highResBitmap, squareCircularImage.Source);
+                Assert.Same(highResBitmap, squareStaticImage.Source);
+
+                Assert.Equal(System.Windows.Media.BitmapScalingMode.HighQuality, System.Windows.Media.RenderOptions.GetBitmapScalingMode(standardImage));
+                Assert.Equal(System.Windows.Media.BitmapScalingMode.HighQuality, System.Windows.Media.RenderOptions.GetBitmapScalingMode(squareCircularImage));
+                Assert.Equal(System.Windows.Media.BitmapScalingMode.HighQuality, System.Windows.Media.RenderOptions.GetBitmapScalingMode(squareStaticImage));
+
+                // Act: NowPlayingImage を null に戻した際もエラーなくクリアされること
+                playerVm.NowPlayingImage = null;
+                PumpDispatcher();
+                Assert.Null(standardImage.Source);
+                Assert.Null(squareCircularImage.Source);
+                Assert.Null(squareStaticImage.Source);
+
+                Assert.False(listener.HasErrors, $"アルバムアートバインディングでエラーが発生しました: {string.Join("; ", listener.Errors)}");
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
 }
