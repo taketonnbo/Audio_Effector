@@ -59,7 +59,7 @@
 - **正方形デザイン（`SquareAlbumArt` / Issue #261）**: 幅 `220px`、通常時高さ `220px`／キュー展開時高さ `470px`。行0の `SquareLayoutGrid`（`218×218px`）に以下のレイヤー構成で配置：
   - **回転ON時（`MiniPlayerRotateAlbumArt == true`）**: 中央に直径 `184×184px` の丸い窓（`SquareCircularArtContainer`、`EllipseGeometry` 円形クリップ）を配置し、内部のアルバムアート（未設定時は `♫` フォールバック）へ `RotateTransform` を適用。
   - **回転OFF時（`MiniPlayerRotateAlbumArt == false`）**: 正方形前面にアルバムアートを静止表示（`SquareStaticAlbumArtContainer`）。
-  - **前面オーバーレイ層（回転しない、`SquareOverlayControlsLayer`）**: 通常時は非表示（`Visibility="Collapsed"`）としてジャケット写真の視認性を維持し、正方形ミニプレイヤーへのマウスオーバー時（またはキーボードフォーカス時）のみ表示する。右上隅に復帰ボタン「`⤢`」（半透明ダーク円形背景）、中央に半透明ダークカプセル（`#B3161920`）で「`⏮`」「`▶` / `⏸`（`AlwaysNeonCyanBrush`）」「`⏭`」を配置。
+  - **前面オーバーレイ層（回転しない、`SquareOverlayControlsLayer`）**: 通常時は非表示（`Visibility="Collapsed"`）としてジャケット写真の視認性を維持し、正方形ミニプレイヤーへのマウスオーバー時のみ表示する（各オーバーレイボタンは `Focusable="False"` とし、クリック後のフォーカス残留による表示継続を防止）。右上隅に復帰ボタン「`⤢`」（半透明ダーク円形背景）、中央に半透明ダークカプセル（`#B3161920`）で「`⏮`」「`▶` / `⏸`（`AlwaysNeonCyanBrush`）」「`⏭`」を配置。
 - **行1（下部連結キュー領域）**: サブヘッダー（タイトル「`再生キュー (件数)`」、全クリアボタン、格納ボタン）とコンテンツ領域（空状態メッセージまたはUI仮想化 `ListBox` `MiniQueueListBox`）。各行は再生ボタン・曲名/アーティスト（クリックで再生）・削除ボタンの3列構成。
 
 ## 4. デザイントークンの適用
