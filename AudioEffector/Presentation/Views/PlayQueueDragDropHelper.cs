@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Windows;
 using AudioEffector.Domain.Entities;
 
@@ -72,8 +73,8 @@ public static class PlayQueueDragDropHelper
     }
 
     /// <summary>
-    /// 挿入位置（0〜targetItemCount）から、実際の移動先インデックスを計算します。
-    /// 移動が不要または不許可の場合は -1 を返します。
+    /// 挿入位置（0〜targetItemCount）から、実際の移動先インデックスを計算します
+    /// 移動が不要または不許可の場合は -1 を返します
     /// </summary>
     /// <param name="sourceSection">ドラッグ元のセクション</param>
     /// <param name="sourceIndex">ドラッグ元のインデックス</param>
@@ -109,6 +110,44 @@ public static class PlayQueueDragDropHelper
 
         // セクション間移動（AlbumQueue -> UserQueue）は元リストと別コレクションのため補正不要
         return Math.Clamp(rawInsertIndex, 0, Math.Max(0, targetItemCount));
+    }
+
+    /// <summary>
+    /// ドロップ時点のコレクション状態から、ドラッグ元トラックの最新インデックスを再解決します
+    /// ドラッグ中の非同期キュー変化により元の位置がずれた場合は、最も近い一致要素のインデックスを返します
+    /// </summary>
+    /// <param name="currentItems">ドロップ時点の移動元コレクション</param>
+    /// <param name="originalIndex">ドラッグ開始時のインデックス</param>
+    /// <param name="draggedTrack">ドラッグ対象のトラック</param>
+    /// <returns>最新のインデックス。対象トラックがキューから消失している場合は -1</returns>
+    public static int ResolveCurrentSourceIndex(IList currentItems, int originalIndex, Track draggedTrack)
+    {
+        if (currentItems == null || draggedTrack == null || currentItems.Count == 0)
+        {
+            return -1;
+        }
+
+        if (originalIndex >= 0 && originalIndex < currentItems.Count && ReferenceEquals(currentItems[originalIndex], draggedTrack))
+        {
+            return originalIndex;
+        }
+
+        int bestIndex = -1;
+        int bestDistance = int.MaxValue;
+        for (int i = 0; i < currentItems.Count; i++)
+        {
+            if (ReferenceEquals(currentItems[i], draggedTrack))
+            {
+                int distance = Math.Abs(i - originalIndex);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    bestIndex = i;
+                }
+            }
+        }
+
+        return bestIndex;
     }
 }
 
