@@ -401,8 +401,18 @@
                                     <!-- Header -->
                                     <Border Background="{DynamicResource ControlBackgroundBrush}" Padding="10,6" Margin="8,2,8,4" CornerRadius="4">
                                         <Grid>
-                                            <TextBlock Text="{Binding AlbumQueueTitle}" FontSize="12" FontWeight="Bold" Foreground="{DynamicResource TextForegroundBrush}" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock HorizontalAlignment="Right"
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding AlbumQueueTitle}"
+                                                       FontSize="12" FontWeight="Bold"
+                                                       Foreground="{DynamicResource TextForegroundBrush}"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center"
+                                                       Margin="0,0,8,0"/>
+                                            <TextBlock Grid.Column="1"
                                                        Text="{Binding AlbumQueue.Count, StringFormat='{}残り {0} 曲'}"
                                                        FontSize="11" Foreground="{DynamicResource MutedTextForegroundBrush}" VerticalAlignment="Center"/>
                                         </Grid>
