@@ -14,6 +14,8 @@ namespace AudioEffector.Presentation.Views;
 /// </summary>
 public partial class LibraryView : UserControl
 {
+    private Border? _pressedTrackRow;
+
     /// <summary>
     /// インスタンスを初期化します
     /// </summary>
@@ -41,11 +43,35 @@ public partial class LibraryView : UserControl
     }
 
     /// <summary>
-    /// リスト表示の展開楽曲行クリック時、子ボタン・チェックボックス以外の領域であれば楽曲を再生します
+    /// リスト表示の展開楽曲行で左ボタンが押下された際、子ボタン・チェックボックス以外の領域であれば押下行を記録します
+    /// </summary>
+    private void ListTrackRow_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _pressedTrackRow = ShouldTriggerRowPlay(e.OriginalSource as DependencyObject)
+            ? sender as Border
+            : null;
+    }
+
+    /// <summary>
+    /// 押下中の展開楽曲行からカーソルが離れた場合、ドラッグキャンセル扱いとして押下記録をクリアします
+    /// </summary>
+    private void ListTrackRow_MouseLeave(object sender, MouseEventArgs e)
+    {
+        if (ReferenceEquals(_pressedTrackRow, sender))
+        {
+            _pressedTrackRow = null;
+        }
+    }
+
+    /// <summary>
+    /// リスト表示の展開楽曲行クリック時、同一行上での押下・離上かつ子ボタン・チェックボックス以外の領域であれば楽曲を再生します
     /// </summary>
     private void ListTrackRow_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (!ShouldTriggerRowPlay(e.OriginalSource as DependencyObject))
+        var pressedRow = _pressedTrackRow;
+        _pressedTrackRow = null;
+
+        if (!ReferenceEquals(pressedRow, sender) || !ShouldTriggerRowPlay(e.OriginalSource as DependencyObject))
         {
             return;
         }

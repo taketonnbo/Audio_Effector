@@ -541,7 +541,9 @@
                                                     <Border x:Name="TrackRowBorder"
                                                             Style="{StaticResource ListTrackRowBorderStyle}"
                                                             Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                            MouseLeftButtonUp="ListTrackRow_MouseLeftButtonUp">
+                                                            MouseLeftButtonDown="ListTrackRow_MouseLeftButtonDown"
+                                                            MouseLeftButtonUp="ListTrackRow_MouseLeftButtonUp"
+                                                            MouseLeave="ListTrackRow_MouseLeave">
                                                         <Border.ContextMenu>
                                                             <ContextMenu>
                                                                 <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}">
@@ -707,23 +709,37 @@
                                                                        Margin="4,0"/>
 
                                                             <!-- フォーマット / 音質バッジ -->
-                                                            <StackPanel Grid.Column="6"
+                                                            <StackPanel x:Name="TrackQualityPanel"
+                                                                        Grid.Column="6"
                                                                         Orientation="Horizontal"
                                                                         HorizontalAlignment="Center"
                                                                         VerticalAlignment="Center"
                                                                         ToolTip="{Binding QualityInfo}">
-                                                                <Border Background="{DynamicResource ControlBackgroundBrush}"
+                                                                <Border x:Name="TrackFormatBadge"
+                                                                        Background="{DynamicResource ControlBackgroundBrush}"
                                                                         BorderBrush="{DynamicResource BorderBrush}"
                                                                         BorderThickness="1"
                                                                         CornerRadius="3"
                                                                         Padding="4,1"
                                                                         VerticalAlignment="Center">
-                                                                    <TextBlock Text="{Binding Format}"
+                                                                    <Border.Style>
+                                                                        <Style TargetType="Border">
+                                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding Format}" Value="">
+                                                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                </DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Border.Style>
+                                                                    <TextBlock x:Name="TrackFormatText"
+                                                                               Text="{Binding Format}"
                                                                                Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                                                                                FontSize="10"
                                                                                FontWeight="SemiBold"/>
                                                                 </Border>
-                                                                <Border CornerRadius="3"
+                                                                <Border x:Name="TrackQualityBadge"
+                                                                        CornerRadius="3"
                                                                         BorderThickness="1"
                                                                         Padding="4,1"
                                                                         Margin="4,0,0,0"
@@ -743,7 +759,8 @@
                                                                             </Style.Triggers>
                                                                         </Style>
                                                                     </Border.Style>
-                                                                    <TextBlock Text="{Binding QualityLabel}"
+                                                                    <TextBlock x:Name="TrackQualityText"
+                                                                               Text="{Binding QualityLabel}"
                                                                                FontSize="9"
                                                                                FontWeight="SemiBold">
                                                                         <TextBlock.Style>
