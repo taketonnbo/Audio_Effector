@@ -50,6 +50,27 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <Style TargetType="Button" x:Key="SquareOverlayIconButtonStyle">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#F0F4F8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="19">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#38FFFFFF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Border Background="{DynamicResource WindowBackgroundBrush}"
@@ -59,12 +80,12 @@
             ClipToBounds="True">
         <Grid Background="Transparent">
             <Grid.RowDefinitions>
-                <RowDefinition Height="98"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- Compact Mini Player Header Area -->
-            <Grid Grid.Row="0" Margin="10" Background="Transparent">
+            <!-- Mini Player Header Area (Standard / Square Switchable) -->
+            <Grid x:Name="MiniPlayerHeaderHost" Grid.Row="0" Background="Transparent">
                 <Grid.ContextMenu>
                     <ContextMenu>
                         <MenuItem Command="{Binding ToggleFavoriteCommand}" CommandParameter="{Binding CurrentTrack}">
@@ -100,89 +121,215 @@
                         <MenuItem Header="削除" Command="{Binding DeleteTrackCommand}" CommandParameter="{Binding CurrentTrack}" Foreground="#FF4444" />
                     </ContextMenu>
                 </Grid.ContextMenu>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="78"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
 
-                <!-- Album Art & Track Info (Hover Linked) -->
-                <Grid Grid.Column="0" Grid.ColumnSpan="2" x:Name="MiniPlayerInfoArea" Background="Transparent">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="78"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
+                <!-- Standard Horizontal Layout (350x100) -->
+                <Grid x:Name="StandardLayoutGrid" Height="98" Background="Transparent">
+                    <Grid Margin="10" Background="Transparent">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="78"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                    <!-- Album Art -->
-                    <Border Grid.Column="0" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundHighlightBrush}">
-                        <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
-                    </Border>
+                        <!-- Album Art & Track Info (Hover Linked) -->
+                        <Grid Grid.Column="0" Grid.ColumnSpan="2" x:Name="MiniPlayerInfoArea" Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="78"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
 
-                    <!-- Track Info -->
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,4,0">
-                        <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}"
-                                                   Foreground="{DynamicResource TextForegroundBrush}" FontWeight="Bold" FontSize="14"
-                                                   IsHovered="{Binding IsMouseOver, ElementName=MiniPlayerInfoArea}"/>
-                        <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}"
-                                                   Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" Margin="0,4,0,0"
-                                                   IsHovered="{Binding IsMouseOver, ElementName=MiniPlayerInfoArea}"/>
-                    </StackPanel>
-                </Grid>
+                            <!-- Album Art -->
+                            <Border Grid.Column="0" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundHighlightBrush}">
+                                <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
+                            </Border>
 
-                <!-- Controls -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Command="{Binding PreviousCommand}" Style="{StaticResource IconButtonStyle}" Width="28" Height="28" Margin="1">
-                        <TextBlock Text="⏮" Foreground="{DynamicResource TextForegroundBrush}" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Button>
-                    <Button Command="{Binding TogglePlayPauseCommand}" Style="{StaticResource IconButtonStyle}" Width="34" Height="34" Margin="1">
-                        <TextBlock Text="⏯" Foreground="{DynamicResource NeonCyanBrush}" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Button>
-                    <Button Command="{Binding NextCommand}" Style="{StaticResource IconButtonStyle}" Width="28" Height="28" Margin="1">
-                        <TextBlock Text="⏭" Foreground="{DynamicResource TextForegroundBrush}" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Button>
+                            <!-- Track Info -->
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,4,0">
+                                <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Title, FallbackValue='No Track'}"
+                                                           Foreground="{DynamicResource TextForegroundBrush}" FontWeight="Bold" FontSize="14"
+                                                           IsHovered="{Binding IsMouseOver, ElementName=MiniPlayerInfoArea}"/>
+                                <controls:MarqueeTextBlock Text="{Binding CurrentTrack.Artist, FallbackValue='Unknown Artist'}"
+                                                           Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" Margin="0,4,0,0"
+                                                           IsHovered="{Binding IsMouseOver, ElementName=MiniPlayerInfoArea}"/>
+                            </StackPanel>
+                        </Grid>
 
-                    <!-- Queue Toggle Button -->
-                    <Button x:Name="ToggleQueueButton"
-                            Command="{Binding ToggleMiniPlayerQueueCommand}"
-                            Style="{StaticResource IconButtonStyle}"
-                            Width="26" Height="26" Margin="4,0,0,0">
-                        <Button.ToolTip>
-                            <ToolTip>
-                                <TextBlock>
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Text" Value="再生キューを表示"/>
+                        <!-- Controls -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Command="{Binding PreviousCommand}" Style="{StaticResource IconButtonStyle}" Width="28" Height="28" Margin="1">
+                                <TextBlock Text="⏮" Foreground="{DynamicResource TextForegroundBrush}" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+                            <Button Command="{Binding TogglePlayPauseCommand}" Style="{StaticResource IconButtonStyle}" Width="34" Height="34" Margin="1">
+                                <TextBlock Text="⏯" Foreground="{DynamicResource NeonCyanBrush}" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+                            <Button Command="{Binding NextCommand}" Style="{StaticResource IconButtonStyle}" Width="28" Height="28" Margin="1">
+                                <TextBlock Text="⏭" Foreground="{DynamicResource TextForegroundBrush}" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+
+                            <!-- Queue Toggle Button -->
+                            <Button x:Name="ToggleQueueButton"
+                                    Command="{Binding ToggleMiniPlayerQueueCommand}"
+                                    Style="{StaticResource IconButtonStyle}"
+                                    Width="26" Height="26" Margin="4,0,0,0">
+                                <Button.ToolTip>
+                                    <ToolTip>
+                                        <TextBlock>
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="再生キューを表示"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsMiniPlayerQueueOpen}" Value="True">
+                                                            <Setter Property="Text" Value="再生キューを閉じる"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </ToolTip>
+                                </Button.ToolTip>
+                                <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H15V18H3V16Z"
+                                      Width="13" Height="13" Stretch="Uniform"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Path.Style>
+                                        <Style TargetType="Path">
+                                            <Setter Property="Fill" Value="{DynamicResource TextForegroundBrush}"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsMiniPlayerQueueOpen}" Value="True">
-                                                    <Setter Property="Text" Value="再生キューを閉じる"/>
+                                                    <Setter Property="Fill" Value="{DynamicResource NeonCyanBrush}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
-                            </ToolTip>
-                        </Button.ToolTip>
-                        <Path Data="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H15V18H3V16Z"
-                              Width="13" Height="13" Stretch="Uniform"
-                              HorizontalAlignment="Center" VerticalAlignment="Center">
-                            <Path.Style>
-                                <Style TargetType="Path">
-                                    <Setter Property="Fill" Value="{DynamicResource TextForegroundBrush}"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsMiniPlayerQueueOpen}" Value="True">
-                                            <Setter Property="Fill" Value="{DynamicResource NeonCyanBrush}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Path.Style>
-                        </Path>
-                    </Button>
+                                    </Path.Style>
+                                </Path>
+                            </Button>
 
-                    <!-- Restore Button -->
-                    <Button Click="RestoreButton_Click" Style="{StaticResource IconButtonStyle}" Width="24" Height="24" Margin="2,0,0,0" ToolTip="元に戻す">
-                        <TextBlock Text="⤢" Foreground="{DynamicResource TextForegroundBrush}" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Button>
-                </StackPanel>
+                            <!-- Restore Button -->
+                            <Button Click="RestoreButton_Click" Style="{StaticResource IconButtonStyle}" Width="24" Height="24" Margin="2,0,0,0" ToolTip="元に戻す">
+                                <TextBlock Text="⤢" Foreground="{DynamicResource TextForegroundBrush}" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+
+                <!-- Square Album Art Layout (220x220) -->
+                <Grid x:Name="SquareLayoutGrid"
+                      Width="218"
+                      Height="218"
+                      Visibility="Collapsed"
+                      Background="{DynamicResource WindowBackgroundBrush}"
+                      ClipToBounds="True">
+
+                    <!-- Circular Window with Rotating Album Art (Rotate ON) -->
+                    <Grid x:Name="SquareCircularArtContainer" Visibility="Visible">
+                        <Border Width="184"
+                                Height="184"
+                                CornerRadius="92"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1.5"
+                                Background="{DynamicResource ControlBackgroundHighlightBrush}"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center">
+                            <Grid Width="180" Height="180" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Grid.Clip>
+                                    <EllipseGeometry Center="90,90" RadiusX="90" RadiusY="90"/>
+                                </Grid.Clip>
+                                <Grid x:Name="SquareRotatingArtSurface" RenderTransformOrigin="0.5,0.5">
+                                    <Grid.RenderTransform>
+                                        <RotateTransform x:Name="SquareAlbumArtRotateTransform" Angle="0"/>
+                                    </Grid.RenderTransform>
+                                    <TextBlock Text="♫"
+                                               FontSize="54"
+                                               Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                    <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <!-- Full-Bleed Static Album Art (Rotate OFF) -->
+                    <Grid x:Name="SquareStaticAlbumArtContainer"
+                          Visibility="Collapsed"
+                          Background="{DynamicResource ControlBackgroundHighlightBrush}">
+                        <TextBlock Text="♫"
+                                   FontSize="58"
+                                   Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                        <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
+                    </Grid>
+
+                    <!-- Non-Rotating Overlay Controls -->
+                    <Grid x:Name="SquareOverlayControlsLayer" Panel.ZIndex="2" Background="Transparent">
+                        <!-- Restore Button (Top-Right) -->
+                        <Button x:Name="SquareRestoreButton"
+                                Click="RestoreButton_Click"
+                                Style="{StaticResource SquareOverlayIconButtonStyle}"
+                                Background="#99161920"
+                                Width="26"
+                                Height="26"
+                                Margin="0,8,8,0"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Top"
+                                ToolTip="元に戻す">
+                            <TextBlock Text="⤢"
+                                       Foreground="#F0F4F8"
+                                       FontSize="13"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Button>
+
+                        <!-- Playback Controls Capsule (Centered Inside Circular Window) -->
+                        <Border x:Name="SquarePlaybackControlsOverlay"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Background="#B3161920"
+                                BorderBrush="#40FFFFFF"
+                                BorderThickness="1"
+                                CornerRadius="22"
+                                Padding="6,4">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="SquarePreviousButton"
+                                        Command="{Binding PreviousCommand}"
+                                        Style="{StaticResource SquareOverlayIconButtonStyle}"
+                                        Width="30" Height="30"
+                                        ToolTip="前の曲">
+                                    <TextBlock Text="⏮" Foreground="#F0F4F8" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Button>
+                                <Button x:Name="SquarePlayPauseButton"
+                                        Command="{Binding TogglePlayPauseCommand}"
+                                        Style="{StaticResource SquareOverlayIconButtonStyle}"
+                                        Width="38" Height="38"
+                                        Margin="2,0"
+                                        ToolTip="再生 / 一時停止">
+                                    <TextBlock Foreground="{DynamicResource NeonCyanBrush}"
+                                               FontSize="18"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="▶"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                        <Setter Property="Text" Value="⏸"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Button>
+                                <Button x:Name="SquareNextButton"
+                                        Command="{Binding NextCommand}"
+                                        Style="{StaticResource SquareOverlayIconButtonStyle}"
+                                        Width="30" Height="30"
+                                        ToolTip="次の曲">
+                                    <TextBlock Text="⏭" Foreground="#F0F4F8" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
             </Grid>
 
             <!-- Integrated Bottom-Docked Play Queue Drawer -->
