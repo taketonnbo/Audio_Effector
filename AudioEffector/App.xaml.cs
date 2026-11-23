@@ -20,7 +20,7 @@ public partial class App : System.Windows.Application
     /// <summary>
     /// DIサービスプロバイダー
     /// </summary>
-    public static IServiceProvider? ServiceProvider { get; private set; }
+    public static IServiceProvider? ServiceProvider { get; internal set; }
 
 #if DEBUG
     private AudioEffector.Presentation.Diagnostics.BindingErrorDebugListener? _bindingErrorListener;

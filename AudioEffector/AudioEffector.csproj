@@ -58,4 +58,8 @@
     </Page>
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="AudioEffector.Tests" />
+  </ItemGroup>
+
 </Project>
