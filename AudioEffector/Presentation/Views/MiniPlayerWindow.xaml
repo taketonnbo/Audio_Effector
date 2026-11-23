@@ -260,8 +260,21 @@
                         <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
                     </Grid>
 
-                    <!-- Non-Rotating Overlay Controls -->
+                    <!-- Non-Rotating Overlay Controls (Visible on Hover / Keyboard Focus) -->
                     <Grid x:Name="SquareOverlayControlsLayer" Panel.ZIndex="2" Background="Transparent">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMouseOver, ElementName=SquareLayoutGrid}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=SquareLayoutGrid}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
                         <!-- Restore Button (Top-Right) -->
                         <Button x:Name="SquareRestoreButton"
                                 Click="RestoreButton_Click"
