@@ -34,7 +34,7 @@
 +-------------------------------------------------------------------+
 ```
 
-> **構想要素に関する注記**: ミニプレイヤーの正方形（アルバムアート前面・回転アニメーション）デザイン切替は Issue #261、最小化時のミニプレイヤー非表示設定は Issue #189 にて計画されています。下部連結の再生キュー展開は Issue #217 にて実装済み（旧独立ダイアログ `PlayQueueDialog` は撤廃）。
+> **構想要素に関する注記**: ミニプレイヤーの正方形（アルバムアート前面・回転アニメーション）デザイン切替は Issue #261 にて計画されています。下部連結の再生キュー展開は Issue #217、最小化時のコンパクトプレイヤー非表示設定は Issue #189 にて実装済みです。
 
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
@@ -64,7 +64,7 @@
 
 ## 6. アニメーションとインタラクション
 
-- **起動と座標永続化**: メインウィンドウ最小化時に表示する。`Loaded` 時に `AppSettings.MiniPlayerLeft` / `MiniPlayerTop` から表示座標を復元（仮想スクリーン領域外の場合は画面内へ補正）し、`OnClosed` 時に現在座標を `settings.json` へ保存すると共に `IsMiniPlayerQueueOpen` を `false` にリセットする。
+- **起動と座標永続化**: `AppSettings.DisableMiniPlayerOnMinimize` が `false`（既定）の場合、メインウィンドウ最小化時に表示する（`true` の場合は表示せず OS 標準のタスクバー最小化を維持）。`Loaded` 時に `AppSettings.MiniPlayerLeft` / `MiniPlayerTop` から表示座標を復元（仮想スクリーン領域外の場合は画面内へ補正）し、`OnClosed` 時に現在座標を `settings.json` へ保存すると共に `IsMiniPlayerQueueOpen` を `false` にリセットする。
 - **下部連結キューの展開・格納アニメーション (Issue #217)**: ヘッダーのキュー開閉ボタンまたは右クリックメニューから `ToggleMiniPlayerQueueCommand` で開閉する。展開時は即座に `QueueDrawerContainer.Visibility = Visibility.Visible` としてウィンドウ高さを `100px → 350px`（`220ms`, `CubicEase EaseOut`）へ延長し、格納時は `350px → 100px`（`200ms`, `CubicEase EaseIn`）のアニメーション完了後に `Visibility = Visibility.Collapsed` へ戻す。
 - **移動と復帰**: ウィンドウのドラッグで一体型（連結キュー含む）のまま自由移動し、復帰ボタン「`⤢`」でメイン画面へ復帰する。
 - **最大化ショートカット時の安全復帰 (Issue #72)**: OSの最大化ショートカット（`Win + ↑` / Aero Snap の `WM_WINDOWPOSCHANGING`・`WM_SIZE(SIZE_MAXIMIZED)`・`WM_SYSCOMMAND(SC_MAXIMIZE)`）またはメインウィンドウ側への復元要求を受けた場合は、想定高さ（通常 `100px`／キュー展開時 `350px`）を超える拡大を抑止して閉じ、メイン画面を正常な可視・描画状態でシームレスに復帰する。
