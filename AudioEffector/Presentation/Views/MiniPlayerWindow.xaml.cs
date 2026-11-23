@@ -1,9 +1,11 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
@@ -39,14 +41,20 @@ public partial class MiniPlayerWindow : Window
 
     private const int RESIZE_TOLERANCE_PX = 4;
 
+    private const double CompactHeight = 100.0;
+    private const double ExpandedHeight = 350.0;
+
     private readonly ISettingsService _settingsService;
     private readonly WindowShortcutHandler _shortcutHandler = new();
     private MainViewModel? _subscribedViewModel;
+    private INotifyPropertyChanged? _subscribedQueueStateSource;
     private Action? _settingsUpdatedHandler;
     private MiniPlayerTopmostBehavior _currentBehavior;
     private HwndSource? _hwndSource;
     private double? _lastNormalTop;
     private double? _lastNormalLeft;
+    private double _targetWindowHeight = CompactHeight;
+    private bool _isQueueOpen;
     private bool _isClosingOrRestoring;
     private bool _isRestoringFromMaximize;
     private bool _isClosed;
@@ -110,6 +118,115 @@ public partial class MiniPlayerWindow : Window
         this.Loaded += MiniPlayerWindow_Loaded;
         this.Deactivated += MiniPlayerWindow_Deactivated;
         this.LocationChanged += MiniPlayerWindow_LocationChanged;
+        this.DataContextChanged += MiniPlayerWindow_DataContextChanged;
+    }
+
+    private void MiniPlayerWindow_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        SubscribeQueueStateSource(e.NewValue);
+    }
+
+    private void SubscribeQueueStateSource(object? dataContext)
+    {
+        if (ReferenceEquals(_subscribedQueueStateSource, dataContext))
+        {
+            return;
+        }
+
+        DetachQueueStateSource();
+
+        if (dataContext is INotifyPropertyChanged notifySource)
+        {
+            _subscribedQueueStateSource = notifySource;
+            _subscribedQueueStateSource.PropertyChanged += OnQueueStateSourcePropertyChanged;
+        }
+
+        UpdateQueueDrawerState(GetQueueOpenState(dataContext), animate: false);
+    }
+
+    private void DetachQueueStateSource()
+    {
+        if (_subscribedQueueStateSource != null)
+        {
+            _subscribedQueueStateSource.PropertyChanged -= OnQueueStateSourcePropertyChanged;
+            _subscribedQueueStateSource = null;
+        }
+    }
+
+    private static bool GetQueueOpenState(object? dataContext) => dataContext switch
+    {
+        MainViewModel mainVm => mainVm.IsMiniPlayerQueueOpen,
+        PlayerControlViewModel playerVm => playerVm.IsMiniPlayerQueueOpen,
+        _ => false
+    };
+
+    private void OnQueueStateSourcePropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.IsMiniPlayerQueueOpen))
+        {
+            UpdateQueueDrawerState(GetQueueOpenState(sender), animate: this.IsLoaded);
+        }
+    }
+
+    private void UpdateQueueDrawerState(bool isOpen, bool animate)
+    {
+        if (_isClosed)
+        {
+            return;
+        }
+
+        _isQueueOpen = isOpen;
+        double targetHeight = isOpen ? ExpandedHeight : CompactHeight;
+        _targetWindowHeight = targetHeight;
+
+        if (isOpen)
+        {
+            QueueDrawerContainer.Visibility = Visibility.Visible;
+            QueueDrawerContainer.IsHitTestVisible = true;
+        }
+
+        if (!animate || !this.IsLoaded)
+        {
+            BeginAnimation(HeightProperty, null);
+            this.Height = targetHeight;
+            if (!isOpen)
+            {
+                QueueDrawerContainer.Visibility = Visibility.Collapsed;
+                QueueDrawerContainer.IsHitTestVisible = false;
+            }
+            return;
+        }
+
+        double fromHeight = this.ActualHeight > 0 ? this.ActualHeight : this.Height;
+        var animation = new DoubleAnimation
+        {
+            From = fromHeight,
+            To = targetHeight,
+            Duration = TimeSpan.FromMilliseconds(isOpen ? 220 : 200),
+            EasingFunction = new CubicEase { EasingMode = isOpen ? EasingMode.EaseOut : EasingMode.EaseIn }
+        };
+
+        animation.Completed += (_, _) =>
+        {
+            if (_isClosed)
+            {
+                return;
+            }
+
+            if (_isQueueOpen == isOpen)
+            {
+                BeginAnimation(HeightProperty, null);
+                this.Height = targetHeight;
+
+                if (!isOpen)
+                {
+                    QueueDrawerContainer.Visibility = Visibility.Collapsed;
+                    QueueDrawerContainer.IsHitTestVisible = false;
+                }
+            }
+        };
+
+        BeginAnimation(HeightProperty, animation);
     }
 
     private void MiniPlayerWindow_Loaded(object sender, RoutedEventArgs e)
@@ -124,6 +241,8 @@ public partial class MiniPlayerWindow : Window
             _settingsUpdatedHandler = () => _shortcutHandler.UpdateSettings(_settingsService.LoadSettings());
             _subscribedViewModel.SettingsUpdated += _settingsUpdatedHandler;
         }
+
+        SubscribeQueueStateSource(this.DataContext);
 
         _currentBehavior = settings.MiniPlayerTopmostBehavior;
         ApplyTopmostBehavior();
@@ -287,7 +406,8 @@ public partial class MiniPlayerWindow : Window
 
         DpiScale dpi = VisualTreeHelper.GetDpi(this);
         int expectedWidthPx = (int)Math.Round(this.Width * dpi.DpiScaleX);
-        int expectedHeightPx = (int)Math.Round(this.Height * dpi.DpiScaleY);
+        double allowedHeight = Math.Max(this.Height, _targetWindowHeight);
+        int expectedHeightPx = (int)Math.Round(allowedHeight * dpi.DpiScaleY);
 
         return widthPx > expectedWidthPx + RESIZE_TOLERANCE_PX || heightPx > expectedHeightPx + RESIZE_TOLERANCE_PX;
     }
@@ -363,7 +483,7 @@ public partial class MiniPlayerWindow : Window
 
     private void Window_MouseLeftButtonDown(object? sender, MouseButtonEventArgs e)
     {
-        if (e.ButtonState == MouseButtonState.Pressed)
+        if (e.ChangedButton == MouseButton.Left && e.ButtonState == MouseButtonState.Pressed)
         {
             this.DragMove();
         }
@@ -383,6 +503,16 @@ public partial class MiniPlayerWindow : Window
         _isClosed = true;
         _isClosingOrRestoring = true;
         DetachSettingsUpdatedHandler();
+        DetachQueueStateSource();
+
+        if (this.DataContext is MainViewModel closingMainVm && closingMainVm.IsMiniPlayerQueueOpen)
+        {
+            closingMainVm.IsMiniPlayerQueueOpen = false;
+        }
+        else if (this.DataContext is PlayerControlViewModel closingPlayerVm && closingPlayerVm.IsMiniPlayerQueueOpen)
+        {
+            closingPlayerVm.IsMiniPlayerQueueOpen = false;
+        }
 
         if (_hwndSource != null)
         {
