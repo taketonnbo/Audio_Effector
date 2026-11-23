@@ -303,7 +303,7 @@
                                         Width="38" Height="38"
                                         Margin="2,0"
                                         ToolTip="再生 / 一時停止">
-                                    <TextBlock Foreground="{DynamicResource NeonCyanBrush}"
+                                    <TextBlock Foreground="{DynamicResource AlwaysNeonCyanBrush}"
                                                FontSize="18"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center">
