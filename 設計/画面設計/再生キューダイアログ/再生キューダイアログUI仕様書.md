@@ -1,4 +1,7 @@
-# 再生キューダイアログ UI仕様書
+# 再生キューダイアログ UI仕様書（廃止）
+
+> [!WARNING]
+> **廃止済み（Issue #217）**: 独立ウィンドウダイアログ `PlayQueueDialog`（`PlayQueueDialog.xaml` / `PlayQueueDialog.xaml.cs`）は Issue #217 にて完全撤廃され、[ミニプレイヤーUI仕様書](../ミニプレイヤー/ミニプレイヤーUI仕様書.md) の下部連結再生キュー領域へ統合されました。本書は履歴参照用として残しています。
 
 ## 1. 概要 (Overview)
 
@@ -71,9 +74,8 @@
 
 ## 8. 関連Issue・仕様書
 
-- [PlayQueueDialog.xaml](../../../AudioEffector/Presentation/Views/PlayQueueDialog.xaml)
+- [ミニプレイヤーUI仕様書](../ミニプレイヤー/ミニプレイヤーUI仕様書.md)（統合先）
+- [再生キュースライドパネルUI仕様書](../再生キュースライドパネル/再生キュースライドパネルUI仕様書.md)
 - [ユースケース](../../ユースケース/01_楽曲再生・再生制御.md)
 - [主要オブジェクト一覧](../../主要オブジェクト/index.md)
-- [デザイントークン](../../デザインシステム/01_デザイントークン仕様書.md)・[共通コントロール](../../デザインシステム/02_共通コントロールスタイル仕様書.md)
-- [コードビハインド](../../../AudioEffector/Presentation/Views/PlayQueueDialog.xaml.cs)
 - [PlayerControlViewModel](../../../AudioEffector/Presentation/ViewModels/PlayerControlViewModel.cs)

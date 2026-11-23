@@ -12,7 +12,7 @@
 > **コレクション / シングル構成**:
 > - **コレクション表示**:
 >   1. `PlayQueueSidePanel.xaml`: メインウィンドウ右端に最前面オーバーレイとして配置され、開閉ボタン操作で右からスライドイン表示される専用サイドパネル（非表示時は `Visibility="Collapsed"`）。「再生リスト」タブ（`UserQueue` セクション＋`AlbumQueue` セクション）と「履歴」タブ（`PlayHistory`、インメモリ最大100件）の2タブ構成。
->   2. `PlayQueueDialog.xaml`: 独立ウィンドウとして `PlayQueue` 一覧を表示するダイアログ（単一インスタンス管理。Issue #217 にてミニプレイヤー下部連結へ統合予定）。
+>   2. `MiniPlayerWindow.xaml`（下部連結キュー領域）: ミニプレイヤー下部に一体型として延長展開される軽量 `ListBox`（UI仮想化対応、格納時は `Visibility="Collapsed"`）。旧独立ダイアログ `PlayQueueDialog` は Issue #217 にて撤廃・統合済み。
 > - **シングル表示**:
 >   - 現在再生中の楽曲（`CurrentTrack`）は未再生キュー一覧からは除外され、メイン画面右側パネルまたは上部プレイヤーバーに表示される。
 
@@ -29,6 +29,7 @@
 | **HasUserQueue / HasAlbumQueue** | `bool` | 各セクションの表示有無フラグ | ○ | `PlayerControlViewModel.HasUserQueue`, `HasAlbumQueue` |
 | **AlbumQueueTitle** | `string` | アルバム残り曲セクションの見出し（`次のアルバムから: <名>` 等） | ○ | `PlayerControlViewModel.AlbumQueueTitle` |
 | **IsPlayQueuePanelOpen** | `bool` | スライドパネルの開閉状態 | - | `MainViewModel.IsPlayQueuePanelOpen` |
+| **IsMiniPlayerQueueOpen** | `bool` | ミニプレイヤー下部連結キューの開閉状態 | - | `PlayerControlViewModel.IsMiniPlayerQueueOpen` / `MainViewModel.IsMiniPlayerQueueOpen` |
 
 ## 4. アクション（操作）定義
 
@@ -43,6 +44,7 @@
 | **1曲削除（キュー/履歴）** | Remove | 各行の「✕」ボタン、または右クリック「キューから削除」「履歴から削除」 | 該当トラックをキューまたは履歴から除外 | 実装済み | `RemoveFromQueueCommand`, `RemoveFromHistoryCommand` |
 | **現在タブの全クリア** | Clear Current Tab | パネルヘッダー右上のゴミ箱アイコン押下 | 選択中タブに応じてキュー全消去（＋再生停止）または履歴全消去 | 実装済み | `ClearCurrentTabCommand` (`ClearQueueCommand` / `ClearHistoryCommand`) |
 | **D&D並び替え** | Reorder | キュー行のドラッグ＆ドロップ操作 | セクション内並び替えおよび `AlbumQueue` → `UserQueue` 昇格移動を `IAudioService` と即時同期 | 実装済み | `MoveUserQueueItem` / `MoveAlbumQueueItem` / `MoveAlbumQueueItemToUserQueue` ([PlayQueueSidePanel.xaml.cs](../../AudioEffector/Presentation/Views/PlayQueueSidePanel.xaml.cs)) |
+| **ミニプレイヤーキュー開閉** | Toggle / Close | ミニプレイヤーのキューボタンまたは右クリックメニュー操作 | ミニプレイヤー下部にキュー領域を延長展開（100px ↔ 350px）または格納 | 実装済み | `ToggleMiniPlayerQueueCommand`, `CloseMiniPlayerQueueCommand` ([PlayerControlViewModel.cs](../../AudioEffector/Presentation/ViewModels/PlayerControlViewModel.cs)) |
 
 ## 5. 拡張設計指針
-- **ミニプレイヤー下部への再生キュー連結（Issue #217）**: ミニプレイヤーから再生キューを展開する際、別ウィンドウ（`PlayQueueDialog`）ではなくミニプレイヤー下部に一体型として連結展開するUIへの統合。
+- **ミニプレイヤー連結キューの機能拡張**: 必要に応じてミニプレイヤー側でも予約キュー／アルバム残り曲のセクション表示や並び替え操作へ拡張可能。
