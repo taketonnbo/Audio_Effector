@@ -140,7 +140,10 @@
 
                             <!-- Album Art -->
                             <Border Grid.Column="0" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundHighlightBrush}">
-                                <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
+                                <Image x:Name="StandardAlbumArtImage"
+                                       Source="{Binding NowPlayingImage}"
+                                       Stretch="UniformToFill"
+                                       RenderOptions.BitmapScalingMode="HighQuality"/>
                             </Border>
 
                             <!-- Track Info -->
@@ -242,7 +245,10 @@
                                                Foreground="{DynamicResource MutedTextForegroundBrush}"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
-                                    <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
+                                    <Image x:Name="SquareCircularAlbumArtImage"
+                                           Source="{Binding NowPlayingImage}"
+                                           Stretch="UniformToFill"
+                                           RenderOptions.BitmapScalingMode="HighQuality"/>
                                 </Grid>
                             </Grid>
                         </Border>
@@ -257,7 +263,10 @@
                                    Foreground="{DynamicResource MutedTextForegroundBrush}"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
-                        <Image Source="{Binding CurrentTrack.AlbumArt}" Stretch="UniformToFill"/>
+                        <Image x:Name="SquareStaticAlbumArtImage"
+                               Source="{Binding NowPlayingImage}"
+                               Stretch="UniformToFill"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Grid>
 
                     <!-- Non-Rotating Overlay Controls (Visible on Hover / Keyboard Focus) -->
