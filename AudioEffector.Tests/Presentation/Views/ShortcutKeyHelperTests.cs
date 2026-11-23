@@ -97,8 +97,6 @@ public sealed class ShortcutKeyHelperTests
     [InlineData(ShortcutKeyHelper.APPCOMMAND_MEDIA_NEXTTRACK, Key.MediaNextTrack)]
     [InlineData(ShortcutKeyHelper.APPCOMMAND_MEDIA_PREVIOUSTRACK, Key.MediaPreviousTrack)]
     [InlineData(ShortcutKeyHelper.APPCOMMAND_VOLUME_MUTE, Key.VolumeMute)]
-    [InlineData(ShortcutKeyHelper.APPCOMMAND_VOLUME_UP, Key.VolumeUp)]
-    [InlineData(ShortcutKeyHelper.APPCOMMAND_VOLUME_DOWN, Key.VolumeDown)]
     public void TryMapAppCommandToKey_サポート対象のコマンドの場合_対応するメディアキーを返すこと(int appCommand, Key expectedKey)
     {
         // Arrange
@@ -112,6 +110,22 @@ public sealed class ShortcutKeyHelperTests
         Assert.Equal(appCommand, extracted);
         Assert.True(mapped);
         Assert.Equal(expectedKey, actualKey);
+    }
+
+    /// <summary>
+    /// ハードウェアの音量上げ・音量下げコマンドは OS のシステム音量操作へ委譲するため対象外と判定されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(ShortcutKeyHelper.APPCOMMAND_VOLUME_UP)]
+    [InlineData(ShortcutKeyHelper.APPCOMMAND_VOLUME_DOWN)]
+    public void TryMapAppCommandToKey_システム音量増減コマンドの場合_対象外としてFalseを返すこと(int appCommand)
+    {
+        // Arrange & Act
+        bool mapped = ShortcutKeyHelper.TryMapAppCommandToKey(appCommand, out Key actualKey);
+
+        // Assert
+        Assert.False(mapped);
+        Assert.Equal(Key.None, actualKey);
     }
 
     /// <summary>

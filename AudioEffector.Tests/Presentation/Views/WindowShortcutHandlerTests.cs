@@ -80,7 +80,7 @@ public sealed class WindowShortcutHandlerTests
     }
 
     /// <summary>
-    /// カスタムショートカット未設定時でも、WM_APPCOMMAND の各メディアコマンドが対応する再生・音量コマンドを実行することを検証します。
+    /// カスタムショートカット未設定時でも、WM_APPCOMMAND の再生制御・ミュートコマンドが対応するコマンドを実行することを検証します。
     /// </summary>
     [Fact]
     public void HandleAppCommandCode_各種メディアコマンド受信時_対応するコマンドを実行すること()
@@ -96,8 +96,6 @@ public sealed class WindowShortcutHandlerTests
         Assert.True(sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_MEDIA_NEXTTRACK, target));
         Assert.True(sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_MEDIA_PREVIOUSTRACK, target));
         Assert.True(sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_VOLUME_MUTE, target));
-        Assert.True(sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_VOLUME_UP, target));
-        Assert.True(sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_VOLUME_DOWN, target));
 
         // Assert
         Assert.Equal(1, target.TogglePlayPauseCount);
@@ -105,8 +103,34 @@ public sealed class WindowShortcutHandlerTests
         Assert.Equal(1, target.NextCount);
         Assert.Equal(1, target.PreviousCount);
         Assert.Equal(1, target.ToggleMuteCount);
-        Assert.Equal(1, target.IncreaseVolumeCount);
-        Assert.Equal(1, target.DecreaseVolumeCount);
+        Assert.Equal(0, target.IncreaseVolumeCount);
+        Assert.Equal(0, target.DecreaseVolumeCount);
+    }
+
+    /// <summary>
+    /// ハードウェア音量上げ・下げキー（WM_APPCOMMAND / Key.VolumeUp・Key.VolumeDown）はシステム音量へ委譲し、アプリ側ボリュームを変更しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void HandleAppCommandCodeおよびHandleKeyInput_ハードウェア音量増減キー受信時_アプリ側で消費せずOSへ委譲すること()
+    {
+        // Arrange
+        long nowMs = 1000;
+        var sut = new WindowShortcutHandler(() => nowMs, 1.0);
+        var target = new FakeShortcutCommandTarget();
+
+        // Act
+        bool appVolUp = sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_VOLUME_UP, target);
+        bool appVolDown = sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_VOLUME_DOWN, target);
+        bool keyVolUp = sut.HandleKeyInput(Key.VolumeUp, ModifierKeys.None, false, target, null);
+        bool keyVolDown = sut.HandleKeyInput(Key.VolumeDown, ModifierKeys.None, false, target, null);
+
+        // Assert
+        Assert.False(appVolUp);
+        Assert.False(appVolDown);
+        Assert.False(keyVolUp);
+        Assert.False(keyVolDown);
+        Assert.Equal(0, target.IncreaseVolumeCount);
+        Assert.Equal(0, target.DecreaseVolumeCount);
     }
 
     /// <summary>
