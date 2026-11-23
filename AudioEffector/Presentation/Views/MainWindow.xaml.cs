@@ -264,6 +264,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 最小化時にコンパクトプレイヤー（ミニプレイヤー）を表示すべきかどうかを判定します
+    /// </summary>
+    /// <param name="settings">アプリケーション設定（null の場合は既定動作として表示する）</param>
+    /// <returns>コンパクトプレイヤーを表示する場合は true、OS標準のタスクバー最小化を維持する場合は false</returns>
+    public static bool ShouldShowMiniPlayerOnMinimize(AppSettings? settings) =>
+        settings?.DisableMiniPlayerOnMinimize != true;
+
+    /// <summary>
     /// ウィンドウの状態が変更された際の処理を行います
     /// </summary>
     /// <param name="e">イベントデータ</param>
@@ -278,6 +286,11 @@ public partial class MainWindow : Window
 
         if (this.WindowState == WindowState.Minimized)
         {
+            if (!ShouldShowMiniPlayerOnMinimize(_settingsService.LoadSettings()))
+            {
+                return;
+            }
+
             this.Hide();
             if (_miniPlayer == null)
             {

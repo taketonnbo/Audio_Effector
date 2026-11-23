@@ -68,6 +68,11 @@ public class AppSettings
     public MiniPlayerTopmostBehavior MiniPlayerTopmostBehavior { get; set; } = MiniPlayerTopmostBehavior.None;
 
     /// <summary>
+    /// メイン画面最小化時にコンパクトプレイヤーを表示しないかどうか
+    /// </summary>
+    public bool DisableMiniPlayerOnMinimize { get; set; }
+
+    /// <summary>
     /// ミニプレイヤーの前回の表示位置（Y座標）
     /// </summary>
     public double? MiniPlayerTop { get; set; }
