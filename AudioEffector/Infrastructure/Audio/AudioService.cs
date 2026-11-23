@@ -77,6 +77,92 @@ public class AudioService : IAudioService
     }
 
     /// <summary>
+    /// 予約キュー内の指定インデックスにあるトラックを別の位置へ移動します
+    /// </summary>
+    /// <param name="fromIndex">移動元のインデックス（0始まり）</param>
+    /// <param name="toIndex">移動先のインデックス（0始まり）</param>
+    public void MoveUserQueueItem(int fromIndex, int toIndex)
+    {
+        List<Track>? changedPlaylist = null;
+        lock (_lock)
+        {
+            if (fromIndex < 0 || fromIndex >= _userQueue.Count ||
+                toIndex < 0 || toIndex >= _userQueue.Count ||
+                fromIndex == toIndex)
+            {
+                return;
+            }
+
+            var item = _userQueue[fromIndex];
+            _userQueue.RemoveAt(fromIndex);
+            _userQueue.Insert(toIndex, item);
+
+            _playlist = _userQueue.Concat(_albumQueue).ToList();
+            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            changedPlaylist = new List<Track>(_playlist);
+        }
+
+        PlaylistChanged?.Invoke(changedPlaylist);
+    }
+
+    /// <summary>
+    /// アルバム残り曲キュー内の指定インデックスにあるトラックを別の位置へ移動します
+    /// </summary>
+    /// <param name="fromIndex">移動元のインデックス（0始まり）</param>
+    /// <param name="toIndex">移動先のインデックス（0始まり）</param>
+    public void MoveAlbumQueueItem(int fromIndex, int toIndex)
+    {
+        List<Track>? changedPlaylist = null;
+        lock (_lock)
+        {
+            if (fromIndex < 0 || fromIndex >= _albumQueue.Count ||
+                toIndex < 0 || toIndex >= _albumQueue.Count ||
+                fromIndex == toIndex)
+            {
+                return;
+            }
+
+            var item = _albumQueue[fromIndex];
+            _albumQueue.RemoveAt(fromIndex);
+            _albumQueue.Insert(toIndex, item);
+
+            _playlist = _userQueue.Concat(_albumQueue).ToList();
+            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            changedPlaylist = new List<Track>(_playlist);
+        }
+
+        PlaylistChanged?.Invoke(changedPlaylist);
+    }
+
+    /// <summary>
+    /// アルバム残り曲キューの指定トラックを予約キューの指定位置へ昇格移動します
+    /// </summary>
+    /// <param name="fromAlbumIndex">移動元のアルバムキューインデックス（0始まり）</param>
+    /// <param name="toUserIndex">移動先の予約キュー挿入インデックス（0始まり、末尾追加時は件数と一致）</param>
+    public void MoveAlbumQueueItemToUserQueue(int fromAlbumIndex, int toUserIndex)
+    {
+        List<Track>? changedPlaylist = null;
+        lock (_lock)
+        {
+            if (fromAlbumIndex < 0 || fromAlbumIndex >= _albumQueue.Count)
+            {
+                return;
+            }
+
+            int clampedToIndex = Math.Clamp(toUserIndex, 0, _userQueue.Count);
+            var item = _albumQueue[fromAlbumIndex];
+            _albumQueue.RemoveAt(fromAlbumIndex);
+            _userQueue.Insert(clampedToIndex, item);
+
+            _playlist = _userQueue.Concat(_albumQueue).ToList();
+            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            changedPlaylist = new List<Track>(_playlist);
+        }
+
+        PlaylistChanged?.Invoke(changedPlaylist);
+    }
+
+    /// <summary>
     /// 再生履歴に追加するための最小再生時間（秒）
     /// </summary>
     public const double MinPlaybackSecondsForHistory = 5.0;
