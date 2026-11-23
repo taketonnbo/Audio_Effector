@@ -925,14 +925,10 @@ public sealed class MiniPlayerWindowTests
         RunInStaThread(() =>
         {
             // Arrange
-            if (System.Windows.Application.Current == null)
+            var themeDict = new ResourceDictionary
             {
-                _ = new System.Windows.Application();
-            }
-
-            var darkThemeUri = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/DarkTheme.xaml");
-            var themeDict = new ResourceDictionary { Source = darkThemeUri };
-            System.Windows.Application.Current!.Resources.MergedDictionaries.Add(themeDict);
+                Source = new Uri("/AudioEffector;component/Presentation/Themes/DarkTheme.xaml", UriKind.Relative)
+            };
 
             var settingsServiceMock = new Mock<ISettingsService>();
             settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
@@ -960,6 +956,7 @@ public sealed class MiniPlayerWindowTests
                 ShowInTaskbar = false,
                 ShowActivated = false
             };
+            sut.Resources.MergedDictionaries.Add(themeDict);
 
             try
             {
@@ -982,7 +979,6 @@ public sealed class MiniPlayerWindowTests
             finally
             {
                 sut.Close();
-                System.Windows.Application.Current.Resources.MergedDictionaries.Remove(themeDict);
             }
         });
     }
