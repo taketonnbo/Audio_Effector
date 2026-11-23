@@ -74,6 +74,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     private ObservableCollection<Track> _playbackListTracks = new();
     private string _playbackListName = "No Album Selected";
     private string _playbackListSubtitle = string.Empty;
+    private string _albumQueueSourceName = string.Empty;
     private PlayQueueDialog? _playQueueDialog;
 
     // スペクトラム描画フィールド
@@ -437,16 +438,38 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
     public string UserQueueCountText => $"{UserQueue?.Count ?? 0} tracks";
 
     /// <summary>
+    /// アルバム残り曲キューの生成元リスト名（右ペイン表示の <see cref="PlaybackListName"/> とは独立して保持）
+    /// </summary>
+    public string AlbumQueueSourceName
+    {
+        get => _albumQueueSourceName;
+        private set
+        {
+            if (SetProperty(ref _albumQueueSourceName, value))
+            {
+                OnPropertyChanged(nameof(AlbumQueueTitle));
+            }
+        }
+    }
+
+    /// <summary>
     /// アルバムキュータイトル
     /// </summary>
     public string AlbumQueueTitle
     {
         get
         {
-            if (!string.IsNullOrWhiteSpace(PlaybackListName) && PlaybackListName != "No Album Selected")
+            if (!string.IsNullOrWhiteSpace(AlbumQueueSourceName) && AlbumQueueSourceName != "No Album Selected")
             {
-                return $"次のアルバムから: {PlaybackListName}";
+                return $"次のアルバムから: {AlbumQueueSourceName}";
             }
+
+            var fallbackAlbum = AlbumQueue?.FirstOrDefault()?.Album;
+            if (!string.IsNullOrWhiteSpace(fallbackAlbum) && fallbackAlbum != "No Album Selected")
+            {
+                return $"次のアルバムから: {fallbackAlbum}";
+            }
+
             return "アルバムの残り曲";
         }
     }
@@ -764,6 +787,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         var trackList = tracks.ToList();
         PlaybackListName = name;
         PlaybackListSubtitle = subtitle;
+        AlbumQueueSourceName = name ?? string.Empty;
         PlaybackListTracks = new ObservableCollection<Track>(trackList);
         if (updateAudioService)
         {
@@ -948,6 +972,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         PlaybackListTracks = new ObservableCollection<Track>();
         PlaybackListName = "No Album Selected";
         PlaybackListSubtitle = string.Empty;
+        AlbumQueueSourceName = string.Empty;
         _audioService.Stop(false);
         CurrentTrack = null;
         TotalTimeDisplay = "00:00";
@@ -1195,6 +1220,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
                 PlaybackListTracks = new ObservableCollection<Track>();
                 PlaybackListName = "No Album Selected";
                 PlaybackListSubtitle = string.Empty;
+                AlbumQueueSourceName = string.Empty;
             }
         });
     }

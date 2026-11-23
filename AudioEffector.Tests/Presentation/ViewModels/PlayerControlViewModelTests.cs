@@ -1000,5 +1000,146 @@ public sealed class PlayerControlViewModelTests
         _audioServiceMock.Verify(a => a.TogglePlayPause(), Times.Once);
         _audioServiceMock.Verify(a => a.PlayTrack(It.IsAny<Track>()), Times.Never);
     }
+
+    /// <summary>
+    /// 予約キュー再生に伴う右ペイン自動追従で PlaybackListName が別アルバムへ変化した状態で、
+    /// アルバム残り曲から予約キューへ D&amp;D 移動（PlaylistChanged 発火）しても AlbumQueueTitle が元のアルバム名のまま維持されることを検証します。
+    /// </summary>
+    [Fact]
+    public void AlbumQueueTitle_予約キュー再生でPlaybackListName変更後に移動しても_元のアルバム名が維持される()
+    {
+        // Arrange
+        var albumATracks = new List<Track>
+        {
+            new() { FilePath = @"C:\Music\albumA_1.mp3", Title = "Album A Track 1", Album = "Album A" },
+            new() { FilePath = @"C:\Music\albumA_2.mp3", Title = "Album A Track 2", Album = "Album A" },
+            new() { FilePath = @"C:\Music\albumA_3.mp3", Title = "Album A Track 3", Album = "Album A" }
+        };
+        var userQueueTracks = new List<Track> { albumATracks[1] };
+        var remainingAlbumATracks = new List<Track> { albumATracks[2] };
+
+        _audioServiceMock.SetupGet(a => a.UserQueue).Returns(userQueueTracks);
+        _audioServiceMock.SetupGet(a => a.AlbumQueue).Returns(remainingAlbumATracks);
+        _audioServiceMock
+            .Setup(a => a.MoveAlbumQueueItemToUserQueue(0, 0))
+            .Callback(() => _audioServiceMock.Raise(a => a.PlaylistChanged += null, new List<Track> { albumATracks[1], albumATracks[2] }));
+
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        sut.SetPlaybackList(albumATracks, "Album A", "Artist A");
+
+        // Act - 予約キュー再生の右ペイン自動追従を模擬して PlaybackListName を別アルバム B へ書き換えた後に D&D 移動を実行
+        sut.PlaybackListName = "Album B";
+        sut.MoveAlbumQueueItemToUserQueue(0, 0);
+
+        // Assert
+        Assert.Equal("Album B", sut.PlaybackListName);
+        Assert.Equal("Album A", sut.AlbumQueueSourceName);
+        Assert.Equal("次のアルバムから: Album A", sut.AlbumQueueTitle);
+    }
+
+    /// <summary>
+    /// SetPlaybackList で別の新しいアルバムを再生開始した場合、AlbumQueueTitle が新しいアルバム名へ正しく更新され PropertyChanged が通知されることを検証します。
+    /// </summary>
+    [Fact]
+    public void AlbumQueueTitle_SetPlaybackListで別アルバム再生開始時_新しいアルバム名へ更新される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var albumATracks = new[] { new Track { FilePath = @"C:\Music\a1.mp3", Title = "A1", Album = "Album A" } };
+        var albumBTracks = new[] { new Track { FilePath = @"C:\Music\b1.mp3", Title = "B1", Album = "Album B" } };
+        sut.SetPlaybackList(albumATracks, "Album A", "Artist A");
+
+        var notifiedProperties = new List<string?>();
+        sut.PropertyChanged += (_, e) => notifiedProperties.Add(e.PropertyName);
+
+        // Act
+        sut.SetPlaybackList(albumBTracks, "Album B", "Artist B");
+
+        // Assert
+        Assert.Equal("Album B", sut.AlbumQueueSourceName);
+        Assert.Equal("次のアルバムから: Album B", sut.AlbumQueueTitle);
+        Assert.Contains(nameof(PlayerControlViewModel.AlbumQueueTitle), notifiedProperties);
+    }
+
+    /// <summary>
+    /// ClearQueue 実行時、AlbumQueueSourceName がリセットされ AlbumQueueTitle がデフォルト見出しへ戻ることを検証します。
+    /// </summary>
+    [Fact]
+    public void AlbumQueueTitle_ClearQueue実行時_デフォルトタイトルへ戻る()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var tracks = new[] { new Track { FilePath = @"C:\Music\a1.mp3", Title = "A1", Album = "Album A" } };
+        sut.SetPlaybackList(tracks, "Album A", "Artist A");
+
+        // Act
+        sut.ClearQueue();
+
+        // Assert
+        Assert.Equal(string.Empty, sut.AlbumQueueSourceName);
+        Assert.Equal("アルバムの残り曲", sut.AlbumQueueTitle);
+    }
+
+    /// <summary>
+    /// AudioService.TrackChanged で null を受信した際（再生終了時）、AlbumQueueSourceName がリセットされ AlbumQueueTitle がデフォルト見出しへ戻ることを検証します。
+    /// </summary>
+    [Fact]
+    public void AlbumQueueTitle_TrackChangedでNull受信時_デフォルトタイトルへ戻る()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var tracks = new[] { new Track { FilePath = @"C:\Music\a1.mp3", Title = "A1", Album = "Album A" } };
+        sut.SetPlaybackList(tracks, "Album A", "Artist A");
+
+        // Act
+        _audioServiceMock.Raise(a => a.TrackChanged += null, (Track?)null!);
+
+        // Assert
+        Assert.Equal(string.Empty, sut.AlbumQueueSourceName);
+        Assert.Equal("アルバムの残り曲", sut.AlbumQueueTitle);
+    }
+
+    /// <summary>
+    /// AlbumQueueSourceName が空であっても AlbumQueue にトラックが存在する場合、先頭トラックの Album 名へフォールバックされることを検証します。
+    /// </summary>
+    [Fact]
+    public void AlbumQueueTitle_AlbumQueueSourceNameが空でAlbumQueueに曲がある場合_先頭曲のアルバム名へフォールバックする()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var track = new Track { FilePath = @"C:\Music\f1.mp3", Title = "F1", Album = "Fallback Album" };
+
+        // Act
+        sut.AlbumQueue = new ObservableCollection<Track> { track };
+
+        // Assert
+        Assert.Equal(string.Empty, sut.AlbumQueueSourceName);
+        Assert.Equal("次のアルバムから: Fallback Album", sut.AlbumQueueTitle);
+    }
 }
 
