@@ -115,6 +115,8 @@ namespace AudioEffector.Presentation.ViewModels
         private bool _isPlaying;
         private string _currentTimeDisplay = "00:00";
         private BitmapImage? _nowPlayingImage;
+        private BitmapImage? _miniPlayerAlbumArtImage;
+        private int _trackArtworkGeneration;
         private string _totalTimeDisplay = "00:00";
         private double _progress;
         private DispatcherTimer _timer;
@@ -959,6 +961,27 @@ namespace AudioEffector.Presentation.ViewModels
                 OnPropertyChanged();
             }
         }
+
+        /// <summary>
+        /// ミニプレイヤー表示用の現在再生中トラックの実アルバムアート画像を取得または設定します（未再生・未設定時は null）
+        /// </summary>
+        public BitmapImage? MiniPlayerAlbumArtImage
+        {
+            get => _miniPlayerAlbumArtImage;
+            set
+            {
+                if (!ReferenceEquals(_miniPlayerAlbumArtImage, value))
+                {
+                    _miniPlayerAlbumArtImage = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// テストや差し替え用の非同期埋め込みアートワークバイト列ローダー（未設定時は TagLib によるファイル読み込みを使用）
+        /// </summary>
+        internal Func<string, Task<byte[]?>>? TrackArtworkBytesLoader { get; set; }
 
         private ObservableCollection<Album> _albums = new ObservableCollection<Album>();
 
@@ -1899,6 +1922,7 @@ namespace AudioEffector.Presentation.ViewModels
 
             CurrentTrack = track;
             Progress = 0;
+            int artworkGeneration = System.Threading.Interlocked.Increment(ref _trackArtworkGeneration);
 
             if (track == null)
             {
@@ -1909,7 +1933,13 @@ namespace AudioEffector.Presentation.ViewModels
                 PlayerControl?.SyncTrackPlayingStates(null);
                 RunOnUiThread(() =>
                 {
+                    if (System.Threading.Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
+                    {
+                        return;
+                    }
+
                     NowPlayingImage = _defaultNowPlayingImage;
+                    MiniPlayerAlbumArtImage = null;
                     SpectrumBackgroundImage = _defaultSpectrumImage;
                     SpectrumBackgroundImageGray = null;
                     IsDefaultSpectrumImage = true;
@@ -1951,140 +1981,194 @@ namespace AudioEffector.Presentation.ViewModels
             // But NowPlayingImage is not yet updated here (async).
             // So we wait for async block below.
 
-            if (track != null && File.Exists(track.FilePath))
+            var customArtworkLoader = TrackArtworkBytesLoader;
+            if (track != null && (customArtworkLoader != null || File.Exists(track.FilePath)))
             {
-                Task.Run(() =>
+                _ = LoadAndApplyTrackArtworkAsync(track.FilePath, artworkGeneration, customArtworkLoader);
+            }
+            else
+            {
+                RunOnUiThread(() =>
                 {
-                    try
+                    if (System.Threading.Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
                     {
-                        using (var tfile = TagLib.File.Create(track.FilePath))
-                        {
-                            if (tfile.Tag.Pictures.Length > 0)
-                            {
-                                var bin = tfile.Tag.Pictures[0].Data.Data;
-                                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                                {
-                                    try
-                                    {
-                                        var image = new BitmapImage();
-                                        using (var mem = new MemoryStream(bin))
-                                        {
-                                            mem.Position = 0;
-                                            image.BeginInit();
-                                            image.DecodePixelWidth = 500;
-                                            image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
-                                            image.CacheOption = BitmapCacheOption.OnLoad;
-                                            image.UriSource = null;
-                                            image.StreamSource = mem;
-                                            image.EndInit();
-                                        }
-                                        image.Freeze();
-                                        NowPlayingImage = image;
-                                        SpectrumBackgroundImage = image; // Keep Color
-
-                                        // Phase 9: Update PlaylistBackgroundImage if NOT favorites view
-                                        if (!IsFavoritesView)
-                                        {
-                                            Playlist?.SetBackgroundImage(image);
-                                        }
-
-                                        // Create Grayscale version for Spectrum Background Overlay
-                                        var grayImage = new FormatConvertedBitmap();
-                                        grayImage.BeginInit();
-                                        grayImage.Source = image;
-                                        grayImage.DestinationFormat = PixelFormats.Gray8;
-                                        grayImage.EndInit();
-                                        grayImage.Freeze();
-
-                                        SpectrumBackgroundImageGray = grayImage;
-                                        IsDefaultSpectrumImage = false;
-
-                                        // Update Spectrum Bar Color
-                                        UpdateSpectrumBrush(image);
-                                    }
-                                    catch
-                                    {
-                                        // 画像デコード中断 (COMException E_ABORT) 等の例外を安全に無視・フォールバック
-                                        NowPlayingImage = _defaultNowPlayingImage;
-                                        SpectrumBackgroundImage = _defaultSpectrumImage;
-                                        SpectrumBackgroundImageGray = null;
-                                    }
-                                });
-                            }
-                            else
-                            {
-                                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                                {
-                                    try
-                                    {
-                                        NowPlayingImage = _defaultNowPlayingImage;
-                                        SpectrumBackgroundImage = _defaultSpectrumImage;
-                                        SpectrumBackgroundImageGray = null;
-
-                                        // Border: Brighter (Lower Saturation), 100% Opacity
-                                        var borderColor = Color.FromRgb(204, 249, 255);
-                                        borderColor.A = 255;
-                                        var solidBorderBrush = new SolidColorBrush(borderColor);
-                                        solidBorderBrush.Freeze();
-                                        SpectrumBorderBrush = solidBorderBrush;
-                                    }
-                                    catch
-                                    {
-                                        // 例外無視
-                                    }
-                                });
-                            }
-                        }
+                        return;
                     }
-                    catch
+
+                    NowPlayingImage = _defaultNowPlayingImage;
+                    MiniPlayerAlbumArtImage = null;
+                    SpectrumBackgroundImage = _defaultSpectrumImage;
+                    SpectrumBackgroundImageGray = null;
+                    IsDefaultSpectrumImage = true;
+                    ApplyDefaultSpectrumBrushes();
+                });
+            }
+        }
+
+        private static byte[]? ReadEmbeddedArtworkBytes(string filePath)
+        {
+            using var tfile = TagLib.File.Create(filePath);
+            if (tfile.Tag.Pictures.Length > 0)
+            {
+                return tfile.Tag.Pictures[0].Data.Data;
+            }
+
+            return null;
+        }
+
+        private async Task LoadAndApplyTrackArtworkAsync(string filePath, int artworkGeneration, Func<string, Task<byte[]?>>? customArtworkLoader)
+        {
+            try
+            {
+                byte[]? bin = customArtworkLoader != null
+                    ? await customArtworkLoader(filePath).ConfigureAwait(false)
+                    : await Task.Run(() => ReadEmbeddedArtworkBytes(filePath)).ConfigureAwait(false);
+
+                if (System.Threading.Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
+                {
+                    return;
+                }
+
+                if (bin != null && bin.Length > 0)
+                {
+                    RunOnUiThread(() =>
                     {
-                        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                        if (System.Threading.Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
                         {
-                            // Default Gradient
-                            // Default Gradient: Right to Left
-                            var brush = new LinearGradientBrush();
-                            brush.StartPoint = new Point(1, 0.5);
-                            brush.EndPoint = new Point(0, 0.5);
-                            brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
-                            brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
-                            brush.Freeze();
-                            SpectrumBarBrush = brush;
-                            SpectrumShadowColor = Color.FromRgb(0, 229, 255);
+                            return;
+                        }
+
+                        try
+                        {
+                            var image = new BitmapImage();
+                            using (var mem = new MemoryStream(bin))
+                            {
+                                mem.Position = 0;
+                                image.BeginInit();
+                                image.DecodePixelWidth = 500;
+                                image.CreateOptions = BitmapCreateOptions.PreservePixelFormat;
+                                image.CacheOption = BitmapCacheOption.OnLoad;
+                                image.UriSource = null;
+                                image.StreamSource = mem;
+                                image.EndInit();
+                            }
+                            image.Freeze();
+
+                            if (System.Threading.Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
+                            {
+                                return;
+                            }
+
+                            NowPlayingImage = image;
+                            MiniPlayerAlbumArtImage = image;
+                            SpectrumBackgroundImage = image; // Keep Color
+
+                            // Phase 9: Update PlaylistBackgroundImage if NOT favorites view
+                            if (!IsFavoritesView)
+                            {
+                                Playlist?.SetBackgroundImage(image);
+                            }
+
+                            // Create Grayscale version for Spectrum Background Overlay
+                            var grayImage = new FormatConvertedBitmap();
+                            grayImage.BeginInit();
+                            grayImage.Source = image;
+                            grayImage.DestinationFormat = PixelFormats.Gray8;
+                            grayImage.EndInit();
+                            grayImage.Freeze();
+
+                            SpectrumBackgroundImageGray = grayImage;
+                            IsDefaultSpectrumImage = false;
+
+                            // Update Spectrum Bar Color
+                            UpdateSpectrumBrush(image);
+                        }
+                        catch
+                        {
+                            if (System.Threading.Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
+                            {
+                                return;
+                            }
+
+                            // 画像デコード中断 (COMException E_ABORT) 等の例外を安全に無視・フォールバック
+                            NowPlayingImage = _defaultNowPlayingImage;
+                            MiniPlayerAlbumArtImage = null;
+                            SpectrumBackgroundImage = _defaultSpectrumImage;
+                            SpectrumBackgroundImageGray = null;
+                        }
+                    });
+                }
+                else
+                {
+                    RunOnUiThread(() =>
+                    {
+                        if (System.Threading.Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
+                        {
+                            return;
+                        }
+
+                        try
+                        {
+                            NowPlayingImage = _defaultNowPlayingImage;
+                            MiniPlayerAlbumArtImage = null;
+                            SpectrumBackgroundImage = _defaultSpectrumImage;
+                            SpectrumBackgroundImageGray = null;
 
                             // Border: Brighter (Lower Saturation), 100% Opacity
-                            // Reduced Saturation: S=0.2 (Very White)
-                            var borderColor = Color.FromRgb(204, 249, 255); // Approx for H186 S0.2 V1.0
+                            var borderColor = Color.FromRgb(204, 249, 255);
                             borderColor.A = 255;
                             var solidBorderBrush = new SolidColorBrush(borderColor);
                             solidBorderBrush.Freeze();
                             SpectrumBorderBrush = solidBorderBrush;
-                        });
-                    }
-                });
+                        }
+                        catch
+                        {
+                            // 例外無視
+                        }
+                    });
+                }
             }
-            else
+            catch
             {
-                System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                if (System.Threading.Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
                 {
-                    IsDefaultSpectrumImage = true;
-                    // Default Gradient
-                    // Default Gradient: Right to Left
-                    var brush = new LinearGradientBrush();
-                    brush.StartPoint = new Point(1, 0.5);
-                    brush.EndPoint = new Point(0, 0.5);
-                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
-                    brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
-                    brush.Freeze();
-                    SpectrumBarBrush = brush;
+                    return;
+                }
 
-                    // Border: Brighter (Lower Saturation), 100% Opacity
-                    var borderColor = Color.FromRgb(204, 249, 255);
-                    borderColor.A = 255;
-                    var solidBorderBrush = new SolidColorBrush(borderColor);
-                    solidBorderBrush.Freeze();
-                    SpectrumBorderBrush = solidBorderBrush;
+                RunOnUiThread(() =>
+                {
+                    if (System.Threading.Volatile.Read(ref _trackArtworkGeneration) != artworkGeneration)
+                    {
+                        return;
+                    }
+
+                    NowPlayingImage = _defaultNowPlayingImage;
+                    MiniPlayerAlbumArtImage = null;
+                    SpectrumBackgroundImage = _defaultSpectrumImage;
+                    SpectrumBackgroundImageGray = null;
+                    ApplyDefaultSpectrumBrushes();
                 });
             }
+        }
+
+        private void ApplyDefaultSpectrumBrushes()
+        {
+            // Default Gradient: Right to Left
+            var brush = new LinearGradientBrush();
+            brush.StartPoint = new Point(1, 0.5);
+            brush.EndPoint = new Point(0, 0.5);
+            brush.GradientStops.Add(new GradientStop(Color.FromArgb(242, 200, 250, 255), 0.0));
+            brush.GradientStops.Add(new GradientStop(Color.FromArgb(153, 0, 229, 255), 1.0));
+            brush.Freeze();
+            SpectrumBarBrush = brush;
+            SpectrumShadowColor = Color.FromRgb(0, 229, 255);
+
+            // Border: Brighter (Lower Saturation), 100% Opacity
+            var borderColor = Color.FromRgb(204, 249, 255);
+            borderColor.A = 255;
+            var solidBorderBrush = new SolidColorBrush(borderColor);
+            solidBorderBrush.Freeze();
+            SpectrumBorderBrush = solidBorderBrush;
         }
 
         // HSV Helpers

@@ -2,12 +2,17 @@ using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
@@ -16,6 +21,7 @@ using AudioEffector.Domain.Services;
 using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
 using AudioEffector.Tests.Presentation.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Xunit;
 
@@ -1205,6 +1211,315 @@ public sealed class MiniPlayerWindowTests
             finally
             {
                 sut.Close();
+            }
+        });
+    }
+
+    /// <summary>
+    /// MiniPlayerWindow の横長および正方形（回転ON/OFF）の各アルバムアート Image が
+    /// 高解像度ソース（MiniPlayerAlbumArtImage）へバインドされ、RenderOptions.BitmapScalingMode="HighQuality" が適用されており、
+    /// バインディングエラーが発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerWindow_アルバムアート表示_全ImageがMiniPlayerAlbumArtImageバインドかつHighQualityスケーリングであること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = new ResourceDictionary
+            {
+                Source = new Uri("/AudioEffector;component/Presentation/Themes/DarkTheme.xaml", UriKind.Relative)
+            };
+
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+            {
+                MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                MiniPlayerRotateAlbumArt = true
+            });
+
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+            var highResBitmap = new WriteableBitmap(500, 500, 96, 96, PixelFormats.Bgra32, null);
+            highResBitmap.Freeze();
+            playerVm.NowPlayingImage = highResBitmap;
+
+            using var listener = new BindingErrorTraceListener();
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+            sut.Resources.MergedDictionaries.Add(themeDict);
+
+            try
+            {
+                // Act
+                sut.Show();
+                sut.UpdateLayout();
+                PumpDispatcher();
+
+                var standardImage = Assert.IsType<Image>(sut.FindName("StandardAlbumArtImage"));
+                var squareCircularImage = Assert.IsType<Image>(sut.FindName("SquareCircularAlbumArtImage"));
+                var squareStaticImage = Assert.IsType<Image>(sut.FindName("SquareStaticAlbumArtImage"));
+
+                // Assert
+                Assert.Same(highResBitmap, standardImage.Source);
+                Assert.Same(highResBitmap, squareCircularImage.Source);
+                Assert.Same(highResBitmap, squareStaticImage.Source);
+
+                Assert.Equal(BitmapScalingMode.HighQuality, RenderOptions.GetBitmapScalingMode(standardImage));
+                Assert.Equal(BitmapScalingMode.HighQuality, RenderOptions.GetBitmapScalingMode(squareCircularImage));
+                Assert.Equal(BitmapScalingMode.HighQuality, RenderOptions.GetBitmapScalingMode(squareStaticImage));
+
+                // Act: NowPlayingImage を null に戻した際もエラーなくクリアされること
+                playerVm.NowPlayingImage = null;
+                PumpDispatcher();
+                Assert.Null(standardImage.Source);
+                Assert.Null(squareCircularImage.Source);
+                Assert.Null(squareStaticImage.Source);
+
+                Assert.False(listener.HasErrors, $"アルバムアートバインディングでエラーが発生しました: {string.Join("; ", listener.Errors)}");
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
+
+    private static byte[] CreateSolidPngBytes(int width, int height, Color color)
+    {
+        var wb = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
+        byte[] pixels = new byte[width * height * 4];
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            pixels[i] = color.B;
+            pixels[i + 1] = color.G;
+            pixels[i + 2] = color.R;
+            pixels[i + 3] = color.A;
+        }
+        wb.WritePixels(new Int32Rect(0, 0, width, height), pixels, width * 4, 0);
+        wb.Freeze();
+
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(wb));
+        using var ms = new MemoryStream();
+        encoder.Save(ms);
+        return ms.ToArray();
+    }
+
+    private static (MainViewModel ViewModel, Mock<IAudioService> AudioServiceMock, Mock<ISettingsService> SettingsServiceMock, IDisposable Scope) CreateTestMainViewModel()
+    {
+        if (System.Windows.Application.Current == null)
+        {
+            _ = new System.Windows.Application();
+        }
+
+        var settingsServiceMock = new Mock<ISettingsService>();
+        settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+
+        var audioServiceMock = new Mock<IAudioService>();
+        var audioEngineMock = new Mock<IAudioEngine>();
+        var eventBusMock = new Mock<IEventBus>();
+        var spectrumCalculatorMock = new Mock<ISpectrumCalculator>();
+        var services = new ServiceCollection();
+        services.AddSingleton(settingsServiceMock.Object);
+        services.AddSingleton(audioServiceMock.Object);
+        services.AddSingleton(_ => new PlayerControlViewModel(
+            audioServiceMock.Object,
+            audioEngineMock.Object,
+            eventBusMock.Object,
+            settingsServiceMock.Object,
+            null,
+            spectrumCalculatorMock.Object));
+
+        var provider = services.BuildServiceProvider();
+        var previousProvider = App.ServiceProvider;
+        App.ServiceProvider = provider;
+
+        var mainVm = new MainViewModel();
+
+        var scope = new DisposableAction(() =>
+        {
+            mainVm.Dispose();
+            App.ServiceProvider = previousProvider;
+            provider.Dispose();
+        });
+
+        return (mainVm, audioServiceMock, settingsServiceMock, scope);
+    }
+
+    private sealed class DisposableAction : IDisposable
+    {
+        private readonly Action _action;
+        public DisposableAction(Action action) => _action = action;
+        public void Dispose() => _action();
+    }
+
+    /// <summary>
+    /// 実運用と同じ MainViewModel を DataContext とした場合、未再生時および埋め込み画像なし楽曲の再生時は
+    /// NowPlayingImage に既定背景が設定されていても MiniPlayerAlbumArtImage は null を維持し、
+    /// 正方形ミニプレイヤー（回転ON/OFF）の背面「♫」フォールバックが覆われないことを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerWindow_MainViewModel利用時の未再生およびアート未設定時_既定背景で覆われずImageSourceがnullであること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var themeDict = new ResourceDictionary
+            {
+                Source = new Uri("/AudioEffector;component/Presentation/Themes/DarkTheme.xaml", UriKind.Relative)
+            };
+
+            var (mainVm, audioServiceMock, settingsServiceMock, scope) = CreateTestMainViewModel();
+            using (scope)
+            {
+                settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+                {
+                    MiniPlayerDesignStyle = MiniPlayerDesignStyle.SquareAlbumArt,
+                    MiniPlayerRotateAlbumArt = true
+                });
+                mainVm.TrackArtworkBytesLoader = _ => Task.FromResult<byte[]?>(null);
+
+                using var listener = new BindingErrorTraceListener();
+                var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+                {
+                    DataContext = mainVm,
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = 100,
+                    Top = 100,
+                    Opacity = 0,
+                    ShowInTaskbar = false,
+                    ShowActivated = false
+                };
+                sut.Resources.MergedDictionaries.Add(themeDict);
+
+                try
+                {
+                    // Act 1: 初期未再生状態
+                    sut.Show();
+                    sut.UpdateLayout();
+                    PumpDispatcher();
+
+                    var standardImage = Assert.IsType<Image>(sut.FindName("StandardAlbumArtImage"));
+                    var squareCircularImage = Assert.IsType<Image>(sut.FindName("SquareCircularAlbumArtImage"));
+                    var squareStaticImage = Assert.IsType<Image>(sut.FindName("SquareStaticAlbumArtImage"));
+
+                    // Assert 1: 未再生時は既定画像で覆われず null であること
+                    Assert.Null(mainVm.MiniPlayerAlbumArtImage);
+                    Assert.Null(standardImage.Source);
+                    Assert.Null(squareCircularImage.Source);
+                    Assert.Null(squareStaticImage.Source);
+
+                    // Act 2: 埋め込み画像なし楽曲へ変更し、回転OFF（静止側）でも検証
+                    audioServiceMock.Raise(a => a.TrackChanged += null, new Track
+                    {
+                        FilePath = @"C:\Music\no_art.mp3",
+                        Title = "No Art Song",
+                        Artist = "Artist"
+                    });
+                    sut.UpdateDesignSettings(MiniPlayerDesignStyle.SquareAlbumArt, rotateAlbumArt: false);
+                    Thread.Sleep(50);
+                    PumpDispatcher();
+
+                    // Assert 2: 画像なし楽曲でも null を維持すること
+                    Assert.Null(mainVm.MiniPlayerAlbumArtImage);
+                    Assert.Null(standardImage.Source);
+                    Assert.Null(squareCircularImage.Source);
+                    Assert.Null(squareStaticImage.Source);
+                    Assert.False(listener.HasErrors, $"MainViewModel 経路でバインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+                }
+                finally
+                {
+                    sut.Close();
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// MainViewModel で A → B と曲送りした際、B の画像読み込みが先に完了し A の読み込みが後から完了しても、
+    /// 世代管理により古い A の結果が除外され B のアルバムアートが維持されることを検証します。
+    /// </summary>
+    [Fact]
+    public void MainViewModel_高速曲送りで古い曲の画像読み込みが後から完了した場合_最新曲のアルバムアートが上書きされないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var (mainVm, audioServiceMock, _, scope) = CreateTestMainViewModel();
+            using (scope)
+            {
+                var tcsA = new TaskCompletionSource<byte[]?>();
+                var tcsB = new TaskCompletionSource<byte[]?>();
+                byte[] pngA = CreateSolidPngBytes(16, 16, Colors.Red);   // DecodePixelWidth=500 → 500x500
+                byte[] pngB = CreateSolidPngBytes(24, 12, Colors.Blue);  // DecodePixelWidth=500 → 500x250
+
+                mainVm.TrackArtworkBytesLoader = path => path.EndsWith("trackA.mp3", StringComparison.OrdinalIgnoreCase)
+                    ? tcsA.Task
+                    : tcsB.Task;
+
+                var trackA = new Track { FilePath = @"C:\Music\trackA.mp3", Title = "Track A", Artist = "Artist A" };
+                var trackB = new Track { FilePath = @"C:\Music\trackB.mp3", Title = "Track B", Artist = "Artist B" };
+
+                // Act: A → B の順に曲送りし、B を先に完了させてから A を後から完了させる
+                audioServiceMock.Raise(a => a.TrackChanged += null, trackA);
+                audioServiceMock.Raise(a => a.TrackChanged += null, trackB);
+
+                tcsB.SetResult(pngB);
+                WaitUntil(() => mainVm.MiniPlayerAlbumArtImage != null, timeoutMs: 2000);
+                var imageB = mainVm.MiniPlayerAlbumArtImage;
+                Assert.NotNull(imageB);
+                Assert.Equal(250, imageB!.PixelHeight);
+
+                tcsA.SetResult(pngA);
+                Thread.Sleep(80);
+                PumpDispatcher();
+
+                // Assert: 古い A の結果で上書きされず B のまま維持されること
+                Assert.Same(imageB, mainVm.MiniPlayerAlbumArtImage);
+                Assert.Same(imageB, mainVm.NowPlayingImage);
+            }
+        });
+    }
+
+    /// <summary>
+    /// MainViewModel で Track A の画像読み込み中に CurrentTrack が null になった場合、
+    /// 後から完了した Track A の画像で MiniPlayerAlbumArtImage が上書きされないことを検証します。
+    /// </summary>
+    [Fact]
+    public void MainViewModel_画像読み込み中にCurrentTrackがnullになった場合_後から完了した古い画像で上書きされないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var (mainVm, audioServiceMock, _, scope) = CreateTestMainViewModel();
+            using (scope)
+            {
+                var tcsA = new TaskCompletionSource<byte[]?>();
+                byte[] pngA = CreateSolidPngBytes(16, 16, Colors.Green);
+                mainVm.TrackArtworkBytesLoader = _ => tcsA.Task;
+
+                var trackA = new Track { FilePath = @"C:\Music\trackA.mp3", Title = "Track A", Artist = "Artist A" };
+
+                // Act: Track A 読み込み中に null へ遷移し、その後 A の読み込みを完了させる
+                audioServiceMock.Raise(a => a.TrackChanged += null, trackA);
+                audioServiceMock.Raise(a => a.TrackChanged += null, (Track?)null!);
+                PumpDispatcher();
+                Assert.Null(mainVm.MiniPlayerAlbumArtImage);
+
+                tcsA.SetResult(pngA);
+                Thread.Sleep(80);
+                PumpDispatcher();
+
+                // Assert: null のまま維持されること
+                Assert.Null(mainVm.MiniPlayerAlbumArtImage);
             }
         });
     }
