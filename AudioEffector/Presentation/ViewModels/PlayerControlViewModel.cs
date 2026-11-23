@@ -1299,6 +1299,10 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
                             }
                         });
                     }
+                    else
+                    {
+                        RunOnUiThread(() => NowPlayingImage = null);
+                    }
                 }
                 catch
                 {
