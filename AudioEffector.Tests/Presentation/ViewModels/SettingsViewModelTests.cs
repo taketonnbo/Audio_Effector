@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.ViewModels;
@@ -40,6 +40,9 @@ public class SettingsViewModelTests
         // Assert
         Assert.False(sut.StartMinimized);
         Assert.False(sut.DisableMiniPlayerOnMinimize);
+        Assert.Equal("横長（標準）", sut.SelectedMiniPlayerDesignStyle);
+        Assert.False(sut.IsSquareMiniPlayerDesignSelected);
+        Assert.True(sut.MiniPlayerRotateAlbumArt);
         Assert.Equal(200, sut.SelectedBufferSize);
         Assert.False(sut.EnableNormalize);
         Assert.False(sut.DetectMetadataChangesOnRescan);
@@ -153,5 +156,55 @@ public class SettingsViewModelTests
         Assert.Contains(nameof(SettingsViewModel.DisableMiniPlayerOnMinimize), notified);
         Assert.Single(notified);
         _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.DisableMiniPlayerOnMinimize == true)), Times.Once);
+    }
+
+    /// <summary>
+    /// SelectedMiniPlayerDesignStyleプロパティを変更した際、設定サービスへ保存され関連するPropertyChangedイベントが発火することを検証します。
+    /// </summary>
+    [Fact]
+    public void SelectedMiniPlayerDesignStyle_変更時_設定サービスへ保存されPropertyChangedが発火する()
+    {
+        // Arrange
+        var sut = new SettingsViewModel(_settingsServiceMock.Object, _audioServiceMock.Object);
+        var notified = new List<string?>();
+        sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        // Act
+        sut.SelectedMiniPlayerDesignStyle = "正方形（アルバムアート）";
+        sut.SelectedMiniPlayerDesignStyle = "正方形（アルバムアート）"; // 同値再代入では再保存されないこと
+
+        // Assert
+        Assert.Equal("正方形（アルバムアート）", sut.SelectedMiniPlayerDesignStyle);
+        Assert.True(sut.IsSquareMiniPlayerDesignSelected);
+        Assert.Contains(nameof(SettingsViewModel.SelectedMiniPlayerDesignStyle), notified);
+        Assert.Contains(nameof(SettingsViewModel.IsSquareMiniPlayerDesignSelected), notified);
+        Assert.Equal(2, notified.Count);
+        _settingsServiceMock.Verify(
+            s => s.SaveSettings(It.Is<AppSettings>(st => st.MiniPlayerDesignStyle == MiniPlayerDesignStyle.SquareAlbumArt)),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// MiniPlayerRotateAlbumArtプロパティを変更した際、設定サービスへ保存されPropertyChangedイベントが発火することを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerRotateAlbumArt_変更時_設定サービスへ保存されPropertyChangedが発火する()
+    {
+        // Arrange
+        var sut = new SettingsViewModel(_settingsServiceMock.Object, _audioServiceMock.Object);
+        var notified = new List<string?>();
+        sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        // Act
+        sut.MiniPlayerRotateAlbumArt = false;
+        sut.MiniPlayerRotateAlbumArt = false; // 同値再代入では再保存されないこと
+
+        // Assert
+        Assert.False(sut.MiniPlayerRotateAlbumArt);
+        Assert.Contains(nameof(SettingsViewModel.MiniPlayerRotateAlbumArt), notified);
+        Assert.Single(notified);
+        _settingsServiceMock.Verify(
+            s => s.SaveSettings(It.Is<AppSettings>(st => st.MiniPlayerRotateAlbumArt == false)),
+            Times.Once);
     }
 }

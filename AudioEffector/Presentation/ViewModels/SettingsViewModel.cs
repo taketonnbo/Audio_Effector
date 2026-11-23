@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -167,6 +167,75 @@ public class SettingsViewModel : ViewModelBase
                 _settingsService.SaveSettings(_appSettings);
             }
         }
+    }
+
+    /// <summary>
+    /// 選択可能なミニプレイヤーデザイン一覧を取得します
+    /// </summary>
+    public IReadOnlyList<string> AvailableMiniPlayerDesignStyles { get; } = new[]
+    {
+        "横長（標準）",
+        "正方形（アルバムアート）"
+    };
+
+    /// <summary>
+    /// 選択されているミニプレイヤーデザインを取得または設定します
+    /// </summary>
+    public string SelectedMiniPlayerDesignStyle
+    {
+        get => _appSettings.MiniPlayerDesignStyle == MiniPlayerDesignStyle.SquareAlbumArt
+            ? AvailableMiniPlayerDesignStyles[1]
+            : AvailableMiniPlayerDesignStyles[0];
+        set
+        {
+            MiniPlayerDesignStyle newValue = value == AvailableMiniPlayerDesignStyles[1]
+                ? MiniPlayerDesignStyle.SquareAlbumArt
+                : MiniPlayerDesignStyle.Standard;
+
+            if (_appSettings.MiniPlayerDesignStyle != newValue)
+            {
+                _appSettings.MiniPlayerDesignStyle = newValue;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsSquareMiniPlayerDesignSelected));
+                _settingsService.SaveSettings(_appSettings);
+                NotifyMiniPlayerDesignChanged();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 正方形（アルバムアート）デザインが選択されているかどうかを取得します
+    /// </summary>
+    public bool IsSquareMiniPlayerDesignSelected => _appSettings.MiniPlayerDesignStyle == MiniPlayerDesignStyle.SquareAlbumArt;
+
+    /// <summary>
+    /// 正方形ミニプレイヤーで楽曲再生中にアルバムアートを回転させるかどうかを取得または設定します
+    /// </summary>
+    public bool MiniPlayerRotateAlbumArt
+    {
+        get => _appSettings.MiniPlayerRotateAlbumArt;
+        set
+        {
+            if (_appSettings.MiniPlayerRotateAlbumArt != value)
+            {
+                _appSettings.MiniPlayerRotateAlbumArt = value;
+                OnPropertyChanged();
+                _settingsService.SaveSettings(_appSettings);
+                NotifyMiniPlayerDesignChanged();
+            }
+        }
+    }
+
+    private void NotifyMiniPlayerDesignChanged()
+    {
+        var app = System.Windows.Application.Current;
+        if (app == null || !app.CheckAccess())
+        {
+            return;
+        }
+
+        var miniPlayer = app.Windows.OfType<AudioEffector.Presentation.Views.MiniPlayerWindow>().FirstOrDefault();
+        miniPlayer?.UpdateDesignSettings(_appSettings.MiniPlayerDesignStyle, _appSettings.MiniPlayerRotateAlbumArt);
     }
 
     /// <summary>

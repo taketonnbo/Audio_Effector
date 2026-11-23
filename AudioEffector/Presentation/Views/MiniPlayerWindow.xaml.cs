@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -41,8 +41,13 @@ public partial class MiniPlayerWindow : Window
 
     private const int RESIZE_TOLERANCE_PX = 4;
 
-    private const double CompactHeight = 100.0;
-    private const double ExpandedHeight = 350.0;
+    private const double StandardWidth = 350.0;
+    private const double StandardCompactHeight = 100.0;
+    private const double StandardExpandedHeight = 350.0;
+    private const double SquareWidth = 220.0;
+    private const double SquareCompactHeight = 220.0;
+    private const double SquareExpandedHeight = 470.0;
+    private const double AlbumArtRotationDurationSeconds = 20.0;
 
     private readonly ISettingsService _settingsService;
     private readonly WindowShortcutHandler _shortcutHandler = new();
@@ -50,10 +55,14 @@ public partial class MiniPlayerWindow : Window
     private INotifyPropertyChanged? _subscribedQueueStateSource;
     private Action? _settingsUpdatedHandler;
     private MiniPlayerTopmostBehavior _currentBehavior;
+    private MiniPlayerDesignStyle _currentDesignStyle = MiniPlayerDesignStyle.Standard;
+    private bool _rotateAlbumArt = true;
+    private bool _isPlaying;
+    private AnimationClock? _albumArtRotationClock;
     private HwndSource? _hwndSource;
     private double? _lastNormalTop;
     private double? _lastNormalLeft;
-    private double _targetWindowHeight = CompactHeight;
+    private double _targetWindowHeight = StandardCompactHeight;
     private bool _isQueueOpen;
     private bool _isClosingOrRestoring;
     private bool _isRestoringFromMaximize;
@@ -141,7 +150,9 @@ public partial class MiniPlayerWindow : Window
             _subscribedQueueStateSource.PropertyChanged += OnQueueStateSourcePropertyChanged;
         }
 
+        _isPlaying = GetPlayingState(dataContext);
         UpdateQueueDrawerState(GetQueueOpenState(dataContext), animate: false);
+        UpdateAlbumArtRotationState();
     }
 
     private void DetachQueueStateSource()
@@ -160,11 +171,32 @@ public partial class MiniPlayerWindow : Window
         _ => false
     };
 
+    private static bool GetPlayingState(object? dataContext) => dataContext switch
+    {
+        MainViewModel mainVm => mainVm.IsPlaying,
+        PlayerControlViewModel playerVm => playerVm.IsPlaying,
+        _ => false
+    };
+
+    private double GetCurrentWindowWidth() =>
+        _currentDesignStyle == MiniPlayerDesignStyle.SquareAlbumArt ? SquareWidth : StandardWidth;
+
+    private double GetCurrentCompactHeight() =>
+        _currentDesignStyle == MiniPlayerDesignStyle.SquareAlbumArt ? SquareCompactHeight : StandardCompactHeight;
+
+    private double GetCurrentExpandedHeight() =>
+        _currentDesignStyle == MiniPlayerDesignStyle.SquareAlbumArt ? SquareExpandedHeight : StandardExpandedHeight;
+
     private void OnQueueStateSourcePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainViewModel.IsMiniPlayerQueueOpen))
         {
             UpdateQueueDrawerState(GetQueueOpenState(sender), animate: this.IsLoaded);
+        }
+        else if (e.PropertyName == nameof(MainViewModel.IsPlaying))
+        {
+            _isPlaying = GetPlayingState(sender);
+            UpdateAlbumArtRotationState();
         }
     }
 
@@ -176,7 +208,7 @@ public partial class MiniPlayerWindow : Window
         }
 
         _isQueueOpen = isOpen;
-        double targetHeight = isOpen ? ExpandedHeight : CompactHeight;
+        double targetHeight = isOpen ? GetCurrentExpandedHeight() : GetCurrentCompactHeight();
         _targetWindowHeight = targetHeight;
 
         if (isOpen)
@@ -246,6 +278,7 @@ public partial class MiniPlayerWindow : Window
 
         _currentBehavior = settings.MiniPlayerTopmostBehavior;
         ApplyTopmostBehavior();
+        ApplyDesignSettings(settings.MiniPlayerDesignStyle, settings.MiniPlayerRotateAlbumArt);
 
         if (settings.MiniPlayerTop.HasValue && settings.MiniPlayerLeft.HasValue)
         {
@@ -405,7 +438,8 @@ public partial class MiniPlayerWindow : Window
         }
 
         DpiScale dpi = VisualTreeHelper.GetDpi(this);
-        int expectedWidthPx = (int)Math.Round(this.Width * dpi.DpiScaleX);
+        double allowedWidth = Math.Max(this.Width, GetCurrentWindowWidth());
+        int expectedWidthPx = (int)Math.Round(allowedWidth * dpi.DpiScaleX);
         double allowedHeight = Math.Max(this.Height, _targetWindowHeight);
         int expectedHeightPx = (int)Math.Round(allowedHeight * dpi.DpiScaleY);
 
@@ -461,6 +495,90 @@ public partial class MiniPlayerWindow : Window
         ApplyTopmostBehavior();
     }
 
+    /// <summary>
+    /// ミニプレイヤーのデザイン種別およびアルバムアート回転設定をリアルタイムに更新します
+    /// </summary>
+    /// <param name="style">ミニプレイヤーのデザイン種別</param>
+    /// <param name="rotateAlbumArt">楽曲再生中にアルバムアートを時計回りに回転させるかどうか</param>
+    public void UpdateDesignSettings(MiniPlayerDesignStyle style, bool rotateAlbumArt)
+    {
+        if (_isClosed)
+        {
+            return;
+        }
+
+        ApplyDesignSettings(style, rotateAlbumArt);
+    }
+
+    private void ApplyDesignSettings(MiniPlayerDesignStyle style, bool rotateAlbumArt)
+    {
+        _currentDesignStyle = style;
+        _rotateAlbumArt = rotateAlbumArt;
+
+        bool isSquare = style == MiniPlayerDesignStyle.SquareAlbumArt;
+        StandardLayoutGrid.Visibility = isSquare ? Visibility.Collapsed : Visibility.Visible;
+        SquareLayoutGrid.Visibility = isSquare ? Visibility.Visible : Visibility.Collapsed;
+        SquareCircularArtContainer.Visibility = (isSquare && rotateAlbumArt) ? Visibility.Visible : Visibility.Collapsed;
+        SquareStaticAlbumArtContainer.Visibility = (isSquare && !rotateAlbumArt) ? Visibility.Visible : Visibility.Collapsed;
+
+        BeginAnimation(HeightProperty, null);
+        this.Width = GetCurrentWindowWidth();
+        double targetHeight = _isQueueOpen ? GetCurrentExpandedHeight() : GetCurrentCompactHeight();
+        _targetWindowHeight = targetHeight;
+        this.Height = targetHeight;
+
+        UpdateAlbumArtRotationState();
+    }
+
+    private void UpdateAlbumArtRotationState()
+    {
+        bool shouldEnableRotation = !_isClosed
+            && _currentDesignStyle == MiniPlayerDesignStyle.SquareAlbumArt
+            && _rotateAlbumArt;
+
+        if (!shouldEnableRotation)
+        {
+            StopAlbumArtRotation();
+            return;
+        }
+
+        if (_isPlaying)
+        {
+            if (_albumArtRotationClock == null)
+            {
+                var animation = new DoubleAnimation
+                {
+                    From = 0.0,
+                    To = 360.0,
+                    Duration = TimeSpan.FromSeconds(AlbumArtRotationDurationSeconds),
+                    RepeatBehavior = RepeatBehavior.Forever
+                };
+                _albumArtRotationClock = animation.CreateClock();
+                SquareAlbumArtRotateTransform.ApplyAnimationClock(RotateTransform.AngleProperty, _albumArtRotationClock);
+            }
+            else
+            {
+                _albumArtRotationClock.Controller?.Resume();
+            }
+        }
+        else
+        {
+            _albumArtRotationClock?.Controller?.Pause();
+        }
+    }
+
+    private void StopAlbumArtRotation()
+    {
+        if (_albumArtRotationClock != null)
+        {
+            _albumArtRotationClock.Controller?.Stop();
+            SquareAlbumArtRotateTransform.ApplyAnimationClock(RotateTransform.AngleProperty, null);
+            _albumArtRotationClock = null;
+        }
+
+        SquareAlbumArtRotateTransform.Angle = 0.0;
+    }
+
     private void ApplyTopmostBehavior()
     {
         if (_currentBehavior == MiniPlayerTopmostBehavior.AlwaysOnTop || _currentBehavior == MiniPlayerTopmostBehavior.OnDisplayOnly)
@@ -502,6 +620,7 @@ public partial class MiniPlayerWindow : Window
     {
         _isClosed = true;
         _isClosingOrRestoring = true;
+        StopAlbumArtRotation();
         DetachSettingsUpdatedHandler();
         DetachQueueStateSource();
 

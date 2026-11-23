@@ -270,10 +270,11 @@ public class ThemeResourceTests
 
     /// <summary>
     /// MiniPlayerWindow.xaml で参照されているすべての DynamicResource が DarkTheme / LightTheme 両方に定義されており、
-    /// 明るいパネル背景上で視認性が低下する AlwaysNeonCyanBrush を使用していないことを検証します。
+    /// テーマ背景上（横長レイアウト・キュー領域）では NeonCyanBrush を使用し、
+    /// 正方形デザインの暗幕オーバーレイ（#B3161920）上では両テーマ共通の AlwaysNeonCyanBrush を使用していることを検証します。
     /// </summary>
     [Fact]
-    public void MiniPlayerWindow_テーマリソース参照確認_全DynamicResourceが両テーマに定義されNeonCyanBrushで統一されていること()
+    public void MiniPlayerWindow_テーマリソース参照確認_全DynamicResourceが両テーマに定義され暗幕オーバーレイはAlwaysNeonCyanBrushであること()
     {
         RunInStaThread(() =>
         {
@@ -283,6 +284,7 @@ public class ThemeResourceTests
             Assert.True(File.Exists(xamlPath), $"MiniPlayerWindow.xaml が見つかりません: {xamlPath}");
 
             var xamlContent = File.ReadAllText(xamlPath);
+            var doc = XDocument.Parse(xamlContent);
             var darkDict = new ResourceDictionary { Source = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/DarkTheme.xaml") };
             var lightDict = new ResourceDictionary { Source = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/LightTheme.xaml") };
 
@@ -293,6 +295,15 @@ public class ThemeResourceTests
                 .Distinct()
                 .ToList();
 
+            var overlayBorders = doc.Descendants()
+                .Where(e => e.Name.LocalName == "Border" &&
+                    e.Attributes().Any(a => a.Name.LocalName == "Name" && a.Value == "SquarePlaybackControlsOverlay"))
+                .ToList();
+
+            var standardLayout = doc.Descendants()
+                .Single(e => e.Name.LocalName == "Grid" &&
+                    e.Attributes().Any(a => a.Name.LocalName == "Name" && a.Value == "StandardLayoutGrid"));
+
             // Assert
             Assert.NotEmpty(referencedKeys);
             foreach (var key in referencedKeys)
@@ -301,8 +312,23 @@ public class ThemeResourceTests
                 Assert.True(lightDict.Contains(key), $"LightTheme.xaml に未定義のリソース '{key}' が MiniPlayerWindow.xaml で参照されています。");
             }
 
-            Assert.DoesNotContain("AlwaysNeonCyanBrush", referencedKeys);
-            Assert.Contains("NeonCyanBrush", referencedKeys);
+            // 横長レイアウト（テーマ背景上）では AlwaysNeonCyanBrush を誤用せず NeonCyanBrush を使用する
+            var standardXml = standardLayout.ToString();
+            Assert.DoesNotContain("AlwaysNeonCyanBrush", standardXml);
+            Assert.Contains("{DynamicResource NeonCyanBrush}", standardXml);
+
+            // 正方形暗幕オーバーレイ（#B3161920）上では両テーマ共通の AlwaysNeonCyanBrush を使用する
+            var overlayBorder = Assert.Single(overlayBorders);
+            Assert.Equal("#B3161920", overlayBorder.Attributes().First(a => a.Name.LocalName == "Background").Value);
+            var overlayXml = overlayBorder.ToString();
+            Assert.Contains("{DynamicResource AlwaysNeonCyanBrush}", overlayXml);
+            Assert.DoesNotContain("NeonCyanBrush", overlayXml.Replace("AlwaysNeonCyanBrush", ""));
+
+            // 両テーマで AlwaysNeonCyanBrush が #00FFFF として定義されていることを確認
+            var darkAlwaysCyan = Assert.IsType<SolidColorBrush>(darkDict["AlwaysNeonCyanBrush"]);
+            var lightAlwaysCyan = Assert.IsType<SolidColorBrush>(lightDict["AlwaysNeonCyanBrush"]);
+            Assert.Equal(Color.FromRgb(0x00, 0xFF, 0xFF), darkAlwaysCyan.Color);
+            Assert.Equal(Color.FromRgb(0x00, 0xFF, 0xFF), lightAlwaysCyan.Color);
             Assert.Contains("BorderBrush", referencedKeys);
         });
     }
