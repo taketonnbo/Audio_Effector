@@ -268,6 +268,45 @@ public class ThemeResourceTests
         Assert.DoesNotContain("NeonCyanBrush", overlayXml.Replace("AlwaysNeonCyanBrush", ""));
     }
 
+    /// <summary>
+    /// MiniPlayerWindow.xaml で参照されているすべての DynamicResource が DarkTheme / LightTheme 両方に定義されており、
+    /// 明るいパネル背景上で視認性が低下する AlwaysNeonCyanBrush を使用していないことを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerWindow_テーマリソース参照確認_全DynamicResourceが両テーマに定義されNeonCyanBrushで統一されていること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var rootDir = FindWorkspaceRoot();
+            var xamlPath = Path.Combine(rootDir, "AudioEffector", "Presentation", "Views", "MiniPlayerWindow.xaml");
+            Assert.True(File.Exists(xamlPath), $"MiniPlayerWindow.xaml が見つかりません: {xamlPath}");
+
+            var xamlContent = File.ReadAllText(xamlPath);
+            var darkDict = new ResourceDictionary { Source = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/DarkTheme.xaml") };
+            var lightDict = new ResourceDictionary { Source = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/LightTheme.xaml") };
+
+            // Act
+            var referencedKeys = System.Text.RegularExpressions.Regex
+                .Matches(xamlContent, @"\{DynamicResource\s+([A-Za-z0-9_]+)\}")
+                .Select(m => m.Groups[1].Value)
+                .Distinct()
+                .ToList();
+
+            // Assert
+            Assert.NotEmpty(referencedKeys);
+            foreach (var key in referencedKeys)
+            {
+                Assert.True(darkDict.Contains(key), $"DarkTheme.xaml に未定義のリソース '{key}' が MiniPlayerWindow.xaml で参照されています。");
+                Assert.True(lightDict.Contains(key), $"LightTheme.xaml に未定義のリソース '{key}' が MiniPlayerWindow.xaml で参照されています。");
+            }
+
+            Assert.DoesNotContain("AlwaysNeonCyanBrush", referencedKeys);
+            Assert.Contains("NeonCyanBrush", referencedKeys);
+            Assert.Contains("BorderBrush", referencedKeys);
+        });
+    }
+
     private static string FindWorkspaceRoot()
     {
         var current = AppDomain.CurrentDomain.BaseDirectory;

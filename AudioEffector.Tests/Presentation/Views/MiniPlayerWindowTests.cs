@@ -1,4 +1,6 @@
-﻿using System;
+using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -13,6 +15,7 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
 using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
+using AudioEffector.Tests.Presentation.Diagnostics;
 using Moq;
 using Xunit;
 
@@ -908,6 +911,78 @@ public sealed class MiniPlayerWindowTests
                 {
                     sut.Close();
                 }
+            }
+        });
+    }
+
+    /// <summary>
+    /// MiniPlayerWindow を実際の DataContext 構成（PlayerControlViewModel のバインディングおよびキュー項目・空状態切替）で表示・展開・格納した際、
+    /// WPF データバインディングエラーが 1 件も発生しないことを BindingErrorTraceListener で検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerWindow_キュー展開および格納操作時_バインディングエラーが0件であること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            if (System.Windows.Application.Current == null)
+            {
+                _ = new System.Windows.Application();
+            }
+
+            var darkThemeUri = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/DarkTheme.xaml");
+            var themeDict = new ResourceDictionary { Source = darkThemeUri };
+            System.Windows.Application.Current!.Resources.MergedDictionaries.Add(themeDict);
+
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+            using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
+            playerVm.CurrentTrack = new Track
+            {
+                FilePath = @"C:\Music\current.mp3",
+                Title = "Current Song",
+                Artist = "Current Artist"
+            };
+            playerVm.PlayQueue = new ObservableCollection<Track>
+            {
+                new Track { FilePath = @"C:\Music\q1.mp3", Title = "Queue Track 1", Artist = "Artist 1" },
+                new Track { FilePath = @"C:\Music\q2.mp3", Title = "Queue Track 2", Artist = "Artist 2" }
+            };
+
+            using var listener = new BindingErrorTraceListener();
+            var sut = new MiniPlayerWindow(settingsServiceMock.Object)
+            {
+                DataContext = playerVm,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 100,
+                Opacity = 0,
+                ShowInTaskbar = false,
+                ShowActivated = false
+            };
+
+            try
+            {
+                // Act: 表示 → キュー展開 → 格納 → クローズ
+                sut.Show();
+                sut.UpdateLayout();
+                PumpDispatcher();
+
+                playerVm.ToggleMiniPlayerQueueCommand.Execute(null);
+                WaitUntil(() => Math.Abs(sut.ActualHeight - 350) < 1.0);
+                sut.UpdateLayout();
+
+                playerVm.CloseMiniPlayerQueueCommand.Execute(null);
+                WaitUntil(() => Math.Abs(sut.ActualHeight - 100) < 1.0);
+                sut.UpdateLayout();
+
+                // Assert
+                Assert.False(listener.HasErrors, $"MiniPlayerWindow でバインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+            }
+            finally
+            {
+                sut.Close();
+                System.Windows.Application.Current.Resources.MergedDictionaries.Remove(themeDict);
             }
         });
     }
