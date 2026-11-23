@@ -162,7 +162,8 @@
         "AudioEffector/**/*NowPlaying*",
         "AudioEffector/**/*AudioService*",
         "AudioEffector/**/*AudioApplicationService*",
-        "AudioEffector/**/*Playback*"
+        "AudioEffector/**/*Playback*",
+        "AudioEffector/Presentation/**/*Shortcut*"
       ],
       "primary_specs": [
         "設計/画面設計/再生キュースライドパネル/再生キュースライドパネルUI仕様書.md",
