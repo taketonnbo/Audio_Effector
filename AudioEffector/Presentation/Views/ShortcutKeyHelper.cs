@@ -101,12 +101,6 @@ public static class ShortcutKeyHelper
             case APPCOMMAND_VOLUME_MUTE:
                 key = Key.VolumeMute;
                 return true;
-            case APPCOMMAND_VOLUME_UP:
-                key = Key.VolumeUp;
-                return true;
-            case APPCOMMAND_VOLUME_DOWN:
-                key = Key.VolumeDown;
-                return true;
             default:
                 key = Key.None;
                 return false;
@@ -180,10 +174,10 @@ public static class ShortcutKeyHelper
     }
 
     /// <summary>
-    /// 指定されたキーがハードウェアメディアキーかどうかを判定します
+    /// 指定されたキーがアプリ側で標準対応するハードウェアメディアキーかどうかを判定します
     /// </summary>
     /// <param name="key">判定対象キー</param>
-    /// <returns>ハードウェアメディアキーの場合は <c>true</c></returns>
+    /// <returns>標準対応するハードウェアメディアキーの場合は <c>true</c></returns>
     public static bool IsMediaKey(Key key)
     {
         return key switch
@@ -193,8 +187,6 @@ public static class ShortcutKeyHelper
             Key.MediaNextTrack => true,
             Key.MediaPreviousTrack => true,
             Key.VolumeMute => true,
-            Key.VolumeUp => true,
-            Key.VolumeDown => true,
             _ => false
         };
     }

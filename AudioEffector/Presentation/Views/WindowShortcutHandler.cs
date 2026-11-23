@@ -129,8 +129,7 @@ public sealed class WindowShortcutHandler
                 return true;
             }
 
-            bool isVolumeKey = key == Key.VolumeUp || key == Key.VolumeDown;
-            if (isRepeat && !isVolumeKey)
+            if (isRepeat)
             {
                 return true;
             }
@@ -298,8 +297,6 @@ public sealed class WindowShortcutHandler
             Key.MediaNextTrack => viewModel.NextCommand,
             Key.MediaPreviousTrack => viewModel.PreviousCommand,
             Key.VolumeMute => viewModel.ToggleMuteCommand,
-            Key.VolumeUp => viewModel.IncreaseVolumeCommand,
-            Key.VolumeDown => viewModel.DecreaseVolumeCommand,
             _ => null
         };
 
