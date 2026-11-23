@@ -33,18 +33,21 @@
 
 【リスト表示モード (List View)】
 +--------------------------------------------------------------------------------------------------------------------+
-| [ソート: アルバム名 ▼]     [▲昇順]   [田 グリッド | ≡ リスト]   [🔍 アルバムを検索...              ]     全 86 作品 |
+| [ソート: アルバム名 ▼]     [▲昇順]   [田 グリッド | ≡ リスト]                                                       |
 +--------------------------------------------------------------------------------------------------------------------+
-|    | アート | アルバム名                    | アーティスト          | 年     | 収録曲数 | 総再生時間 | 操作      |
-|----+--------+-------------------------------+-----------------------+--------+----------+------------+-----------|
-| || | [40x40]| Random Access Memories        | Daft Punk             | 2013   | 13 曲    | 74:24      | [▶] [📋+] |
-|    | [40x40]| Hurry Up, We're Dreaming      | M83                   | 2011   | 22 曲    | 73:22      | [▶] [📋+] |
-|    | [40x40]| Starboy                       | The Weeknd            | 2016   | 18 曲    | 68:40      | [▶] [📋+] |
-|    | [40x40]| Currents                      | Tame Impala           | 2015   | 13 曲    | 51:12      | [▶] [📋+] |
+| [v] [40x40] Random Access Memories / Daft Punk                                                                     |
+|   +--------------------------------------------------------------------------------------------------------------+ |
+|   |   |  #  | ★ | タイトル                       | アーティスト        | 形式            |  時間 |              | |
+|   |---+-----+---+--------------------------------+---------------------+-----------------+-------+--------------| |
+|   |   |  1  | ☆ | Give Life Back to Music        | Daft Punk           | [FLAC][Hi-Res]  | 04:34 |     [+]      | |
+|   | | |  ▶  | ★ | Instant Crush                  | Daft Punk feat. ... | [FLAC][Hi-Res]  | 05:37 |     [+]      | |
+|   |   |  -  | ☆ | Bonus Track                    | Daft Punk           | [MP3]           | 03:12 |     [+]      | |
+|   +--------------------------------------------------------------------------------------------------------------+ |
+| [>] [40x40] Hurry Up, We're Dreaming / M83                                                                         |
 +--------------------------------------------------------------------------------------------------------------------+
 ```
 
-> **構想要素に関する注記**: モックアップ内のアルバム検索ボックス・作品数サマリー・リスト展開楽曲の詳細列（再生時間・アーティスト・お気に入り・トラック番号・音質バッジ等）は拡張構想（関連Issue: #200, #264）です。
+> **構想要素に関する注記**: モックアップ内のアルバム検索ボックス・作品数サマリーは拡張構想（関連Issue: #200）です。リスト表示の展開楽曲リスト詳細列（トラック番号、再生中インジケーター、お気に入りトグル、アーティスト、形式/音質バッジ、再生時間）は Issue #264 にて実装済みです。
 
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
@@ -69,7 +72,9 @@
 
 - 一覧は `Albums`、各アルバムの収録曲は `Tracks`。アルバムタイトル・アーティスト名およびグリッド展開トレイ内のトラックタイトルには `MarqueeTextBlock`（ホバー連動シームレスループ）を適用する。
 - グリッド表示の収録曲トレイはカード配置を押し広げずにカード直下へオーバーレイ展開され、**単一排他展開制御**（別アルバム展開時、トレイ外クリック時、ソート変更時、グリッド/リスト表示切替時に自動で閉じる）を行う。
-- リスト表示の展開曲行には、選択 `CheckBox`、曲名、お気に入りハートボタン、プレイリスト追加 `+` ボタンを配置する（詳細情報列の拡充は Issue #264 対象）。
+- リスト表示の展開領域は、`AllSongsView` と統一したコンパクトな列ヘッダー行（`#`、`★`、`タイトル`、`アーティスト`、`形式`、`時間`）と各楽曲行で構成する。
+  - 各楽曲行は `Border` コンテナ（ホバー時 `ControlBackgroundHighlightBrush`）上に、左端3px再生中アクセントバー、選択 `CheckBox`（転送選択モード時のみ表示）、トラック番号（`TrackNumber`、`0` は `-`、再生中は `▶` + `NeonCyanBrush`）、お気に入りトグルボタン（`★`/`☆`、`ToggleFavoriteCommand`）、曲名（`Title`、省略＋`ToolTip`、再生中 `NeonCyanBrush` ハイライト）、アーティスト（`Artist`、省略＋`ToolTip`）、フォーマット/音質バッジ（`Format` + `QualityLabel`、`ToolTip` に `QualityInfo`）、再生時間（`DurationString`、右揃え）、プレイリスト追加 `+` ボタン（`Playlist.ShowAddToPlaylistDialogCommand`）を配置する。
+  - 行コンテナを非ネストの `Border` とし、子ボタン（お気に入り・`+`）および `CheckBox` 押下時は行クリック再生（`PlayTrackCommand`）を発火させない。
 - 機器転送選択モード時（`IsSelectionMode = True`）の `CheckBox` は `Album.IsSelected` / `Track.IsSelected` に連動し、接続機器上に全曲存在するアルバム（`IsOnDevice = True`）は非活性となる。
 
 ## 6. アニメーションとインタラクション
@@ -84,7 +89,7 @@
 
 ## 7. パフォーマンス最適化要件
 
-リスト側は `VirtualizingStackPanel.IsVirtualizing=True` と `Recycling` を指定。ScrollUnitの明示はない。グリッド側はScrollViewer＋ItemsControl＋WrapPanel、収録曲もItemsControlで、UI仮想化を行わない。共通の大規模一覧要件との差を評価する際はこの構成を使用する。非選択表示はBoolToVisでCollapsed。アートのボタン・トレイにDropShadowEffectが存在する。
+リスト側は `VirtualizingStackPanel.IsVirtualizing=True`、`VirtualizationMode=Recycling`、`ScrollUnit=Pixel`、`ScrollViewer.CanContentScroll=True` を指定。グリッド側はScrollViewer＋ItemsControl＋WrapPanel、収録曲もItemsControlで、UI仮想化を行わない。共通の大規模一覧要件との差を評価する際はこの構成を使用する。非選択表示はBoolToVisでCollapsed。アートのボタン・トレイにDropShadowEffectが存在するが、リスト表示の展開楽曲行内には高負荷エフェクトを使用しない。
 
 共通要件は[パフォーマンス最適化](../../詳細設計/パフォーマンス最適化.md)に従う。多数の項目の標準指定は `IsVirtualizing=True / VirtualizationMode=Recycling / ScrollUnit=Pixel / CanContentScroll=True`。上記の個別構成と区別して適用範囲を判断する。
 
@@ -96,4 +101,4 @@
 - [デザイントークン](../../デザインシステム/01_デザイントークン仕様書.md)・[共通コントロール](../../デザインシステム/02_共通コントロールスタイル仕様書.md)
 - [コードビハインド](../../../AudioEffector/Presentation/Views/LibraryView.xaml.cs)
 - [LibraryViewModel](../../../AudioEffector/Presentation/ViewModels/LibraryViewModel.cs)
-- 関連Issue（設計経緯）: [#166](https://github.com/taketonnbo/Audio_Effector/issues/166)、[#167](https://github.com/taketonnbo/Audio_Effector/issues/167)、[#168](https://github.com/taketonnbo/Audio_Effector/issues/168)
+- 関連Issue（設計経緯）: [#166](https://github.com/taketonnbo/Audio_Effector/issues/166)、[#167](https://github.com/taketonnbo/Audio_Effector/issues/167)、[#168](https://github.com/taketonnbo/Audio_Effector/issues/168)、[#264](https://github.com/taketonnbo/Audio_Effector/issues/264)
