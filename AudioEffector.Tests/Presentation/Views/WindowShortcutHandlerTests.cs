@@ -80,7 +80,7 @@ public sealed class WindowShortcutHandlerTests
     }
 
     /// <summary>
-    /// カスタムショートカット未設定時でも、WM_APPCOMMAND の再生制御・ミュートコマンドが対応するコマンドを実行することを検証します。
+    /// カスタムショートカット未設定時でも、WM_APPCOMMAND の再生制御系メディアコマンドが対応するコマンドを実行することを検証します。
     /// </summary>
     [Fact]
     public void HandleAppCommandCode_各種メディアコマンド受信時_対応するコマンドを実行すること()
@@ -95,23 +95,22 @@ public sealed class WindowShortcutHandlerTests
         Assert.True(sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_MEDIA_STOP, target));
         Assert.True(sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_MEDIA_NEXTTRACK, target));
         Assert.True(sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_MEDIA_PREVIOUSTRACK, target));
-        Assert.True(sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_VOLUME_MUTE, target));
 
         // Assert
         Assert.Equal(1, target.TogglePlayPauseCount);
         Assert.Equal(1, target.StopCount);
         Assert.Equal(1, target.NextCount);
         Assert.Equal(1, target.PreviousCount);
-        Assert.Equal(1, target.ToggleMuteCount);
+        Assert.Equal(0, target.ToggleMuteCount);
         Assert.Equal(0, target.IncreaseVolumeCount);
         Assert.Equal(0, target.DecreaseVolumeCount);
     }
 
     /// <summary>
-    /// ハードウェア音量上げ・下げキー（WM_APPCOMMAND / Key.VolumeUp・Key.VolumeDown）はシステム音量へ委譲し、アプリ側ボリュームを変更しないことを検証します。
+    /// ハードウェアのミュート・音量上げ・下げキー（WM_APPCOMMAND / Key.Volume*）はシステムオーディオへ委譲し、アプリ側ミュート・ボリュームを変更しないことを検証します。
     /// </summary>
     [Fact]
-    public void HandleAppCommandCodeおよびHandleKeyInput_ハードウェア音量増減キー受信時_アプリ側で消費せずOSへ委譲すること()
+    public void HandleAppCommandCodeおよびHandleKeyInput_ハードウェア音量ミュート系キー受信時_アプリ側で消費せずOSへ委譲すること()
     {
         // Arrange
         long nowMs = 1000;
@@ -119,16 +118,21 @@ public sealed class WindowShortcutHandlerTests
         var target = new FakeShortcutCommandTarget();
 
         // Act
+        bool appVolMute = sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_VOLUME_MUTE, target);
         bool appVolUp = sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_VOLUME_UP, target);
         bool appVolDown = sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_VOLUME_DOWN, target);
+        bool keyVolMute = sut.HandleKeyInput(Key.VolumeMute, ModifierKeys.None, false, target, null);
         bool keyVolUp = sut.HandleKeyInput(Key.VolumeUp, ModifierKeys.None, false, target, null);
         bool keyVolDown = sut.HandleKeyInput(Key.VolumeDown, ModifierKeys.None, false, target, null);
 
         // Assert
+        Assert.False(appVolMute);
         Assert.False(appVolUp);
         Assert.False(appVolDown);
+        Assert.False(keyVolMute);
         Assert.False(keyVolUp);
         Assert.False(keyVolDown);
+        Assert.Equal(0, target.ToggleMuteCount);
         Assert.Equal(0, target.IncreaseVolumeCount);
         Assert.Equal(0, target.DecreaseVolumeCount);
     }
