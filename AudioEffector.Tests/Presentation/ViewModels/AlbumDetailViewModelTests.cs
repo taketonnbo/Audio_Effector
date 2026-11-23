@@ -230,10 +230,10 @@ public sealed class AlbumDetailViewModelTests
     }
 
     /// <summary>
-    /// ShufflePlayCommand実行時にシャッフルモードが有効化され、収録曲のいずれかから再生開始されることを検証します
+    /// ShufflePlayCommand実行時にIsShuffleEnabledを変更せずワンショットシャッフルリストが再生キューとPlaybackRequestedへ渡されることを検証します
     /// </summary>
     [Fact]
-    public void ShufflePlayCommand_収録曲ありで実行_シャッフル有効化と再生開始が行われる()
+    public void ShufflePlayCommand_収録曲ありで実行_IsShuffleEnabledを変更せずシャッフル済みリストで再生開始される()
     {
         // Arrange
         var (sut, library, audioMock) = CreateSut();
@@ -246,15 +246,30 @@ public sealed class AlbumDetailViewModelTests
         var album = new Album("RAM", "Daft Punk", 2013, [t1, t2, t3]);
         sut.SetAlbum(album);
 
+        IReadOnlyList<Track>? requestedTracks = null;
         Track? startedTrack = null;
-        sut.PlaybackRequested += (_, start, _, _) => startedTrack = start;
+        sut.PlaybackRequested += (tracks, start, _, _) =>
+        {
+            requestedTracks = tracks;
+            startedTrack = start;
+        };
+
+        List<Track>? setPlaylistTracks = null;
+        audioMock
+            .Setup(a => a.SetPlaylist(It.IsAny<List<Track>>(), It.IsAny<Track?>()))
+            .Callback<List<Track>, Track?>((list, _) => setPlaylistTracks = list);
 
         // Act
         sut.ShufflePlayCommand.Execute(null);
 
         // Assert
-        Assert.True(audioMock.Object.IsShuffleEnabled);
+        Assert.False(audioMock.Object.IsShuffleEnabled);
         Assert.NotNull(startedTrack);
+        Assert.NotNull(setPlaylistTracks);
+        Assert.NotNull(requestedTracks);
+        Assert.Equal(3, setPlaylistTracks!.Count);
+        Assert.Same(setPlaylistTracks[0], startedTrack);
+        Assert.Equal(setPlaylistTracks, requestedTracks);
         Assert.Contains(startedTrack, album.Tracks);
         audioMock.Verify(a => a.PlayTrack(startedTrack!), Times.Once);
     }
@@ -506,5 +521,106 @@ public sealed class AlbumDetailViewModelTests
                 Directory.Delete(tempDir, recursive: true);
             }
         }
+    }
+
+    /// <summary>
+    /// OnLibraryTrackRemovedで途中曲が削除された場合にメタデータ再集計と代表アート再読込が行われ、最終曲削除時にBackRequestedが発火することを検証します
+    /// </summary>
+    [Fact]
+    public async Task OnLibraryTrackRemoved_途中曲と最終曲の削除_メタデータ再集計と代表アート再読込後に自動復帰する()
+    {
+        // Arrange
+        var loadedPaths = new List<string>();
+        var (sut, library, _) = CreateSut(artworkLoader: (path, _) =>
+        {
+            loadedPaths.Add(path);
+            return Task.FromResult<byte[]?>(ValidPngBytesA);
+        });
+        using var _lib = library;
+        using var _sut = sut;
+
+        var t1 = CreateTrack("Track 1", format: "FLAC", isHiRes: true, duration: TimeSpan.FromMinutes(3), filePath: @"C:\music\t1.flac");
+        var t2 = CreateTrack("Track 2", format: "MP3", isHiRes: false, duration: TimeSpan.FromMinutes(4), filePath: @"C:\music\t2.mp3");
+        var album = new Album("RAM", "Daft Punk", 2013, [t1, t2]);
+        sut.SetAlbum(album);
+        await sut.CurrentArtLoadTask;
+
+        bool backFired = false;
+        sut.BackRequested += () => backFired = true;
+
+        // Act 1: 代表トラック（先頭曲）を削除
+        sut.OnLibraryTrackRemoved(t1);
+        await sut.CurrentArtLoadTask;
+
+        // Assert 1: 残り1曲でメタデータ再集計され、代表アートが t2 で再読込される
+        Assert.False(backFired);
+        Assert.Equal(1, sut.TrackCount);
+        Assert.Equal("04:00", sut.TotalDurationString);
+        Assert.False(sut.IsHiRes);
+        Assert.Equal("MP3", sut.AudioFormatSummary);
+        Assert.Equal([@"C:\music\t1.flac", @"C:\music\t2.mp3"], loadedPaths);
+
+        // Act 2: 最終曲を削除
+        sut.OnLibraryTrackRemoved(t2);
+
+        // Assert 2: クリアされ BackRequested が発火
+        Assert.True(backFired);
+        Assert.Null(sut.CurrentAlbum);
+        Assert.Empty(sut.Tracks);
+    }
+
+    /// <summary>
+    /// OnLibraryAlbumRemovedで表示中アルバムが削除された場合にクリアされBackRequestedが発火することを検証します
+    /// </summary>
+    [Fact]
+    public void OnLibraryAlbumRemoved_表示中アルバム削除時_クリアされBackRequestedが発火する()
+    {
+        // Arrange
+        var (sut, library, _) = CreateSut();
+        using var _lib = library;
+        using var _sut = sut;
+
+        var album = new Album("RAM", "Daft Punk", 2013, [CreateTrack("Track 1")]);
+        sut.SetAlbum(album);
+
+        bool backFired = false;
+        sut.BackRequested += () => backFired = true;
+
+        // Act
+        sut.OnLibraryAlbumRemoved(album);
+
+        // Assert
+        Assert.True(backFired);
+        Assert.Null(sut.CurrentAlbum);
+        Assert.Empty(sut.Tracks);
+    }
+
+    /// <summary>
+    /// Dispose呼び出し後にSetAlbumやPlaybackStateChangedが発火しても状態が変化せず例外も発生しないことを検証します
+    /// </summary>
+    [Fact]
+    public void Dispose_破棄後にSetAlbumやイベント発火があっても_状態変化せず例外が発生しない()
+    {
+        // Arrange
+        var (sut, library, audioMock) = CreateSut();
+        using var _lib = library;
+        var album = new Album("RAM", "Daft Punk", 2013, [CreateTrack("Track 1")]);
+        sut.SetAlbum(album);
+
+        // Act
+        sut.Dispose();
+        var exception = Record.Exception(() =>
+        {
+            sut.SetAlbum(album);
+            audioMock.Raise(a => a.PlaybackStateChanged += null, true);
+            sut.OnLibraryAlbumRemoved(album);
+            sut.OnLibraryTrackRemoved(album.Tracks[0]);
+        });
+
+        // Assert
+        Assert.Null(exception);
+        Assert.Null(sut.CurrentAlbum);
+        Assert.Null(sut.CoverImage);
+        Assert.False(sut.IsPlaying);
     }
 }
