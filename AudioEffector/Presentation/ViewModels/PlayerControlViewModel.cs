@@ -767,10 +767,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         PlaybackListTracks = new ObservableCollection<Track>(trackList);
         if (updateAudioService)
         {
-            if (startTrack == null)
-            {
-                PlayQueue = new ObservableCollection<Track>(trackList);
-            }
+            // PlayQueue / UserQueue / AlbumQueue は AudioService.SetPlaylist が発火する PlaylistChanged 経由で同期する
             _audioService.SetPlaylist(trackList, startTrack);
         }
         SyncTrackPlayingStates(_currentTrack);
