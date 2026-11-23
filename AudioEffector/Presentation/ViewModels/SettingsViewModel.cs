@@ -153,6 +153,23 @@ public class SettingsViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// メイン画面最小化時にコンパクトプレイヤーを表示しないかどうかを取得または設定します
+    /// </summary>
+    public bool DisableMiniPlayerOnMinimize
+    {
+        get => _appSettings.DisableMiniPlayerOnMinimize;
+        set
+        {
+            if (_appSettings.DisableMiniPlayerOnMinimize != value)
+            {
+                _appSettings.DisableMiniPlayerOnMinimize = value;
+                OnPropertyChanged();
+                _settingsService.SaveSettings(_appSettings);
+            }
+        }
+    }
+
+    /// <summary>
     /// マスター音量を取得または設定します
     /// </summary>
     public float MasterVolume
