@@ -6,15 +6,15 @@ using System.Windows.Data;
 namespace AudioEffector.Presentation.Converters;
 
 /// <summary>
-/// 複数の文字列候補から最初に見つかった非空白の値を返し、すべて未設定の場合は既定文字列へフォールバックするマルチ値コンバーター。
-/// 主に正方形ミニプレイヤーのアルバム名表示（アルバム名 → アーティスト名 → 既定文言）に使用します。
+/// 複数の文字列候補から最初に見つかった非空白の値を返し、すべて未設定の場合は既定文字列へフォールバックするマルチ値コンバーター
+/// 主に正方形ミニプレイヤーのアルバム名表示（アルバム名 → アーティスト名 → 既定文言）に使用します
 /// </summary>
 public sealed class AlbumDisplayFallbackConverter : IMultiValueConverter
 {
-    private const string DefaultFallbackText = "Unknown Album";
+    private const string DEFAULT_FALLBACK_TEXT = "Unknown Album";
 
     /// <summary>
-    /// 複数の候補値から最初に見つかった非空白文字列を返します。
+    /// 複数の候補値から最初に見つかった非空白文字列を返します
     /// </summary>
     /// <param name="values">優先順位順に並べた文字列候補</param>
     /// <param name="targetType">ターゲットプロパティの型</param>
@@ -41,11 +41,11 @@ public sealed class AlbumDisplayFallbackConverter : IMultiValueConverter
 
         return parameter is string fallback && !string.IsNullOrWhiteSpace(fallback)
             ? fallback
-            : DefaultFallbackText;
+            : DEFAULT_FALLBACK_TEXT;
     }
 
     /// <summary>
-    /// 一方向バインディング専用のため逆変換はサポートしません。
+    /// 一方向バインディング専用のため逆変換はサポートしません
     /// </summary>
     /// <param name="value">変換対象の値</param>
     /// <param name="targetTypes">ターゲット型配列</param>
