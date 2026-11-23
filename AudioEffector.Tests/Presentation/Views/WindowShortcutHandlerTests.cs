@@ -167,6 +167,59 @@ public sealed class WindowShortcutHandlerTests
     }
 
     /// <summary>
+    /// WM_APPCOMMAND の直後に同一メディアキーの WM_KEYDOWN が逆順で着信した場合でも二重発火が抑止され、150ms 超過後は再発火することを検証します。
+    /// </summary>
+    [Fact]
+    public void HandleKeyInput_AppCommand直後にKeyDownが逆順着信した場合_150ms以内は抑止し超過後は再発火すること()
+    {
+        // Arrange
+        long nowMs = 1000;
+        var sut = new WindowShortcutHandler(() => nowMs, 1.0);
+        var target = new FakeShortcutCommandTarget();
+
+        // Act
+        bool firstHandled = sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_MEDIA_PLAY_PAUSE, target);
+        nowMs += 30; // 150ms 以内に逆順で KeyDown が届く
+        bool suppressedHandled = sut.HandleKeyInput(Key.MediaPlayPause, ModifierKeys.None, false, target, null);
+        nowMs += 200; // 150ms 超過後の新たな押下
+        bool afterWindowHandled = sut.HandleKeyInput(Key.MediaPlayPause, ModifierKeys.None, false, target, null);
+
+        // Assert
+        Assert.True(firstHandled);
+        Assert.True(suppressedHandled);
+        Assert.True(afterWindowHandled);
+        Assert.Equal(2, target.TogglePlayPauseCount);
+        Assert.False(target.IsPlaying);
+    }
+
+    /// <summary>
+    /// WM_APPCOMMAND 受信時に修飾キー付きカスタムメディアキー設定が一致実行され、未割り当ての修飾キー組み合わせは標準動作へフォールバックしないことを検証します。
+    /// </summary>
+    [Fact]
+    public void HandleAppCommandCode_修飾キー付きカスタムメディアキーの場合_一致時のみ実行し未割り当て時はフォールバックしないこと()
+    {
+        // Arrange
+        long nowMs = 1000;
+        var sut = new WindowShortcutHandler(() => nowMs, 1.0);
+        sut.UpdateSettings(new AppSettings
+        {
+            StopShortcut = new ShortcutKeyConfig { Key = Key.MediaPlayPause, Modifiers = ModifierKeys.Control }
+        });
+        var target = new FakeShortcutCommandTarget();
+
+        // Act
+        bool matchedHandled = sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_MEDIA_PLAY_PAUSE, target, ModifierKeys.Control);
+        nowMs += 300;
+        bool unmatchedModifiedHandled = sut.HandleAppCommandCode(ShortcutKeyHelper.APPCOMMAND_MEDIA_PLAY_PAUSE, target, ModifierKeys.Shift);
+
+        // Assert
+        Assert.True(matchedHandled);
+        Assert.False(unmatchedModifiedHandled);
+        Assert.Equal(1, target.StopCount);
+        Assert.Equal(0, target.TogglePlayPauseCount);
+    }
+
+    /// <summary>
     /// ユーザーがメディアキーを別機能（停止）へ明示的に割り当てている場合、標準動作よりユーザー設定が優先されることを検証します。
     /// </summary>
     [Fact]

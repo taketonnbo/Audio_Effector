@@ -151,4 +151,60 @@ public sealed class ShortcutInputBoxTests
             }
         });
     }
+
+    /// <summary>
+    /// WM_APPCOMMAND の直後に同一メディアキーの PreviewKeyDown が逆順で着信した場合でも、二重割り当てが発生せず 1 回のみ設定されることを検証します。
+    /// </summary>
+    [Fact]
+    public void InputTextBox_PreviewKeyDown_WM_APPCOMMAND直後に同一メディアキーが着信した場合_二重処理を抑止すること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var sut = new ShortcutInputBox();
+            var hostWindow = new Window
+            {
+                Content = sut,
+                Width = 320,
+                Height = 120,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -2000,
+                Top = -2000,
+                ShowInTaskbar = false
+            };
+
+            try
+            {
+                hostWindow.Show();
+                hostWindow.Activate();
+
+                var inputBox = Assert.IsType<TextBox>(sut.FindName("InputTextBox"));
+                Keyboard.Focus(inputBox);
+
+                IntPtr hwnd = new WindowInteropHelper(hostWindow).Handle;
+                IntPtr lParam = new IntPtr(ShortcutKeyHelper.APPCOMMAND_MEDIA_PLAY_PAUSE << 16);
+                var presentationSource = PresentationSource.FromVisual(hostWindow);
+                Assert.NotNull(presentationSource);
+
+                // Act (WM_APPCOMMAND → 直後に PreviewKeyDown の逆順着信)
+                SendMessage(hwnd, ShortcutKeyHelper.WM_APPCOMMAND, hwnd, lParam);
+                var firstAssignedInstance = sut.Shortcut;
+
+                var keyArgs = new KeyEventArgs(Keyboard.PrimaryDevice, presentationSource!, 0, Key.MediaPlayPause)
+                {
+                    RoutedEvent = Keyboard.PreviewKeyDownEvent
+                };
+                inputBox.RaiseEvent(keyArgs);
+
+                // Assert
+                Assert.True(keyArgs.Handled);
+                Assert.NotNull(firstAssignedInstance);
+                Assert.Same(firstAssignedInstance, sut.Shortcut);
+            }
+            finally
+            {
+                hostWindow.Close();
+            }
+        });
+    }
 }
