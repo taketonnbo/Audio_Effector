@@ -407,6 +407,7 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0"
                                                        Text="{Binding AlbumQueueTitle}"
+                                                       ToolTip="{Binding AlbumQueueTitle}"
                                                        FontSize="12" FontWeight="Bold"
                                                        Foreground="{DynamicResource TextForegroundBrush}"
                                                        TextTrimming="CharacterEllipsis"
