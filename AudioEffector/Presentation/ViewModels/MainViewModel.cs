@@ -775,7 +775,8 @@ namespace AudioEffector.Presentation.ViewModels
             PlayNextCommand = PlayerControl!.PlayNextCommand;
             EnqueueTrackCommand = PlayerControl!.EnqueueTrackCommand;
             PlayFromQueueCommand = PlayerControl!.PlayFromQueueCommand;
-            ShowQueueDialogCommand = PlayerControl!.ShowQueueDialogCommand;
+            ToggleMiniPlayerQueueCommand = PlayerControl!.ToggleMiniPlayerQueueCommand;
+            CloseMiniPlayerQueueCommand = PlayerControl!.CloseMiniPlayerQueueCommand;
             RemoveFromQueueCommand = PlayerControl!.RemoveFromQueueCommand;
             ClearQueueCommand = PlayerControl!.ClearQueueCommand;
             ClearHistoryCommand = PlayerControl!.ClearHistoryCommand;
@@ -1382,9 +1383,29 @@ namespace AudioEffector.Presentation.ViewModels
         public ICommand DeleteTrackCommand { get; }
 
         /// <summary>
-        /// 再生キューダイアログを表示するコマンドを取得します
+        /// ミニプレイヤーの連結再生キューが開いているかどうかを取得または設定します
         /// </summary>
-        public ICommand ShowQueueDialogCommand { get; }
+        public bool IsMiniPlayerQueueOpen
+        {
+            get => PlayerControl?.IsMiniPlayerQueueOpen ?? false;
+            set
+            {
+                if (PlayerControl != null)
+                {
+                    PlayerControl.IsMiniPlayerQueueOpen = value;
+                }
+            }
+        }
+
+        /// <summary>
+        /// ミニプレイヤーの連結再生キュー開閉を切り替えるコマンドを取得します
+        /// </summary>
+        public ICommand ToggleMiniPlayerQueueCommand { get; }
+
+        /// <summary>
+        /// ミニプレイヤーの連結再生キューを閉じるコマンドを取得します
+        /// </summary>
+        public ICommand CloseMiniPlayerQueueCommand { get; }
 
         /// <summary>
         /// 再生キュー内の指定曲を再生するコマンドを取得します

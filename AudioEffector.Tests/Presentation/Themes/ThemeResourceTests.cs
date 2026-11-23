@@ -190,41 +190,6 @@ public class ThemeResourceTests
     }
 
     /// <summary>
-    /// PlayQueueDialog.xamlの再生オーバーレイにおいて、テーマに依存しないAlwaysNeonCyanBrushが参照されていることを検証します。
-    /// （Issue #202 再発防止）
-    /// </summary>
-    [Fact]
-    public void PlayQueueDialog_再生オーバーレイ確認_AlwaysNeonCyanリソースを参照していること()
-    {
-        // Arrange
-        var rootDir = FindWorkspaceRoot();
-        var xamlPath = Path.Combine(rootDir, "AudioEffector", "Presentation", "Views", "PlayQueueDialog.xaml");
-        Assert.True(File.Exists(xamlPath), $"PlayQueueDialog.xaml が見つかりません: {xamlPath}");
-
-        // Act
-        var xamlContent = File.ReadAllText(xamlPath);
-        var sut = XDocument.Parse(xamlContent);
-
-        // Assert
-        var overlayBorders = sut.Descendants()
-            .Where(e => e.Name.LocalName == "Border" &&
-                e.Attributes().Any(a => a.Name.LocalName == "Background" && a.Value == "#80000000"))
-            .ToList();
-
-        Assert.NotEmpty(overlayBorders);
-
-        foreach (var overlay in overlayBorders)
-        {
-            var overlayXml = overlay.ToString();
-            // 常時ネオンシアンのリソースが参照されていること
-            Assert.Contains("{DynamicResource AlwaysNeonCyanBrush}", overlayXml);
-
-            // 通常のNeonCyanBrushが参照されていないこと（ライトテーマ時の暗青色化・視認性低下防止）
-            Assert.DoesNotContain("NeonCyanBrush", overlayXml.Replace("AlwaysNeonCyanBrush", ""));
-        }
-    }
-
-    /// <summary>
     /// PlayQueueSidePanel.xamlのヘッダー（タイトルおよびアイコン）において、AlwaysNeonCyanBrushが参照されていることを検証します。
     /// （Issue #202 再発防止）
     /// </summary>
@@ -244,31 +209,6 @@ public class ThemeResourceTests
         var titleBlock = sut.Descendants()
             .FirstOrDefault(e => e.Name.LocalName == "TextBlock" &&
                 e.Attributes().Any(a => a.Name.LocalName == "Text" && a.Value == "再生キュー"));
-
-        Assert.NotNull(titleBlock);
-        Assert.Equal("{DynamicResource AlwaysNeonCyanBrush}", titleBlock.Attribute("Foreground")?.Value);
-    }
-
-    /// <summary>
-    /// PlayQueueDialog.xamlのヘッダータイトルにおいて、AlwaysNeonCyanBrushが参照されていることを検証します。
-    /// （Issue #202 再発防止）
-    /// </summary>
-    [Fact]
-    public void PlayQueueDialog_ヘッダー確認_AlwaysNeonCyanリソースを参照していること()
-    {
-        // Arrange
-        var rootDir = FindWorkspaceRoot();
-        var xamlPath = Path.Combine(rootDir, "AudioEffector", "Presentation", "Views", "PlayQueueDialog.xaml");
-        Assert.True(File.Exists(xamlPath), $"PlayQueueDialog.xaml が見つかりません: {xamlPath}");
-
-        // Act
-        var xamlContent = File.ReadAllText(xamlPath);
-        var sut = XDocument.Parse(xamlContent);
-
-        // Assert
-        var titleBlock = sut.Descendants()
-            .FirstOrDefault(e => e.Name.LocalName == "TextBlock" &&
-                e.Attributes().Any(a => a.Name.LocalName == "Text" && a.Value.Contains("再生キュー")));
 
         Assert.NotNull(titleBlock);
         Assert.Equal("{DynamicResource AlwaysNeonCyanBrush}", titleBlock.Attribute("Foreground")?.Value);
@@ -326,6 +266,45 @@ public class ThemeResourceTests
         var overlayXml = overlayBorders[0].ToString();
         Assert.Contains("{DynamicResource AlwaysNeonCyanBrush}", overlayXml);
         Assert.DoesNotContain("NeonCyanBrush", overlayXml.Replace("AlwaysNeonCyanBrush", ""));
+    }
+
+    /// <summary>
+    /// MiniPlayerWindow.xaml で参照されているすべての DynamicResource が DarkTheme / LightTheme 両方に定義されており、
+    /// 明るいパネル背景上で視認性が低下する AlwaysNeonCyanBrush を使用していないことを検証します。
+    /// </summary>
+    [Fact]
+    public void MiniPlayerWindow_テーマリソース参照確認_全DynamicResourceが両テーマに定義されNeonCyanBrushで統一されていること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var rootDir = FindWorkspaceRoot();
+            var xamlPath = Path.Combine(rootDir, "AudioEffector", "Presentation", "Views", "MiniPlayerWindow.xaml");
+            Assert.True(File.Exists(xamlPath), $"MiniPlayerWindow.xaml が見つかりません: {xamlPath}");
+
+            var xamlContent = File.ReadAllText(xamlPath);
+            var darkDict = new ResourceDictionary { Source = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/DarkTheme.xaml") };
+            var lightDict = new ResourceDictionary { Source = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/LightTheme.xaml") };
+
+            // Act
+            var referencedKeys = System.Text.RegularExpressions.Regex
+                .Matches(xamlContent, @"\{DynamicResource\s+([A-Za-z0-9_]+)\}")
+                .Select(m => m.Groups[1].Value)
+                .Distinct()
+                .ToList();
+
+            // Assert
+            Assert.NotEmpty(referencedKeys);
+            foreach (var key in referencedKeys)
+            {
+                Assert.True(darkDict.Contains(key), $"DarkTheme.xaml に未定義のリソース '{key}' が MiniPlayerWindow.xaml で参照されています。");
+                Assert.True(lightDict.Contains(key), $"LightTheme.xaml に未定義のリソース '{key}' が MiniPlayerWindow.xaml で参照されています。");
+            }
+
+            Assert.DoesNotContain("AlwaysNeonCyanBrush", referencedKeys);
+            Assert.Contains("NeonCyanBrush", referencedKeys);
+            Assert.Contains("BorderBrush", referencedKeys);
+        });
     }
 
     private static string FindWorkspaceRoot()

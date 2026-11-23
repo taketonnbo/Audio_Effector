@@ -22,7 +22,7 @@ public static class SourceViewLoader
             _ => options.ViewName ?? "MainWindow"
         };
         string path = options.XamlPath ?? $"AudioEffector/Presentation/Views/{view}.xaml";
-        if (view is not ("MainWindow" or "SettingsDialog" or "DeviceManagerDialog" or "InputBox" or "PlaylistSelectionDialog" or "MiniPlayerWindow" or "PlayQueueDialog"))
+        if (view is not ("MainWindow" or "SettingsDialog" or "DeviceManagerDialog" or "InputBox" or "PlaylistSelectionDialog" or "MiniPlayerWindow"))
             Application.Current.Resources.MergedDictionaries.Add(LoadResources("AudioEffector/Presentation/Views/MainWindow.xaml"));
         if (view == "ShortcutInputBox")
             return new AudioEffector.Presentation.Views.ShortcutInputBox { Label = "再生 / 一時停止", Shortcut = new AudioEffector.Domain.Entities.AppSettings().PlayPauseShortcut };

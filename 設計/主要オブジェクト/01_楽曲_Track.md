@@ -15,7 +15,7 @@
 >   2. `ArtistsView.xaml`: 選択したアーティスト（`ArtistGroup`）の所属楽曲一覧
 >   3. `LibraryView.xaml`: 各アルバムを展開した際のインライン曲リスト（グリッド時ソケットトレイ / リスト時Expander）
 >   4. `PlaylistTracksView.xaml`: プレイリスト内楽曲リスト、およびお気に入り楽曲リスト
->   5. `PlayQueueSidePanel.xaml` / `PlayQueueDialog.xaml`: 再生キュー（予約キュー・アルバムの残り曲）および再生履歴タブ
+>   5. `PlayQueueSidePanel.xaml` / `MiniPlayerWindow.xaml`: 再生キュー（予約キュー・アルバムの残り曲・ミニプレイヤー下部連結キュー）および再生履歴タブ
 >   6. `RecentView.xaml`: 最近再生した曲一覧（`RecentTrackEntry` として再生日時 `PlayedAt` とともに永続化・表示）
 > - **シングル表示**: メイン画面右側パネルの楽曲情報・Player Pod、上部プレイヤーバー、ミニプレイヤー（`MiniPlayerWindow.xaml`）、およびプロパティ表示ダイアログ（`ShowTrackPropertiesCommand`）として提供されます。
 
