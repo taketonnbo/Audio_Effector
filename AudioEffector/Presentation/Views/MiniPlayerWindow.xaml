@@ -141,7 +141,7 @@
                             <!-- Album Art -->
                             <Border Grid.Column="0" CornerRadius="4" ClipToBounds="True" Background="{DynamicResource ControlBackgroundHighlightBrush}">
                                 <Image x:Name="StandardAlbumArtImage"
-                                       Source="{Binding NowPlayingImage}"
+                                       Source="{Binding MiniPlayerAlbumArtImage}"
                                        Stretch="UniformToFill"
                                        RenderOptions.BitmapScalingMode="HighQuality"/>
                             </Border>
@@ -246,7 +246,7 @@
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"/>
                                     <Image x:Name="SquareCircularAlbumArtImage"
-                                           Source="{Binding NowPlayingImage}"
+                                           Source="{Binding MiniPlayerAlbumArtImage}"
                                            Stretch="UniformToFill"
                                            RenderOptions.BitmapScalingMode="HighQuality"/>
                                 </Grid>
@@ -264,7 +264,7 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
                         <Image x:Name="SquareStaticAlbumArtImage"
-                               Source="{Binding NowPlayingImage}"
+                               Source="{Binding MiniPlayerAlbumArtImage}"
                                Stretch="UniformToFill"
                                RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Grid>
