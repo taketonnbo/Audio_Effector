@@ -234,4 +234,42 @@ public sealed class AudioServiceHistoryTests
         Assert.Equal(nextAlbumTrack.FilePath, lastTrackChanged.FilePath);
         Assert.False(stoppedFired);
     }
+
+    /// <summary>
+    /// 古い再生世代ID（_currentPlaybackId と不一致）で OnTrackEndedCore が遅延実行された場合、現在の再生状態やイベント発火に影響せず無視されることを検証します。
+    /// </summary>
+    [Fact]
+    public void OnTrackEndedCore_古い再生世代IDが渡された場合_終了処理を実行せず無視すること()
+    {
+        // Arrange
+        using var sut = new AudioService();
+        var currentTrack = CreateTrack("1", "Current Track");
+        var queuedTrack = CreateTrack("2", "Queued Track");
+        sut.SetPlaylist(new List<Track> { currentTrack, queuedTrack });
+
+        var currentPlaybackIdField = typeof(AudioService).GetField("_currentPlaybackId", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(currentPlaybackIdField);
+        var activePlaybackId = Guid.NewGuid();
+        var stalePlaybackId = Guid.NewGuid();
+        currentPlaybackIdField.SetValue(sut, activePlaybackId);
+
+        var lastPlayingTrackField = typeof(AudioService).GetField("_lastPlayingTrack", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(lastPlayingTrackField);
+        lastPlayingTrackField.SetValue(sut, currentTrack);
+
+        bool trackEndedFired = false;
+        bool playlistEndedFired = false;
+        sut.TrackPlaybackEnded += _ => trackEndedFired = true;
+        sut.PlaylistEnded += (_, _) => playlistEndedFired = true;
+
+        var onTrackEndedCoreMethod = typeof(AudioService).GetMethod("OnTrackEndedCore", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(onTrackEndedCoreMethod);
+
+        // Act
+        onTrackEndedCoreMethod.Invoke(sut, new object?[] { stalePlaybackId });
+
+        // Assert
+        Assert.False(trackEndedFired);
+        Assert.False(playlistEndedFired);
+    }
 }

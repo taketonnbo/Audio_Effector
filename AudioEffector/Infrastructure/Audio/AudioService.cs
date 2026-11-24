@@ -637,7 +637,7 @@ public class AudioService : IAudioService
                     var endDetector = new EndOfStreamProvider(_masterVolumeProvider);
                     endDetector.EndOfStream += () =>
                     {
-                        _uiDispatcher.BeginInvoke(OnTrackEnded);
+                        _uiDispatcher.BeginInvoke(() => OnTrackEndedCore(thisPlaybackId));
                     };
 
                     var waveOut = new WaveOutEvent
@@ -760,6 +760,11 @@ public class AudioService : IAudioService
 
     private void OnTrackEnded()
     {
+        OnTrackEndedCore(null);
+    }
+
+    private void OnTrackEndedCore(Guid? expectedPlaybackId)
+    {
         Track? endedTrack = null;
         Track? nextTrack = null;
         bool playlistEmpty = false;
@@ -768,6 +773,7 @@ public class AudioService : IAudioService
         lock (_lock)
         {
             if (_stopRequested) return;
+            if (expectedPlaybackId.HasValue && _currentPlaybackId != expectedPlaybackId.Value) return;
 
             endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
             bool isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
