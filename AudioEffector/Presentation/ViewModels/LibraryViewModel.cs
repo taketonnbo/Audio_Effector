@@ -18,7 +18,6 @@ namespace AudioEffector.Presentation.ViewModels;
 /// </summary>
 public sealed class LibraryViewModel : ViewModelBase, IDisposable
 {
-    private static readonly string[] SupportedAudioExtensions = [".mp3", ".wav", ".aiff", ".wma", ".m4a", ".mp4", ".flac", ".aac", ".ogg", ".opus", ".alac"];
     private static readonly string[] LosslessAudioExtensions = [".flac", ".wav", ".aiff", ".alac"];
 
     private readonly LibraryApplicationService _libraryService;
@@ -449,15 +448,31 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
 
         try
         {
-            await Task.Run(() =>
+            await Task.Run(async () =>
             {
+                if (token.IsCancellationRequested) return;
+
+                IReadOnlyDictionary<string, Domain.ValueObjects.TrackId> persistedIdsByPath;
+                try
+                {
+                    persistedIdsByPath = await _libraryService.GetTrackIdsByPathAsync(token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    persistedIdsByPath = new Dictionary<string, Domain.ValueObjects.TrackId>(StringComparer.OrdinalIgnoreCase);
+                }
+
                 if (token.IsCancellationRequested) return;
 
                 List<string> files;
                 try
                 {
                     files = Directory.GetFiles(rootFolder, "*.*", SearchOption.AllDirectories)
-                        .Where(f => SupportedAudioExtensions.Contains(Path.GetExtension(f).ToLower(System.Globalization.CultureInfo.InvariantCulture)))
+                        .Where(f => LibraryApplicationService.SupportedAudioExtensions.Contains(Path.GetExtension(f)))
                         .ToList();
                 }
                 catch
@@ -552,11 +567,18 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 {
                     if (parsedTracksByPath.TryGetValue(path, out var addedTrack))
                     {
+                        if (persistedIdsByPath.TryGetValue(addedTrack.FilePath, out var existingId) &&
+                            !addedTrack.Id.Equals(existingId))
+                        {
+                            addedTrack = CloneTrackWithId(addedTrack, existingId);
+                        }
+
                         addedTracks.Add(addedTrack);
                     }
                 }
 
                 IReadOnlyList<FavoriteMetadataChange> changes = [];
+                List<Track> tracksSnapshot = [];
 
                 RunOnUiThread(() =>
                 {
@@ -620,6 +642,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
 
                     // 6. お気に入り状態の再照合（フォルダ移動・パス変更時もメタデータ一致でパスを自動更新）
                     (_, changes) = ReconcileFavoritesCore(Tracks.ToList(), null, token);
+                    tracksSnapshot = Tracks.ToList();
 
                     ScanProgress = 1.0;
                     syncResult = new LibrarySyncResult(
@@ -633,6 +656,21 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 });
 
                 _libraryService.SaveFavoriteMetadata(changes);
+                if (!token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await _libraryService.SyncLibraryTracksAsync(tracksSnapshot, token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Trace.TraceWarning(ex.Message);
+                    }
+                }
             }, token);
         }
         catch (OperationCanceledException)
@@ -725,6 +763,27 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         destination.Format = source.Format;
         destination.IsLossless = source.IsLossless;
         destination.IsHiRes = source.IsHiRes;
+    }
+
+    private static Track CloneTrackWithId(Track source, Domain.ValueObjects.TrackId id)
+    {
+        return new Track(
+            id: id,
+            filePath: Domain.ValueObjects.AudioPath.Create(source.FilePath),
+            title: source.Title,
+            artist: source.Artist,
+            album: source.Album,
+            duration: source.Duration,
+            year: source.Year,
+            trackNumber: source.TrackNumber,
+            bitrate: source.Bitrate,
+            sampleRate: source.SampleRate,
+            bitsPerSample: source.BitsPerSample,
+            format: source.Format,
+            genre: source.Genre,
+            isFavorite: source.IsFavorite,
+            isLossless: source.IsLossless,
+            isHiRes: source.IsHiRes);
     }
 
     private void SyncAlbumsFromTracks()
@@ -1014,6 +1073,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 }
 
                 RemoveFavoriteEntries(tracksToRemove);
+                _libraryService.SyncLibraryTracks(Tracks.ToList());
                 AlbumRemoved?.Invoke(album);
             }
         }
@@ -1249,6 +1309,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
 
                 Tracks.Remove(track);
                 RemoveFavoriteEntries([track]);
+                _libraryService.SyncLibraryTracks(Tracks.ToList());
 
                 TrackRemoved?.Invoke(track);
             }
