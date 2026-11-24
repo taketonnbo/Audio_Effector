@@ -464,8 +464,9 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 #### 実装詳細・整合性・エラーケース
 
 - **リポジトリ鮮度・お気に入り照合**:
-  - `keyword` 指定時は `ITrackRepository.SearchAsync`、未指定時は `ITrackRepository.GetAllAsync` を呼び出し、`JsonTrackRepository` のメタデータ鮮度監視により最新 `tracks.json` を参照します。
-  - お気に入り状態は `IFavoriteRepository.GetAllAsync`（`favorites.json`）を取得し、`FavoriteTrackMatcher.Reconcile` による読み取り専用照合で各トラックの `IsFavorite` を最新化します（検索時の不要なファイル書き込みを回避）。
+  - `ITrackRepository.GetAllAsync` により `JsonTrackRepository` のメタデータ鮮度監視を通じて最新の全トラックを取得します。
+  - 検索条件で候補集合を狭める前に、全トラックと `IFavoriteRepository.GetAllAsync`（`favorites.json`）を `FavoriteTrackMatcher.Reconcile` で読み取り専用照合し、お気に入り対応先のトラック ID 集合および各トラックの `IsFavorite` を一貫して確定させます（検索時の不要なファイル書き込みを回避しつつ、メタデータ優先・パスフォールバックによる誤割り当てを防止）。
+  - お気に入り確定後に `keyword` / `artist` / `album` / `genre` / `isFavoriteOnly` の各フィルタ条件を適用します。
 - **決定的なソート順**: ページネーション（`offset` / `limit`）時の重複・欠落を防ぐため、フィルタ適用後に `Artist` → `Album` → `TrackNumber` → `Title` → `Id` 順で安定ソートします。
 - **エラーケース**:
   - `limit < 1` または `limit > 200` → `INVALID_PARAMETER`（`details: { parameter: "limit", min: 1, max: 200 }`）
