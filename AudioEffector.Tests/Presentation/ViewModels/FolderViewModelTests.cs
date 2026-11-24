@@ -35,6 +35,8 @@ public sealed class FolderViewModelTests : IDisposable
     public FolderViewModelTests()
     {
         _settings = new AppSettings();
+        _settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+            .Callback<Action<AppSettings>>(update => update(_settings));
         _settingsServiceMock.Setup(s => s.LoadSettings()).Returns(_settings);
 
         _libraryAppService = new LibraryApplicationService(
@@ -119,7 +121,7 @@ public sealed class FolderViewModelTests : IDisposable
         Assert.False(scanCalled);
         Assert.Equal(_tempDir, sut.CurrentFolderPath);
         Assert.Equal(_tempDir, _settings.LastLibraryPath);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.LastLibraryPath == _tempDir)), Times.Once);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
         Assert.False(string.IsNullOrWhiteSpace(sut.ScanStatusText));
     }
 
@@ -144,7 +146,7 @@ public sealed class FolderViewModelTests : IDisposable
         // Assert
         Assert.False(scanCalled);
         Assert.Equal(@"C:\Initial\Music", sut.CurrentFolderPath);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.IsAny<AppSettings>()), Times.Never);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Never);
     }
 
     /// <summary>
@@ -167,7 +169,7 @@ public sealed class FolderViewModelTests : IDisposable
         Assert.Equal(_tempDir, sut.CurrentFolderPath);
         Assert.Equal(_tempDir, _settings.LastLibraryPath);
         Assert.Equal(_tempDir, scannedPath);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.LastLibraryPath == _tempDir)), Times.Once);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
 
     /// <summary>

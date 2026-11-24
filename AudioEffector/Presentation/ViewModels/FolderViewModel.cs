@@ -252,9 +252,7 @@ public class FolderViewModel : ViewModelBase, IDisposable
     private void PersistSelectedFolderPath(string selectedPath)
     {
         string normalized = selectedPath.Trim();
-        var settings = _settingsService.LoadSettings();
-        settings.LastLibraryPath = normalized;
-        _settingsService.SaveSettings(settings);
+        _settingsService.UpdateSettings(settings => settings.LastLibraryPath = normalized);
         CurrentFolderPath = normalized;
     }
 

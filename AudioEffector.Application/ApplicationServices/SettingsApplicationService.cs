@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
 
@@ -17,6 +18,7 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
     private readonly ISettingsRepository _settingsRepository;
+    private readonly IJsonFileLockHelper _fileLockHelper;
     private readonly string _settingsFilePath;
     private bool _disposed;
 
@@ -24,37 +26,55 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// SettingsApplicationServiceを初期化します
     /// </summary>
     /// <param name="settingsRepository">設定リポジトリ</param>
-    public SettingsApplicationService(ISettingsRepository settingsRepository)
+    /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ（未指定または既定時は既存互換パスを使用）</param>
+    /// <param name="fileLockHelper">プロセス間ファイルロックおよび原子的書き込みヘルパー</param>
+    public SettingsApplicationService(
+        ISettingsRepository settingsRepository,
+        IDataDirectoryProvider? dataDirectoryProvider,
+        IJsonFileLockHelper fileLockHelper)
     {
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
+        _fileLockHelper = fileLockHelper ?? throw new ArgumentNullException(nameof(fileLockHelper));
 
+        if (dataDirectoryProvider is { IsCustomDirectory: true })
+        {
+            Directory.CreateDirectory(dataDirectoryProvider.DataDirectory);
+            _settingsFilePath = dataDirectoryProvider.GetFilePath("settings.json");
+        }
+        else
+        {
 #if DEBUG
-        var folderName = "AudioEffector_Debug";
+            var folderName = "AudioEffector_Debug";
 #else
-        var folderName = "AudioEffector";
+            var folderName = "AudioEffector";
 #endif
-        var appDataPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            folderName);
-        Directory.CreateDirectory(appDataPath);
-        _settingsFilePath = Path.Combine(appDataPath, "settings.json");
+            var appDataPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                folderName);
+            Directory.CreateDirectory(appDataPath);
+            _settingsFilePath = Path.Combine(appDataPath, "settings.json");
+        }
     }
 
     /// <summary>
     /// アプリケーション設定全体を読み込みます
     /// </summary>
-    /// <returns></returns>
+    /// <returns>読み込んだアプリケーション設定</returns>
     public AppSettings LoadSettings()
     {
-        if (!File.Exists(_settingsFilePath))
-            return new AppSettings();
-
         try
         {
+            using IDisposable fileLock = _fileLockHelper.AcquireLock(_settingsFilePath);
+
+            if (!File.Exists(_settingsFilePath))
+            {
+                return new AppSettings();
+            }
+
             var json = File.ReadAllText(_settingsFilePath);
-            return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            return SettingsFileDocument.Parse(json).Settings;
         }
-        catch
+        catch (Exception ex) when (ex is not FileLockTimeoutException)
         {
             return new AppSettings();
         }
@@ -66,14 +86,30 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// <param name="settings">保存する設定情報</param>
     public void SaveSettings(AppSettings settings)
     {
+        WriteSettings(document => document.Settings = settings);
+    }
+
+    /// <inheritdoc />
+    public void UpdateSettings(Action<AppSettings> update)
+    {
+        WriteSettings(document => update(document.Settings));
+    }
+
+    private void WriteSettings(Action<SettingsFileDocument> apply)
+    {
         try
         {
-            var json = JsonSerializer.Serialize(settings, _jsonOptions);
-            File.WriteAllText(_settingsFilePath, json);
+            using IDisposable fileLock = _fileLockHelper.AcquireLock(_settingsFilePath);
+            var document = File.Exists(_settingsFilePath)
+                ? SettingsFileDocument.Parse(File.ReadAllText(_settingsFilePath))
+                : new SettingsFileDocument();
+            apply(document);
+            var json = JsonSerializer.Serialize(document, _jsonOptions);
+            _fileLockHelper.WriteAllTextAtomic(_settingsFilePath, json);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            // Silent fail
+            System.Diagnostics.Trace.TraceWarning(ex.Message);
         }
     }
 
@@ -84,15 +120,23 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// <returns>読み込んだ設定情報を含むタスク</returns>
     public async Task<AppSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(_settingsFilePath))
-            return new AppSettings();
-
         try
         {
-            var json = await File.ReadAllTextAsync(_settingsFilePath, cancellationToken);
-            return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            using IDisposable fileLock = await _fileLockHelper.AcquireLockAsync(_settingsFilePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            if (!File.Exists(_settingsFilePath))
+            {
+                return new AppSettings();
+            }
+
+            var json = await File.ReadAllTextAsync(_settingsFilePath, cancellationToken).ConfigureAwait(false);
+            return SettingsFileDocument.Parse(json).Settings;
         }
-        catch
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not FileLockTimeoutException)
         {
             return new AppSettings();
         }
@@ -104,16 +148,32 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// <param name="settings">保存する設定</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>保存処理を表す非同期タスク</returns>
-    public async Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
+    public Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
+    {
+        return WriteSettingsAsync(document => document.Settings = settings, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task UpdateSettingsAsync(Action<AppSettings> update, CancellationToken cancellationToken = default)
+    {
+        return WriteSettingsAsync(document => update(document.Settings), cancellationToken);
+    }
+
+    private async Task WriteSettingsAsync(Action<SettingsFileDocument> apply, CancellationToken cancellationToken)
     {
         try
         {
-            var json = JsonSerializer.Serialize(settings, _jsonOptions);
-            await File.WriteAllTextAsync(_settingsFilePath, json, cancellationToken);
+            using IDisposable fileLock = await _fileLockHelper.AcquireLockAsync(_settingsFilePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var document = File.Exists(_settingsFilePath)
+                ? SettingsFileDocument.Parse(await File.ReadAllTextAsync(_settingsFilePath, cancellationToken).ConfigureAwait(false))
+                : new SettingsFileDocument();
+            apply(document);
+            var json = JsonSerializer.Serialize(document, _jsonOptions);
+            await _fileLockHelper.WriteAllTextAtomicAsync(_settingsFilePath, json, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            // Silent fail
+            System.Diagnostics.Trace.TraceWarning(ex.Message);
         }
     }
 
@@ -129,7 +189,7 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        string? rawValue = await _settingsRepository.GetValueAsync(key, null, cancellationToken);
+        string? rawValue = await _settingsRepository.GetValueAsync(key, null, cancellationToken).ConfigureAwait(false);
         if (rawValue == null)
         {
             return defaultValue;
@@ -166,7 +226,7 @@ public class SettingsApplicationService : ISettingsService, IDisposable
             ? strVal
             : (value != null ? JsonSerializer.Serialize(value) : null);
 
-        await _settingsRepository.SetValueAsync(key, stringValue, cancellationToken);
+        await _settingsRepository.SetValueAsync(key, stringValue, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -176,7 +236,7 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// <returns>設定値ディクショナリ</returns>
     public async Task<IReadOnlyDictionary<string, string>> GetAllSettingsAsync(CancellationToken cancellationToken = default)
     {
-        return await _settingsRepository.GetAllAsync(cancellationToken);
+        return await _settingsRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

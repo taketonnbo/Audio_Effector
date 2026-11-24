@@ -64,7 +64,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.Theme = value;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.Theme = value);
                 ThemeManager.ApplyTheme(value);
             }
         }
@@ -82,7 +82,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.AutoStart = value;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.AutoStart = value);
                 StartupManager.SetAutoStart(value);
             }
         }
@@ -100,7 +100,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.StartMinimized = value;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.StartMinimized = value);
             }
         }
     }
@@ -140,7 +140,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.MiniPlayerTopmostBehavior = newValue;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.MiniPlayerTopmostBehavior = newValue);
 
                 // Update current mini player if it is open
                 var miniPlayer = System.Windows.Application.Current.Windows.OfType<AudioEffector.Presentation.Views.MiniPlayerWindow>().FirstOrDefault();
@@ -164,7 +164,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.DisableMiniPlayerOnMinimize = value;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.DisableMiniPlayerOnMinimize = value);
             }
         }
     }
@@ -197,7 +197,7 @@ public class SettingsViewModel : ViewModelBase
                 _appSettings.MiniPlayerDesignStyle = newValue;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsSquareMiniPlayerDesignSelected));
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.MiniPlayerDesignStyle = newValue);
                 NotifyMiniPlayerDesignChanged();
             }
         }
@@ -220,7 +220,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.MiniPlayerRotateAlbumArt = value;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.MiniPlayerRotateAlbumArt = value);
                 NotifyMiniPlayerDesignChanged();
             }
         }
@@ -250,7 +250,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.Volume = value;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.Volume = value);
                 if (_audioService != null)
                 {
                     _audioService.Volume = value;
@@ -271,7 +271,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.EnableNormalize = value;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.EnableNormalize = value);
             }
         }
     }
@@ -288,7 +288,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.DetectMetadataChangesOnRescan = value;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.DetectMetadataChangesOnRescan = value);
             }
         }
     }
@@ -315,7 +315,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.SampleRate = value;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.SampleRate = value);
                 _audioService?.UpdateAudioProperties(_appSettings.SampleRate, _appSettings.AudioBufferSizeMs);
             }
         }
@@ -333,7 +333,7 @@ public class SettingsViewModel : ViewModelBase
             {
                 _appSettings.AudioBufferSizeMs = value;
                 OnPropertyChanged();
-                _settingsService.SaveSettings(_appSettings);
+                _settingsService.UpdateSettings(settings => settings.AudioBufferSizeMs = value);
                 _audioService?.UpdateAudioProperties(_appSettings.SampleRate, _appSettings.AudioBufferSizeMs);
             }
         }
@@ -351,7 +351,7 @@ public class SettingsViewModel : ViewModelBase
         {
             _appSettings.PlayPauseShortcut = value;
             OnPropertyChanged();
-            _settingsService.SaveSettings(_appSettings);
+            _settingsService.UpdateSettings(settings => settings.PlayPauseShortcut = value);
         }
     }
 
@@ -365,7 +365,7 @@ public class SettingsViewModel : ViewModelBase
         {
             _appSettings.StopShortcut = value;
             OnPropertyChanged();
-            _settingsService.SaveSettings(_appSettings);
+            _settingsService.UpdateSettings(settings => settings.StopShortcut = value);
         }
     }
 
@@ -379,7 +379,7 @@ public class SettingsViewModel : ViewModelBase
         {
             _appSettings.NextShortcut = value;
             OnPropertyChanged();
-            _settingsService.SaveSettings(_appSettings);
+            _settingsService.UpdateSettings(settings => settings.NextShortcut = value);
         }
     }
 
@@ -393,7 +393,7 @@ public class SettingsViewModel : ViewModelBase
         {
             _appSettings.PreviousShortcut = value;
             OnPropertyChanged();
-            _settingsService.SaveSettings(_appSettings);
+            _settingsService.UpdateSettings(settings => settings.PreviousShortcut = value);
         }
     }
 
@@ -407,7 +407,7 @@ public class SettingsViewModel : ViewModelBase
         {
             _appSettings.MuteShortcut = value;
             OnPropertyChanged();
-            _settingsService.SaveSettings(_appSettings);
+            _settingsService.UpdateSettings(settings => settings.MuteShortcut = value);
         }
     }
 
@@ -421,7 +421,7 @@ public class SettingsViewModel : ViewModelBase
         {
             _appSettings.VolumeUpShortcut = value;
             OnPropertyChanged();
-            _settingsService.SaveSettings(_appSettings);
+            _settingsService.UpdateSettings(settings => settings.VolumeUpShortcut = value);
         }
     }
 
@@ -435,7 +435,7 @@ public class SettingsViewModel : ViewModelBase
         {
             _appSettings.VolumeDownShortcut = value;
             OnPropertyChanged();
-            _settingsService.SaveSettings(_appSettings);
+            _settingsService.UpdateSettings(settings => settings.VolumeDownShortcut = value);
         }
     }
 

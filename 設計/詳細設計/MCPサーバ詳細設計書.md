@@ -192,8 +192,8 @@ Phase 1 時点から Phase 3（HTTP）互換の CLI オプションおよび環�
 
 - **データディレクトリ指定の DI 連携方針（Phase 1 実装事項）**:
   - 環境変数名は `Microsoft.Extensions.Configuration` の自動バインド規約に合わせ、`McpServerOptions` のプロパティ名（`DataDirectory`, `MinLogLevel` 等）と完全一致させます。
-  - `AddInfrastructureServices(string? dataDirectory = null)` へオーバーロード／既定値付き引数を追加し、未指定時は既定パス、指定時は全 `Json*Repository` へ同一ディレクトリ配下の JSON パスを注入できる構成とします。
-  - 現行の `SettingsApplicationService` は `JsonSettingsRepository` を経由せず直接 `settings.json`（かつ `#if DEBUG` 時のみ `%APPDATA%\AudioEffector_Debug\settings.json`）を読み書きしているため、Phase 1 で共通のディレクトリ解決（`dataDirectory` 引数または `IDataDirectoryProvider`）を受け取れるよう拡張し、`--data-dir` 指定時は `settings.json` を含めて一貫して同一ディレクトリを参照・同期する方針とします。
+  - `AddInfrastructureServices(string? dataDirectory = null)` により `IDataDirectoryProvider`（`DataDirectoryProvider`）および `IJsonFileLockHelper`（`JsonFileLockHelper.Default`）を登録し、未指定時は既定パス、指定時は全 `Json*Repository` へ同一ディレクトリ配下の JSON パスを注入する構成とします。
+  - `SettingsApplicationService` は `IDataDirectoryProvider` および `IJsonFileLockHelper` を受け取り、`IsCustomDirectory == true`（`--data-dir` 指定時等）の場合は指定ディレクトリ配下の `settings.json` を一貫して参照・保存します（未指定時は既存互換の `#if DEBUG` 分岐を維持）。
 
 ### 3.4 `stdout` 汚染防止とロギング分離方針
 
@@ -239,7 +239,7 @@ WPF 本体と `AudioEffector.McpServer` の 2 プロセスが同時起動する�
 
 #### 確定対策（2 層整合性モデル）
 
-`AudioEffector.Infrastructure` の各 `Json*Repository` に対して、共通のファイル同期ヘルパー（例: `JsonFileLockHelper`）を導入し、以下を標準適用します（Phase 1〜Phase 2 初期の検索ツール導入までに適用）。
+`AudioEffector.Infrastructure` の各 `Json*Repository` に対して、共通のファイル同期ヘルパー（`JsonFileLockHelper` / `IJsonFileLockHelper`、`FileMetadataSnapshot`、`FileLockTimeoutException`）を導入し、以下を標準適用します（Phase 1-2 #309 で実装）。
 
 1. **ファイル更新メタデータ監視による自動リロード（キャッシュ鮮度維持）**:
    - 各リポジトリは最終読み込み時の `LastWriteTimeUtc` とファイルサイズ（`FileInfo.Length`）を保持する。

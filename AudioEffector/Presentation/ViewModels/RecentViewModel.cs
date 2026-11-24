@@ -181,15 +181,14 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            var loaded = _repository.Load();
-            var libraryTrackMap = BuildLibraryTrackMap();
-            _allEntries.Clear();
-            foreach (var entry in loaded.Take(MaxHistoryCount))
+            try
             {
-                _allEntries.Add(ResolveLibraryEntry(entry, libraryTrackMap));
+                DisplayHistory(_repository.Load());
             }
-
-            ApplyFilterCore();
+            catch (Exception ex) when (IsHistoryUnavailable(ex))
+            {
+                System.Diagnostics.Trace.TraceWarning(ex.Message);
+            }
         });
     }
 
@@ -213,16 +212,16 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
             }
 
             var libraryTrack = FindLibraryTrack(track.FilePath) ?? track;
-            _allEntries.RemoveAll(e => string.Equals(e.FilePath, libraryTrack.FilePath, StringComparison.OrdinalIgnoreCase));
-            _allEntries.Insert(0, new RecentTrackEntry(libraryTrack, playedAt));
-
-            if (_allEntries.Count > MaxHistoryCount)
+            UpdateHistory(entries =>
             {
-                _allEntries.RemoveRange(MaxHistoryCount, _allEntries.Count - MaxHistoryCount);
-            }
+                entries.RemoveAll(e => string.Equals(e.FilePath, libraryTrack.FilePath, StringComparison.OrdinalIgnoreCase));
+                entries.Insert(0, new RecentTrackEntry(libraryTrack, playedAt));
 
-            _repository.Save(_allEntries.ToList());
-            ApplyFilterCore();
+                if (entries.Count > MaxHistoryCount)
+                {
+                    entries.RemoveRange(MaxHistoryCount, entries.Count - MaxHistoryCount);
+                }
+            });
         });
     }
 
@@ -293,12 +292,7 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            int removed = _allEntries.RemoveAll(e => string.Equals(e.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
-            if (removed > 0)
-            {
-                _repository.Save(_allEntries.ToList());
-                ApplyFilterCore();
-            }
+            UpdateHistory(entries => entries.RemoveAll(e => string.Equals(e.FilePath, filePath, StringComparison.OrdinalIgnoreCase)));
         });
     }
 
@@ -314,15 +308,42 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
 
         RunOnUiThread(() =>
         {
-            if (_disposed || _allEntries.Count == 0)
+            if (_disposed)
             {
                 return;
             }
 
-            _allEntries.Clear();
-            _repository.Save(_allEntries.ToList());
-            ApplyFilterCore();
+            UpdateHistory(entries => entries.Clear());
         });
+    }
+
+    private static bool IsHistoryUnavailable(Exception ex) =>
+        ex is System.IO.IOException or UnauthorizedAccessException or TimeoutException or System.Text.Json.JsonException or OverflowException;
+
+    private void UpdateHistory(Action<List<RecentTrackEntry>> update)
+    {
+        try
+        {
+            DisplayHistory(_repository.Update(update));
+        }
+        catch (Exception ex) when (IsHistoryUnavailable(ex))
+        {
+            System.Diagnostics.Trace.TraceWarning(ex.Message);
+            update(_allEntries);
+            ApplyFilterCore();
+        }
+    }
+
+    private void DisplayHistory(IReadOnlyList<RecentTrackEntry> loaded)
+    {
+        var libraryTrackMap = BuildLibraryTrackMap();
+        _allEntries.Clear();
+        foreach (var entry in loaded.Take(MaxHistoryCount))
+        {
+            _allEntries.Add(ResolveLibraryEntry(entry, libraryTrackMap));
+        }
+
+        ApplyFilterCore();
     }
 
     private void EnqueueEntry(object? parameter, bool playNext)

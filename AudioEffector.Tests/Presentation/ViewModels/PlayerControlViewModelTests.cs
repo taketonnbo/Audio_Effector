@@ -16,11 +16,14 @@ public sealed class PlayerControlViewModelTests
 {
     private readonly Mock<IAudioService> _audioServiceMock = new();
     private readonly Mock<IAudioEngine> _audioEngineMock = new();
+    private readonly AppSettings _persistedSettings = new();
     private readonly Mock<ISettingsService> _settingsServiceMock = new();
     private readonly InMemoryEventBus _eventBus = new();
 
     public PlayerControlViewModelTests()
     {
+        _settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+            .Callback<Action<AppSettings>>(update => update(_persistedSettings));
         _settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings { Volume = 0.5f });
     }
 
@@ -64,7 +67,8 @@ public sealed class PlayerControlViewModelTests
         Assert.Equal(0.75f, sut.Volume);
         Assert.Equal("75%", sut.VolumePercent);
         _audioServiceMock.VerifySet(a => a.Volume = 0.75f, Times.AtLeastOnce);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => Math.Abs(st.Volume - 0.75f) < 0.01f)), Times.Once);
+        Assert.True(Math.Abs(_persistedSettings.Volume - 0.75f) < 0.01f);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
 
     /// <summary>

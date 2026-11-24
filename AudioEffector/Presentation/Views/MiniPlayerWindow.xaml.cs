@@ -134,7 +134,7 @@ public partial class MiniPlayerWindow : Window
         {
 #pragma warning disable CA2000 // OnClosed で明示的に破棄する
             var fallbackRepo = new Infrastructure.Repository.JsonSettingsRepository();
-            var fallbackService = new SettingsApplicationService(fallbackRepo);
+            var fallbackService = new SettingsApplicationService(fallbackRepo, dataDirectoryProvider: null, fileLockHelper: AudioEffector.Infrastructure.Repository.JsonFileLockHelper.Default);
 #pragma warning restore CA2000
             _settingsService = fallbackService;
             _disposeFallbackSettings = () =>
@@ -871,10 +871,11 @@ public partial class MiniPlayerWindow : Window
 
         if (topToSave.HasValue && leftToSave.HasValue)
         {
-            var settings = _settingsService.LoadSettings();
-            settings.MiniPlayerTop = topToSave.Value;
-            settings.MiniPlayerLeft = leftToSave.Value;
-            _settingsService.SaveSettings(settings);
+            _settingsService.UpdateSettings(settings =>
+            {
+                settings.MiniPlayerTop = topToSave.Value;
+                settings.MiniPlayerLeft = leftToSave.Value;
+            });
         }
 
         base.OnClosed(e);

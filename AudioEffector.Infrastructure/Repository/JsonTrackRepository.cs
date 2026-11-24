@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.ValueObjects;
@@ -18,8 +19,10 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
 {
     private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly string _filePath;
+    private readonly IJsonFileLockHelper _fileLockHelper;
     private readonly Dictionary<TrackId, Track> _tracks = new();
     private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private FileMetadataSnapshot _lastLoadedMetadata = FileMetadataSnapshot.Missing;
     private bool _isLoaded;
     private bool _disposed;
 
@@ -27,8 +30,11 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     /// 指定されたJSONファイルパスでJsonTrackRepositoryを初期化します
     /// </summary>
     /// <param name="filePath">JSONファイル保存先パス（未指定時はAppData内のtracks.json）</param>
-    public JsonTrackRepository(string? filePath = null)
+    /// <param name="fileLockHelper">プロセス間ファイルロックおよび原子的書き込みヘルパー（未指定時は既定実装）</param>
+    public JsonTrackRepository(string? filePath = null, IJsonFileLockHelper? fileLockHelper = null)
     {
+        _fileLockHelper = fileLockHelper ?? JsonFileLockHelper.Default;
+
         if (string.IsNullOrWhiteSpace(filePath))
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -44,51 +50,73 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
 
     private async Task EnsureLoadedAsync(CancellationToken cancellationToken)
     {
-        if (_isLoaded) return;
-
-        if (!File.Exists(_filePath))
+        FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+        if (_isLoaded && currentMetadata == _lastLoadedMetadata)
         {
+            return;
+        }
+
+        using IDisposable fileLock = await _fileLockHelper
+            .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        await ReloadFromDiskCoreAsync(forceReload: false, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ReloadFromDiskCoreAsync(bool forceReload, CancellationToken cancellationToken)
+    {
+        FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+        if (!forceReload && _isLoaded && currentMetadata == _lastLoadedMetadata)
+        {
+            return;
+        }
+
+        if (!forceReload && !currentMetadata.Exists)
+        {
+            _tracks.Clear();
+            _lastLoadedMetadata = FileMetadataSnapshot.Missing;
             _isLoaded = true;
             return;
         }
 
         try
         {
-            string json = await File.ReadAllTextAsync(_filePath, cancellationToken);
-            var dtos = JsonSerializer.Deserialize<List<TrackDto>>(json);
-            if (dtos != null)
+            string json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
+            var dtos = JsonSerializer.Deserialize<List<TrackDto>>(json) ?? throw new JsonException();
+            var tracks = dtos.Select(dto => dto.ToEntity()).ToList();
+            _tracks.Clear();
+            foreach (var track in tracks)
             {
-                _tracks.Clear();
-                foreach (var dto in dtos)
-                {
-                    var track = dto.ToEntity();
-                    _tracks[track.Id] = track;
-                }
+                _tracks[track.Id] = track;
             }
         }
-        catch
+        catch (FileNotFoundException)
+        {
+            _tracks.Clear();
+            currentMetadata = FileMetadataSnapshot.Missing;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch when (!forceReload)
         {
             // 読み込みエラー時は空のまま開始
+            _tracks.Clear();
         }
 
+        _lastLoadedMetadata = currentMetadata;
         _isLoaded = true;
     }
 
-    private async Task SaveToFileAsync(CancellationToken cancellationToken)
+    private async Task SaveToFileCoreAsync(CancellationToken cancellationToken)
     {
-        string? dir = Path.GetDirectoryName(_filePath);
-        if (!string.IsNullOrEmpty(dir))
-        {
-            Directory.CreateDirectory(dir);
-        }
-
         var dtos = _tracks.Values.Select(TrackDto.FromEntity).ToList();
         string json = JsonSerializer.Serialize(dtos, _jsonOptions);
 
-        // 一時ファイル書き込みによるファイル破損防止
-        string tempPath = $"{_filePath}.tmp";
-        await File.WriteAllTextAsync(tempPath, json, cancellationToken);
-        File.Move(tempPath, _filePath, overwrite: true);
+        await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
+        _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+        _isLoaded = true;
     }
 
     /// <summary>
@@ -99,10 +127,10 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     /// <returns>トラックエンティティ（存在しない場合はnull）</returns>
     public async Task<Track?> GetByIdAsync(TrackId id, CancellationToken cancellationToken = default)
     {
-        await _semaphore.WaitAsync(cancellationToken);
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken);
+            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
             return _tracks.TryGetValue(id, out var track) ? track : null;
         }
         finally
@@ -119,10 +147,10 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     /// <returns>トラックエンティティ（存在しない場合はnull）</returns>
     public async Task<Track?> GetByPathAsync(AudioPath filePath, CancellationToken cancellationToken = default)
     {
-        await _semaphore.WaitAsync(cancellationToken);
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken);
+            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
             return _tracks.Values.FirstOrDefault(t => string.Equals(t.FilePath, filePath.Value, StringComparison.OrdinalIgnoreCase));
         }
         finally
@@ -138,10 +166,10 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     /// <returns>全トラックのリスト</returns>
     public async Task<IReadOnlyList<Track>> GetAllAsync(CancellationToken cancellationToken = default)
     {
-        await _semaphore.WaitAsync(cancellationToken);
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken);
+            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
             return _tracks.Values.ToList();
         }
         finally
@@ -160,13 +188,13 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     {
         if (string.IsNullOrWhiteSpace(keyword))
         {
-            return await GetAllAsync(cancellationToken);
+            return await GetAllAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        await _semaphore.WaitAsync(cancellationToken);
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken);
+            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
             return _tracks.Values
                 .Where(t => t.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
                             t.Artist.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
@@ -189,12 +217,16 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     {
         ArgumentNullException.ThrowIfNull(track);
 
-        await _semaphore.WaitAsync(cancellationToken);
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken);
+            using IDisposable fileLock = await _fileLockHelper
+                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
             _tracks[track.Id] = track;
-            await SaveToFileAsync(cancellationToken);
+            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -212,16 +244,20 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     {
         ArgumentNullException.ThrowIfNull(tracks);
 
-        await _semaphore.WaitAsync(cancellationToken);
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken);
+            using IDisposable fileLock = await _fileLockHelper
+                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
             foreach (var track in tracks)
             {
                 _tracks[track.Id] = track;
             }
 
-            await SaveToFileAsync(cancellationToken);
+            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -237,13 +273,17 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     /// <returns>非同期タスク</returns>
     public async Task DeleteAsync(TrackId id, CancellationToken cancellationToken = default)
     {
-        await _semaphore.WaitAsync(cancellationToken);
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken);
+            using IDisposable fileLock = await _fileLockHelper
+                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
             if (_tracks.Remove(id))
             {
-                await SaveToFileAsync(cancellationToken);
+                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -273,6 +313,7 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             {
                 _semaphore.Dispose();
             }
+
             _disposed = true;
         }
     }

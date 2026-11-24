@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
@@ -12,6 +13,7 @@ namespace AudioEffector.Tests.Presentation.ViewModels;
 /// </summary>
 public class SettingsViewModelTests
 {
+    private readonly AppSettings _persistedSettings = new();
     private readonly Mock<ISettingsService> _settingsServiceMock = new();
     private readonly Mock<IAudioService> _audioServiceMock = new();
     private readonly AppSettings _initialSettings;
@@ -25,6 +27,8 @@ public class SettingsViewModelTests
             AudioBufferSizeMs = 200,
             EnableNormalize = false
         };
+        _settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+            .Callback<Action<AppSettings>>(update => update(_persistedSettings));
         _settingsServiceMock.Setup(s => s.LoadSettings()).Returns(_initialSettings);
     }
 
@@ -82,7 +86,8 @@ public class SettingsViewModelTests
 
         // Assert
         Assert.True(sut.StartMinimized);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.StartMinimized == true)), Times.Once);
+        Assert.True(_persistedSettings.StartMinimized == true);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
 
     /// <summary>
@@ -99,7 +104,8 @@ public class SettingsViewModelTests
 
         // Assert
         Assert.Equal(300, sut.SelectedBufferSize);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.AudioBufferSizeMs == 300)), Times.Once);
+        Assert.True(_persistedSettings.AudioBufferSizeMs == 300);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
 
     /// <summary>
@@ -116,7 +122,8 @@ public class SettingsViewModelTests
 
         // Assert
         Assert.True(sut.EnableNormalize);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.EnableNormalize == true)), Times.Once);
+        Assert.True(_persistedSettings.EnableNormalize == true);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
 
     /// <summary>
@@ -133,7 +140,8 @@ public class SettingsViewModelTests
 
         // Assert
         Assert.True(sut.DetectMetadataChangesOnRescan);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.DetectMetadataChangesOnRescan == true)), Times.Once);
+        Assert.True(_persistedSettings.DetectMetadataChangesOnRescan == true);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
 
     /// <summary>
@@ -155,7 +163,8 @@ public class SettingsViewModelTests
         Assert.True(sut.DisableMiniPlayerOnMinimize);
         Assert.Contains(nameof(SettingsViewModel.DisableMiniPlayerOnMinimize), notified);
         Assert.Single(notified);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.DisableMiniPlayerOnMinimize == true)), Times.Once);
+        Assert.True(_persistedSettings.DisableMiniPlayerOnMinimize == true);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
 
     /// <summary>
@@ -179,9 +188,8 @@ public class SettingsViewModelTests
         Assert.Contains(nameof(SettingsViewModel.SelectedMiniPlayerDesignStyle), notified);
         Assert.Contains(nameof(SettingsViewModel.IsSquareMiniPlayerDesignSelected), notified);
         Assert.Equal(2, notified.Count);
-        _settingsServiceMock.Verify(
-            s => s.SaveSettings(It.Is<AppSettings>(st => st.MiniPlayerDesignStyle == MiniPlayerDesignStyle.SquareAlbumArt)),
-            Times.Once);
+        Assert.True(_persistedSettings.MiniPlayerDesignStyle == MiniPlayerDesignStyle.SquareAlbumArt);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
 
     /// <summary>
@@ -203,8 +211,7 @@ public class SettingsViewModelTests
         Assert.False(sut.MiniPlayerRotateAlbumArt);
         Assert.Contains(nameof(SettingsViewModel.MiniPlayerRotateAlbumArt), notified);
         Assert.Single(notified);
-        _settingsServiceMock.Verify(
-            s => s.SaveSettings(It.Is<AppSettings>(st => st.MiniPlayerRotateAlbumArt == false)),
-            Times.Once);
+        Assert.True(_persistedSettings.MiniPlayerRotateAlbumArt == false);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
 }

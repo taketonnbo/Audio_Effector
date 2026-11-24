@@ -2,7 +2,10 @@ using System;
 using System.Threading;
 using System.Windows;
 using System.Windows.Media;
+using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.Controls;
+using Moq;
 using Xunit;
 
 namespace AudioEffector.Tests.Presentation.Controls;
@@ -372,7 +375,8 @@ public class MarqueeTextBlockTests
         RunInStaThread(() =>
         {
             // Arrange & Act
-            var window = new AudioEffector.Presentation.Views.MiniPlayerWindow();
+            var settings = Mock.Of<ISettingsService>(service => service.LoadSettings() == new AppSettings());
+            var window = new AudioEffector.Presentation.Views.MiniPlayerWindow(settings);
 
             // Assert
             Assert.NotNull(window);

@@ -143,7 +143,8 @@ public sealed class PlaylistApplicationServiceTests
         var trackId = TrackId.New();
 
         var mockPlaylistRepo = new Mock<IPlaylistRepository>();
-        mockPlaylistRepo.Setup(r => r.GetByIdAsync(playlistId, It.IsAny<CancellationToken>()))
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlistId, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
             .ReturnsAsync(playlist);
 
         var mockTrackRepo = new Mock<ITrackRepository>();
@@ -157,7 +158,7 @@ public sealed class PlaylistApplicationServiceTests
         Assert.NotNull(actual);
         Assert.Single(actual.TrackIds);
         Assert.Equal(trackId, actual.TrackIds[0]);
-        mockPlaylistRepo.Verify(r => r.SaveAsync(playlist, It.IsAny<CancellationToken>()), Times.Once);
+        mockPlaylistRepo.Verify(r => r.UpdateAsync(playlistId, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()), Times.Once);
         mockEventBus.Verify(b => b.PublishAsync(It.Is<PlaylistUpdatedEvent>(e => e.Playlist == playlist), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -170,7 +171,7 @@ public sealed class PlaylistApplicationServiceTests
         // Arrange
         var playlistId = PlaylistId.New();
         var mockPlaylistRepo = new Mock<IPlaylistRepository>();
-        mockPlaylistRepo.Setup(r => r.GetByIdAsync(playlistId, It.IsAny<CancellationToken>()))
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlistId, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((UserPlaylist?)null);
 
         var mockTrackRepo = new Mock<ITrackRepository>();
@@ -199,7 +200,8 @@ public sealed class PlaylistApplicationServiceTests
         var playlist = new UserPlaylist(playlistId, "Pop", [t1, t2]);
 
         var mockPlaylistRepo = new Mock<IPlaylistRepository>();
-        mockPlaylistRepo.Setup(r => r.GetByIdAsync(playlistId, It.IsAny<CancellationToken>()))
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlistId, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
             .ReturnsAsync(playlist);
 
         var mockTrackRepo = new Mock<ITrackRepository>();
@@ -213,7 +215,7 @@ public sealed class PlaylistApplicationServiceTests
         Assert.NotNull(actual);
         Assert.Single(actual.TrackIds);
         Assert.Equal(t2, actual.TrackIds[0]);
-        mockPlaylistRepo.Verify(r => r.SaveAsync(playlist, It.IsAny<CancellationToken>()), Times.Once);
+        mockPlaylistRepo.Verify(r => r.UpdateAsync(playlistId, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()), Times.Once);
         mockEventBus.Verify(b => b.PublishAsync(It.Is<PlaylistUpdatedEvent>(e => e.Playlist == playlist), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -230,7 +232,8 @@ public sealed class PlaylistApplicationServiceTests
         var playlist = new UserPlaylist(playlistId, "ReorderTest", [t1, t2]);
 
         var mockPlaylistRepo = new Mock<IPlaylistRepository>();
-        mockPlaylistRepo.Setup(r => r.GetByIdAsync(playlistId, It.IsAny<CancellationToken>()))
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlistId, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
             .ReturnsAsync(playlist);
 
         var mockTrackRepo = new Mock<ITrackRepository>();
@@ -244,7 +247,7 @@ public sealed class PlaylistApplicationServiceTests
         Assert.NotNull(actual);
         Assert.Equal(t2, actual.TrackIds[0]);
         Assert.Equal(t1, actual.TrackIds[1]);
-        mockPlaylistRepo.Verify(r => r.SaveAsync(playlist, It.IsAny<CancellationToken>()), Times.Once);
+        mockPlaylistRepo.Verify(r => r.UpdateAsync(playlistId, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()), Times.Once);
         mockEventBus.Verify(b => b.PublishAsync(It.Is<PlaylistUpdatedEvent>(e => e.Playlist == playlist), It.IsAny<CancellationToken>()), Times.Once);
     }
 }
