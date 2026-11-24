@@ -16,10 +16,8 @@
     "*.sln",
     "*.csproj",
     "**/AssemblyInfo.cs",
-    "AudioEffector/bin/**",
-    "AudioEffector/obj/**",
-    "AudioEffector.McpServer/bin/**",
-    "AudioEffector.McpServer/obj/**"
+    "**/bin/**",
+    "**/obj/**"
   ],
   "mappings": [
     {
