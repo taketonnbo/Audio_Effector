@@ -5,7 +5,7 @@ namespace AudioEffector.McpServer.Protocol;
 
 /// <summary>
 /// 実行時例外および <see cref="Result"/> 失敗を標準 MCP エラー情報へ変換します。
-/// スタックトレースや機密ファイルパス等の内部詳細はクライアントへ露出せず、ログへ記録します。
+/// スタックトレースや機密ファイルパス等の内部診断情報はクライアントへ露出せず、ログへ記録します。
 /// </summary>
 public static class McpErrorMapper
 {
@@ -45,6 +45,18 @@ public static class McpErrorMapper
             new EventId(1006, "McpFileLockTimeout"),
             "MCP ツールでファイルロック待機タイムアウトが発生しました（TimeoutMs: {TimeoutMs}）。");
 
+    private static readonly Action<ILogger, string, string, Exception?> LogFailureResultWarningDelegate =
+        LoggerMessage.Define<string, string>(
+            LogLevel.Warning,
+            new EventId(1007, "McpFailureResultWarning"),
+            "MCP ツール処理が失敗結果を返しました（Code: {ErrorCode}, Detail: {DiagnosticMessage}）。");
+
+    private static readonly Action<ILogger, string, string, Exception?> LogFailureResultErrorDelegate =
+        LoggerMessage.Define<string, string>(
+            LogLevel.Error,
+            new EventId(1008, "McpFailureResultError"),
+            "MCP ツール処理で内部エラー結果が発生しました（Code: {ErrorCode}, Detail: {DiagnosticMessage}）。");
+
     private static readonly Action<ILogger, Exception?> LogInternalErrorDelegate =
         LoggerMessage.Define(
             LogLevel.Error,
@@ -52,7 +64,27 @@ public static class McpErrorMapper
             "MCP ツール実行中に予期しない内部エラーが発生しました。");
 
     /// <summary>
-    /// 例外を標準エラーコードおよびクライアント向け安全メッセージへ変換し、必要に応じてログへ記録します。
+    /// 指定された標準エラーコードに対応するクライアント公開用の既定メッセージを返します。
+    /// </summary>
+    /// <param name="errorCode">標準エラーコード（<see cref="McpErrorCodes"/> の定数）。</param>
+    /// <returns>内部診断情報を含まない安全な公開メッセージ。</returns>
+    public static string GetPublicMessage(string errorCode)
+    {
+        return errorCode switch
+        {
+            McpErrorCodes.INVALID_PARAMETER => "指定されたパラメータが不正です。",
+            McpErrorCodes.NOT_FOUND => "指定された対象が見つかりません。",
+            McpErrorCodes.FILE_NOT_FOUND => "指定されたファイルまたはディレクトリが見つかりません。",
+            McpErrorCodes.WPF_APP_NOT_RUNNING => "Audio Effector 本体が起動していないため、操作を実行できません。本体を起動してから再試行してください。",
+            McpErrorCodes.IPC_CONNECTION_FAILED => "Audio Effector 本体との通信に失敗しました。しばらく待ってから再試行してください。",
+            McpErrorCodes.CONFLICT_LOCK_TIMEOUT => "データファイルのロック取得がタイムアウトしました。しばらく待ってから再試行してください。",
+            McpErrorCodes.OPERATION_CANCELLED => "処理がキャンセルされました。",
+            _ => "内部エラーが発生しました。詳細はサーバログを確認してください。",
+        };
+    }
+
+    /// <summary>
+    /// 例外を標準エラーコードおよびクライアント向け安全メッセージへ変換し、元の診断情報はログへ記録します。
     /// </summary>
     /// <param name="exception">発生した例外。</param>
     /// <param name="logger">診断ログ記録先（任意）。</param>
@@ -71,7 +103,7 @@ public static class McpErrorMapper
 
                 return new McpErrorInfo(
                     McpErrorCodes.OPERATION_CANCELLED,
-                    "処理がキャンセルされました。");
+                    GetPublicMessage(McpErrorCodes.OPERATION_CANCELLED));
 
             case ArgumentException argEx:
                 if (logger is not null)
@@ -84,7 +116,7 @@ public static class McpErrorMapper
                     : new { parameter = argEx.ParamName };
                 return new McpErrorInfo(
                     McpErrorCodes.INVALID_PARAMETER,
-                    SanitizeArgumentMessage(argEx),
+                    GetPublicMessage(McpErrorCodes.INVALID_PARAMETER),
                     details);
 
             case KeyNotFoundException keyNotFoundEx:
@@ -95,7 +127,7 @@ public static class McpErrorMapper
 
                 return new McpErrorInfo(
                     McpErrorCodes.NOT_FOUND,
-                    "指定された対象が見つかりません。");
+                    GetPublicMessage(McpErrorCodes.NOT_FOUND));
 
             case FileNotFoundException fileNotFoundEx:
                 if (logger is not null)
@@ -105,7 +137,7 @@ public static class McpErrorMapper
 
                 return new McpErrorInfo(
                     McpErrorCodes.FILE_NOT_FOUND,
-                    "指定されたファイルが見つかりません。");
+                    GetPublicMessage(McpErrorCodes.FILE_NOT_FOUND));
 
             case DirectoryNotFoundException dirNotFoundEx:
                 if (logger is not null)
@@ -115,7 +147,7 @@ public static class McpErrorMapper
 
                 return new McpErrorInfo(
                     McpErrorCodes.FILE_NOT_FOUND,
-                    "指定されたディレクトリが見つかりません。");
+                    GetPublicMessage(McpErrorCodes.FILE_NOT_FOUND));
 
             case FileLockTimeoutException lockTimeoutEx:
                 if (logger is not null)
@@ -125,7 +157,7 @@ public static class McpErrorMapper
 
                 return new McpErrorInfo(
                     McpErrorCodes.CONFLICT_LOCK_TIMEOUT,
-                    "データファイルのロック取得がタイムアウトしました。しばらく待ってから再試行してください。");
+                    GetPublicMessage(McpErrorCodes.CONFLICT_LOCK_TIMEOUT));
 
             default:
                 if (logger is not null)
@@ -135,21 +167,24 @@ public static class McpErrorMapper
 
                 return new McpErrorInfo(
                     McpErrorCodes.INTERNAL_ERROR,
-                    "内部エラーが発生しました。詳細はサーバログを確認してください。");
+                    GetPublicMessage(McpErrorCodes.INTERNAL_ERROR));
         }
     }
 
     /// <summary>
     /// 失敗した <see cref="Result"/> を <see cref="McpErrorInfo"/> へ変換します。
+    /// 元の診断メッセージ（<see cref="Result.ErrorMessage"/>）はクライアントへ露出せずログへ記録し、エラーコード別の公開用既定メッセージを返します。
     /// </summary>
     /// <param name="result">失敗状態の結果オブジェクト。</param>
     /// <param name="errorCode">適用する標準エラーコード（既定値: <see cref="McpErrorCodes.INTERNAL_ERROR"/>）。</param>
     /// <param name="details">補助詳細情報（任意）。</param>
+    /// <param name="logger">診断ログ記録先（任意）。</param>
     /// <returns>変換された <see cref="McpErrorInfo"/>。</returns>
     public static McpErrorInfo MapFailureResult(
         Result result,
         string errorCode = McpErrorCodes.INTERNAL_ERROR,
-        object? details = null)
+        object? details = null,
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(result);
 
@@ -162,41 +197,23 @@ public static class McpErrorMapper
             ? McpErrorCodes.INTERNAL_ERROR
             : errorCode;
 
-        string message = string.IsNullOrWhiteSpace(result.ErrorMessage)
-            ? "処理に失敗しました。"
-            : result.ErrorMessage;
-
-        return new McpErrorInfo(resolvedCode, message, details);
-    }
-
-    private static string SanitizeArgumentMessage(ArgumentException exception)
-    {
-        string raw = exception.Message;
-        if (string.IsNullOrWhiteSpace(raw))
+        if (logger is not null)
         {
-            return "指定されたパラメータが不正です。";
-        }
+            string diagnostic = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                ? "(詳細メッセージなし)"
+                : result.ErrorMessage;
 
-        // .NET の ArgumentException が末尾に自動付与する " (Parameter 'xxx')" 部分を除去して簡潔なメッセージにする
-        if (!string.IsNullOrWhiteSpace(exception.ParamName))
-        {
-            string suffix = $" (Parameter '{exception.ParamName}')";
-            if (raw.EndsWith(suffix, StringComparison.Ordinal))
+            if (string.Equals(resolvedCode, McpErrorCodes.INTERNAL_ERROR, StringComparison.Ordinal))
             {
-                raw = raw[..^suffix.Length].Trim();
+                LogFailureResultErrorDelegate(logger, resolvedCode, diagnostic, null);
+            }
+            else
+            {
+                LogFailureResultWarningDelegate(logger, resolvedCode, diagnostic, null);
             }
         }
 
-        // 複数行にわたる場合でも先頭行のみを採用し、スタック情報等の混入を防ぐ
-        int newlineIndex = raw.IndexOfAny(['\r', '\n']);
-        if (newlineIndex >= 0)
-        {
-            raw = raw[..newlineIndex].Trim();
-        }
-
-        return string.IsNullOrWhiteSpace(raw)
-            ? "指定されたパラメータが不正です。"
-            : raw;
+        return new McpErrorInfo(resolvedCode, GetPublicMessage(resolvedCode), details);
     }
 }
 

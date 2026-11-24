@@ -81,18 +81,24 @@ public sealed class McpResponseFormatterTests
     }
 
     /// <summary>
-    /// FromResult（非ジェネリック）が成功時に正常応答、失敗時に指定エラーコードのエラー応答へ変換することを検証します。
+    /// FromResult（非ジェネリック）が成功時に正常応答、失敗時に元の診断文（ファイルパス含む）を露出せず公開用既定文とエラーログへ分離することを検証します。
     /// </summary>
     [Fact]
-    public void FromResult_成功と失敗のResult指定時_期待される正常およびエラー応答へ変換する()
+    public void FromResult_成功と失敗のResult指定時_内部診断文を露出せず公開用エラー応答へ変換する()
     {
         // Arrange
+        var loggerMock = new Mock<ILogger>();
+        loggerMock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
         AppResult successResult = AppResult.Success();
-        AppResult failureResult = AppResult.Failure("プレイリストが見つかりません。");
+        AppResult failureResult = AppResult.Failure(@"プレイリストの読み込みに失敗: C:\SecretUsers\private\playlists.json");
 
         // Act
         CallToolResult okResponse = McpResponseFormatter.FromResult(successResult);
-        CallToolResult errResponse = McpResponseFormatter.FromResult(failureResult, errorCode: McpErrorCodes.NOT_FOUND);
+        CallToolResult errResponse = McpResponseFormatter.FromResult(
+            failureResult,
+            errorCode: McpErrorCodes.NOT_FOUND,
+            logger: loggerMock.Object);
+        string errText = GetSingleText(errResponse);
 
         // Assert
         Assert.False(okResponse.IsError ?? false);
@@ -103,28 +109,42 @@ public sealed class McpResponseFormatterTests
         }
 
         Assert.True(errResponse.IsError);
-        using (JsonDocument doc = JsonDocument.Parse(GetSingleText(errResponse)))
+        Assert.DoesNotContain("SecretUsers", errText, StringComparison.Ordinal);
+        Assert.DoesNotContain("playlists.json", errText, StringComparison.Ordinal);
+        using (JsonDocument doc = JsonDocument.Parse(errText))
         {
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
             JsonElement err = doc.RootElement.GetProperty("error");
             Assert.Equal(McpErrorCodes.NOT_FOUND, err.GetProperty("code").GetString());
-            Assert.Equal("プレイリストが見つかりません。", err.GetProperty("message").GetString());
+            Assert.Equal(McpErrorMapper.GetPublicMessage(McpErrorCodes.NOT_FOUND), err.GetProperty("message").GetString());
         }
+
+        loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("playlists.json", StringComparison.Ordinal)),
+                null,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 
     /// <summary>
-    /// FromResult（ジェネリック）が成功時に Value を data として返し、失敗時にエラー応答へ変換することを検証します。
+    /// FromResult（ジェネリック）が成功時に Value を data として返し、失敗時に内部パスを露出せず公開用既定文とログ記録へ分離することを検証します。
     /// </summary>
     [Fact]
-    public void FromResultGeneric_成功と失敗のResultT指定時_期待される応答へ変換する()
+    public void FromResultGeneric_成功と失敗のResultT指定時_内部診断文を露出せず期待される応答へ変換する()
     {
         // Arrange
+        var loggerMock = new Mock<ILogger>();
+        loggerMock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
         Result<SamplePayload> successResult = AppResult.Success(new SamplePayload("テスト曲", "メモ", McpTransportMode.Http));
-        Result<SamplePayload> failureResult = AppResult.Failure<SamplePayload>("読み込みに失敗しました。");
+        Result<SamplePayload> failureResult = AppResult.Failure<SamplePayload>(@"読み込みに失敗: C:\SecretUsers\private\tracks.json");
 
         // Act
         CallToolResult okResponse = McpResponseFormatter.FromResult(successResult);
-        CallToolResult errResponse = McpResponseFormatter.FromResult(failureResult);
+        CallToolResult errResponse = McpResponseFormatter.FromResult(failureResult, logger: loggerMock.Object);
+        string errText = GetSingleText(errResponse);
 
         // Assert
         Assert.False(okResponse.IsError ?? false);
@@ -138,33 +158,59 @@ public sealed class McpResponseFormatterTests
         }
 
         Assert.True(errResponse.IsError);
-        using (JsonDocument doc = JsonDocument.Parse(GetSingleText(errResponse)))
+        Assert.DoesNotContain("SecretUsers", errText, StringComparison.Ordinal);
+        Assert.DoesNotContain("tracks.json", errText, StringComparison.Ordinal);
+        using (JsonDocument doc = JsonDocument.Parse(errText))
         {
             JsonElement err = doc.RootElement.GetProperty("error");
             Assert.Equal(McpErrorCodes.INTERNAL_ERROR, err.GetProperty("code").GetString());
-            Assert.Equal("読み込みに失敗しました。", err.GetProperty("message").GetString());
+            Assert.Equal(McpErrorMapper.GetPublicMessage(McpErrorCodes.INTERNAL_ERROR), err.GetProperty("message").GetString());
         }
+
+        loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, _) => v.ToString()!.Contains("tracks.json", StringComparison.Ordinal)),
+                null,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 
     /// <summary>
-    /// FromException が ArgumentException を INVALID_PARAMETER へ変換しパラメータ名を details に含めることを検証します。
+    /// FromException がファイルパスを含む ArgumentException を INVALID_PARAMETER へ変換し、元の診断文を露出せずログへ記録することを検証します。
     /// </summary>
     [Fact]
-    public void FromException_ArgumentException発生時_INVALID_PARAMETERとパラメータ詳細を返す()
+    public void FromException_パスを含むArgumentException発生時_INVALID_PARAMETERと公開用既定文を返しパスを露出しない()
     {
         // Arrange
-        var ex = new ArgumentException("limit は 1〜200 の範囲で指定してください。", "limit");
+        var loggerMock = new Mock<ILogger>();
+        loggerMock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+        var ex = new ArgumentException(@"不正なパス指定: C:\SecretUsers\private\track.flac", "filePath");
 
         // Act
-        CallToolResult sut = McpResponseFormatter.FromException(ex);
+        CallToolResult sut = McpResponseFormatter.FromException(ex, loggerMock.Object);
+        string text = GetSingleText(sut);
 
         // Assert
         Assert.True(sut.IsError);
-        using JsonDocument doc = JsonDocument.Parse(GetSingleText(sut));
+        Assert.DoesNotContain("SecretUsers", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("track.flac", text, StringComparison.Ordinal);
+
+        using JsonDocument doc = JsonDocument.Parse(text);
         JsonElement err = doc.RootElement.GetProperty("error");
         Assert.Equal(McpErrorCodes.INVALID_PARAMETER, err.GetProperty("code").GetString());
-        Assert.Equal("limit は 1〜200 の範囲で指定してください。", err.GetProperty("message").GetString());
-        Assert.Equal("limit", err.GetProperty("details").GetProperty("parameter").GetString());
+        Assert.Equal(McpErrorMapper.GetPublicMessage(McpErrorCodes.INVALID_PARAMETER), err.GetProperty("message").GetString());
+        Assert.Equal("filePath", err.GetProperty("details").GetProperty("parameter").GetString());
+
+        loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                ex,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 
     /// <summary>

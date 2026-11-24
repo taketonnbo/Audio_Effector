@@ -63,12 +63,14 @@ public static class McpResponseFormatter
     /// <param name="successData">成功時に <c>data</c> へ格納するオブジェクト（未指定時は <c>{"status": "ok"}</c>）。</param>
     /// <param name="errorCode">失敗時に適用する標準エラーコード。</param>
     /// <param name="details">失敗時の補助詳細情報（任意）。</param>
+    /// <param name="logger">失敗時の診断ログ記録先（任意）。</param>
     /// <returns>変換された <see cref="CallToolResult"/>。</returns>
     public static CallToolResult FromResult(
         AppResult result,
         object? successData = null,
         string errorCode = McpErrorCodes.INTERNAL_ERROR,
-        object? details = null)
+        object? details = null,
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(result);
 
@@ -77,7 +79,7 @@ public static class McpResponseFormatter
             return Success(successData ?? new { status = "ok" });
         }
 
-        McpErrorInfo error = McpErrorMapper.MapFailureResult(result, errorCode, details);
+        McpErrorInfo error = McpErrorMapper.MapFailureResult(result, errorCode, details, logger);
         return Error(error.Code, error.Message, error.Details);
     }
 
@@ -88,11 +90,13 @@ public static class McpResponseFormatter
     /// <param name="result">アプリケーション層の処理結果。</param>
     /// <param name="errorCode">失敗時に適用する標準エラーコード。</param>
     /// <param name="details">失敗時の補助詳細情報（任意）。</param>
+    /// <param name="logger">失敗時の診断ログ記録先（任意）。</param>
     /// <returns>変換された <see cref="CallToolResult"/>。</returns>
     public static CallToolResult FromResult<T>(
         Result<T> result,
         string errorCode = McpErrorCodes.INTERNAL_ERROR,
-        object? details = null)
+        object? details = null,
+        ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(result);
 
@@ -101,7 +105,7 @@ public static class McpResponseFormatter
             return Success(result.Value);
         }
 
-        McpErrorInfo error = McpErrorMapper.MapFailureResult(result, errorCode, details);
+        McpErrorInfo error = McpErrorMapper.MapFailureResult(result, errorCode, details, logger);
         return Error(error.Code, error.Message, error.Details);
     }
 
