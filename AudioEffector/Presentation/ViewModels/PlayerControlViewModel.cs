@@ -1277,11 +1277,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         Progress = 0.0;
 
         // カバーアート画像の設定
-        if (track.CoverImage != null)
-        {
-            NowPlayingImage = track.CoverImage;
-        }
-        else if (File.Exists(track.FilePath))
+        if (File.Exists(track.FilePath))
         {
             Task.Run(() =>
             {

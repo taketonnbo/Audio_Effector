@@ -341,8 +341,7 @@ public sealed class PlayerControlViewModelTests
         {
             FilePath = @"C:\NonExistent\non_existent_song.mp3",
             Title = "Non Existent Song",
-            Duration = TimeSpan.FromMinutes(3),
-            CoverImage = null
+            Duration = TimeSpan.FromMinutes(3)
         };
 
         // Act & Assert - 例外が発生しないこと
