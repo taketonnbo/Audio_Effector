@@ -1,23 +1,23 @@
-using AudioEffector.Application.ApplicationServices;
-using AudioEffector.Domain.Entities;
-using AudioEffector.Infrastructure.Logging;
-using AudioEffector.Presentation.Views;
-using AudioEffector.Application.Common;
-using AudioEffector.Infrastructure.Audio;
-using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.Common;
+using AudioEffector.Domain.Entities;
+using AudioEffector.Infrastructure.Audio;
+using AudioEffector.Infrastructure.Logging;
+using AudioEffector.Presentation.Views;
 using MediaDevices;
-using System.Threading.Tasks;
+using Microsoft.Win32;
 using NLog;
 
 namespace AudioEffector.Presentation.ViewModels
@@ -525,6 +525,27 @@ namespace AudioEffector.Presentation.ViewModels
 
             if (App.ServiceProvider != null)
             {
+                var resolvedSettings = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider);
+                if (resolvedSettings != null)
+                {
+                    _settingsService = resolvedSettings;
+                }
+                else
+                {
+                    _fallbackSettingsRepository = new Infrastructure.Repository.JsonSettingsRepository();
+                    _fallbackSettings = new SettingsApplicationService(_fallbackSettingsRepository);
+                    _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
+                }
+            }
+            else
+            {
+                _fallbackSettingsRepository = new Infrastructure.Repository.JsonSettingsRepository();
+                _fallbackSettings = new SettingsApplicationService(_fallbackSettingsRepository);
+                _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
+            }
+
+            if (App.ServiceProvider != null)
+            {
                 var resolved = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<IAudioService>(App.ServiceProvider);
                 if (resolved != null)
                 {
@@ -532,13 +553,13 @@ namespace AudioEffector.Presentation.ViewModels
                 }
                 else
                 {
-                    _fallbackAudioService = new AudioService(new Presentation.Services.WpfUiDispatcher());
+                    _fallbackAudioService = new AudioService(new Presentation.Services.WpfUiDispatcher(), _settingsService);
                     _audioService = LoggingProxy<IAudioService>.Create(_fallbackAudioService);
                 }
             }
             else
             {
-                _fallbackAudioService = new AudioService(new Presentation.Services.WpfUiDispatcher());
+                _fallbackAudioService = new AudioService(new Presentation.Services.WpfUiDispatcher(), _settingsService);
                 _audioService = LoggingProxy<IAudioService>.Create(_fallbackAudioService);
             }
             _libraryService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<LibraryApplicationService>(App.ServiceProvider) : null;
@@ -567,26 +588,6 @@ namespace AudioEffector.Presentation.ViewModels
                     }
                 };
                 Playlist.LoadPlaylists();
-            }
-            if (App.ServiceProvider != null)
-            {
-                var resolvedSettings = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider);
-                if (resolvedSettings != null)
-                {
-                    _settingsService = resolvedSettings;
-                }
-                else
-                {
-                    _fallbackSettingsRepository = new Infrastructure.Repository.JsonSettingsRepository();
-                    _fallbackSettings = new SettingsApplicationService(_fallbackSettingsRepository);
-                    _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
-                }
-            }
-            else
-            {
-                _fallbackSettingsRepository = new Infrastructure.Repository.JsonSettingsRepository();
-                _fallbackSettings = new SettingsApplicationService(_fallbackSettingsRepository);
-                _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
             }
 
             if (PlayerControl == null)
