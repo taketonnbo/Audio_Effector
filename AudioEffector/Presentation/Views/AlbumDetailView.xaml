@@ -436,7 +436,7 @@
                                             MouseLeave="TrackRow_MouseLeave">
                                         <Border.ContextMenu>
                                             <ContextMenu>
-                                                <MenuItem Command="{Binding PlacementTarget.Tag.PlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                <MenuItem Command="{Binding PlacementTarget.Tag.TogglePlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
                                                           CommandParameter="{Binding}">
                                                     <MenuItem.Style>
                                                         <Style TargetType="MenuItem">
