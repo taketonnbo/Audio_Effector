@@ -409,6 +409,7 @@
                                                 <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextAlbumCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                 <MenuItem Header="最後に再生" Command="{Binding PlacementTarget.Tag.EnqueueAlbumCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                 <Separator/>
+                                                <MenuItem Header="アルバム詳細情報を表示" Command="{Binding PlacementTarget.Tag.ShowAlbumInfoCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                 <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddAlbumToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                 <Separator/>
                                                 <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteAlbumCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
@@ -838,6 +839,7 @@
                                                     <MenuItem Header="次に再生" Command="{Binding PlacementTarget.Tag.PlayNextAlbumCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                     <MenuItem Header="最後に再生" Command="{Binding PlacementTarget.Tag.EnqueueAlbumCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                     <Separator/>
+                                                    <MenuItem Header="アルバム詳細情報を表示" Command="{Binding PlacementTarget.Tag.ShowAlbumInfoCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                     <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddAlbumToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                     <Separator/>
                                                     <MenuItem Header="削除" Command="{Binding PlacementTarget.Tag.DeleteAlbumCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
