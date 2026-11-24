@@ -593,4 +593,79 @@ public sealed class LibraryViewTests
             Assert.Same(track, played);
         });
     }
+
+    /// <summary>
+    /// リスト表示およびグリッド表示のアルバムコンテキストメニューに「アルバム詳細情報を表示」が含まれ、ShowAlbumInfoCommand へ接続されていることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(false, "AlbumListItemGrid")]
+    [InlineData(true, "AlbumCardGrid")]
+    public void AlbumContextMenu_表示モード別_アルバム詳細情報を表示メニューがShowAlbumInfoCommandに接続されていること(
+        bool isGridView,
+        string containerGridName)
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var vm = CreateViewModel();
+            vm.IsGridView = isGridView;
+
+            Album? requestedAlbum = null;
+            vm.AlbumDetailRequested += album => requestedAlbum = album;
+
+            var track = new Track(
+                TrackId.New(),
+                AudioPath.Create(@"C:\Music\ctx_test.flac"),
+                "Context Song",
+                "Context Artist",
+                "Context Album",
+                TimeSpan.FromMinutes(3),
+                trackNumber: 1,
+                format: "FLAC")
+            {
+                FilePath = string.Empty
+            };
+            var album = new Album("Context Album", "Context Artist");
+            album.Tracks.Add(track);
+            vm.Albums.Add(album);
+
+            using var listener = new BindingErrorTraceListener();
+            EnsureApplicationResources();
+            var host = new Grid
+            {
+                Name = "MainWindowRoot",
+                DataContext = new MainWindowHostStub()
+            };
+            NameScope.SetNameScope(host, new NameScope());
+            host.RegisterName("MainWindowRoot", host);
+
+            var sut = new LibraryView { DataContext = vm };
+            AttachThemeResources(sut.Resources, "DarkTheme.xaml");
+            host.Children.Add(sut);
+
+            // Act
+            host.Measure(new Size(960, 640));
+            host.Arrange(new Rect(0, 0, 960, 640));
+            host.UpdateLayout();
+
+            var albumGrid = FindVisualChildren<Grid>(sut).Single(g => g.Name == containerGridName);
+            var contextMenu = Assert.IsType<ContextMenu>(albumGrid.ContextMenu);
+            contextMenu.PlacementTarget = albumGrid;
+            contextMenu.DataContext = album;
+
+            var detailMenuItem = contextMenu.Items
+                .OfType<MenuItem>()
+                .Single(mi => string.Equals(mi.Header as string, "アルバム詳細情報を表示", StringComparison.Ordinal));
+            var commandParameterBinding = System.Windows.Data.BindingOperations.GetBinding(
+                detailMenuItem,
+                MenuItem.CommandParameterProperty);
+            detailMenuItem.Command?.Execute(album);
+
+            // Assert
+            Assert.False(listener.HasErrors, $"コンテキストメニュー評価でバインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+            Assert.Same(vm.ShowAlbumInfoCommand, detailMenuItem.Command);
+            Assert.NotNull(commandParameterBinding);
+            Assert.Same(album, requestedAlbum);
+        });
+    }
 }

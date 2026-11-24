@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using System.Xml.Linq;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.Views;
 using Xunit;
@@ -5,7 +8,7 @@ using Xunit;
 namespace AudioEffector.Tests.Presentation.Views;
 
 /// <summary>
-/// <see cref="MainWindow"/> の最小化時コンパクトプレイヤー表示判定ロジックを検証するテストクラス。
+/// <see cref="MainWindow"/> の最小化時コンパクトプレイヤー表示判定および画面切替定義を検証するテストクラス。
 /// </summary>
 public sealed class MainWindowTests
 {
@@ -55,5 +58,46 @@ public sealed class MainWindowTests
 
         // Assert
         Assert.True(result);
+    }
+
+    /// <summary>
+    /// MainWindow.xaml のメイン ContentControl に ViewType.AlbumDetail 用の DataTrigger と AlbumDetailView が定義されていることを検証します。
+    /// </summary>
+    [Fact]
+    public void MainWindowXaml_ViewTypeAlbumDetail切替定義_AlbumDetailViewのDataTriggerが存在すること()
+    {
+        // Arrange
+        string? repoRoot = FindRepositoryRoot(AppContext.BaseDirectory);
+        Assert.NotNull(repoRoot);
+        string mainWindowXamlPath = Path.Combine(repoRoot!, "AudioEffector", "Presentation", "Views", "MainWindow.xaml");
+        var sut = XDocument.Load(mainWindowXamlPath);
+        XNamespace wpfn = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace viewsNs = "clr-namespace:AudioEffector.Presentation.Views";
+
+        // Act
+        var albumDetailTrigger = System.Linq.Enumerable.Single(
+            sut.Descendants(wpfn + "DataTrigger"),
+            dt => string.Equals((string?)dt.Attribute("Value"), "{x:Static vm:ViewType.AlbumDetail}", StringComparison.Ordinal));
+        var albumDetailViewElement = System.Linq.Enumerable.Single(
+            albumDetailTrigger.Descendants(viewsNs + "AlbumDetailView"));
+
+        // Assert
+        Assert.Equal("{Binding AlbumDetail}", (string?)albumDetailViewElement.Attribute("DataContext"));
+    }
+
+    private static string? FindRepositoryRoot(string startDir)
+    {
+        var dir = new DirectoryInfo(startDir);
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "AudioEffector.sln")))
+            {
+                return dir.FullName;
+            }
+
+            dir = dir.Parent;
+        }
+
+        return null;
     }
 }
