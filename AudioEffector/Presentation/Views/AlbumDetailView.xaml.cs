@@ -16,6 +16,7 @@ public partial class AlbumDetailView : UserControl
     private const double DefaultVerticalScrollBarWidth = 8.0;
 
     private ScrollViewer? _tracksScrollViewer;
+    private ScrollBar? _verticalScrollBar;
     private Border? _pressedTrackRow;
 
     /// <summary>
@@ -50,6 +51,7 @@ public partial class AlbumDetailView : UserControl
         _tracksScrollViewer = FindVisualChild<ScrollViewer>(TracksListBox);
         if (_tracksScrollViewer != null)
         {
+            _verticalScrollBar = _tracksScrollViewer.Template?.FindName("PART_VerticalScrollBar", _tracksScrollViewer) as ScrollBar;
             _tracksScrollViewer.ScrollChanged += OnTracksScrollChanged;
             _tracksScrollViewer.SizeChanged += OnTracksSizeChanged;
         }
@@ -63,10 +65,17 @@ public partial class AlbumDetailView : UserControl
             _tracksScrollViewer.SizeChanged -= OnTracksSizeChanged;
             _tracksScrollViewer = null;
         }
+
+        _verticalScrollBar = null;
     }
 
     private void OnTracksScrollChanged(object sender, ScrollChangedEventArgs e)
     {
+        if (e.ViewportHeightChange == 0 && e.ExtentHeightChange == 0)
+        {
+            return;
+        }
+
         UpdateColumnHeaderMargin();
     }
 
@@ -85,9 +94,9 @@ public partial class AlbumDetailView : UserControl
         double rightOffset = 0.0;
         if (_tracksScrollViewer.ComputedVerticalScrollBarVisibility == Visibility.Visible)
         {
-            var verticalScrollBar = _tracksScrollViewer.Template?.FindName("PART_VerticalScrollBar", _tracksScrollViewer) as ScrollBar;
-            rightOffset = verticalScrollBar != null && verticalScrollBar.ActualWidth > 0
-                ? verticalScrollBar.ActualWidth
+            _verticalScrollBar ??= _tracksScrollViewer.Template?.FindName("PART_VerticalScrollBar", _tracksScrollViewer) as ScrollBar;
+            rightOffset = _verticalScrollBar != null && _verticalScrollBar.ActualWidth > 0
+                ? _verticalScrollBar.ActualWidth
                 : DefaultVerticalScrollBarWidth;
         }
 
@@ -102,6 +111,12 @@ public partial class AlbumDetailView : UserControl
     /// </summary>
     private void TrackRow_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (e.ClickCount > 1)
+        {
+            _pressedTrackRow = null;
+            return;
+        }
+
         _pressedTrackRow = ShouldTriggerRowPlay(e.OriginalSource as DependencyObject)
             ? sender as Border
             : null;
