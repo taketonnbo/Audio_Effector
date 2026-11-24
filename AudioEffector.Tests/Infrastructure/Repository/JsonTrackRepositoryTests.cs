@@ -367,6 +367,42 @@ public sealed class JsonTrackRepositoryTests : IDisposable
         Assert.Equal("Original Track", otherInstanceTrack.Title);
     }
 
+    /// <summary>
+    /// 同一 ID・同一 Track オブジェクトのタグを直接更新した後にファイル置換が失敗した場合でも、
+    /// キャッシュが呼び出し元オブジェクトから独立しており、同一インスタンスと別インスタンスの両方で更新前タイトルが読めることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ReplaceAllAsync_同一オブジェクトのタグ更新後に書き込み失敗した場合_同一インスタンスと別インスタンスの両方で更新前タイトルが読めること()
+    {
+        // Arrange
+        using var sut = CreateSut();
+        Track track = CreateSampleTrack("Before", "Artist A", "Album A");
+        await sut.ReplaceAllAsync([track]);
+        Assert.Equal("Before", Assert.Single(await sut.GetAllAsync()).Title);
+
+        // 呼び出し元が保持する同一オブジェクトのタグを直接更新（WPF の CopyTrackMetadata 相当）
+        track.Title = "After";
+
+        // Act: 対象 JSON ファイルを FileShare.Read で保持して原子的ファイル置換を失敗させる
+        using (var blockingReadStream = new FileStream(_testFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Exception? ex = await Record.ExceptionAsync(() => sut.ReplaceAllAsync([track]));
+            Assert.NotNull(ex);
+            Assert.True(ex is IOException or UnauthorizedAccessException, $"予期しない例外型です: {ex.GetType().FullName}");
+        }
+
+        // Assert: 同一インスタンスでも未保存の "After" ではなく "Before" が返ること
+        Track sameInstanceTrack = Assert.Single(await sut.GetAllAsync());
+        Assert.Equal(track.Id, sameInstanceTrack.Id);
+        Assert.Equal("Before", sameInstanceTrack.Title);
+
+        // Assert: 別インスタンスでも "Before" が返ること
+        using var otherInstance = CreateSut();
+        Track otherInstanceTrack = Assert.Single(await otherInstance.GetAllAsync());
+        Assert.Equal(track.Id, otherInstanceTrack.Id);
+        Assert.Equal("Before", otherInstanceTrack.Title);
+    }
+
     private sealed class FailOnWriteFileLockHelper : IJsonFileLockHelper
     {
         private readonly IJsonFileLockHelper _inner;

@@ -118,11 +118,12 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
 
         await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
 
-        // 原子的なファイル置換が成功した後にのみオンメモリキャッシュとメタデータを更新する
+        // 原子的なファイル置換が成功した後にのみ、呼び出し元の可変インスタンスから独立したスナップショットでキャッシュを更新する
         _tracks.Clear();
-        foreach (var kvp in candidateTracks)
+        foreach (var dto in dtos)
         {
-            _tracks[kvp.Key] = kvp.Value;
+            var snapshot = dto.ToEntity();
+            _tracks[snapshot.Id] = snapshot;
         }
 
         _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
