@@ -148,6 +148,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
                             }
 
                             AddWithoutDuplicate(_entries, entry);
+                            migratedFromLegacy |= dto.AddedAt == default;
                         }
                         else if (element.ValueKind == JsonValueKind.String)
                         {
@@ -175,7 +176,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
             // キャンセル時は _isLoaded を確定させず再スローし、既存データの誤上書きを防止
             throw;
         }
-        catch (JsonException)
+        catch (JsonException) when (!forceReload)
         {
             // 破損JSONの場合は空コレクションとして安全に起動確定
             _entries.Clear();
@@ -210,6 +211,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
 
     private async Task SaveToFileCoreAsync(CancellationToken cancellationToken)
     {
+        _isLoaded = false;
         var dtos = _entries.Select(FavoriteTrackDto.FromEntity).ToList();
         string json = JsonSerializer.Serialize(dtos, JSON_OPTIONS);
 
@@ -328,6 +330,26 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
 
             int removedCount = _entries.RemoveAll(entry => FavoriteTrackMatcher.IsMatchForRemoval(entry, track));
             if (removedCount > 0)
+            {
+                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateMetadataAsync(IReadOnlyList<FavoriteMetadataChange> changes, CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using var fileLock = await _fileLockHelper.AcquireLockAsync(_filePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false) &&
+                FavoriteMetadataChange.ApplyTo(_entries, changes))
             {
                 await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
             }

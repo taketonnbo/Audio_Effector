@@ -11,6 +11,7 @@ using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Infrastructure.Library;
+using AudioEffector.Infrastructure.Repository;
 using AudioEffector.Presentation.ViewModels;
 using Moq;
 using Xunit;
@@ -20,8 +21,12 @@ namespace AudioEffector.Tests.Presentation.ViewModels;
 /// <summary>
 /// <see cref="LibraryViewModel"/> のアルバム収録曲展開（ソケット表示）および排他制御を検証するテストクラス。
 /// </summary>
-public sealed class LibraryViewModelTests
+public sealed class LibraryViewModelTests : IDisposable
 {
+    private readonly DirectoryInfo _tempDirectory = Directory.CreateTempSubdirectory();
+
+    public void Dispose() => _tempDirectory.Delete(true);
+
     private readonly Mock<ITrackRepository> _trackRepoMock = new();
     private readonly Mock<IFavoriteRepository> _favoriteRepoMock = new();
     private readonly TagLibMetadataExtractor _metadataExtractor = new();
@@ -42,10 +47,10 @@ public sealed class LibraryViewModelTests
         _settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
     }
 
-    private LibraryViewModel CreateViewModel()
+    private LibraryViewModel CreateViewModel(IFavoriteRepository? favorites = null)
     {
         return new LibraryViewModel(
-            _libraryAppService,
+            favorites == null ? _libraryAppService : new LibraryApplicationService(_trackRepoMock.Object, favorites, _metadataExtractor, _eventBus),
             _audioServiceMock.Object,
             _settingsServiceMock.Object);
     }
@@ -288,6 +293,42 @@ public sealed class LibraryViewModelTests
         _audioServiceMock.Verify(a => a.PlayTrack(track2), Times.Once);
     }
 
+    /// <summary>画面を開いた後の外部追加・解除を、画面からの切り替えと再照合が保持することを検証します</summary>
+    [Fact]
+    public async Task お気に入り_画面初期化後の外部変更を保持する()
+    {
+        // Arrange
+        var path = Path.Combine(_tempDirectory.FullName, "favorites.json");
+        using var first = new JsonFavoriteRepository(path);
+        using var second = new JsonFavoriteRepository(path);
+        var moved = new Track { Title = "Moved", Artist = "Artist", FilePath = "C:/Music/old.flac" };
+        var removed = new Track { Title = "Removed", Artist = "Artist", FilePath = "C:/Music/removed.flac" };
+        var external = new Track { Title = "External", FilePath = "C:/Music/external.flac" };
+        var local = new Track { Title = "Local", FilePath = "C:/Music/local.flac" };
+        await first.AddOrUpdateAsync(FavoriteTrackEntry.FromTrack(moved));
+        await first.AddOrUpdateAsync(FavoriteTrackEntry.FromTrack(removed));
+        using var sut = CreateViewModel(first);
+        await second.AddOrUpdateAsync(FavoriteTrackEntry.FromTrack(external));
+        await second.RemoveAsync(removed);
+
+        // Act
+        sut.ToggleFavorite(local);
+        Assert.True(await second.ContainsAsync(external));
+        Assert.True(await second.ContainsAsync(local));
+        sut.ToggleFavorite(local);
+        moved.FilePath = "C:/Music/new.flac";
+        removed.Title = "Changed after removal";
+        sut.Tracks.Add(moved);
+        sut.Tracks.Add(removed);
+        sut.SyncFavoritesWithLibraryTracks();
+
+        // Assert
+        var saved = await second.GetAllAsync();
+        Assert.Equal(2, saved.Count);
+        Assert.Contains(saved, e => e.LastKnownFilePath == external.FilePath);
+        Assert.Contains(saved, e => e.LastKnownFilePath == moved.FilePath);
+    }
+
     /// <summary>
     /// フォルダ移動や拡張子変更後でも、メタデータ一致でお気に入りが維持されGetFavoriteTracksで解決かつLastKnownFilePathが自動更新されることを検証します。
     /// </summary>
@@ -295,14 +336,14 @@ public sealed class LibraryViewModelTests
     public void SyncFavoritesWithLibraryTracksおよびGetFavoriteTracks_フォルダ移動および拡張子変更後_メタデータ一致でお気に入り復元およびパス自動更新されること()
     {
         // Arrange
-        IReadOnlyList<FavoriteTrackEntry>? savedEntries = null;
+        List<FavoriteTrackEntry>? savedEntries = null;
         _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[]
             {
                 new FavoriteTrackEntry("Midnight City", "M83", "Hurry Up, We're Dreaming", 2, 243.5, @"C:\Old\02_Midnight_City.mp3", DateTime.Now)
             });
-        _favoriteRepoMock.Setup(r => r.SaveAllAsync(It.IsAny<IReadOnlyList<FavoriteTrackEntry>>(), It.IsAny<CancellationToken>()))
-            .Callback<IReadOnlyList<FavoriteTrackEntry>, CancellationToken>((entries, _) => savedEntries = entries)
+        _favoriteRepoMock.Setup(r => r.UpdateMetadataAsync(It.IsAny<IReadOnlyList<FavoriteMetadataChange>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FavoriteMetadataChange>, CancellationToken>((changes, _) => savedEntries = changes.Select(c => c.Updated).ToList())
             .Returns(Task.CompletedTask);
 
         using var sut = CreateViewModel();
@@ -337,15 +378,15 @@ public sealed class LibraryViewModelTests
     public void SyncFavoritesWithLibraryTracks_タグ編集直後およびタグ未設定曲_LastKnownFilePathフォールバックでお気に入りが維持されること()
     {
         // Arrange
-        IReadOnlyList<FavoriteTrackEntry>? savedEntries = null;
+        List<FavoriteTrackEntry>? savedEntries = null;
         _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[]
             {
                 new FavoriteTrackEntry("Old Title", "Old Artist", "Old Album", 1, 200.0, @"D:\Music\Edited.flac", DateTime.Now),
                 new FavoriteTrackEntry("Track01", "Unknown Artist", "Unknown Album", 0, 150.0, @"D:\Music\Untagged\Track01.mp3", DateTime.Now)
             });
-        _favoriteRepoMock.Setup(r => r.SaveAllAsync(It.IsAny<IReadOnlyList<FavoriteTrackEntry>>(), It.IsAny<CancellationToken>()))
-            .Callback<IReadOnlyList<FavoriteTrackEntry>, CancellationToken>((entries, _) => savedEntries = entries)
+        _favoriteRepoMock.Setup(r => r.UpdateMetadataAsync(It.IsAny<IReadOnlyList<FavoriteMetadataChange>>(), It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<FavoriteMetadataChange>, CancellationToken>((changes, _) => savedEntries = changes.Select(c => c.Updated).ToList())
             .Returns(Task.CompletedTask);
 
         using var sut = CreateViewModel();
@@ -383,17 +424,11 @@ public sealed class LibraryViewModelTests
     /// ToggleFavoriteの追加・解除および重複登録防止が正しく動作し、メタデータ付きエントリが保存されることを検証します。
     /// </summary>
     [Fact]
-    public void ToggleFavorite_追加と解除のトグルおよび重複登録防止_メタデータ付きエントリが正しく保存および削除されること()
+    public async Task ToggleFavorite_追加と解除のトグルおよび重複登録防止_メタデータ付きエントリが正しく保存および削除されること()
     {
         // Arrange
-        IReadOnlyList<FavoriteTrackEntry> latestSaved = Array.Empty<FavoriteTrackEntry>();
-        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
-        _favoriteRepoMock.Setup(r => r.SaveAllAsync(It.IsAny<IReadOnlyList<FavoriteTrackEntry>>(), It.IsAny<CancellationToken>()))
-            .Callback<IReadOnlyList<FavoriteTrackEntry>, CancellationToken>((entries, _) => latestSaved = entries)
-            .Returns(Task.CompletedTask);
-
-        using var sut = CreateViewModel();
+        using var repository = new JsonFavoriteRepository(Path.Combine(_tempDirectory.FullName, "favorites.json"));
+        using var sut = CreateViewModel(repository);
         var track = new Track
         {
             FilePath = @"D:\Music\Song.flac",
@@ -419,7 +454,8 @@ public sealed class LibraryViewModelTests
 
         // Assert 1
         Assert.True(track.IsFavorite);
-        Assert.Single(latestSaved);
+        Assert.Single(await repository.GetAllAsync());
+        var latestSaved = await repository.GetAllAsync();
         Assert.Equal("Starboy", latestSaved[0].Title);
         Assert.Equal("The Weeknd", latestSaved[0].Artist);
         Assert.Equal("Starboy", latestSaved[0].Album);
@@ -431,31 +467,25 @@ public sealed class LibraryViewModelTests
 
         // Assert 2
         Assert.True(duplicateInstance.IsFavorite);
-        Assert.Single(latestSaved);
+        Assert.Single(await repository.GetAllAsync());
 
         // Act 3: 解除
         sut.ToggleFavorite(track);
 
         // Assert 3
         Assert.False(track.IsFavorite);
-        Assert.Empty(latestSaved);
+        Assert.Empty(await repository.GetAllAsync());
     }
 
     /// <summary>
     /// 別フォルダに存在する同名・同再生時間のタグ未設定曲2件を同時にお気に入り登録でき、片方のみ解除しても他方が維持されることを検証します。
     /// </summary>
     [Fact]
-    public void ToggleFavorite_別フォルダの同名未タグ曲2件_同時登録および片方のみ解除できること()
+    public async Task ToggleFavorite_別フォルダの同名未タグ曲2件_同時登録および片方のみ解除できること()
     {
         // Arrange
-        IReadOnlyList<FavoriteTrackEntry> latestSaved = Array.Empty<FavoriteTrackEntry>();
-        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
-        _favoriteRepoMock.Setup(r => r.SaveAllAsync(It.IsAny<IReadOnlyList<FavoriteTrackEntry>>(), It.IsAny<CancellationToken>()))
-            .Callback<IReadOnlyList<FavoriteTrackEntry>, CancellationToken>((entries, _) => latestSaved = entries)
-            .Returns(Task.CompletedTask);
-
-        using var sut = CreateViewModel();
+        using var repository = new JsonFavoriteRepository(Path.Combine(_tempDirectory.FullName, "favorites.json"));
+        using var sut = CreateViewModel(repository);
         var untaggedA = new Track
         {
             FilePath = @"D:\Music\FolderA\Track01.mp3",
@@ -482,7 +512,7 @@ public sealed class LibraryViewModelTests
         // Assert 1: 互いに上書きされず2件保持されること
         Assert.True(untaggedA.IsFavorite);
         Assert.True(untaggedB.IsFavorite);
-        Assert.Equal(2, latestSaved.Count);
+        Assert.Equal(2, (await repository.GetAllAsync()).Count);
 
         // Act 2: FolderA のみお気に入り解除
         sut.ToggleFavorite(untaggedA);
@@ -490,8 +520,8 @@ public sealed class LibraryViewModelTests
         // Assert 2: FolderB はお気に入りのまま維持されること
         Assert.False(untaggedA.IsFavorite);
         Assert.True(untaggedB.IsFavorite);
-        Assert.Single(latestSaved);
-        Assert.Equal(@"D:\Music\FolderB\Track01.mp3", latestSaved[0].LastKnownFilePath);
+        Assert.Single(await repository.GetAllAsync());
+        Assert.Equal(@"D:\Music\FolderB\Track01.mp3", (await repository.GetAllAsync())[0].LastKnownFilePath);
     }
 
     /// <summary>
@@ -690,14 +720,14 @@ public sealed class LibraryViewModelTests
             string newPath = Path.Combine(newDir, "01_FavoriteSong.flac");
             File.WriteAllText(newPath, "flac");
 
-            IReadOnlyList<FavoriteTrackEntry>? savedEntries = null;
+            List<FavoriteTrackEntry>? savedEntries = null;
             _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new[]
                 {
                     new FavoriteTrackEntry("Favorite Song", "Fav Artist", "Fav Album", 1, 210.0, oldPath, DateTime.Now)
                 });
-            _favoriteRepoMock.Setup(r => r.SaveAllAsync(It.IsAny<IReadOnlyList<FavoriteTrackEntry>>(), It.IsAny<CancellationToken>()))
-                .Callback<IReadOnlyList<FavoriteTrackEntry>, CancellationToken>((entries, _) => savedEntries = entries)
+            _favoriteRepoMock.Setup(r => r.UpdateMetadataAsync(It.IsAny<IReadOnlyList<FavoriteMetadataChange>>(), It.IsAny<CancellationToken>()))
+                .Callback<IReadOnlyList<FavoriteMetadataChange>, CancellationToken>((changes, _) => savedEntries = changes.Select(c => c.Updated).ToList())
                 .Returns(Task.CompletedTask);
 
             using var sut = new LibraryViewModel(

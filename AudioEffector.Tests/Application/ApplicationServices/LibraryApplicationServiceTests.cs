@@ -245,8 +245,8 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         Assert.True(albumX.Tracks.First(t => t.Id == t1.Id).IsFavorite);
         Assert.False(albumX.Tracks.First(t => t.Id == t2.Id).IsFavorite);
         mockFavRepo.Verify(
-            r => r.SaveAllAsync(
-                It.Is<IReadOnlyList<FavoriteTrackEntry>>(list => list.Count == 1 && list[0].LastKnownFilePath == @"D:\Moved\Track1.flac"),
+            r => r.UpdateMetadataAsync(
+                It.Is<IReadOnlyList<FavoriteMetadataChange>>(list => list.Count == 1 && list[0].Updated.LastKnownFilePath == @"D:\Moved\Track1.flac"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -337,8 +337,8 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         Assert.Same(editedTrack, favorites[0]);
         Assert.True(editedTrack.IsFavorite);
         mockFavRepo.Verify(
-            r => r.SaveAllAsync(
-                It.Is<IReadOnlyList<FavoriteTrackEntry>>(list => list.Count == 1 && list[0].Title == "Updated Title"),
+            r => r.UpdateMetadataAsync(
+                It.Is<IReadOnlyList<FavoriteMetadataChange>>(list => list.Count == 1 && list[0].Updated.Title == "Updated Title"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }

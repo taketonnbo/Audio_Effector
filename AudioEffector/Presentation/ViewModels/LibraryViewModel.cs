@@ -26,11 +26,8 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     private readonly ISettingsService _settingsService;
     private readonly Func<string, Track> _trackMetadataLoader;
     private readonly object _favoritesLock = new();
-    private readonly object _favoritesSaveLock = new();
     private readonly List<FavoriteTrackEntry> _favoriteEntries = new();
     private readonly Dictionary<string, DateTime> _trackLastWriteTimes = new(StringComparer.OrdinalIgnoreCase);
-    private long _favoritesVersion;
-    private long _lastSavedFavoritesVersion;
 
     private Track? _selectedTrack;
     private Album? _selectedAlbum;
@@ -559,7 +556,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     }
                 }
 
-                long? favoriteSaveVersion = null;
+                IReadOnlyList<FavoriteMetadataChange> changes = [];
 
                 RunOnUiThread(() =>
                 {
@@ -622,7 +619,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     }
 
                     // 6. お気に入り状態の再照合（フォルダ移動・パス変更時もメタデータ一致でパスを自動更新）
-                    favoriteSaveVersion = ReconcileFavoritesInMemory(Tracks.ToList(), token);
+                    (_, changes) = ReconcileFavoritesCore(Tracks.ToList(), null, token);
 
                     ScanProgress = 1.0;
                     syncResult = new LibrarySyncResult(
@@ -635,10 +632,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     LibrarySynced?.Invoke(syncResult);
                 });
 
-                if (favoriteSaveVersion.HasValue && !token.IsCancellationRequested)
-                {
-                    PersistFavorites(favoriteSaveVersion.Value, token);
-                }
+                _libraryService.SaveFavoriteMetadata(changes);
             }, token);
         }
         catch (OperationCanceledException)
@@ -1089,7 +1083,6 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             bool newFavoriteState = !track.IsFavorite;
             track.IsFavorite = newFavoriteState;
 
-            long targetVersion;
             FavoriteTrackEntry referenceEntry = FavoriteTrackEntry.FromTrack(track);
 
             lock (_favoritesLock)
@@ -1100,7 +1093,8 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     if (existing != null)
                     {
                         int existingIndex = _favoriteEntries.IndexOf(existing);
-                        _favoriteEntries[existingIndex] = existing.WithUpdatedTrack(track);
+                        referenceEntry = existing.WithUpdatedTrack(track);
+                        _favoriteEntries[existingIndex] = referenceEntry;
                     }
                     else
                     {
@@ -1112,7 +1106,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     _favoriteEntries.RemoveAll(entry => FavoriteTrackMatcher.IsMatchForRemoval(entry, track));
                 }
 
-                targetVersion = ++_favoritesVersion;
+                _libraryService.SetFavorite(track, newFavoriteState ? referenceEntry : null);
             }
 
             // ライブラリ内の同一楽曲インスタンスへお気に入り状態を同期
@@ -1125,7 +1119,6 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 }
             }
 
-            PersistFavorites(targetVersion);
             FavoriteToggled?.Invoke(track);
         }
     }
@@ -1172,24 +1165,12 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         Func<string, Track?>? fallbackTrackLoader = null,
         CancellationToken cancellationToken = default)
     {
-        var (result, targetVersion) = ReconcileFavoritesCore(tracks, fallbackTrackLoader, cancellationToken);
-        if (targetVersion.HasValue)
-        {
-            PersistFavorites(targetVersion.Value, cancellationToken);
-        }
-
+        var (result, changes) = ReconcileFavoritesCore(tracks, fallbackTrackLoader, cancellationToken);
+        _libraryService.SaveFavoriteMetadata(changes);
         return result;
     }
 
-    private long? ReconcileFavoritesInMemory(
-        IReadOnlyList<Track> tracks,
-        CancellationToken cancellationToken = default)
-    {
-        var (_, targetVersion) = ReconcileFavoritesCore(tracks, fallbackTrackLoader: null, cancellationToken);
-        return targetVersion;
-    }
-
-    private (FavoriteReconciliationResult Result, long? TargetVersion) ReconcileFavoritesCore(
+    private (FavoriteReconciliationResult Result, IReadOnlyList<FavoriteMetadataChange> Changes) ReconcileFavoritesCore(
         IReadOnlyList<Track> tracks,
         Func<string, Track?>? fallbackTrackLoader = null,
         CancellationToken cancellationToken = default)
@@ -1201,14 +1182,13 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         }
 
         var result = FavoriteTrackMatcher.Reconcile(snapshot, tracks, fallbackTrackLoader);
-        long? targetVersion = null;
+        var changes = new List<FavoriteMetadataChange>();
         if (result.HasEntryChanges && !cancellationToken.IsCancellationRequested)
         {
             lock (_favoritesLock)
             {
                 if (!cancellationToken.IsCancellationRequested)
                 {
-                    bool mergedAny = false;
                     for (int i = 0; i < snapshot.Count; i++)
                     {
                         if (!ReferenceEquals(snapshot[i], result.UpdatedEntries[i]))
@@ -1217,72 +1197,28 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                             if (currentIndex >= 0)
                             {
                                 _favoriteEntries[currentIndex] = result.UpdatedEntries[i];
-                                mergedAny = true;
+                                changes.Add(new FavoriteMetadataChange(snapshot[i], result.UpdatedEntries[i]));
                             }
                         }
-                    }
-
-                    if (mergedAny)
-                    {
-                        targetVersion = ++_favoritesVersion;
                     }
                 }
             }
         }
 
-        return (result, targetVersion);
+        return (result, changes);
     }
 
     private void RemoveFavoriteEntries(IEnumerable<Track> removedTracks)
     {
-        var targets = removedTracks.ToList();
-        if (targets.Count == 0)
-        {
-            return;
-        }
-
-        long? targetVersion = null;
         lock (_favoritesLock)
         {
-            int removedCount = _favoriteEntries.RemoveAll(entry =>
-                targets.Any(track => FavoriteTrackMatcher.IsMatchForRemoval(entry, track)));
-            if (removedCount > 0)
+            foreach (var track in removedTracks)
             {
-                targetVersion = ++_favoritesVersion;
-            }
-        }
-
-        if (targetVersion.HasValue)
-        {
-            PersistFavorites(targetVersion.Value);
-        }
-    }
-
-    /// <summary>
-    /// お気に入りエントリの最新スナップショットを直列化して永続化します（古いスナップショットによるLost Updateを防止）
-    /// </summary>
-    private void PersistFavorites(long expectedVersion, CancellationToken cancellationToken = default)
-    {
-        lock (_favoritesSaveLock)
-        {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            List<FavoriteTrackEntry> latestSnapshot;
-            lock (_favoritesLock)
-            {
-                if (_lastSavedFavoritesVersion >= expectedVersion && _lastSavedFavoritesVersion >= _favoritesVersion)
+                if (_favoriteEntries.RemoveAll(entry => FavoriteTrackMatcher.IsMatchForRemoval(entry, track)) > 0)
                 {
-                    return;
+                    _libraryService.SetFavorite(track, null);
                 }
-
-                latestSnapshot = _favoriteEntries.ToList();
-                _lastSavedFavoritesVersion = _favoritesVersion;
             }
-
-            _libraryService.SaveFavoriteEntries(latestSnapshot);
         }
     }
 

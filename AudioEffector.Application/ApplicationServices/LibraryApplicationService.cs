@@ -97,6 +97,39 @@ public class LibraryApplicationService
         }
     }
 
+    /// <summary>指定された楽曲のお気に入り状態を項目単位で保存します</summary>
+    /// <param name="track">対象の楽曲</param>
+    /// <param name="entry">登録する項目（解除時はnull）</param>
+    public void SetFavorite(Track track, FavoriteTrackEntry? entry)
+    {
+        try
+        {
+            var save = entry != null
+                ? _favoriteRepository.AddOrUpdateAsync(entry)
+                : _favoriteRepository.RemoveAsync(track);
+            save.GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning(ex.Message);
+        }
+    }
+
+    /// <summary>画面で再照合したメタデータの差分を保存します</summary>
+    /// <param name="changes">お気に入りの変更項目</param>
+    public void SaveFavoriteMetadata(IReadOnlyList<FavoriteMetadataChange> changes)
+    {
+        if (changes.Count == 0) return;
+        try
+        {
+            _favoriteRepository.UpdateMetadataAsync(changes).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning(ex.Message);
+        }
+    }
+
     /// <summary>
     /// お気に入りエントリと指定されたトラック一覧を照合してIsFavoriteを反映し、パスやメタデータの差分があれば永続化します
     /// </summary>
@@ -113,7 +146,9 @@ public class LibraryApplicationService
         var result = FavoriteTrackMatcher.Reconcile(entries, tracks);
         if (result.HasEntryChanges)
         {
-            await _favoriteRepository.SaveAllAsync(result.UpdatedEntries, cancellationToken).ConfigureAwait(false);
+            var changes = entries.Zip(result.UpdatedEntries, (original, updated) => new FavoriteMetadataChange(original, updated))
+                .Where(change => !ReferenceEquals(change.Original, change.Updated)).ToList();
+            await _favoriteRepository.UpdateMetadataAsync(changes, cancellationToken).ConfigureAwait(false);
         }
 
         return result;

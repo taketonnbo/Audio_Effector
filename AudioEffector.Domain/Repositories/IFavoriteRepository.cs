@@ -48,4 +48,10 @@ public interface IFavoriteRepository
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>登録されている場合はtrue、それ以外はfalse</returns>
     Task<bool> ContainsAsync(Track track, CancellationToken cancellationToken = default);
+
+    /// <summary>再照合で変化した項目だけを最新のお気に入りへ反映します</summary>
+    /// <param name="changes">照合時と照合後の項目の組</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>更新処理を表すタスク</returns>
+    Task UpdateMetadataAsync(IReadOnlyList<FavoriteMetadataChange> changes, CancellationToken cancellationToken = default);
 }

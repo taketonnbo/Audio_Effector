@@ -720,6 +720,11 @@ public sealed class ArtistsViewModelTests
         public Task<IReadOnlyList<FavoriteTrackEntry>> GetAllAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<FavoriteTrackEntry>>(_entries.ToList());
         public Task AddOrUpdateAsync(FavoriteTrackEntry entry, CancellationToken cancellationToken = default) { _entries.Add(entry); return Task.CompletedTask; }
         public Task RemoveAsync(Track track, CancellationToken cancellationToken = default) { _entries.RemoveAll(e => AudioEffector.Domain.Services.FavoriteTrackMatcher.IsMatchForRemoval(e, track)); return Task.CompletedTask; }
+        public Task UpdateMetadataAsync(IReadOnlyList<FavoriteMetadataChange> changes, CancellationToken cancellationToken = default)
+        {
+            FavoriteMetadataChange.ApplyTo(_entries, changes);
+            return Task.CompletedTask;
+        }
         public Task SaveAllAsync(IReadOnlyList<FavoriteTrackEntry> entries, CancellationToken cancellationToken = default) { _entries.Clear(); _entries.AddRange(entries); return Task.CompletedTask; }
         public Task<bool> ContainsAsync(Track track, CancellationToken cancellationToken = default) => Task.FromResult(AudioEffector.Domain.Services.FavoriteTrackMatcher.FindBestMatchingEntry(track, _entries) != null);
     }
