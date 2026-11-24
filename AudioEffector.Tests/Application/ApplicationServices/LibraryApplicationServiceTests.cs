@@ -475,4 +475,71 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         Assert.Equal(renamedTrack.Id, nonFavoriteRenamed.Id);
         Assert.False(nonFavoriteRenamed.IsFavorite);
     }
+
+    /// <summary>
+    /// ScanFolderAsync が共通の SupportedAudioExtensions を用いて .mp4 を含む対応形式を取りこぼさずスキャンすることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ScanFolderAsync_MP4ファイルを含むフォルダ_MP4を含めてスキャンおよび保存されること()
+    {
+        // Arrange
+        string mp4File = Path.Combine(_tempDirectory, "sample.mp4");
+        string opusFile = Path.Combine(_tempDirectory, "sample.opus");
+        File.WriteAllBytes(mp4File, [1, 2, 3]);
+        File.WriteAllBytes(opusFile, [4, 5, 6]);
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+
+        // Act
+        var actual = await sut.ScanFolderAsync(_tempDirectory);
+
+        // Assert
+        Assert.Equal(2, actual.Count);
+        Assert.Contains(actual, t => string.Equals(t.FilePath, mp4File, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(actual, t => string.Equals(t.FilePath, opusFile, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// SyncLibraryTracksAsync が同一パスの既存 TrackId を維持したうえで、更新・新規追加・削除を ReplaceAllAsync で一括同期することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SyncLibraryTracksAsync_既存トラック更新と追加削除_既存IDを維持してReplaceAllAsyncへ渡されること()
+    {
+        // Arrange
+        var existingId = TrackId.New();
+        var existingTrack = new Track(existingId, AudioPath.Create(@"C:\Music\keep.mp4"), "Old Title", "Old Artist", "Album", TimeSpan.FromSeconds(180));
+        var removedTrack = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\removed.mp3"), "Removed", "Artist", "Album", TimeSpan.FromSeconds(120));
+
+        var updatedKeepTrack = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\keep.mp4"), "New Title", "New Artist", "Album", TimeSpan.FromSeconds(180));
+        var addedTrack = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\added.flac"), "Added", "Artist B", "Album B", TimeSpan.FromSeconds(200));
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([existingTrack, removedTrack]);
+
+        List<Track>? replacedTracks = null;
+        mockTrackRepo.Setup(r => r.ReplaceAllAsync(It.IsAny<IEnumerable<Track>>(), It.IsAny<CancellationToken>()))
+            .Callback<IEnumerable<Track>, CancellationToken>((ts, _) => replacedTracks = ts.ToList())
+            .Returns(Task.CompletedTask);
+
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+
+        // Act
+        await sut.SyncLibraryTracksAsync([updatedKeepTrack, addedTrack]);
+
+        // Assert
+        Assert.NotNull(replacedTracks);
+        Assert.Equal(2, replacedTracks.Count);
+        Track syncedKeep = Assert.Single(replacedTracks, t => t.FilePath == @"C:\Music\keep.mp4");
+        Assert.Equal(existingId, syncedKeep.Id);
+        Assert.Equal("New Title", syncedKeep.Title);
+        Assert.Contains(replacedTracks, t => t.Id == addedTrack.Id && t.Title == "Added");
+        Assert.DoesNotContain(replacedTracks, t => t.FilePath == @"C:\Music\removed.mp3");
+    }
 }
