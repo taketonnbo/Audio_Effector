@@ -46,7 +46,7 @@ public sealed class LibraryToolsTests
         var sut = CreateSut(out Mock<ITrackRepository> trackRepoMock, out Mock<IFavoriteRepository> favRepoMock, out _);
 
         trackRepoMock
-            .Setup(r => r.SearchAsync("blue", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([track]);
         favRepoMock
             .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
@@ -145,7 +145,7 @@ public sealed class LibraryToolsTests
         // Arrange
         var sut = CreateSut(out Mock<ITrackRepository> trackRepoMock, out _, out _);
         trackRepoMock
-            .Setup(r => r.SearchAsync("存在しない曲", It.IsAny<CancellationToken>()))
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<Track>());
 
         // Act
@@ -293,8 +293,8 @@ public sealed class LibraryToolsTests
         CancellationToken passedToken = default;
 
         trackRepoMock
-            .Setup(r => r.SearchAsync("jazz", It.IsAny<CancellationToken>()))
-            .Callback<string, CancellationToken>((_, ct) => passedToken = ct)
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .Callback<CancellationToken>(ct => passedToken = ct)
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
         // Act
@@ -358,6 +358,88 @@ public sealed class LibraryToolsTests
             JsonElement trackJson = Assert.Single(data.GetProperty("tracks").EnumerateArray());
             Assert.Equal("Nocturne Op.9", trackJson.GetProperty("title").GetString());
             Assert.True(trackJson.GetProperty("isFavorite").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 実リポジトリ上で、お気に入り保存パスの曲が改題され別パスに旧メタデータ一致曲が存在する状態において、改題曲のお気に入り限定検索が 0 件を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchTracksAsync_実リポジトリで元パス改題曲と旧メタデータ一致曲が共存_改題曲のお気に入り限定検索が0件になる()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorLibraryToolsFavReconcile_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string tracksPath = Path.Combine(tempDir, "tracks.json");
+            string favoritesPath = Path.Combine(tempDir, "favorites.json");
+
+            using var trackRepo = new JsonTrackRepository(tracksPath);
+            using var favRepo = new JsonFavoriteRepository(favoritesPath);
+
+            var renamedTrack = CreateTrack(
+                title: "Renamed",
+                artist: "Artist A",
+                album: "Album A",
+                genre: "Rock",
+                trackNumber: 1,
+                filePath: Path.Combine(tempDir, "original_path.flac"));
+            var originalTrack = CreateTrack(
+                title: "Original",
+                artist: "Artist A",
+                album: "Album A",
+                genre: "Rock",
+                trackNumber: 1,
+                filePath: Path.Combine(tempDir, "another_path.flac"));
+
+            await trackRepo.SaveRangeAsync([renamedTrack, originalTrack]);
+            await favRepo.AddOrUpdateAsync(new FavoriteTrackEntry(
+                title: "Original",
+                artist: "Artist A",
+                album: "Album A",
+                trackNumber: 1,
+                durationSeconds: 180.0,
+                lastKnownFilePath: renamedTrack.FilePath,
+                addedAt: DateTime.UtcNow));
+
+            var libraryService = new LibraryApplicationService(
+                trackRepo,
+                favRepo,
+                new Mock<IMetadataExtractor>().Object,
+                new Mock<IEventBus>().Object);
+            var sut = new LibraryTools(libraryService, new Mock<ILogger<LibraryTools>>().Object);
+
+            // Act
+            CallToolResult favoritesOnlyResult = await sut.SearchTracksAsync(isFavoriteOnly: true);
+            CallToolResult renamedFavoriteResult = await sut.SearchTracksAsync(keyword: "Renamed", isFavoriteOnly: true);
+
+            // Assert
+            Assert.False(favoritesOnlyResult.IsError ?? false);
+            using (JsonDocument favDoc = JsonDocument.Parse(GetSingleText(favoritesOnlyResult)))
+            {
+                JsonElement favData = favDoc.RootElement.GetProperty("data");
+                Assert.Equal(1, favData.GetProperty("totalCount").GetInt32());
+                JsonElement favTrack = Assert.Single(favData.GetProperty("tracks").EnumerateArray());
+                Assert.Equal("Original", favTrack.GetProperty("title").GetString());
+                Assert.True(favTrack.GetProperty("isFavorite").GetBoolean());
+            }
+
+            Assert.False(renamedFavoriteResult.IsError ?? false);
+            using (JsonDocument renamedDoc = JsonDocument.Parse(GetSingleText(renamedFavoriteResult)))
+            {
+                JsonElement renamedData = renamedDoc.RootElement.GetProperty("data");
+                Assert.Equal(0, renamedData.GetProperty("totalCount").GetInt32());
+                Assert.Equal(0, renamedData.GetProperty("count").GetInt32());
+                Assert.Empty(renamedData.GetProperty("tracks").EnumerateArray());
+            }
         }
         finally
         {
