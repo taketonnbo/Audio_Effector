@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.ValueObjects;
 
@@ -10,7 +11,7 @@ namespace AudioEffector.Infrastructure.Library;
 /// <summary>
 /// TagLibSharpを利用して音声ファイルのID3/FLACメタデータ解析およびカバーアート抽出を行うクラス
 /// </summary>
-public class TagLibMetadataExtractor
+public class TagLibMetadataExtractor : IMetadataExtractor
 {
     /// <summary>
     /// TagLibのタグ情報から表示・識別用の基本メタデータ（タイトル・アーティスト・アルバム・ジャンル）を統一ルールで抽出します

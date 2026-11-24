@@ -1,4 +1,4 @@
-﻿using AudioEffector.Application.Common;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Infrastructure.DataTransfer;
@@ -6,6 +6,7 @@ using AudioEffector.Infrastructure.Library;
 using AudioEffector.Infrastructure.Logging;
 using AudioEffector.Infrastructure.Repository;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AudioEffector.Infrastructure;
 
@@ -22,11 +23,13 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
         // 音声再生エンジン（リソース管理・排他制御のためSingleton）
+        services.TryAddSingleton<IUiDispatcher, ImmediateUiDispatcher>();
         services.AddSingleton<IAudioEngine, NAudioPlaybackEngine>();
         services.AddSingleton<AudioEffector.Application.ApplicationServices.IAudioService, AudioService>();
 
         // メタデータ抽出および画像ローダー
         services.AddSingleton<TagLibMetadataExtractor>();
+        services.AddSingleton<IMetadataExtractor>(sp => sp.GetRequiredService<TagLibMetadataExtractor>());
         services.AddSingleton<AlbumArtLoader>();
 
         // リポジトリ（ファイル競合防止・メモリキャッシュ保持のためSingleton）

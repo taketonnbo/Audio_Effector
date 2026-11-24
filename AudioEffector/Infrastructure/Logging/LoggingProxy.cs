@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Reflection;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using NLog;
 
 namespace AudioEffector.Infrastructure.Logging;

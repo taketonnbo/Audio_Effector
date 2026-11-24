@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
-using AudioEffector.Infrastructure.Logging;
 
 namespace AudioEffector.Application.ApplicationServices;
 

@@ -1,6 +1,6 @@
-﻿using System;
+using System;
 
-namespace AudioEffector.Infrastructure.Logging;
+namespace AudioEffector.Application.Common;
 
 /// <summary>
 /// メソッドのログ出力時に付与する説明属性

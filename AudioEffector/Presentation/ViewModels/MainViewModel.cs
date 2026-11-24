@@ -35,6 +35,7 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly AudioService? _fallbackAudioService;
         private readonly LibraryApplicationService? _libraryService;
         private readonly ISettingsService _settingsService;
+        private readonly Infrastructure.Repository.JsonSettingsRepository? _fallbackSettingsRepository;
         private readonly SettingsApplicationService? _fallbackSettings;
         private readonly bool _ownsAllSongs;
         private readonly bool _ownsArtists;
@@ -287,7 +288,6 @@ namespace AudioEffector.Presentation.ViewModels
 
         private bool _isLibraryVisible = true;
         private bool _isFolderViewVisible;
-        private Dictionary<string, BitmapImage> _albumArtCache = new Dictionary<string, BitmapImage>();
 
         private string _playbackListName = "No Album Selected";
 
@@ -532,13 +532,13 @@ namespace AudioEffector.Presentation.ViewModels
                 }
                 else
                 {
-                    _fallbackAudioService = new AudioService();
+                    _fallbackAudioService = new AudioService(new Presentation.Services.WpfUiDispatcher());
                     _audioService = LoggingProxy<IAudioService>.Create(_fallbackAudioService);
                 }
             }
             else
             {
-                _fallbackAudioService = new AudioService();
+                _fallbackAudioService = new AudioService(new Presentation.Services.WpfUiDispatcher());
                 _audioService = LoggingProxy<IAudioService>.Create(_fallbackAudioService);
             }
             _libraryService = App.ServiceProvider != null ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<LibraryApplicationService>(App.ServiceProvider) : null;
@@ -577,13 +577,15 @@ namespace AudioEffector.Presentation.ViewModels
                 }
                 else
                 {
-                    _fallbackSettings = new SettingsApplicationService();
+                    _fallbackSettingsRepository = new Infrastructure.Repository.JsonSettingsRepository();
+                    _fallbackSettings = new SettingsApplicationService(_fallbackSettingsRepository);
                     _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
                 }
             }
             else
             {
-                _fallbackSettings = new SettingsApplicationService();
+                _fallbackSettingsRepository = new Infrastructure.Repository.JsonSettingsRepository();
+                _fallbackSettings = new SettingsApplicationService(_fallbackSettingsRepository);
                 _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
             }
 
@@ -2492,30 +2494,6 @@ namespace AudioEffector.Presentation.ViewModels
                     track.IsFavorite = Library?.IsTrackFavorite(track) ?? false;
                 }
 
-                // Load cover art
-                if (tagFile.Tag.Pictures.Length > 0)
-                {
-                    string cacheKey = $"{track.Artist}|{track.Album}";
-                    if (_albumArtCache.TryGetValue(cacheKey, out var cachedImage))
-                    {
-                        track.CoverImage = cachedImage;
-                    }
-                    else
-                    {
-                        var bin = tagFile.Tag.Pictures[0].Data.Data;
-                        var bitmap = new BitmapImage();
-                        bitmap.BeginInit();
-                        bitmap.StreamSource = new MemoryStream(bin);
-                        bitmap.DecodePixelWidth = 150; // Reduce memory usage
-                        bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                        bitmap.EndInit();
-                        bitmap.Freeze();
-                        track.CoverImage = bitmap;
-
-                        _albumArtCache[cacheKey] = bitmap;
-                    }
-                }
-
                 // Set quality information
                 track.Bitrate = tagFile.Properties.AudioBitrate;
                 track.SampleRate = tagFile.Properties.AudioSampleRate;
@@ -2685,6 +2663,7 @@ namespace AudioEffector.Presentation.ViewModels
                     Folder?.Dispose();
                     _fallbackAudioService?.Dispose();
                     _fallbackSettings?.Dispose();
+                    _fallbackSettingsRepository?.Dispose();
                     (_audioService as IDisposable)?.Dispose();
                 }
                 _disposed = true;

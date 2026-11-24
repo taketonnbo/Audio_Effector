@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -9,7 +9,6 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
-using AudioEffector.Infrastructure.Library;
 
 namespace AudioEffector.Application.ApplicationServices;
 
@@ -20,7 +19,7 @@ public class LibraryApplicationService
 {
     private readonly ITrackRepository _trackRepository;
     private readonly IFavoriteRepository _favoriteRepository;
-    private readonly TagLibMetadataExtractor _metadataExtractor;
+    private readonly IMetadataExtractor _metadataExtractor;
     private readonly IEventBus _eventBus;
 
     /// <summary>
@@ -33,7 +32,7 @@ public class LibraryApplicationService
     public LibraryApplicationService(
         ITrackRepository trackRepository,
         IFavoriteRepository favoriteRepository,
-        TagLibMetadataExtractor metadataExtractor,
+        IMetadataExtractor metadataExtractor,
         IEventBus eventBus)
     {
         _trackRepository = trackRepository ?? throw new ArgumentNullException(nameof(trackRepository));

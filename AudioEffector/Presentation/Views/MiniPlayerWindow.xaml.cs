@@ -53,6 +53,7 @@ public partial class MiniPlayerWindow : Window
 
     private readonly ISettingsService _settingsService;
     private readonly WindowShortcutHandler _shortcutHandler = new();
+    private Action? _disposeFallbackSettings;
     private MainViewModel? _subscribedViewModel;
     private INotifyPropertyChanged? _subscribedQueueStateSource;
     private Action? _settingsUpdatedHandler;
@@ -120,11 +121,28 @@ public partial class MiniPlayerWindow : Window
     public MiniPlayerWindow(ISettingsService? settingsService)
     {
         InitializeComponent();
-        _settingsService = settingsService
+        var resolvedSettings = settingsService
             ?? (App.ServiceProvider != null
                 ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider)
-                : null)
-            ?? SettingsApplicationService.Default;
+                : null);
+
+        if (resolvedSettings != null)
+        {
+            _settingsService = resolvedSettings;
+        }
+        else
+        {
+#pragma warning disable CA2000 // OnClosed で明示的に破棄する
+            var fallbackRepo = new Infrastructure.Repository.JsonSettingsRepository();
+            var fallbackService = new SettingsApplicationService(fallbackRepo);
+#pragma warning restore CA2000
+            _settingsService = fallbackService;
+            _disposeFallbackSettings = () =>
+            {
+                fallbackService.Dispose();
+                fallbackRepo.Dispose();
+            };
+        }
 
         _shortcutHandler.UpdateSettings(_settingsService.LoadSettings());
 
@@ -860,6 +878,9 @@ public partial class MiniPlayerWindow : Window
         }
 
         base.OnClosed(e);
+
+        _disposeFallbackSettings?.Invoke();
+        _disposeFallbackSettings = null;
 
         var app = System.Windows.Application.Current;
         if (app != null && app.CheckAccess())
