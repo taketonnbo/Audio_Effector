@@ -1037,13 +1037,16 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             var album = Albums.FirstOrDefault(a => a.Tracks.Contains(track));
             if (album != null)
             {
-                int trackIndex = album.Tracks.IndexOf(track);
-                var candidateTracks = trackIndex >= 0
-                    ? album.Tracks.Skip(trackIndex).ToList()
-                    : album.Tracks.ToList();
+                var fullTracks = album.Tracks.ToList();
+                int trackIndex = fullTracks.IndexOf(track);
+                // #276: 途中曲から再生開始した際に選択曲より前の楽曲を再生キューに残さない
+                var queueTracks = trackIndex >= 0
+                    ? fullTracks.Skip(trackIndex).ToList()
+                    : fullTracks;
 
-                PlaybackRequested?.Invoke(candidateTracks, track, album.Title, album.Artist);
-                _audioService.SetPlaylist(candidateTracks, track);
+                // #299: 右側パネルにはアルバムの全収録曲を表示し、再生キューには選択曲以降のみを渡す
+                PlaybackRequested?.Invoke(fullTracks, track, album.Title, album.Artist);
+                _audioService.SetPlaylist(queueTracks, track);
             }
             else
             {

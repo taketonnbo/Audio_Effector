@@ -964,8 +964,12 @@ public sealed class PlayerControlViewModelTests
         // Act - 7曲目から再生開始
         sut.PlayTrackCommand.Execute(albumTracks[6]);
 
-        // Assert - SetPlaylist は 1 回のみ呼ばれ、8〜9曲目のみがキューに残ること
+        // Assert - SetPlaylist は 1 回のみ呼ばれ、右側パネルには全9曲が表示されつつ、8〜9曲目のみがキューに残ること
         Assert.Equal(1, setPlaylistCallCount);
+        Assert.Equal(9, playerControl.PlaybackListTracks.Count);
+        Assert.Equal(albumTracks.Select(t => t.Title).ToArray(), playerControl.PlaybackListTracks.Select(t => t.Title).ToArray());
+        Assert.True(albumTracks[6].IsPlaying);
+        Assert.Equal(1, playerControl.PlaybackListTracks.Count(t => t.IsPlaying));
         Assert.Equal(new[] { "Track 8", "Track 9" }, playerControl.AlbumQueue.Select(t => t.Title).ToArray());
         Assert.Equal(new[] { "Track 8", "Track 9" }, playerControl.PlayQueue.Select(t => t.Title).ToArray());
     }

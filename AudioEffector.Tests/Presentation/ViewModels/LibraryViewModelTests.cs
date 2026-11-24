@@ -247,6 +247,48 @@ public sealed class LibraryViewModelTests
     }
 
     /// <summary>
+    /// アルバムの途中曲からPlayTrackCommandを実行した際、PlaybackRequestedにはアルバム全収録曲が渡され、
+    /// AudioService.SetPlaylistには選択曲以降の楽曲のみが渡されることを検証します。
+    /// </summary>
+    [Fact]
+    public void PlayTrackCommand_アルバム途中曲を指定して実行_PlaybackRequestedには全収録曲が渡されSetPlaylistには選択曲以降のみが渡される()
+    {
+        // Arrange
+        using var sut = CreateViewModel();
+        var track1 = new Track { FilePath = @"C:\Music\t1.mp3", Title = "Track 1", Album = "Album Mid", Artist = "Artist Mid", TrackNumber = 1 };
+        var track2 = new Track { FilePath = @"C:\Music\t2.mp3", Title = "Track 2", Album = "Album Mid", Artist = "Artist Mid", TrackNumber = 2 };
+        var track3 = new Track { FilePath = @"C:\Music\t3.mp3", Title = "Track 3", Album = "Album Mid", Artist = "Artist Mid", TrackNumber = 3 };
+        var album = new Album("Album Mid", "Artist Mid", 2024, [track1, track2, track3]);
+        sut.Albums.Add(album);
+
+        IReadOnlyList<Track>? requestedTracks = null;
+        Track? requestedStartTrack = null;
+        string? requestedTitle = null;
+        string? requestedSubtitle = null;
+        sut.PlaybackRequested += (tracks, start, title, subtitle) =>
+        {
+            requestedTracks = tracks;
+            requestedStartTrack = start;
+            requestedTitle = title;
+            requestedSubtitle = subtitle;
+        };
+
+        // Act
+        sut.PlayTrackCommand.Execute(track2);
+
+        // Assert
+        Assert.NotNull(requestedTracks);
+        Assert.Equal([track1, track2, track3], requestedTracks);
+        Assert.Same(track2, requestedStartTrack);
+        Assert.Equal("Album Mid", requestedTitle);
+        Assert.Equal("Artist Mid", requestedSubtitle);
+        _audioServiceMock.Verify(
+            a => a.SetPlaylist(It.Is<List<Track>>(list => list.SequenceEqual(new[] { track2, track3 })), track2),
+            Times.Once);
+        _audioServiceMock.Verify(a => a.PlayTrack(track2), Times.Once);
+    }
+
+    /// <summary>
     /// フォルダ移動や拡張子変更後でも、メタデータ一致でお気に入りが維持されGetFavoriteTracksで解決かつLastKnownFilePathが自動更新されることを検証します。
     /// </summary>
     [Fact]
