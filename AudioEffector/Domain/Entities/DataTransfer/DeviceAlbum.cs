@@ -1,8 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Windows.Media.Imaging;
 
 namespace AudioEffector.Domain.Entities.DataTransfer;
 
@@ -14,7 +13,6 @@ public class DeviceAlbum : IEquatable<DeviceAlbum>, INotifyPropertyChanged
     private string _title = string.Empty;
     private string _artist = string.Empty;
     private string _path = string.Empty;
-    private BitmapImage? _coverImage;
 
     /// <summary>
     /// アルバムタイトル
@@ -59,22 +57,6 @@ public class DeviceAlbum : IEquatable<DeviceAlbum>, INotifyPropertyChanged
             if (_path != value)
             {
                 _path = value;
-                OnPropertyChanged();
-            }
-        }
-    }
-
-    /// <summary>
-    /// カバー画像
-    /// </summary>
-    public BitmapImage? CoverImage
-    {
-        get => _coverImage;
-        set
-        {
-            if (_coverImage != value)
-            {
-                _coverImage = value;
                 OnPropertyChanged();
             }
         }

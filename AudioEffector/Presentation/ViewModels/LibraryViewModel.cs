@@ -794,7 +794,6 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 {
                     Title = group.Key,
                     Artist = representativeArtist,
-                    CoverImage = null,
                     Tracks = orderedTracks,
                     Year = albumYear
                 });

@@ -25,8 +25,7 @@
 | **Title / Name** | `string` | アルバムタイトル名 | ○ | ○ | `Album.Title`, `Album.Name` |
 | **Artist** | `string` | アルバムアーティスト名 | ○ | ○ | `Album.Artist` |
 | **Year** | `uint` | リリース年 | - | ○ | `Album.Year` |
-| **CoverImage** | `BitmapImage?` | アルバムジャケット画像 | ○ | ○ | `Album.CoverImage` |
-| **RepresentativeTrackFilePath** | `string` | アート遅延読込用の代表トラックファイルパス | ○ (`AlbumArtLoader`) | ○ | `Album.RepresentativeTrackFilePath` |
+| **RepresentativeTrackFilePath** | `string` | アート遅延読込用の代表トラックファイルパス（カバーアートは Presentation 層の `AlbumArtLoader.SourcePath` / `AlbumDetailViewModel.CoverImage` で非同期読込） | ○ (`AlbumArtLoader`) | ○ | `Album.RepresentativeTrackFilePath` |
 | **Tracks** | `List<Track>` | 所属楽曲リスト | - | ○ (インライン展開リスト) | `Album.Tracks` |
 | **TrackCount** | `int` | 収録楽曲数 | ○ (アーティスト画面等) | ○ (トレイヘッダー等) | `Album.TrackCount` |
 | **TotalDuration** | `TimeSpan` | アルバム総再生時間 | - | ○ | `Album.TotalDuration` |

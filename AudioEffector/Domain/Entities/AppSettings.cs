@@ -166,12 +166,34 @@ public enum MiniPlayerDesignStyle
 }
 
 /// <summary>
-/// キーボードショートカットの設定を保持するクラス
+/// ショートカットキーの修飾キーフラグ（WPF ModifierKeys とビット値互換）
+/// </summary>
+[Flags]
+public enum ShortcutModifiers
+{
+    /// <summary>修飾キーなし</summary>
+    None = 0,
+    /// <summary>Alt キー</summary>
+    Alt = 1,
+    /// <summary>Ctrl キー</summary>
+    Control = 2,
+    /// <summary>Shift キー</summary>
+    Shift = 4,
+    /// <summary>Windows キー</summary>
+    Windows = 8
+}
+
+/// <summary>
+/// キーボードショートカットの設定を保持するモデル（WPF非依存）
 /// </summary>
 public class ShortcutKeyConfig
 {
-    /// <summary>対象キー</summary>
-    public System.Windows.Input.Key Key { get; set; } = System.Windows.Input.Key.None;
-    /// <summary>修飾キー</summary>
-    public System.Windows.Input.ModifierKeys Modifiers { get; set; } = System.Windows.Input.ModifierKeys.None;
+    /// <summary>未割り当てを表すキーコード定数</summary>
+    public const int NoneKey = 0;
+
+    /// <summary>対象キーコード（WPF の Key 列挙体の整数値と 1:1 互換、0 は未割り当て）</summary>
+    public int Key { get; set; } = NoneKey;
+
+    /// <summary>修飾キーフラグ</summary>
+    public ShortcutModifiers Modifiers { get; set; } = ShortcutModifiers.None;
 }

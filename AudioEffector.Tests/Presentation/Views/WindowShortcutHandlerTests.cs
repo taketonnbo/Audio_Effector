@@ -231,7 +231,7 @@ public sealed class WindowShortcutHandlerTests
         var sut = new WindowShortcutHandler(() => nowMs, 1.0);
         sut.UpdateSettings(new AppSettings
         {
-            StopShortcut = new ShortcutKeyConfig { Key = Key.MediaPlayPause, Modifiers = ModifierKeys.Control }
+            StopShortcut = ShortcutKeyHelper.CreateConfig(Key.MediaPlayPause, ModifierKeys.Control)
         });
         var target = new FakeShortcutCommandTarget();
 
@@ -258,7 +258,7 @@ public sealed class WindowShortcutHandlerTests
         var sut = new WindowShortcutHandler(() => nowMs, 1.0);
         sut.UpdateSettings(new AppSettings
         {
-            StopShortcut = new ShortcutKeyConfig { Key = Key.MediaPlayPause, Modifiers = ModifierKeys.None }
+            StopShortcut = ShortcutKeyHelper.CreateConfig(Key.MediaPlayPause, ModifierKeys.None)
         });
         var target = new FakeShortcutCommandTarget();
 
@@ -284,8 +284,8 @@ public sealed class WindowShortcutHandlerTests
             var sut = new WindowShortcutHandler(() => nowMs, 1.0);
             sut.UpdateSettings(new AppSettings
             {
-                PlayPauseShortcut = new ShortcutKeyConfig { Key = Key.Space, Modifiers = ModifierKeys.None },
-                MuteShortcut = new ShortcutKeyConfig { Key = Key.P, Modifiers = ModifierKeys.None }
+                PlayPauseShortcut = ShortcutKeyHelper.CreateConfig(Key.Space, ModifierKeys.None),
+                MuteShortcut = ShortcutKeyHelper.CreateConfig(Key.P, ModifierKeys.None)
             });
             var target = new FakeShortcutCommandTarget();
             var button = new Button();

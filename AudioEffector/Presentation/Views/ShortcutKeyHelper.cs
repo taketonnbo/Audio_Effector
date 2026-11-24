@@ -64,6 +64,9 @@ public static class ShortcutKeyHelper
 
     private const int APPCOMMAND_MASK = 0x0FFF;
 
+    private const ShortcutModifiers ValidModifiersMask =
+        ShortcutModifiers.Alt | ShortcutModifiers.Control | ShortcutModifiers.Shift | ShortcutModifiers.Windows;
+
     /// <summary>
     /// <c>WM_APPCOMMAND</c> の <paramref name="lParam"/> からアプリケーションコマンド番号を抽出します
     /// </summary>
@@ -188,24 +191,86 @@ public static class ShortcutKeyHelper
     }
 
     /// <summary>
+    /// ドメイン層のキーコード（整数値）を WPF の <see cref="Key"/> へ変換します（未定義値は <see cref="Key.None"/> へ安全フォールバック）
+    /// </summary>
+    /// <param name="keyCode">ドメイン層のキーコード</param>
+    /// <returns>対応する WPF の <see cref="Key"/></returns>
+    public static Key ToWpfKey(int keyCode)
+    {
+        return Enum.IsDefined(typeof(Key), keyCode) ? (Key)keyCode : Key.None;
+    }
+
+    /// <summary>
+    /// WPF の <see cref="Key"/> をドメイン層のキーコード（整数値）へ変換します
+    /// </summary>
+    /// <param name="key">WPF のキー</param>
+    /// <returns>ドメイン層のキーコード</returns>
+    public static int FromWpfKey(Key key)
+    {
+        return (int)key;
+    }
+
+    /// <summary>
+    /// ドメイン層の <see cref="ShortcutModifiers"/> を WPF の <see cref="ModifierKeys"/> へ変換します（定義外ビットはマスクして正規化）
+    /// </summary>
+    /// <param name="modifiers">ドメイン層の修飾キーフラグ</param>
+    /// <returns>対応する WPF の <see cref="ModifierKeys"/></returns>
+    public static ModifierKeys ToWpfModifiers(ShortcutModifiers modifiers)
+    {
+        return (ModifierKeys)(int)(modifiers & ValidModifiersMask);
+    }
+
+    /// <summary>
+    /// WPF の <see cref="ModifierKeys"/> をドメイン層の <see cref="ShortcutModifiers"/> へ変換します
+    /// </summary>
+    /// <param name="modifiers">WPF の修飾キー</param>
+    /// <returns>対応するドメイン層の <see cref="ShortcutModifiers"/></returns>
+    public static ShortcutModifiers FromWpfModifiers(ModifierKeys modifiers)
+    {
+        return (ShortcutModifiers)(int)modifiers;
+    }
+
+    /// <summary>
+    /// WPF の <see cref="Key"/> と <see cref="ModifierKeys"/> からドメイン層の <see cref="ShortcutKeyConfig"/> を生成します
+    /// </summary>
+    /// <param name="key">対象キー</param>
+    /// <param name="modifiers">修飾キー</param>
+    /// <returns>生成されたショートカット設定</returns>
+    public static ShortcutKeyConfig CreateConfig(Key key, ModifierKeys modifiers)
+    {
+        return new ShortcutKeyConfig
+        {
+            Key = FromWpfKey(key),
+            Modifiers = FromWpfModifiers(modifiers)
+        };
+    }
+
+    /// <summary>
     /// ショートカット設定を表示用の文字列へ整形します
     /// </summary>
     /// <param name="config">ショートカット設定</param>
     /// <returns>表示用テキスト</returns>
     public static string FormatShortcutText(ShortcutKeyConfig? config)
     {
-        if (config == null || config.Key == Key.None)
+        if (config == null)
         {
             return "割り当てなし";
         }
 
-        string mods = string.Empty;
-        if (config.Modifiers.HasFlag(ModifierKeys.Control)) mods += "Ctrl + ";
-        if (config.Modifiers.HasFlag(ModifierKeys.Shift)) mods += "Shift + ";
-        if (config.Modifiers.HasFlag(ModifierKeys.Alt)) mods += "Alt + ";
-        if (config.Modifiers.HasFlag(ModifierKeys.Windows)) mods += "Win + ";
+        Key key = ToWpfKey(config.Key);
+        if (key == Key.None)
+        {
+            return "割り当てなし";
+        }
 
-        return mods + FormatKeyName(config.Key);
+        ModifierKeys modifiers = ToWpfModifiers(config.Modifiers);
+        string mods = string.Empty;
+        if (modifiers.HasFlag(ModifierKeys.Control)) mods += "Ctrl + ";
+        if (modifiers.HasFlag(ModifierKeys.Shift)) mods += "Shift + ";
+        if (modifiers.HasFlag(ModifierKeys.Alt)) mods += "Alt + ";
+        if (modifiers.HasFlag(ModifierKeys.Windows)) mods += "Win + ";
+
+        return mods + FormatKeyName(key);
     }
 
     /// <summary>

@@ -135,9 +135,9 @@ public sealed class ShortcutKeyHelperTests
     public void FormatShortcutText_メディアキーと通常キーを指定した場合_期待通りの表示テキストを返すこと()
     {
         // Arrange
-        var mediaConfig = new ShortcutKeyConfig { Key = Key.MediaPlayPause, Modifiers = ModifierKeys.None };
-        var singleKeyConfig = new ShortcutKeyConfig { Key = Key.P, Modifiers = ModifierKeys.None };
-        var modifiedConfig = new ShortcutKeyConfig { Key = Key.Right, Modifiers = ModifierKeys.Control | ModifierKeys.Shift };
+        var mediaConfig = ShortcutKeyHelper.CreateConfig(Key.MediaPlayPause, ModifierKeys.None);
+        var singleKeyConfig = ShortcutKeyHelper.CreateConfig(Key.P, ModifierKeys.None);
+        var modifiedConfig = ShortcutKeyHelper.CreateConfig(Key.Right, ModifierKeys.Control | ModifierKeys.Shift);
 
         // Act
         string mediaText = ShortcutKeyHelper.FormatShortcutText(mediaConfig);
@@ -150,6 +150,72 @@ public sealed class ShortcutKeyHelperTests
         Assert.Equal("P", singleText);
         Assert.Equal("Ctrl + Shift + Right", modifiedText);
         Assert.Equal("割り当てなし", emptyText);
+    }
+
+    /// <summary>
+    /// 未定義の整数キーコードを指定した場合、ToWpfKey および FormatShortcutText が例外を送出せず Key.None / 割り当てなしへ安全にフォールバックすることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(9999)]
+    [InlineData(int.MaxValue)]
+    public void ToWpfKey_未定義の整数キーコードを指定した場合_KeyNoneへ安全にフォールバックすること(int invalidKeyCode)
+    {
+        // Arrange
+        var invalidConfig = new ShortcutKeyConfig
+        {
+            Key = invalidKeyCode,
+            Modifiers = ShortcutModifiers.Control
+        };
+
+        // Act
+        Key actualKey = ShortcutKeyHelper.ToWpfKey(invalidKeyCode);
+        string formatted = ShortcutKeyHelper.FormatShortcutText(invalidConfig);
+
+        // Assert
+        Assert.Equal(Key.None, actualKey);
+        Assert.Equal("割り当てなし", formatted);
+    }
+
+    /// <summary>
+    /// WPF の Key / ModifierKeys とドメイン層の int / ShortcutModifiers が相互変換で完全に一致することを検証します。
+    /// </summary>
+    [Fact]
+    public void CreateConfig_WPFキーと修飾キーを指定した場合_相互変換で値が一致すること()
+    {
+        // Arrange
+        const Key expectedKey = Key.Space;
+        const ModifierKeys expectedModifiers = ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Shift;
+
+        // Act
+        ShortcutKeyConfig config = ShortcutKeyHelper.CreateConfig(expectedKey, expectedModifiers);
+        Key restoredKey = ShortcutKeyHelper.ToWpfKey(config.Key);
+        ModifierKeys restoredModifiers = ShortcutKeyHelper.ToWpfModifiers(config.Modifiers);
+
+        // Assert
+        Assert.Equal((int)expectedKey, config.Key);
+        Assert.Equal((int)expectedModifiers, (int)config.Modifiers);
+        Assert.Equal(expectedKey, restoredKey);
+        Assert.Equal(expectedModifiers, restoredModifiers);
+    }
+
+    /// <summary>
+    /// ToWpfModifiers に定義外ビットを含む値が渡された場合、有効フラグのビットマスクで安全に正規化されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(16, ModifierKeys.None)]
+    [InlineData(18, ModifierKeys.Control)]
+    [InlineData(-1, ModifierKeys.Alt | ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Windows)]
+    public void ToWpfModifiers_定義外ビットを含む値を指定した場合_有効フラグのみに正規化されること(int rawModifiers, ModifierKeys expected)
+    {
+        // Arrange
+        var modifiers = (ShortcutModifiers)rawModifiers;
+
+        // Act
+        ModifierKeys actual = ShortcutKeyHelper.ToWpfModifiers(modifiers);
+
+        // Assert
+        Assert.Equal(expected, actual);
     }
 
     /// <summary>

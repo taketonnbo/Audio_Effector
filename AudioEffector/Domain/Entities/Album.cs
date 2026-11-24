@@ -1,9 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Windows.Media.Imaging;
 
 namespace AudioEffector.Domain.Entities;
 
@@ -18,7 +17,6 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     private bool _isSelected;
     private bool _isOnDevice;
     private bool _isTracksExpanded;
-    private BitmapImage? _coverImage;
     private List<Track> _tracks = new();
 
     /// <summary>
@@ -58,22 +56,6 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             if (_artist != value)
             {
                 _artist = value;
-                OnPropertyChanged();
-            }
-        }
-    }
-
-    /// <summary>
-    /// アルバムのカバー画像
-    /// </summary>
-    public BitmapImage? CoverImage
-    {
-        get => _coverImage;
-        set
-        {
-            if (_coverImage != value)
-            {
-                _coverImage = value;
                 OnPropertyChanged();
             }
         }

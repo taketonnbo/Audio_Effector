@@ -40,8 +40,7 @@
 | **QualityLabel / QualityInfo** | `string` | 音質バッジ表記（`Hi-Res` / `Lossless`）と詳細文字列 | - | ○ (右側パネル) | `Track.QualityLabel`, `Track.QualityInfo` |
 | **IsFavorite** | `bool` | お気に入り状態（`FavoriteTrackEntry` によりメタデータベース永続化） | ○ (ハート/星アイコン) | ○ | `Track.IsFavorite` |
 | **IsPlaying** | `bool` | 現在再生対象かどうか | ○ (再生アイコン/シアン強調) | ○ | `Track.IsPlaying` |
-| **CoverImage / AlbumArt** | `BitmapImage?` | アルバムアート画像（遅延読込対応） | ○ (サムネイル) | ○ | `Track.CoverImage`, `Track.AlbumArt` |
-| **FilePath** | `string` | ローカルファイルパス | - | ○ | `Track.FilePath` |
+| **FilePath** | `string` | ローカルファイルパス（カバーアートは Presentation 層の `AlbumArtLoader.SourcePath` 等で `FilePath` 起点に非同期読込） | ○ (アート読込起点) | ○ | `Track.FilePath` |
 | **IsSelected** | `bool` | 機器転送等の選択状態 | ○ (CheckBox) | - | `Track.IsSelected` |
 | **Tags** | `string[]` | ユーザー定義タグ / 検索タグ | - | - | 拡張構想（#233） |
 

@@ -1,7 +1,6 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Windows.Media.Imaging;
 using AudioEffector.Domain.ValueObjects;
 
 namespace AudioEffector.Domain.Entities;
@@ -28,7 +27,6 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     private bool _isHiRes;
     private bool _isPlaying;
     private bool _isSelected;
-    private BitmapImage? _coverImage;
 
     /// <summary>
     /// 一意のトラックID
@@ -94,22 +92,6 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
             if (_album != value)
             {
                 _album = value;
-                OnPropertyChanged();
-            }
-        }
-    }
-
-    /// <summary>
-    /// カバー画像
-    /// </summary>
-    public BitmapImage? CoverImage
-    {
-        get => _coverImage;
-        set
-        {
-            if (_coverImage != value)
-            {
-                _coverImage = value;
                 OnPropertyChanged();
             }
         }
@@ -360,73 +342,6 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// 音質ラベル（"Hi-Res" または "Lossless"、それ以外は空文字）
     /// </summary>
     public string QualityLabel => IsHiRes ? "Hi-Res" : (IsLossless ? "Lossless" : string.Empty);
-
-    // Async Album Art Loading
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, BitmapImage> _artCache
-        = new System.Collections.Concurrent.ConcurrentDictionary<string, BitmapImage>();
-    private bool _isArtLoaded;
-    private BitmapImage? _albumArt;
-
-    /// <summary>
-    /// 遅延読み込みされるアルバムアート
-    /// </summary>
-    public BitmapImage? AlbumArt
-    {
-        get
-        {
-            if (!_isArtLoaded && _albumArt == null && !string.IsNullOrEmpty(FilePath))
-            {
-                _isArtLoaded = true;
-                System.Threading.Tasks.Task.Run(() =>
-                {
-                    try
-                    {
-                        string? dir = System.IO.Path.GetDirectoryName(FilePath);
-                        string key = dir ?? string.Empty;
-
-                        if (_artCache.TryGetValue(key, out var cached))
-                        {
-                            _albumArt = cached;
-                        }
-                        else
-                        {
-                            if (TagLib.File.Create(FilePath) is var file && file.Tag.Pictures.Length > 0)
-                            {
-                                var bin = file.Tag.Pictures[0].Data.Data;
-                                System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                                {
-                                    try
-                                    {
-                                        var img = new BitmapImage();
-                                        using (var mem = new System.IO.MemoryStream(bin))
-                                        {
-                                            mem.Position = 0;
-                                            img.BeginInit();
-                                            img.DecodePixelWidth = 100;
-                                            img.CacheOption = BitmapCacheOption.OnLoad;
-                                            img.StreamSource = mem;
-                                            img.EndInit();
-                                        }
-                                        img.Freeze();
-                                        _albumArt = img;
-                                        _artCache.TryAdd(key, img);
-                                    }
-                                    catch { }
-                                });
-                            }
-                        }
-                    }
-                    catch { }
-
-                    if (_albumArt != null)
-                    {
-                        OnPropertyChanged(nameof(AlbumArt));
-                    }
-                });
-            }
-            return _albumArt;
-        }
-    }
 
     /// <summary>
     /// デフォルトコンストラクタ

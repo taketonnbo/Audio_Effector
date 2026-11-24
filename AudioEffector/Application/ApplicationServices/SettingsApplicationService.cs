@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -16,24 +16,9 @@ public class SettingsApplicationService : ISettingsService, IDisposable
 {
     private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
-    /// <summary>
-    /// デフォルトインスタンス。フォールバック用。
-    /// </summary>
-    public static SettingsApplicationService Default { get; } = new();
-
     private readonly ISettingsRepository _settingsRepository;
     private readonly string _settingsFilePath;
-    private readonly bool _ownsRepository;
     private bool _disposed;
-
-    /// <summary>
-    /// デフォルトのJsonSettingsRepositoryを使用してSettingsApplicationServiceを初期化します
-    /// </summary>
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "Ownership of repository is transferred and managed via IDisposable")]
-    public SettingsApplicationService() : this(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository())
-    {
-        _ownsRepository = true;
-    }
 
     /// <summary>
     /// SettingsApplicationServiceを初期化します
@@ -211,10 +196,6 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     {
         if (!_disposed)
         {
-            if (disposing && _ownsRepository)
-            {
-                (_settingsRepository as IDisposable)?.Dispose();
-            }
             _disposed = true;
         }
     }

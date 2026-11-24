@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls.Primitives;
@@ -54,8 +54,7 @@ public partial class MainWindow : Window
         _settingsService = (App.ServiceProvider != null
             ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ISettingsService>(App.ServiceProvider)
             : null)
-            ?? viewModel.SettingsService
-            ?? SettingsApplicationService.Default;
+            ?? viewModel.SettingsService;
 
         _shortcutHandler.UpdateSettings(_settingsService.LoadSettings());
         this.Loaded += MainWindow_Loaded;

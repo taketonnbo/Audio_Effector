@@ -1,7 +1,7 @@
-﻿using System.Threading;
+using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
-using AudioEffector.Infrastructure.Logging;
 
 namespace AudioEffector.Application.ApplicationServices;
 
