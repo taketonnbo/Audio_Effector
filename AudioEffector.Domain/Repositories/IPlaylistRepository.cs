@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Domain.Entities;
@@ -41,4 +42,11 @@ public interface IPlaylistRepository
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>非同期タスク</returns>
     Task DeleteAsync(PlaylistId id, CancellationToken cancellationToken = default);
+
+    /// <summary>最新のプレイリストに変更を適用し、変更があれば保存します</summary>
+    /// <param name="id">対象のプレイリストID</param>
+    /// <param name="update">変更の有無を返す更新処理</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>更新後のプレイリスト（存在しない場合はnull）</returns>
+    Task<UserPlaylist?> UpdateAsync(PlaylistId id, Func<UserPlaylist, bool> update, CancellationToken cancellationToken = default);
 }

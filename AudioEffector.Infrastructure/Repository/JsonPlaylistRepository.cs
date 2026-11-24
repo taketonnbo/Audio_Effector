@@ -97,7 +97,7 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         {
             throw;
         }
-        catch
+        catch when (!forceReload)
         {
             // 読み込みエラー時は空のまま開始
             _playlists.Clear();
@@ -203,6 +203,32 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
             {
                 await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
             }
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<UserPlaylist?> UpdateAsync(PlaylistId id, Func<UserPlaylist, bool> update, CancellationToken cancellationToken = default)
+    {
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using var fileLock = await _fileLockHelper.AcquireLockAsync(_filePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
+            if (!_playlists.TryGetValue(id, out var playlist))
+            {
+                return null;
+            }
+
+            if (update(playlist))
+            {
+                _isLoaded = false;
+                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            }
+            return playlist;
         }
         finally
         {

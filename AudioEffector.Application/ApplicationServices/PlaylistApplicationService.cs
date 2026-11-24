@@ -129,11 +129,13 @@ public class PlaylistApplicationService
     /// <returns>追加後のプレイリスト（存在しない場合はnull）</returns>
     public async Task<UserPlaylist?> AddTrackAsync(PlaylistId playlistId, TrackId trackId, CancellationToken cancellationToken = default)
     {
-        var playlist = await _playlistRepository.GetByIdAsync(playlistId, cancellationToken);
+        var playlist = await _playlistRepository.UpdateAsync(playlistId, current =>
+        {
+            current.AddTrack(trackId);
+            return true;
+        }, cancellationToken);
         if (playlist == null) return null;
 
-        playlist.AddTrack(trackId);
-        await _playlistRepository.SaveAsync(playlist, cancellationToken);
         await _eventBus.PublishAsync(new PlaylistUpdatedEvent(playlist), cancellationToken);
         return playlist;
     }
@@ -147,12 +149,10 @@ public class PlaylistApplicationService
     /// <returns>削除後のプレイリスト（存在しない場合はnull）</returns>
     public async Task<UserPlaylist?> RemoveTrackAtAsync(PlaylistId playlistId, int index, CancellationToken cancellationToken = default)
     {
-        var playlist = await _playlistRepository.GetByIdAsync(playlistId, cancellationToken);
-        if (playlist == null) return null;
-
-        if (playlist.RemoveAt(index))
+        bool removed = false;
+        var playlist = await _playlistRepository.UpdateAsync(playlistId, current => removed = current.RemoveAt(index), cancellationToken);
+        if (removed && playlist != null)
         {
-            await _playlistRepository.SaveAsync(playlist, cancellationToken);
             await _eventBus.PublishAsync(new PlaylistUpdatedEvent(playlist), cancellationToken);
         }
 
@@ -173,11 +173,13 @@ public class PlaylistApplicationService
         int newIndex,
         CancellationToken cancellationToken = default)
     {
-        var playlist = await _playlistRepository.GetByIdAsync(playlistId, cancellationToken);
+        var playlist = await _playlistRepository.UpdateAsync(playlistId, current =>
+        {
+            current.Reorder(oldIndex, newIndex);
+            return true;
+        }, cancellationToken);
         if (playlist == null) return null;
 
-        playlist.Reorder(oldIndex, newIndex);
-        await _playlistRepository.SaveAsync(playlist, cancellationToken);
         await _eventBus.PublishAsync(new PlaylistUpdatedEvent(playlist), cancellationToken);
         return playlist;
     }
