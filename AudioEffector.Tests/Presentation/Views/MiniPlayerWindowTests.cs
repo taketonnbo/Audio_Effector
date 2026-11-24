@@ -190,8 +190,8 @@ public sealed class MiniPlayerWindowTests
             var savedSettings = new AppSettings();
             var settingsServiceMock = new Mock<ISettingsService>();
             settingsServiceMock.Setup(s => s.LoadSettings()).Returns(() => savedSettings);
-            settingsServiceMock.Setup(s => s.SaveSettings(It.IsAny<AppSettings>()))
-                .Callback<AppSettings>(s => savedSettings = s);
+            settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+                .Callback<Action<AppSettings>>(update => update(savedSettings));
 
             var sut = new MiniPlayerWindow(settingsServiceMock.Object)
             {
@@ -243,8 +243,8 @@ public sealed class MiniPlayerWindowTests
             var savedSettings = new AppSettings();
             var settingsServiceMock = new Mock<ISettingsService>();
             settingsServiceMock.Setup(s => s.LoadSettings()).Returns(() => savedSettings);
-            settingsServiceMock.Setup(s => s.SaveSettings(It.IsAny<AppSettings>()))
-                .Callback<AppSettings>(s => savedSettings = s);
+            settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+                .Callback<Action<AppSettings>>(update => update(savedSettings));
 
             var sut = new MiniPlayerWindow(settingsServiceMock.Object)
             {
@@ -296,8 +296,8 @@ public sealed class MiniPlayerWindowTests
             var savedSettings = new AppSettings();
             var settingsServiceMock = new Mock<ISettingsService>();
             settingsServiceMock.Setup(s => s.LoadSettings()).Returns(() => savedSettings);
-            settingsServiceMock.Setup(s => s.SaveSettings(It.IsAny<AppSettings>()))
-                .Callback<AppSettings>(s => savedSettings = s);
+            settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+                .Callback<Action<AppSettings>>(update => update(savedSettings));
 
             var sut = new MiniPlayerWindow(settingsServiceMock.Object)
             {
@@ -348,8 +348,8 @@ public sealed class MiniPlayerWindowTests
             var savedSettings = new AppSettings();
             var settingsServiceMock = new Mock<ISettingsService>();
             settingsServiceMock.Setup(s => s.LoadSettings()).Returns(() => savedSettings);
-            settingsServiceMock.Setup(s => s.SaveSettings(It.IsAny<AppSettings>()))
-                .Callback<AppSettings>(s => savedSettings = s);
+            settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+                .Callback<Action<AppSettings>>(update => update(savedSettings));
 
             var sut = new MiniPlayerWindow(settingsServiceMock.Object)
             {
@@ -469,8 +469,8 @@ public sealed class MiniPlayerWindowTests
             var savedSettings = new AppSettings();
             var settingsServiceMock = new Mock<ISettingsService>();
             settingsServiceMock.Setup(s => s.LoadSettings()).Returns(() => savedSettings);
-            settingsServiceMock.Setup(s => s.SaveSettings(It.IsAny<AppSettings>()))
-                .Callback<AppSettings>(s => savedSettings = s);
+            settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+                .Callback<Action<AppSettings>>(update => update(savedSettings));
 
             var sut = new MiniPlayerWindow(settingsServiceMock.Object)
             {
@@ -521,8 +521,8 @@ public sealed class MiniPlayerWindowTests
             var savedSettings = new AppSettings();
             var settingsServiceMock = new Mock<ISettingsService>();
             settingsServiceMock.Setup(s => s.LoadSettings()).Returns(() => savedSettings);
-            settingsServiceMock.Setup(s => s.SaveSettings(It.IsAny<AppSettings>()))
-                .Callback<AppSettings>(s => savedSettings = s);
+            settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+                .Callback<Action<AppSettings>>(update => update(savedSettings));
 
             var sut = new MiniPlayerWindow(settingsServiceMock.Object)
             {
@@ -871,8 +871,8 @@ public sealed class MiniPlayerWindowTests
             var savedSettings = new AppSettings();
             var settingsServiceMock = new Mock<ISettingsService>();
             settingsServiceMock.Setup(s => s.LoadSettings()).Returns(() => savedSettings);
-            settingsServiceMock.Setup(s => s.SaveSettings(It.IsAny<AppSettings>()))
-                .Callback<AppSettings>(s => savedSettings = s);
+            settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+                .Callback<Action<AppSettings>>(update => update(savedSettings));
             using var playerVm = CreateTestPlayerControlViewModel(settingsServiceMock.Object);
             playerVm.IsMiniPlayerQueueOpen = true;
 
@@ -1349,6 +1349,9 @@ public sealed class MiniPlayerWindowTests
         var eventBusMock = new Mock<IEventBus>();
         var spectrumCalculatorMock = new Mock<ISpectrumCalculator>();
         var services = new ServiceCollection();
+        var historyDirectory = Directory.CreateTempSubdirectory();
+        services.AddSingleton<AudioEffector.Domain.Repositories.IRecentTrackRepository>(
+            new AudioEffector.Infrastructure.Repository.JsonRecentTrackRepository(Path.Combine(historyDirectory.FullName, "RecentTracks.json")));
         services.AddSingleton(settingsServiceMock.Object);
         services.AddSingleton(audioServiceMock.Object);
         services.AddSingleton(_ => new PlayerControlViewModel(
@@ -1370,6 +1373,7 @@ public sealed class MiniPlayerWindowTests
             mainVm.Dispose();
             App.ServiceProvider = previousProvider;
             provider.Dispose();
+            historyDirectory.Delete(true);
         });
 
         return (mainVm, audioServiceMock, settingsServiceMock, scope);

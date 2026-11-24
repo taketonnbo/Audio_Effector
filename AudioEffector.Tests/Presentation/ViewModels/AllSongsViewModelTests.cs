@@ -753,6 +753,12 @@ public sealed class AllSongsViewModelTests
     {
         private AppSettings _settings = new();
         public AppSettings LoadSettings() => _settings;
+        public void UpdateSettings(System.Action<AppSettings> update) => update(_settings);
+        public Task UpdateSettingsAsync(System.Action<AppSettings> update, CancellationToken cancellationToken = default)
+        {
+            update(_settings);
+            return Task.CompletedTask;
+        }
         public void SaveSettings(AppSettings settings) => _settings = settings;
         public Task<AppSettings> LoadSettingsAsync(CancellationToken cancellationToken = default) => Task.FromResult(_settings);
         public Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default) { _settings = settings; return Task.CompletedTask; }

@@ -339,10 +339,67 @@ public sealed class RecentViewModelTests
         }
     }
 
+    /// <summary>別画面で追加された履歴を曲の追加と削除で保持し、全消去で削除することを検証します</summary>
+    [Fact]
+    public void 履歴の更新_画面の読み込み後に別インスタンスが追加した曲を保持する()
+    {
+        // Arrange
+        var (owner, _, audio, library) = CreateSut();
+        using var ownedLibrary = library;
+        using var ownedView = owner;
+        var directory = System.IO.Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = System.IO.Path.Combine(directory.FullName, "RecentTracks.json");
+            var repository = new AudioEffector.Infrastructure.Repository.JsonRecentTrackRepository(path);
+            using var sut = new RecentViewModel(repository, library, audio);
+            var other = new AudioEffector.Infrastructure.Repository.JsonRecentTrackRepository(path);
+            var external = new RecentTrackEntry(CreateTrack("External"), DateTime.Now);
+            other.Save([external]);
+
+            // Act
+            var local = CreateTrack("Local");
+            sut.RecordTrack(local);
+            sut.RemoveEntry(local);
+
+            // Assert
+            Assert.Equal(external.FilePath, Assert.Single(other.Load()).FilePath);
+            sut.ClearHistory();
+            Assert.Empty(other.Load());
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
+    }
+
+    /// <summary>ロック作成が拒否されても画面を初期化し再生を継続できることを検証します</summary>
+    [Fact]
+    public void 履歴の読込_アクセス拒否でも表示を初期化できる()
+    {
+        // Arrange
+        var (owner, _, audio, library) = CreateSut();
+        using var ownedLibrary = library;
+        using var ownedView = owner;
+        var repository = new Moq.Mock<IRecentTrackRepository>();
+        repository.Setup(r => r.Load()).Throws<UnauthorizedAccessException>();
+
+        // Act
+        using var sut = new RecentViewModel(repository.Object, library, audio);
+
+        // Assert
+        Assert.True(sut.IsEmpty);
+    }
+
     private sealed class InMemoryRecentRepository : IRecentTrackRepository
     {
         public List<RecentTrackEntry> SavedEntries { get; private set; } = new();
         public IReadOnlyList<RecentTrackEntry> Load() => SavedEntries.ToList();
+        public IReadOnlyList<RecentTrackEntry> Update(Action<List<RecentTrackEntry>> update)
+        {
+            update(SavedEntries);
+            return SavedEntries.ToList();
+        }
         public void Save(IReadOnlyList<RecentTrackEntry> entries) => SavedEntries = entries.ToList();
     }
 
@@ -373,6 +430,12 @@ public sealed class RecentViewModelTests
     {
         private AppSettings _settings = new();
         public AppSettings LoadSettings() => _settings;
+        public void UpdateSettings(System.Action<AppSettings> update) => update(_settings);
+        public Task UpdateSettingsAsync(System.Action<AppSettings> update, CancellationToken cancellationToken = default)
+        {
+            update(_settings);
+            return Task.CompletedTask;
+        }
         public void SaveSettings(AppSettings settings) => _settings = settings;
         public Task<AppSettings> LoadSettingsAsync(CancellationToken cancellationToken = default) => Task.FromResult(_settings);
         public Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default) { _settings = settings; return Task.CompletedTask; }

@@ -19,6 +19,7 @@ public sealed class EqualizerViewModelTests
 {
     private readonly Mock<IAudioEngine> _audioEngineMock = new();
     private readonly Mock<ISettingsRepository> _settingsRepoMock = new();
+    private readonly AppSettings _persistedSettings = new();
     private readonly Mock<ISettingsService> _settingsServiceMock = new();
     private readonly Mock<IAudioService> _legacyAudioServiceMock = new();
     private readonly InMemoryEventBus _eventBus = new();
@@ -28,6 +29,8 @@ public sealed class EqualizerViewModelTests
 
     public EqualizerViewModelTests()
     {
+        _settingsServiceMock.Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+            .Callback<Action<AppSettings>>(update => update(_persistedSettings));
         _settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings { Volume = 0.5f });
         _settingsRepoMock.Setup(r => r.GetValueAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string?)null);
@@ -102,7 +105,8 @@ public sealed class EqualizerViewModelTests
         // Assert
         Assert.Same(preset, sut.SelectedPreset);
         Assert.False(sut.IsCustom);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => st.LastUsedEffectPreset == "Bass Boost")), Times.AtLeastOnce());
+        Assert.True(_persistedSettings.LastUsedEffectPreset == "Bass Boost");
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.AtLeastOnce());
     }
 
     /// <summary>
@@ -124,7 +128,8 @@ public sealed class EqualizerViewModelTests
 
         // Assert
         Assert.Equal(0.8, sut.Volume, 2);
-        _settingsServiceMock.Verify(s => s.SaveSettings(It.Is<AppSettings>(st => Math.Abs(st.Volume - 0.8f) < 0.01f)), Times.AtLeastOnce());
+        Assert.True(Math.Abs(_persistedSettings.Volume - 0.8f) < 0.01f);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.AtLeastOnce());
     }
 
     /// <summary>

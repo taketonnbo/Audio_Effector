@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Repositories;
 using Moq;
 using Xunit;
@@ -24,7 +25,7 @@ public sealed class SettingsApplicationServiceTests
     public void コンストラクタ_必須引数null指定_ArgumentNullExceptionをスローすること()
     {
         // Arrange, Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new SettingsApplicationService(null!));
+        Assert.Throws<ArgumentNullException>(() => new SettingsApplicationService(null!, null, Mock.Of<IJsonFileLockHelper>()));
     }
 
     /// <summary>
@@ -38,7 +39,7 @@ public sealed class SettingsApplicationServiceTests
         mockRepo.Setup(r => r.GetValueAsync("UnknownKey", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync((string?)null);
 
-        using var sut = new SettingsApplicationService(mockRepo.Object);
+        using var sut = new SettingsApplicationService(mockRepo.Object, null, Mock.Of<IJsonFileLockHelper>());
 
         // Act
         var actual = await sut.GetSettingAsync("UnknownKey", 100);
@@ -58,7 +59,7 @@ public sealed class SettingsApplicationServiceTests
         mockRepo.Setup(r => r.GetValueAsync("AppTheme", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync("Dark");
 
-        using var sut = new SettingsApplicationService(mockRepo.Object);
+        using var sut = new SettingsApplicationService(mockRepo.Object, null, Mock.Of<IJsonFileLockHelper>());
 
         // Act
         var actual = await sut.GetSettingAsync<string>("AppTheme");
@@ -81,7 +82,7 @@ public sealed class SettingsApplicationServiceTests
         mockRepo.Setup(r => r.GetValueAsync("WindowBounds", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(json);
 
-        using var sut = new SettingsApplicationService(mockRepo.Object);
+        using var sut = new SettingsApplicationService(mockRepo.Object, null, Mock.Of<IJsonFileLockHelper>());
 
         // Act
         var actual = await sut.GetSettingAsync<WindowBounds>("WindowBounds");
@@ -100,7 +101,7 @@ public sealed class SettingsApplicationServiceTests
     {
         // Arrange
         var mockRepo = new Mock<ISettingsRepository>();
-        using var sut = new SettingsApplicationService(mockRepo.Object);
+        using var sut = new SettingsApplicationService(mockRepo.Object, null, Mock.Of<IJsonFileLockHelper>());
 
         // Act
         await sut.SaveSettingAsync("Language", "ja-JP");
@@ -117,7 +118,7 @@ public sealed class SettingsApplicationServiceTests
     {
         // Arrange
         var mockRepo = new Mock<ISettingsRepository>();
-        using var sut = new SettingsApplicationService(mockRepo.Object);
+        using var sut = new SettingsApplicationService(mockRepo.Object, null, Mock.Of<IJsonFileLockHelper>());
         var bounds = new WindowBounds(1920.0, 1080.0);
 
         // Act
@@ -147,7 +148,7 @@ public sealed class SettingsApplicationServiceTests
         mockRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(dict);
 
-        using var sut = new SettingsApplicationService(mockRepo.Object);
+        using var sut = new SettingsApplicationService(mockRepo.Object, null, Mock.Of<IJsonFileLockHelper>());
 
         // Act
         var actual = await sut.GetAllSettingsAsync();
