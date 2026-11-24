@@ -24,6 +24,8 @@ public sealed class StdioMcpHostRunner : IMcpHostRunner
         HostApplicationBuilder builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
         {
             Args = Array.Empty<string>(),
+            // MCP クライアントの作業ディレクトリにある appsettings.json 等の影響を受けないよう実行ファイル配置先へ固定する
+            ContentRootPath = AppContext.BaseDirectory,
         });
 
         // stdout 汚染防止: 既存プロバイダを全クリアし、全ログレベルを stderr 出力へ強制する
@@ -32,6 +34,13 @@ public sealed class StdioMcpHostRunner : IMcpHostRunner
         builder.Logging.AddConsole(consoleOptions =>
         {
             consoleOptions.LogToStandardErrorThreshold = LogLevel.Trace;
+        });
+
+        // 親プロセスから継承された Logging__* 環境変数等の構成由来ルールより、明示指定された MinLogLevel を優先適用する
+        builder.Services.PostConfigure<LoggerFilterOptions>(filterOptions =>
+        {
+            filterOptions.Rules.Clear();
+            filterOptions.MinLevel = options.MinLogLevel;
         });
 
         builder.Services.AddAudioEffectorMcpCore(options);
