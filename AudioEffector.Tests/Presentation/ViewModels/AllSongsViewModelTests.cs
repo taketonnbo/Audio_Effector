@@ -734,6 +734,7 @@ public sealed class AllSongsViewModelTests
         public Task<Track?> GetByPathAsync(AudioPath path, CancellationToken cancellationToken = default) => Task.FromResult(_tracks.FirstOrDefault(t => string.Equals(t.FilePath, path.Value, StringComparison.OrdinalIgnoreCase)));
         public Task SaveAsync(Track track, CancellationToken cancellationToken = default) { _tracks.Add(track); return Task.CompletedTask; }
         public Task SaveRangeAsync(IEnumerable<Track> tracks, CancellationToken cancellationToken = default) { _tracks.AddRange(tracks); return Task.CompletedTask; }
+        public Task ReplaceAllAsync(IEnumerable<Track> tracks, CancellationToken cancellationToken = default) { _tracks.Clear(); _tracks.AddRange(tracks); return Task.CompletedTask; }
         public Task DeleteAsync(TrackId id, CancellationToken cancellationToken = default) { _tracks.RemoveAll(t => t.Id.Equals(id)); return Task.CompletedTask; }
         public Task ClearAsync(CancellationToken cancellationToken = default) { _tracks.Clear(); return Task.CompletedTask; }
         public Task<IReadOnlyList<Track>> SearchAsync(string keyword, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Track>>(_tracks);

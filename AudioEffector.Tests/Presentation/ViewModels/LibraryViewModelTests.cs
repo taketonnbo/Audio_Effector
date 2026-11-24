@@ -891,4 +891,131 @@ public sealed class LibraryViewModelTests : IDisposable
             }
         }
     }
+
+    /// <summary>
+    /// 登録済みの楽曲が存在する状態でフォルダー列挙が失敗（例: UnauthorizedAccessException）した場合、
+    /// UI コレクション・永続化データ（tracks.json）・既存 TrackId がすべて維持され、次回の正常スキャンでも TrackId が引き継がれることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_登録済み楽曲がある状態でフォルダー列挙に失敗した場合_UIと永続データとTrackIdが維持されること()
+    {
+        // Arrange
+        string musicDir = Path.Combine(_tempDirectory.FullName, "music_enum_fail");
+        string dataDir = Path.Combine(_tempDirectory.FullName, "data_enum_fail");
+        Directory.CreateDirectory(musicDir);
+        Directory.CreateDirectory(dataDir);
+        string songPath = Path.Combine(musicDir, "keep_me.mp3");
+        await File.WriteAllTextAsync(songPath, "dummy audio");
+
+        string tracksJsonPath = Path.Combine(dataDir, "tracks.json");
+        using var realTrackRepo = new JsonTrackRepository(tracksJsonPath);
+        var appService = new LibraryApplicationService(realTrackRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+
+        bool shouldFailEnumeration = false;
+        using var sut = new LibraryViewModel(
+            appService,
+            _audioServiceMock.Object,
+            _settingsServiceMock.Object,
+            playlistViewModel: null,
+            trackMetadataLoader: file => new Track
+            {
+                FilePath = file,
+                Title = Path.GetFileNameWithoutExtension(file),
+                Artist = "Keep Artist",
+                Album = "Keep Album",
+            },
+            fileEnumerator: folder =>
+            {
+                if (shouldFailEnumeration)
+                {
+                    throw new UnauthorizedAccessException("サブフォルダーへのアクセスが拒否されました。");
+                }
+
+                return Directory.GetFiles(folder, "*.*", SearchOption.AllDirectories);
+            });
+
+        // 初回の正常スキャンで UI と tracks.json に 1 曲を登録
+        await sut.LoadLibraryAsync(musicDir);
+        Track initialTrack = Assert.Single(sut.Tracks);
+        TrackId originalTrackId = initialTrack.Id;
+
+        // Act: フォルダー列挙が例外で失敗する状態で再スキャン
+        shouldFailEnumeration = true;
+        await sut.LoadLibraryAsync(musicDir);
+
+        // Assert: UI・永続データ・TrackId がすべて維持されていること
+        Assert.False(sut.IsLoading);
+        Track afterFailUiTrack = Assert.Single(sut.Tracks);
+        Assert.Equal(originalTrackId, afterFailUiTrack.Id);
+        Assert.Single(sut.Albums);
+
+        using (var verifyRepo = new JsonTrackRepository(tracksJsonPath))
+        {
+            IReadOnlyList<Track> persisted = await verifyRepo.GetAllAsync();
+            Track persistedTrack = Assert.Single(persisted);
+            Assert.Equal(originalTrackId, persistedTrack.Id);
+            Assert.Equal(songPath, persistedTrack.FilePath);
+        }
+
+        // さらに別インスタンスで正常再スキャンしても元の TrackId が引き継がれること
+        shouldFailEnumeration = false;
+        using var reloadedSut = new LibraryViewModel(
+            appService,
+            _audioServiceMock.Object,
+            _settingsServiceMock.Object,
+            playlistViewModel: null,
+            trackMetadataLoader: file => new Track
+            {
+                FilePath = file,
+                Title = Path.GetFileNameWithoutExtension(file),
+                Artist = "Keep Artist",
+                Album = "Keep Album",
+            });
+        await reloadedSut.LoadLibraryAsync(musicDir);
+        Assert.Equal(originalTrackId, Assert.Single(reloadedSut.Tracks).Id);
+    }
+
+    /// <summary>
+    /// 正常に走査した空フォルダーを読み込んだ場合は、列挙失敗と区別して UI および永続データが 0 件へ同期されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_正常に走査した空フォルダーの場合_0件としてUIと永続データへ同期されること()
+    {
+        // Arrange
+        string musicDir = Path.Combine(_tempDirectory.FullName, "music_empty_ok");
+        string dataDir = Path.Combine(_tempDirectory.FullName, "data_empty_ok");
+        Directory.CreateDirectory(musicDir);
+        Directory.CreateDirectory(dataDir);
+        string songPath = Path.Combine(musicDir, "remove_me.mp3");
+        await File.WriteAllTextAsync(songPath, "dummy audio");
+
+        string tracksJsonPath = Path.Combine(dataDir, "tracks.json");
+        using var realTrackRepo = new JsonTrackRepository(tracksJsonPath);
+        var appService = new LibraryApplicationService(realTrackRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+
+        using var sut = new LibraryViewModel(
+            appService,
+            _audioServiceMock.Object,
+            _settingsServiceMock.Object,
+            playlistViewModel: null,
+            trackMetadataLoader: file => new Track
+            {
+                FilePath = file,
+                Title = Path.GetFileNameWithoutExtension(file),
+                Artist = "Artist",
+                Album = "Album",
+            });
+
+        await sut.LoadLibraryAsync(musicDir);
+        Assert.Single(sut.Tracks);
+
+        // Act: ファイルを削除して正常な空フォルダーとして再スキャン
+        File.Delete(songPath);
+        await sut.LoadLibraryAsync(musicDir);
+
+        // Assert
+        Assert.Empty(sut.Tracks);
+        using var verifyRepo = new JsonTrackRepository(tracksJsonPath);
+        Assert.Empty(await verifyRepo.GetAllAsync());
+    }
 }

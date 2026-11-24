@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Repository;
@@ -317,5 +318,135 @@ public sealed class JsonTrackRepositoryTests : IDisposable
 
         // Assert
         Assert.Empty(actual);
+    }
+
+    /// <summary>
+    /// ReplaceAllAsync のファイル書き込みが IOException または OperationCanceledException で失敗した場合、
+    /// 同一インスタンスのキャッシュと別インスタンスの双方で以前のトラック一覧が維持されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReplaceAllAsync_書き込みがIOExceptionまたはキャンセルで失敗した場合_同一インスタンスと別インスタンスの両方で以前の一覧が読めること(bool failWithCancellation)
+    {
+        // Arrange
+        var failingLockHelper = new FailOnWriteFileLockHelper(JsonFileLockHelper.Default);
+        using var sut = new JsonTrackRepository(_testFilePath, failingLockHelper);
+        Track originalTrack = CreateSampleTrack("Original Track", "Original Artist", "Original Album");
+        Track replacementTrack = CreateSampleTrack("Replacement Track", "New Artist", "New Album");
+
+        await sut.ReplaceAllAsync([originalTrack]);
+        // 事前に GetAllAsync を呼んで読み込み済み（_isLoaded == true, _lastLoadedMetadata 同期済み）にする
+        Assert.Equal(originalTrack.Id, Assert.Single(await sut.GetAllAsync()).Id);
+
+        failingLockHelper.WriteFailureFactory = failWithCancellation
+            ? () => new OperationCanceledException("書き込みがキャンセルされました。")
+            : () => new IOException("ディスクへの書き込みに失敗しました。");
+
+        // Act
+        if (failWithCancellation)
+        {
+            await Assert.ThrowsAsync<OperationCanceledException>(() => sut.ReplaceAllAsync([replacementTrack]));
+        }
+        else
+        {
+            await Assert.ThrowsAsync<IOException>(() => sut.ReplaceAllAsync([replacementTrack]));
+        }
+
+        // Assert: 同一インスタンスでも保存されなかった新一覧へ切り替わらず以前の一覧を返すこと
+        var sameInstanceTracks = await sut.GetAllAsync();
+        Track sameInstanceTrack = Assert.Single(sameInstanceTracks);
+        Assert.Equal(originalTrack.Id, sameInstanceTrack.Id);
+        Assert.Equal("Original Track", sameInstanceTrack.Title);
+
+        // Assert: 別インスタンスでもディスク上の以前の一覧が読めること
+        using var otherInstance = new JsonTrackRepository(_testFilePath);
+        var otherInstanceTracks = await otherInstance.GetAllAsync();
+        Track otherInstanceTrack = Assert.Single(otherInstanceTracks);
+        Assert.Equal(originalTrack.Id, otherInstanceTrack.Id);
+        Assert.Equal("Original Track", otherInstanceTrack.Title);
+    }
+
+    /// <summary>
+    /// 同一 ID・同一 Track オブジェクトのタグを直接更新した後にファイル置換が失敗した場合でも、
+    /// キャッシュが呼び出し元オブジェクトから独立しており、同一インスタンスと別インスタンスの両方で更新前タイトルが読めることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ReplaceAllAsync_同一オブジェクトのタグ更新後に書き込み失敗した場合_同一インスタンスと別インスタンスの両方で更新前タイトルが読めること()
+    {
+        // Arrange
+        using var sut = CreateSut();
+        Track track = CreateSampleTrack("Before", "Artist A", "Album A");
+        await sut.ReplaceAllAsync([track]);
+        Assert.Equal("Before", Assert.Single(await sut.GetAllAsync()).Title);
+
+        // 呼び出し元が保持する同一オブジェクトのタグを直接更新（WPF の CopyTrackMetadata 相当）
+        track.Title = "After";
+
+        // Act: 対象 JSON ファイルを FileShare.Read で保持して原子的ファイル置換を失敗させる
+        using (var blockingReadStream = new FileStream(_testFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            Exception? ex = await Record.ExceptionAsync(() => sut.ReplaceAllAsync([track]));
+            Assert.NotNull(ex);
+            Assert.True(ex is IOException or UnauthorizedAccessException, $"予期しない例外型です: {ex.GetType().FullName}");
+        }
+
+        // Assert: 同一インスタンスでも未保存の "After" ではなく "Before" が返ること
+        Track sameInstanceTrack = Assert.Single(await sut.GetAllAsync());
+        Assert.Equal(track.Id, sameInstanceTrack.Id);
+        Assert.Equal("Before", sameInstanceTrack.Title);
+
+        // Assert: 別インスタンスでも "Before" が返ること
+        using var otherInstance = CreateSut();
+        Track otherInstanceTrack = Assert.Single(await otherInstance.GetAllAsync());
+        Assert.Equal(track.Id, otherInstanceTrack.Id);
+        Assert.Equal("Before", otherInstanceTrack.Title);
+    }
+
+    private sealed class FailOnWriteFileLockHelper : IJsonFileLockHelper
+    {
+        private readonly IJsonFileLockHelper _inner;
+
+        public FailOnWriteFileLockHelper(IJsonFileLockHelper inner)
+        {
+            _inner = inner;
+        }
+
+        public Func<Exception>? WriteFailureFactory { get; set; }
+
+        public Task<IDisposable> AcquireLockAsync(
+            string filePath,
+            TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+            => _inner.AcquireLockAsync(filePath, timeout, cancellationToken);
+
+        public IDisposable AcquireLock(string filePath, TimeSpan? timeout = null)
+            => _inner.AcquireLock(filePath, timeout);
+
+        public Task WriteAllTextAtomicAsync(
+            string filePath,
+            string content,
+            CancellationToken cancellationToken = default)
+        {
+            if (WriteFailureFactory is not null)
+            {
+                throw WriteFailureFactory();
+            }
+
+            return _inner.WriteAllTextAtomicAsync(filePath, content, cancellationToken);
+        }
+
+        public void WriteAllTextAtomic(string filePath, string content)
+        {
+            if (WriteFailureFactory is not null)
+            {
+                throw WriteFailureFactory();
+            }
+
+            _inner.WriteAllTextAtomic(filePath, content);
+        }
+
+        public FileMetadataSnapshot GetFileMetadata(string filePath)
+            => _inner.GetFileMetadata(filePath);
     }
 }

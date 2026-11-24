@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -341,5 +341,205 @@ public sealed class LibraryApplicationServiceTests : IDisposable
                 It.Is<IReadOnlyList<FavoriteMetadataChange>>(list => list.Count == 1 && list[0].Updated.Title == "Updated Title"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    /// <summary>
+    /// SearchTracksAsync(TrackSearchQuery) がお気に入りリポジトリと読み取り専用照合を行い、複合条件フィルタおよびページネーションを適用することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchTracksAsync_複合条件クエリ指定_お気に入り照合と絞り込みおよびページネーションが適用され書き込み副作用がないこと()
+    {
+        // Arrange
+        var track1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\1.flac"), "Track 1", "Artist A", "Album X", TimeSpan.FromSeconds(200), trackNumber: 1, genre: "Jazz");
+        var track2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\2.flac"), "Track 2", "Artist A", "Album X", TimeSpan.FromSeconds(210), trackNumber: 2, genre: "Jazz");
+        var track3 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\3.flac"), "Track 3", "Artist A", "Album X", TimeSpan.FromSeconds(220), trackNumber: 3, genre: "Rock");
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track2, track3, track1]);
+
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new FavoriteTrackEntry("Track 1", "Artist A", "Album X", 1, 200.0, @"D:\OldPath\1.mp3", DateTime.UtcNow),
+                FavoriteTrackEntry.FromTrack(track2),
+            ]);
+
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+
+        var query = new TrackSearchQuery(
+            Keyword: "Artist",
+            Artist: "artist a",
+            Album: "album x",
+            Genre: "jazz",
+            IsFavoriteOnly: true,
+            Limit: 1,
+            Offset: 1);
+
+        // Act
+        TrackSearchResult actual = await sut.SearchTracksAsync(query);
+
+        // Assert
+        Assert.Equal(2, actual.TotalCount);
+        Assert.Equal(1, actual.Offset);
+        Assert.Equal(1, actual.Limit);
+        Track returned = Assert.Single(actual.Tracks);
+        Assert.Equal("Track 2", returned.Title);
+        Assert.True(returned.IsFavorite);
+        mockFavRepo.Verify(
+            r => r.UpdateMetadataAsync(It.IsAny<IReadOnlyList<FavoriteMetadataChange>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// SearchTracksAsync(TrackSearchQuery) に範囲外の limit または負の offset を指定した場合、ArgumentOutOfRangeException がスローされることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(201, 0)]
+    [InlineData(50, -1)]
+    public async Task SearchTracksAsync_ページネーション範囲外指定_ArgumentOutOfRangeExceptionをスローすること(int limit, int offset)
+    {
+        // Arrange
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var query = new TrackSearchQuery(Limit: limit, Offset: offset);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => sut.SearchTracksAsync(query));
+    }
+
+    /// <summary>
+    /// お気に入りエントリの元ファイルパスの曲が改題され、別パスに旧メタデータ一致の曲が存在する場合でも、キーワード付きお気に入り限定検索で改題曲へ誤フォールバックしないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchTracksAsync_元パス改題曲と別パス旧メタデータ一致曲が共存_改題曲のお気に入り限定検索が0件になること()
+    {
+        // Arrange
+        var renamedTrack = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\original_path.flac"),
+            title: "Renamed",
+            artist: "Shared Artist",
+            album: "Shared Album",
+            duration: TimeSpan.FromSeconds(200),
+            trackNumber: 1,
+            genre: "Rock");
+        var originalTrack = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\another_path.flac"),
+            title: "Original",
+            artist: "Shared Artist",
+            album: "Shared Album",
+            duration: TimeSpan.FromSeconds(200),
+            trackNumber: 1,
+            genre: "Rock");
+
+        var favoriteEntry = new FavoriteTrackEntry(
+            title: "Original",
+            artist: "Shared Artist",
+            album: "Shared Album",
+            trackNumber: 1,
+            durationSeconds: 200.0,
+            lastKnownFilePath: @"C:\Music\original_path.flac",
+            addedAt: DateTime.UtcNow);
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([renamedTrack, originalTrack]);
+
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([favoriteEntry]);
+
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+
+        // Act
+        TrackSearchResult favoritesOnly = await sut.SearchTracksAsync(new TrackSearchQuery(IsFavoriteOnly: true));
+        TrackSearchResult renamedFavorites = await sut.SearchTracksAsync(new TrackSearchQuery(Keyword: "Renamed", IsFavoriteOnly: true));
+        TrackSearchResult renamedAll = await sut.SearchTracksAsync(new TrackSearchQuery(Keyword: "Renamed", IsFavoriteOnly: false));
+
+        // Assert
+        Track favoriteTrack = Assert.Single(favoritesOnly.Tracks);
+        Assert.Equal(originalTrack.Id, favoriteTrack.Id);
+        Assert.True(favoriteTrack.IsFavorite);
+
+        Assert.Equal(0, renamedFavorites.TotalCount);
+        Assert.Empty(renamedFavorites.Tracks);
+
+        Track nonFavoriteRenamed = Assert.Single(renamedAll.Tracks);
+        Assert.Equal(renamedTrack.Id, nonFavoriteRenamed.Id);
+        Assert.False(nonFavoriteRenamed.IsFavorite);
+    }
+
+    /// <summary>
+    /// ScanFolderAsync が共通の SupportedAudioExtensions を用いて .mp4 を含む対応形式を取りこぼさずスキャンすることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ScanFolderAsync_MP4ファイルを含むフォルダ_MP4を含めてスキャンおよび保存されること()
+    {
+        // Arrange
+        string mp4File = Path.Combine(_tempDirectory, "sample.mp4");
+        string opusFile = Path.Combine(_tempDirectory, "sample.opus");
+        File.WriteAllBytes(mp4File, [1, 2, 3]);
+        File.WriteAllBytes(opusFile, [4, 5, 6]);
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+
+        // Act
+        var actual = await sut.ScanFolderAsync(_tempDirectory);
+
+        // Assert
+        Assert.Equal(2, actual.Count);
+        Assert.Contains(actual, t => string.Equals(t.FilePath, mp4File, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(actual, t => string.Equals(t.FilePath, opusFile, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// SyncLibraryTracksAsync が同一パスの既存 TrackId を維持したうえで、更新・新規追加・削除を ReplaceAllAsync で一括同期することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SyncLibraryTracksAsync_既存トラック更新と追加削除_既存IDを維持してReplaceAllAsyncへ渡されること()
+    {
+        // Arrange
+        var existingId = TrackId.New();
+        var existingTrack = new Track(existingId, AudioPath.Create(@"C:\Music\keep.mp4"), "Old Title", "Old Artist", "Album", TimeSpan.FromSeconds(180));
+        var removedTrack = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\removed.mp3"), "Removed", "Artist", "Album", TimeSpan.FromSeconds(120));
+
+        var updatedKeepTrack = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\keep.mp4"), "New Title", "New Artist", "Album", TimeSpan.FromSeconds(180));
+        var addedTrack = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\added.flac"), "Added", "Artist B", "Album B", TimeSpan.FromSeconds(200));
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([existingTrack, removedTrack]);
+
+        List<Track>? replacedTracks = null;
+        mockTrackRepo.Setup(r => r.ReplaceAllAsync(It.IsAny<IEnumerable<Track>>(), It.IsAny<CancellationToken>()))
+            .Callback<IEnumerable<Track>, CancellationToken>((ts, _) => replacedTracks = ts.ToList())
+            .Returns(Task.CompletedTask);
+
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+
+        // Act
+        await sut.SyncLibraryTracksAsync([updatedKeepTrack, addedTrack]);
+
+        // Assert
+        Assert.NotNull(replacedTracks);
+        Assert.Equal(2, replacedTracks.Count);
+        Track syncedKeep = Assert.Single(replacedTracks, t => t.FilePath == @"C:\Music\keep.mp4");
+        Assert.Equal(existingId, syncedKeep.Id);
+        Assert.Equal("New Title", syncedKeep.Title);
+        Assert.Contains(replacedTracks, t => t.Id == addedTrack.Id && t.Title == "Added");
+        Assert.DoesNotContain(replacedTracks, t => t.FilePath == @"C:\Music\removed.mp3");
     }
 }

@@ -17,6 +17,14 @@ namespace AudioEffector.Application.ApplicationServices;
 /// </summary>
 public class LibraryApplicationService
 {
+    /// <summary>
+    /// ライブラリスキャン対象としてサポートする音声ファイル拡張子一覧（大文字・小文字を区別しない）
+    /// </summary>
+    public static IReadOnlySet<string> SupportedAudioExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp3", ".wav", ".aiff", ".wma", ".m4a", ".mp4", ".flac", ".aac", ".ogg", ".opus", ".alac"
+    };
+
     private readonly ITrackRepository _trackRepository;
     private readonly IFavoriteRepository _favoriteRepository;
     private readonly IMetadataExtractor _metadataExtractor;
@@ -171,13 +179,8 @@ public class LibraryApplicationService
             return Array.Empty<Track>();
         }
 
-        var audioExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ".mp3", ".flac", ".wav", ".m4a", ".aac", ".wma", ".ogg", ".alac"
-        };
-
         var allFiles = Directory.EnumerateFiles(folderPath, "*.*", SearchOption.AllDirectories)
-            .Where(f => audioExtensions.Contains(Path.GetExtension(f)))
+            .Where(f => SupportedAudioExtensions.Contains(Path.GetExtension(f)))
             .ToList();
 
         int totalCount = allFiles.Count;
@@ -214,6 +217,95 @@ public class LibraryApplicationService
     }
 
     /// <summary>
+    /// リポジトリに永続化されている既存トラックのファイルパスとトラック ID の対応マップを取得します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>ファイルパス（大文字・小文字を区別しない）をキーとする既存トラック ID マップ。</returns>
+    public async Task<IReadOnlyDictionary<string, TrackId>> GetTrackIdsByPathAsync(CancellationToken cancellationToken = default)
+    {
+        var existingTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)
+            ?? Array.Empty<Track>();
+
+        var result = new Dictionary<string, TrackId>(existingTracks.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var track in existingTracks)
+        {
+            if (!string.IsNullOrWhiteSpace(track.FilePath))
+            {
+                result.TryAdd(track.FilePath, track.Id);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 現在のライブラリ楽曲一覧（追加・タグ更新・削除・フォルダ切替後）をリポジトリへ完全同期します。
+    /// 同一ファイルパスの既存トラックが存在する場合は、既存の <see cref="TrackId"/> を維持したうえで最新メタデータを保存します。
+    /// </summary>
+    /// <param name="tracks">同期対象の確定済み楽曲一覧。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>非同期タスク。</returns>
+    public async Task SyncLibraryTracksAsync(IReadOnlyList<Track> tracks, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tracks);
+
+        var existingIdsByPath = await GetTrackIdsByPathAsync(cancellationToken).ConfigureAwait(false);
+        var normalizedTracks = new List<Track>(tracks.Count);
+
+        foreach (var track in tracks)
+        {
+            if (track == null || string.IsNullOrWhiteSpace(track.FilePath))
+            {
+                continue;
+            }
+
+            if (existingIdsByPath.TryGetValue(track.FilePath, out TrackId existingId) && !track.Id.Equals(existingId))
+            {
+                normalizedTracks.Add(new Track(
+                    id: existingId,
+                    filePath: AudioPath.Create(track.FilePath),
+                    title: track.Title,
+                    artist: track.Artist,
+                    album: track.Album,
+                    duration: track.Duration,
+                    year: track.Year,
+                    trackNumber: track.TrackNumber,
+                    bitrate: track.Bitrate,
+                    sampleRate: track.SampleRate,
+                    bitsPerSample: track.BitsPerSample,
+                    format: track.Format,
+                    genre: track.Genre,
+                    isFavorite: track.IsFavorite,
+                    isLossless: track.IsLossless,
+                    isHiRes: track.IsHiRes));
+            }
+            else
+            {
+                normalizedTracks.Add(track);
+            }
+        }
+
+        await _trackRepository.ReplaceAllAsync(normalizedTracks, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 現在のライブラリ楽曲一覧をリポジトリへ同期的に保存します（UI 削除コマンド等からの呼び出し用）。
+    /// </summary>
+    /// <param name="tracks">同期対象の確定済み楽曲一覧。</param>
+    public void SyncLibraryTracks(IReadOnlyList<Track> tracks)
+    {
+        ArgumentNullException.ThrowIfNull(tracks);
+        try
+        {
+            SyncLibraryTracksAsync(tracks).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning(ex.Message);
+        }
+    }
+
+    /// <summary>
     /// キーワードでライブラリ内のトラックを検索します
     /// </summary>
     /// <param name="keyword">検索キーワード</param>
@@ -222,6 +314,101 @@ public class LibraryApplicationService
     public async Task<IReadOnlyList<Track>> SearchTracksAsync(string keyword, CancellationToken cancellationToken = default)
     {
         return await _trackRepository.SearchAsync(keyword, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// キーワード・メタデータフィルタ・お気に入り条件およびページネーションを指定してライブラリ内のトラックを検索します。
+    /// お気に入りリポジトリとの最新照合（読み取り専用）を行い、各トラックの <see cref="Track.IsFavorite"/> を反映します。
+    /// </summary>
+    /// <param name="query">複合検索条件およびページネーション指定。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>一致総件数およびページ適用後のトラック一覧を含む検索結果。</returns>
+    public async Task<TrackSearchResult> SearchTracksAsync(
+        TrackSearchQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (query.Limit < TrackSearchQuery.MIN_LIMIT || query.Limit > TrackSearchQuery.MAX_LIMIT)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(query),
+                query.Limit,
+                $"limit は {TrackSearchQuery.MIN_LIMIT}〜{TrackSearchQuery.MAX_LIMIT} の範囲で指定してください。");
+        }
+
+        if (query.Offset < TrackSearchQuery.DEFAULT_OFFSET)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(query),
+                query.Offset,
+                $"offset は {TrackSearchQuery.DEFAULT_OFFSET} 以上で指定してください。");
+        }
+
+        string? trimmedKeyword = string.IsNullOrWhiteSpace(query.Keyword) ? null : query.Keyword.Trim();
+        string? trimmedArtist = string.IsNullOrWhiteSpace(query.Artist) ? null : query.Artist.Trim();
+        string? trimmedAlbum = string.IsNullOrWhiteSpace(query.Album) ? null : query.Album.Trim();
+        string? trimmedGenre = string.IsNullOrWhiteSpace(query.Genre) ? null : query.Genre.Trim();
+
+        // 検索条件で候補集合を狭める前に全曲でお気に入り照合を行い、メタデータ優先・パスフォールバックの対応先を一貫して確定させる
+        IReadOnlyList<Track> allTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        if (allTracks.Count == 0)
+        {
+            return new TrackSearchResult(Array.Empty<Track>(), 0, query.Offset, query.Limit);
+        }
+
+        // お気に入り永続化データ（favorites.json）を正本として最新の IsFavorite 状態をメモリ上で反映する（読み取り専用のため書き込みは行わない）
+        var favoriteEntries = await GetFavoriteEntriesAsync(cancellationToken).ConfigureAwait(false);
+        var reconciliation = FavoriteTrackMatcher.Reconcile(favoriteEntries, allTracks);
+        var favoriteTrackIds = reconciliation.MatchedTracks
+            .Select(t => t.Id)
+            .ToHashSet();
+
+        IEnumerable<Track> filtered = allTracks;
+
+        if (trimmedKeyword is not null)
+        {
+            filtered = filtered.Where(t =>
+                t.Title.Contains(trimmedKeyword, StringComparison.OrdinalIgnoreCase) ||
+                t.Artist.Contains(trimmedKeyword, StringComparison.OrdinalIgnoreCase) ||
+                t.Album.Contains(trimmedKeyword, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (trimmedArtist is not null)
+        {
+            filtered = filtered.Where(t => t.Artist.Contains(trimmedArtist, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (trimmedAlbum is not null)
+        {
+            filtered = filtered.Where(t => t.Album.Contains(trimmedAlbum, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (trimmedGenre is not null)
+        {
+            filtered = filtered.Where(t => t.Genre.Contains(trimmedGenre, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (query.IsFavoriteOnly)
+        {
+            filtered = filtered.Where(t => favoriteTrackIds.Contains(t.Id));
+        }
+
+        var ordered = filtered
+            .OrderBy(t => t.Artist, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.Album, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.TrackNumber)
+            .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.Id.Value)
+            .ToList();
+
+        int totalCount = ordered.Count;
+        var paged = ordered
+            .Skip(query.Offset)
+            .Take(query.Limit)
+            .ToList();
+
+        return new TrackSearchResult(paged, totalCount, query.Offset, query.Limit);
     }
 
     /// <summary>
