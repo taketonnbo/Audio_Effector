@@ -504,17 +504,27 @@ class EquivalenceAuditor:
         self._load_codebase()
 
     def _load_codebase(self):
+        project_dirs = [
+            self.root_dir / "AudioEffector",
+            self.root_dir / "AudioEffector.Domain",
+            self.root_dir / "AudioEffector.Application",
+            self.root_dir / "AudioEffector.Infrastructure",
+        ]
+
+        for proj_dir in project_dirs:
+            if not proj_dir.exists():
+                continue
+            for cs_path in proj_dir.rglob("*.cs"):
+                if "obj" in cs_path.parts or "bin" in cs_path.parts:
+                    continue
+                parsed_classes = CSharpParser.parse_file(cs_path)
+                for cls in parsed_classes:
+                    self.all_classes.append(cls)
+                    self.classes[cls.name] = cls
+                    self.classes[f"{cls.namespace}.{cls.name}"] = cls
+
         if not self.audio_effector_dir.exists():
             return
-
-        for cs_path in self.audio_effector_dir.rglob("*.cs"):
-            if "obj" in cs_path.parts or "bin" in cs_path.parts:
-                continue
-            parsed_classes = CSharpParser.parse_file(cs_path)
-            for cls in parsed_classes:
-                self.all_classes.append(cls)
-                self.classes[cls.name] = cls
-                self.classes[f"{cls.namespace}.{cls.name}"] = cls
 
         for xaml_path in self.audio_effector_dir.rglob("*.xaml"):
             if "obj" in xaml_path.parts or "bin" in xaml_path.parts:
