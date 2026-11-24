@@ -533,14 +533,14 @@ namespace AudioEffector.Presentation.ViewModels
                 else
                 {
                     _fallbackSettingsRepository = new Infrastructure.Repository.JsonSettingsRepository();
-                    _fallbackSettings = new SettingsApplicationService(_fallbackSettingsRepository);
+                    _fallbackSettings = new SettingsApplicationService(_fallbackSettingsRepository, dataDirectoryProvider: null, fileLockHelper: AudioEffector.Infrastructure.Repository.JsonFileLockHelper.Default);
                     _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
                 }
             }
             else
             {
                 _fallbackSettingsRepository = new Infrastructure.Repository.JsonSettingsRepository();
-                _fallbackSettings = new SettingsApplicationService(_fallbackSettingsRepository);
+                _fallbackSettings = new SettingsApplicationService(_fallbackSettingsRepository, dataDirectoryProvider: null, fileLockHelper: AudioEffector.Infrastructure.Repository.JsonFileLockHelper.Default);
                 _settingsService = LoggingProxy<ISettingsService>.Create(_fallbackSettings);
             }
 
@@ -779,7 +779,8 @@ namespace AudioEffector.Presentation.ViewModels
             else
             {
                 Recent = new Presentation.ViewModels.RecentViewModel(
-                    new Infrastructure.Repository.JsonRecentTrackRepository(),
+                    App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IRecentTrackRepository)) as AudioEffector.Domain.Repositories.IRecentTrackRepository
+                        ?? new Infrastructure.Repository.JsonRecentTrackRepository(),
                     Library!,
                     _audioService);
                 _ownsRecent = true;
@@ -1623,9 +1624,7 @@ namespace AudioEffector.Presentation.ViewModels
 
                     // Save settings
                     // 設定を保存
-                    var settings = _settingsService.LoadSettings();
-                    settings.Volume = value;
-                    _settingsService.SaveSettings(settings);
+                    _settingsService.UpdateSettings(settings => settings.Volume = value);
                 }
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(VolumePercent));
@@ -1669,9 +1668,7 @@ namespace AudioEffector.Presentation.ViewModels
             {
                 _leftColumnWidth = value;
                 OnPropertyChanged();
-                var settings = _settingsService.LoadSettings();
-                settings.LeftColumnWidth = value.Value;
-                _settingsService.SaveSettings(settings);
+                _settingsService.UpdateSettings(settings => settings.LeftColumnWidth = value.Value);
             }
         }
 

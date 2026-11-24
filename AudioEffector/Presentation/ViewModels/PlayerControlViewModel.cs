@@ -218,9 +218,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
                 // 設定の永続化
                 try
                 {
-                    var settings = _settingsService.LoadSettings();
-                    settings.Volume = value;
-                    _settingsService.SaveSettings(settings);
+                    _settingsService.UpdateSettings(settings => settings.Volume = value);
                 }
                 catch
                 {

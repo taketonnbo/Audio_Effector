@@ -55,9 +55,7 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
             if (SetProperty(ref _selectedPreset, value) && value != null)
             {
                 _ = ApplyPresetAsync(value);
-                var settings = _settingsService.LoadSettings();
-                settings.LastUsedEffectPreset = value.Name;
-                _settingsService.SaveSettings(settings);
+                _settingsService.UpdateSettings(settings => settings.LastUsedEffectPreset = value.Name);
             }
         }
     }
@@ -83,9 +81,7 @@ public class EqualizerViewModel : ViewModelBase, IDisposable,
             if (SetProperty(ref _volume, clampedValue))
             {
                 _ = _audioService.SetVolumeAsync(VolumeValue.FromFloat((float)clampedValue));
-                var settings = _settingsService.LoadSettings();
-                settings.Volume = (float)clampedValue;
-                _settingsService.SaveSettings(settings);
+                _settingsService.UpdateSettings(settings => settings.Volume = (float)clampedValue);
             }
         }
     }

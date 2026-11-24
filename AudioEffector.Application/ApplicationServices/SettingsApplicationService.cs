@@ -18,7 +18,7 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
     private readonly ISettingsRepository _settingsRepository;
-    private readonly IJsonFileLockHelper? _fileLockHelper;
+    private readonly IJsonFileLockHelper _fileLockHelper;
     private readonly string _settingsFilePath;
     private bool _disposed;
 
@@ -27,14 +27,14 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// </summary>
     /// <param name="settingsRepository">設定リポジトリ</param>
     /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ（未指定または既定時は既存互換パスを使用）</param>
-    /// <param name="fileLockHelper">プロセス間ファイルロックおよび原子的書き込みヘルパー（未指定時は直接I/Oフォールバック）</param>
+    /// <param name="fileLockHelper">プロセス間ファイルロックおよび原子的書き込みヘルパー</param>
     public SettingsApplicationService(
         ISettingsRepository settingsRepository,
-        IDataDirectoryProvider? dataDirectoryProvider = null,
-        IJsonFileLockHelper? fileLockHelper = null)
+        IDataDirectoryProvider? dataDirectoryProvider,
+        IJsonFileLockHelper fileLockHelper)
     {
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
-        _fileLockHelper = fileLockHelper;
+        _fileLockHelper = fileLockHelper ?? throw new ArgumentNullException(nameof(fileLockHelper));
 
         if (dataDirectoryProvider is { IsCustomDirectory: true })
         {
@@ -62,19 +62,19 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// <returns>読み込んだアプリケーション設定</returns>
     public AppSettings LoadSettings()
     {
-        using IDisposable? fileLock = _fileLockHelper?.AcquireLock(_settingsFilePath);
-
-        if (!File.Exists(_settingsFilePath))
-        {
-            return new AppSettings();
-        }
-
         try
         {
+            using IDisposable fileLock = _fileLockHelper.AcquireLock(_settingsFilePath);
+
+            if (!File.Exists(_settingsFilePath))
+            {
+                return new AppSettings();
+            }
+
             var json = File.ReadAllText(_settingsFilePath);
-            return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            return SettingsFileDocument.Parse(json).Settings;
         }
-        catch
+        catch (Exception ex) when (ex is not FileLockTimeoutException)
         {
             return new AppSettings();
         }
@@ -86,23 +86,30 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// <param name="settings">保存する設定情報</param>
     public void SaveSettings(AppSettings settings)
     {
-        using IDisposable? fileLock = _fileLockHelper?.AcquireLock(_settingsFilePath);
+        WriteSettings(document => document.Settings = settings);
+    }
 
+    /// <inheritdoc />
+    public void UpdateSettings(Action<AppSettings> update)
+    {
+        WriteSettings(document => update(document.Settings));
+    }
+
+    private void WriteSettings(Action<SettingsFileDocument> apply)
+    {
         try
         {
-            var json = JsonSerializer.Serialize(settings, _jsonOptions);
-            if (_fileLockHelper != null)
-            {
-                _fileLockHelper.WriteAllTextAtomic(_settingsFilePath, json);
-            }
-            else
-            {
-                WriteAllTextAtomicFallback(_settingsFilePath, json);
-            }
+            using IDisposable fileLock = _fileLockHelper.AcquireLock(_settingsFilePath);
+            var document = File.Exists(_settingsFilePath)
+                ? SettingsFileDocument.Parse(File.ReadAllText(_settingsFilePath))
+                : new SettingsFileDocument();
+            apply(document);
+            var json = JsonSerializer.Serialize(document, _jsonOptions);
+            _fileLockHelper.WriteAllTextAtomic(_settingsFilePath, json);
         }
-        catch (Exception ex) when (ex is not FileLockTimeoutException)
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            // Silent fail
+            System.Diagnostics.Trace.TraceWarning(ex.Message);
         }
     }
 
@@ -113,25 +120,23 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// <returns>読み込んだ設定情報を含むタスク</returns>
     public async Task<AppSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
     {
-        using IDisposable? fileLock = _fileLockHelper != null
-            ? await _fileLockHelper.AcquireLockAsync(_settingsFilePath, cancellationToken: cancellationToken).ConfigureAwait(false)
-            : null;
-
-        if (!File.Exists(_settingsFilePath))
-        {
-            return new AppSettings();
-        }
-
         try
         {
+            using IDisposable fileLock = await _fileLockHelper.AcquireLockAsync(_settingsFilePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            if (!File.Exists(_settingsFilePath))
+            {
+                return new AppSettings();
+            }
+
             var json = await File.ReadAllTextAsync(_settingsFilePath, cancellationToken).ConfigureAwait(false);
-            return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            return SettingsFileDocument.Parse(json).Settings;
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch
+        catch (Exception ex) when (ex is not FileLockTimeoutException)
         {
             return new AppSettings();
         }
@@ -143,35 +148,32 @@ public class SettingsApplicationService : ISettingsService, IDisposable
     /// <param name="settings">保存する設定</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>保存処理を表す非同期タスク</returns>
-    public async Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
+    public Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
     {
-        using IDisposable? fileLock = _fileLockHelper != null
-            ? await _fileLockHelper.AcquireLockAsync(_settingsFilePath, cancellationToken: cancellationToken).ConfigureAwait(false)
-            : null;
+        return WriteSettingsAsync(document => document.Settings = settings, cancellationToken);
+    }
 
+    /// <inheritdoc />
+    public Task UpdateSettingsAsync(Action<AppSettings> update, CancellationToken cancellationToken = default)
+    {
+        return WriteSettingsAsync(document => update(document.Settings), cancellationToken);
+    }
+
+    private async Task WriteSettingsAsync(Action<SettingsFileDocument> apply, CancellationToken cancellationToken)
+    {
         try
         {
-            var json = JsonSerializer.Serialize(settings, _jsonOptions);
-            if (_fileLockHelper != null)
-            {
-                await _fileLockHelper.WriteAllTextAtomicAsync(_settingsFilePath, json, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                await WriteAllTextAtomicFallbackAsync(_settingsFilePath, json, cancellationToken).ConfigureAwait(false);
-            }
+            using IDisposable fileLock = await _fileLockHelper.AcquireLockAsync(_settingsFilePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var document = File.Exists(_settingsFilePath)
+                ? SettingsFileDocument.Parse(await File.ReadAllTextAsync(_settingsFilePath, cancellationToken).ConfigureAwait(false))
+                : new SettingsFileDocument();
+            apply(document);
+            var json = JsonSerializer.Serialize(document, _jsonOptions);
+            await _fileLockHelper.WriteAllTextAtomicAsync(_settingsFilePath, json, cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            throw;
-        }
-        catch (FileLockTimeoutException)
-        {
-            throw;
-        }
-        catch
-        {
-            // Silent fail
+            System.Diagnostics.Trace.TraceWarning(ex.Message);
         }
     }
 
@@ -255,51 +257,6 @@ public class SettingsApplicationService : ISettingsService, IDisposable
         if (!_disposed)
         {
             _disposed = true;
-        }
-    }
-
-    private static void WriteAllTextAtomicFallback(string filePath, string content)
-    {
-        string tempPath = $"{filePath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllText(tempPath, content);
-            File.Move(tempPath, filePath, overwrite: true);
-        }
-        catch
-        {
-            TryDeleteTempFile(tempPath);
-            throw;
-        }
-    }
-
-    private static async Task WriteAllTextAtomicFallbackAsync(string filePath, string content, CancellationToken cancellationToken)
-    {
-        string tempPath = $"{filePath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            await File.WriteAllTextAsync(tempPath, content, cancellationToken).ConfigureAwait(false);
-            File.Move(tempPath, filePath, overwrite: true);
-        }
-        catch
-        {
-            TryDeleteTempFile(tempPath);
-            throw;
-        }
-    }
-
-    private static void TryDeleteTempFile(string tempPath)
-    {
-        try
-        {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
-        }
-        catch
-        {
-            // 一時ファイル削除失敗時は元の例外を優先する
         }
     }
 }

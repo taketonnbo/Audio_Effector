@@ -19,6 +19,7 @@ public class JsonSettingsRepository : ISettingsRepository, IDisposable
     private readonly IJsonFileLockHelper _fileLockHelper;
     private readonly Dictionary<string, string> _settings = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private SettingsFileDocument _document = new();
     private FileMetadataSnapshot _lastLoadedMetadata = FileMetadataSnapshot.Missing;
     private bool _isLoaded;
     private bool _disposed;
@@ -70,6 +71,7 @@ public class JsonSettingsRepository : ISettingsRepository, IDisposable
 
         if (!currentMetadata.Exists)
         {
+            _document = new SettingsFileDocument();
             _settings.Clear();
             _lastLoadedMetadata = FileMetadataSnapshot.Missing;
             _isLoaded = true;
@@ -79,21 +81,18 @@ public class JsonSettingsRepository : ISettingsRepository, IDisposable
         try
         {
             string json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
-            var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            _document = SettingsFileDocument.Parse(json);
             _settings.Clear();
-            if (dict != null)
+            foreach (var (k, v) in _document.Values)
             {
-                foreach (var (k, v) in dict)
-                {
-                    _settings[k] = v;
-                }
+                _settings[k] = v;
             }
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch
+        catch when (!forceReload)
         {
             // 読み込みエラー時は空のまま開始
             _settings.Clear();
@@ -105,7 +104,9 @@ public class JsonSettingsRepository : ISettingsRepository, IDisposable
 
     private async Task SaveToFileCoreAsync(CancellationToken cancellationToken)
     {
-        string json = JsonSerializer.Serialize(_settings, _jsonOptions);
+        _isLoaded = false;
+        _document.Values = _settings;
+        string json = JsonSerializer.Serialize(_document, _jsonOptions);
         await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
         _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
         _isLoaded = true;

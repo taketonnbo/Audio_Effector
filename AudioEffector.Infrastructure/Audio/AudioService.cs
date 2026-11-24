@@ -585,7 +585,7 @@ public class AudioService : IAudioService
                     else
                     {
                         using var fallbackRepo = new AudioEffector.Infrastructure.Repository.JsonSettingsRepository();
-                        using var fallbackSettings = new AudioEffector.Application.ApplicationServices.SettingsApplicationService(fallbackRepo);
+                        using var fallbackSettings = new AudioEffector.Application.ApplicationServices.SettingsApplicationService(fallbackRepo, null, AudioEffector.Infrastructure.Repository.JsonFileLockHelper.Default);
                         settings = fallbackSettings.LoadSettings();
                     }
                     if (settings.EnableNormalize)

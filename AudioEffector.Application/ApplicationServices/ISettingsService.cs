@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.Common;
@@ -40,4 +41,14 @@ public interface ISettingsService
     /// <returns>保存処理を表す非同期タスク</returns>
     [LogDescription("アプリケーション設定を非同期で保存します")]
     Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default);
+
+    /// <summary>最新設定に指定の変更を適用して保存します</summary>
+    /// <param name="update">変更する項目を設定する処理</param>
+    void UpdateSettings(Action<AppSettings> update);
+
+    /// <summary>最新設定に指定の変更を適用して非同期で保存します</summary>
+    /// <param name="update">変更する項目を設定する処理</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>更新処理を表すタスク</returns>
+    Task UpdateSettingsAsync(Action<AppSettings> update, CancellationToken cancellationToken = default);
 }
