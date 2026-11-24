@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -355,7 +355,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         var track3 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\3.flac"), "Track 3", "Artist A", "Album X", TimeSpan.FromSeconds(220), trackNumber: 3, genre: "Rock");
 
         var mockTrackRepo = new Mock<ITrackRepository>();
-        mockTrackRepo.Setup(r => r.SearchAsync("Artist", It.IsAny<CancellationToken>()))
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([track2, track3, track1]);
 
         var mockFavRepo = new Mock<IFavoriteRepository>();
@@ -410,5 +410,69 @@ public sealed class LibraryApplicationServiceTests : IDisposable
 
         // Act & Assert
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => sut.SearchTracksAsync(query));
+    }
+
+    /// <summary>
+    /// お気に入りエントリの元ファイルパスの曲が改題され、別パスに旧メタデータ一致の曲が存在する場合でも、キーワード付きお気に入り限定検索で改題曲へ誤フォールバックしないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchTracksAsync_元パス改題曲と別パス旧メタデータ一致曲が共存_改題曲のお気に入り限定検索が0件になること()
+    {
+        // Arrange
+        var renamedTrack = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\original_path.flac"),
+            title: "Renamed",
+            artist: "Shared Artist",
+            album: "Shared Album",
+            duration: TimeSpan.FromSeconds(200),
+            trackNumber: 1,
+            genre: "Rock");
+        var originalTrack = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\another_path.flac"),
+            title: "Original",
+            artist: "Shared Artist",
+            album: "Shared Album",
+            duration: TimeSpan.FromSeconds(200),
+            trackNumber: 1,
+            genre: "Rock");
+
+        var favoriteEntry = new FavoriteTrackEntry(
+            title: "Original",
+            artist: "Shared Artist",
+            album: "Shared Album",
+            trackNumber: 1,
+            durationSeconds: 200.0,
+            lastKnownFilePath: @"C:\Music\original_path.flac",
+            addedAt: DateTime.UtcNow);
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([renamedTrack, originalTrack]);
+
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([favoriteEntry]);
+
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+
+        // Act
+        TrackSearchResult favoritesOnly = await sut.SearchTracksAsync(new TrackSearchQuery(IsFavoriteOnly: true));
+        TrackSearchResult renamedFavorites = await sut.SearchTracksAsync(new TrackSearchQuery(Keyword: "Renamed", IsFavoriteOnly: true));
+        TrackSearchResult renamedAll = await sut.SearchTracksAsync(new TrackSearchQuery(Keyword: "Renamed", IsFavoriteOnly: false));
+
+        // Assert
+        Track favoriteTrack = Assert.Single(favoritesOnly.Tracks);
+        Assert.Equal(originalTrack.Id, favoriteTrack.Id);
+        Assert.True(favoriteTrack.IsFavorite);
+
+        Assert.Equal(0, renamedFavorites.TotalCount);
+        Assert.Empty(renamedFavorites.Tracks);
+
+        Track nonFavoriteRenamed = Assert.Single(renamedAll.Tracks);
+        Assert.Equal(renamedTrack.Id, nonFavoriteRenamed.Id);
+        Assert.False(nonFavoriteRenamed.IsFavorite);
     }
 }
