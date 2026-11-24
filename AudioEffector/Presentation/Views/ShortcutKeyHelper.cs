@@ -64,6 +64,9 @@ public static class ShortcutKeyHelper
 
     private const int APPCOMMAND_MASK = 0x0FFF;
 
+    private const ShortcutModifiers ValidModifiersMask =
+        ShortcutModifiers.Alt | ShortcutModifiers.Control | ShortcutModifiers.Shift | ShortcutModifiers.Windows;
+
     /// <summary>
     /// <c>WM_APPCOMMAND</c> の <paramref name="lParam"/> からアプリケーションコマンド番号を抽出します
     /// </summary>
@@ -208,13 +211,13 @@ public static class ShortcutKeyHelper
     }
 
     /// <summary>
-    /// ドメイン層の <see cref="ShortcutModifiers"/> を WPF の <see cref="ModifierKeys"/> へ変換します
+    /// ドメイン層の <see cref="ShortcutModifiers"/> を WPF の <see cref="ModifierKeys"/> へ変換します（定義外ビットはマスクして正規化）
     /// </summary>
     /// <param name="modifiers">ドメイン層の修飾キーフラグ</param>
     /// <returns>対応する WPF の <see cref="ModifierKeys"/></returns>
     public static ModifierKeys ToWpfModifiers(ShortcutModifiers modifiers)
     {
-        return (ModifierKeys)(int)modifiers;
+        return (ModifierKeys)(int)(modifiers & ValidModifiersMask);
     }
 
     /// <summary>

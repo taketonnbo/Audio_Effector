@@ -200,6 +200,25 @@ public sealed class ShortcutKeyHelperTests
     }
 
     /// <summary>
+    /// ToWpfModifiers に定義外ビットを含む値が渡された場合、有効フラグのビットマスクで安全に正規化されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(16, ModifierKeys.None)]
+    [InlineData(18, ModifierKeys.Control)]
+    [InlineData(-1, ModifierKeys.Alt | ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Windows)]
+    public void ToWpfModifiers_定義外ビットを含む値を指定した場合_有効フラグのみに正規化されること(int rawModifiers, ModifierKeys expected)
+    {
+        // Arrange
+        var modifiers = (ShortcutModifiers)rawModifiers;
+
+        // Act
+        ModifierKeys actual = ShortcutKeyHelper.ToWpfModifiers(modifiers);
+
+        // Assert
+        Assert.Equal(expected, actual);
+    }
+
+    /// <summary>
     /// 編集可能な TextBox フォーカス時は単一キーや Space がスキップされ、メディアキーおよび Ctrl 併用ショートカットはスキップされないことを検証します。
     /// </summary>
     [Fact]
