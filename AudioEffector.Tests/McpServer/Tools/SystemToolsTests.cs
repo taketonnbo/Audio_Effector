@@ -285,6 +285,57 @@ public sealed class SystemToolsTests
         }
     }
 
+    /// <summary>
+    /// 実 JsonTrackRepository を使用し、tracks.json と同名のディレクトリが存在する場合は空ライブラリと誤認せず INTERNAL_ERROR を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetServerInfoAsync_実JsonTrackRepositoryでtracksJsonが同名ディレクトリの場合_INTERNAL_ERRORを返しパスを露出しない()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorSystemToolsDirConflict_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string tracksJsonDirPath = Path.Combine(tempDir, "tracks.json");
+            Directory.CreateDirectory(tracksJsonDirPath);
+
+            using var realRepository = new JsonTrackRepository(tracksJsonDirPath);
+            var options = new McpServerOptions { DataDirectory = tempDir };
+            var dataDirProvider = new DataDirectoryProvider(tempDir);
+            var loggerMock = new Mock<ILogger<SystemTools>>();
+            loggerMock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+            var sut = new SystemTools(options, dataDirProvider, realRepository, loggerMock.Object);
+
+            // Act
+            CallToolResult result = await sut.GetServerInfoAsync();
+            string text = GetSingleText(result);
+
+            // Assert
+            Assert.True(result.IsError);
+            Assert.DoesNotContain(tempDir, text, StringComparison.Ordinal);
+
+            using JsonDocument doc = JsonDocument.Parse(text);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(McpErrorCodes.INTERNAL_ERROR, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+
+            loggerMock.Verify(
+                l => l.Log(
+                    LogLevel.Error,
+                    It.IsAny<EventId>(),
+                    It.IsAny<It.IsAnyType>(),
+                    It.IsAny<Exception>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static SystemTools CreateSut(
         out Mock<ITrackRepository> trackRepoMock,
         out Mock<ILogger<SystemTools>> loggerMock,

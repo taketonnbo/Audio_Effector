@@ -193,15 +193,6 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
                 .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
-            if (!currentMetadata.Exists)
-            {
-                _tracks.Clear();
-                _lastLoadedMetadata = FileMetadataSnapshot.Missing;
-                _isLoaded = true;
-                return 0;
-            }
-
             await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
             return _tracks.Count;
         }
