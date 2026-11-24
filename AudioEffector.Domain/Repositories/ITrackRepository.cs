@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Domain.Entities;
@@ -57,6 +57,14 @@ public interface ITrackRepository
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>非同期タスク</returns>
     Task SaveRangeAsync(IEnumerable<Track> tracks, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// リポジトリ内の全トラックを指定されたコレクションで完全に置き換えます（追加・更新・削除・フォルダ切替の一括同期用）
+    /// </summary>
+    /// <param name="tracks">同期後の全トラックコレクション</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>非同期タスク</returns>
+    Task ReplaceAllAsync(IEnumerable<Track> tracks, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 指定されたIDのトラックを削除します

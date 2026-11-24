@@ -290,6 +290,38 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     }
 
     /// <summary>
+    /// リポジトリ内の全トラックを指定されたコレクションで完全に置き換えます
+    /// </summary>
+    /// <param name="tracks">同期後の全トラックコレクション</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>非同期タスク</returns>
+    public async Task ReplaceAllAsync(IEnumerable<Track> tracks, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tracks);
+
+        var trackList = tracks.ToList();
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using IDisposable fileLock = await _fileLockHelper
+                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            _tracks.Clear();
+            foreach (var track in trackList)
+            {
+                _tracks[track.Id] = track;
+            }
+
+            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <summary>
     /// 指定されたIDのトラックを削除します
     /// </summary>
     /// <param name="id">削除対象のトラックID</param>
