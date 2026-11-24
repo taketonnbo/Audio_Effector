@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Globalization;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Repositories;
+using AudioEffector.Infrastructure.Repository;
 using AudioEffector.McpServer.Configuration;
 using AudioEffector.McpServer.DependencyInjection;
 using AudioEffector.McpServer.Dtos;
@@ -94,13 +95,15 @@ public sealed class SystemTools
     {
         try
         {
-            var tracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
+            int trackCount = _trackRepository is JsonTrackRepository jsonTrackRepository
+                ? await jsonTrackRepository.GetVerifiedCountAsync(cancellationToken).ConfigureAwait(false)
+                : (await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)).Count;
             var response = new ServerInfoResponse(
                 ServerName: McpServiceCollectionExtensions.SERVER_NAME,
                 Version: _serverVersion,
                 Transport: GetTransportName(_options.Transport),
                 DataDirectory: _dataDirectoryProvider.DataDirectory,
-                LibraryTrackCount: tracks.Count,
+                LibraryTrackCount: trackCount,
                 WpfIpcStatus: WPF_IPC_STATUS_NOT_CONFIGURED);
 
             return McpResponseFormatter.Success(response);

@@ -1,8 +1,10 @@
 using System.Globalization;
+using System.IO;
 using System.Text.Json;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
+using AudioEffector.Infrastructure.Repository;
 using AudioEffector.McpServer.Configuration;
 using AudioEffector.McpServer.DependencyInjection;
 using AudioEffector.McpServer.Protocol;
@@ -185,6 +187,102 @@ public sealed class SystemToolsTests
 
         using JsonDocument doc = JsonDocument.Parse(text);
         Assert.Equal(McpErrorCodes.CONFLICT_LOCK_TIMEOUT, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    /// <summary>
+    /// 実 JsonTrackRepository を使用し、tracks.json 未作成および空配列 JSON の正常な空ライブラリでは 0 件として成功応答を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetServerInfoAsync_実JsonTrackRepositoryで空ライブラリの場合_正常に0件を返す(bool createEmptyJsonArrayFile)
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorSystemToolsEmpty_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string tracksJsonPath = Path.Combine(tempDir, "tracks.json");
+            if (createEmptyJsonArrayFile)
+            {
+                await File.WriteAllTextAsync(tracksJsonPath, "[]");
+            }
+
+            using var realRepository = new JsonTrackRepository(tracksJsonPath);
+            var options = new McpServerOptions { DataDirectory = tempDir };
+            var dataDirProvider = new DataDirectoryProvider(tempDir);
+            var loggerMock = new Mock<ILogger<SystemTools>>();
+            var sut = new SystemTools(options, dataDirProvider, realRepository, loggerMock.Object);
+
+            // Act
+            CallToolResult result = await sut.GetServerInfoAsync();
+
+            // Assert
+            Assert.False(result.IsError ?? false);
+            using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            JsonElement data = doc.RootElement.GetProperty("data");
+            Assert.Equal(0, data.GetProperty("libraryTrackCount").GetInt32());
+            Assert.Equal(tempDir, data.GetProperty("dataDirectory").GetString());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 実 JsonTrackRepository を使用し、破損した tracks.json が存在する場合は 0 件と誤認せず INTERNAL_ERROR を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetServerInfoAsync_実JsonTrackRepositoryで破損tracksJsonの場合_INTERNAL_ERRORを返しパスを露出しない()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorSystemToolsCorrupt_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string tracksJsonPath = Path.Combine(tempDir, "tracks.json");
+            await File.WriteAllTextAsync(tracksJsonPath, "{");
+
+            using var realRepository = new JsonTrackRepository(tracksJsonPath);
+            var options = new McpServerOptions { DataDirectory = tempDir };
+            var dataDirProvider = new DataDirectoryProvider(tempDir);
+            var loggerMock = new Mock<ILogger<SystemTools>>();
+            loggerMock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+            var sut = new SystemTools(options, dataDirProvider, realRepository, loggerMock.Object);
+
+            // Act
+            CallToolResult result = await sut.GetServerInfoAsync();
+            string text = GetSingleText(result);
+
+            // Assert
+            Assert.True(result.IsError);
+            Assert.DoesNotContain(tempDir, text, StringComparison.Ordinal);
+
+            using JsonDocument doc = JsonDocument.Parse(text);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(McpErrorCodes.INTERNAL_ERROR, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+
+            loggerMock.Verify(
+                l => l.Log(
+                    LogLevel.Error,
+                    It.IsAny<EventId>(),
+                    It.IsAny<It.IsAnyType>(),
+                    It.IsAny<JsonException>(),
+                    It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+                Times.Once);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
     }
 
     private static SystemTools CreateSut(
