@@ -177,6 +177,7 @@ classDiagram
 | `McpJsonOptions` / `McpErrorCodes` | `Protocol/McpJsonOptions.cs`, `Protocol/McpErrorCodes.cs` | 共通 `JsonSerializerOptions`（`camelCase` / `null` 省略 / `JsonStringEnumConverter` / 日本語非エスケープ）および標準エラーコード定数を定義。 |
 | `McpResponseFormatter` / `McpErrorMapper` | `Protocol/McpResponseFormatter.cs`, `Protocol/McpErrorMapper.cs` | 正常応答 JSON のシリアライズ、`Result` / `Result<T>` 失敗および例外の統一エラーコード変換・機密詳細の非露出とログ記録を担当。 |
 | `SystemTools` / `SystemDtos` | `Tools/SystemTools.cs`, `Dtos/SystemDtos.cs` | Phase 1 の疎通確認用リファレンス実装（`ping`, `get_server_info`）および応答 DTO。 |
+| `LibraryTools` / `LibraryDtos` | `Tools/LibraryTools.cs`, `Dtos/LibraryDtos.cs` | Phase 2 の楽曲ライブラリ検索ツール（`search_tracks`）および応答 DTO（`SearchTracksResponse`, `TrackSummaryDto`）。 |
 | `IPlaybackControlGateway` | `Gateways/IPlaybackControlGateway.cs` | 再生制御の抽象化ゲートウェイ（Phase 2 で Named Pipe IPC 実装を接続）。 |
 
 ### 3.3 CLI オプション・設定モデル（将来互換インターフェース）
@@ -414,7 +415,66 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
      ```
    - ※ `libraryTrackCount` は `ITrackRepository`（または `LibraryApplicationService`）経由で取得し、DI および JSON リポジトリ接続の健全性確認を兼ねます。`wpfIpcStatus` は Phase 1 では `"not_configured"`、Phase 2 の IPC 導入後は `"connected"` / `"disconnected"` を返却します。
 
-### 5.5 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
+### 5.5 楽曲ライブラリ検索ツール仕様（Phase 2 #305 実装）
+
+`LibraryTools`（`AudioEffector.McpServer/Tools/LibraryTools.cs`）に、楽曲ライブラリを複合条件およびページネーションで検索する **`search_tracks`** ツールを実装します。業務ロジックは `LibraryApplicationService.SearchTracksAsync(TrackSearchQuery, CancellationToken)` へ集約し、ツール層は入力バリデーション・DTO 変換・共通エラー変換のみを担当します。
+
+#### 入力パラメータ
+
+| パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
+| :--- | :--- | :---: | :---: | :--- |
+| `keyword` | `string?` | 任意 | `null` | タイトル・アーティスト・アルバムを対象とした部分一致キーワード（大文字・小文字区別なし、前後空白トリム）。未指定・空白時は全件を対象とする。 |
+| `artist` | `string?` | 任意 | `null` | アーティスト名での部分一致絞り込み（大文字・小文字区別なし）。 |
+| `album` | `string?` | 任意 | `null` | アルバム名での部分一致絞り込み（大文字・小文字区別なし）。 |
+| `genre` | `string?` | 任意 | `null` | ジャンル名での部分一致絞り込み（大文字・小文字区別なし）。 |
+| `isFavoriteOnly` | `bool` | 任意 | `false` | `true` の場合、お気に入り登録済みの楽曲のみに絞り込む。 |
+| `limit` | `int` | 任意 | `50` | 返却する最大件数（`1〜200`）。範囲外は `INVALID_PARAMETER` エラー。 |
+| `offset` | `int` | 任意 | `0` | ページネーション用の取得開始位置（`0` 以上）。負数は `INVALID_PARAMETER` エラー。 |
+
+#### 出力（`data`）JSON スキーマ
+
+```json
+{
+  "totalCount": 12,
+  "count": 1,
+  "offset": 0,
+  "limit": 50,
+  "tracks": [
+    {
+      "id": "11111111-2222-3333-4444-555555555555",
+      "title": "Blue Note Morning",
+      "artist": "Miles Trio",
+      "album": "Midnight Sessions",
+      "durationSeconds": 225.5,
+      "durationString": "03:45",
+      "trackNumber": 3,
+      "year": 2024,
+      "genre": "Jazz",
+      "format": "FLAC",
+      "bitrate": 1411,
+      "sampleRate": 96000,
+      "bitsPerSample": 24,
+      "isFavorite": true,
+      "filePath": "C:\\Music\\Jazz\\BlueNote.flac"
+    }
+  ]
+}
+```
+
+#### 実装詳細・整合性・エラーケース
+
+- **リポジトリ鮮度・お気に入り照合**:
+  - `keyword` 指定時は `ITrackRepository.SearchAsync`、未指定時は `ITrackRepository.GetAllAsync` を呼び出し、`JsonTrackRepository` のメタデータ鮮度監視により最新 `tracks.json` を参照します。
+  - お気に入り状態は `IFavoriteRepository.GetAllAsync`（`favorites.json`）を取得し、`FavoriteTrackMatcher.Reconcile` による読み取り専用照合で各トラックの `IsFavorite` を最新化します（検索時の不要なファイル書き込みを回避）。
+- **決定的なソート順**: ページネーション（`offset` / `limit`）時の重複・欠落を防ぐため、フィルタ適用後に `Artist` → `Album` → `TrackNumber` → `Title` → `Id` 順で安定ソートします。
+- **エラーケース**:
+  - `limit < 1` または `limit > 200` → `INVALID_PARAMETER`（`details: { parameter: "limit", min: 1, max: 200 }`）
+  - `offset < 0` → `INVALID_PARAMETER`（`details: { parameter: "offset", min: 0 }`）
+  - `FileLockTimeoutException` → `CONFLICT_LOCK_TIMEOUT`
+  - `OperationCanceledException` → `OPERATION_CANCELLED`
+  - その他の未捕捉例外 → `INTERNAL_ERROR`（内部詳細・ファイルパスを非露出とし `ILogger` へ記録）
+
+### 5.6 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
 
 個別ツールの詳細スキーマ・バリデーション・実装仕様は Phase 2 親 Issue（#301）配下の各子 Issue にて順次策定し、実装に合わせて本設計書および機能仕様書へ追記します。
 
