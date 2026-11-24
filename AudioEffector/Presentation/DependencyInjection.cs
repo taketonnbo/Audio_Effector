@@ -1,6 +1,9 @@
+using AudioEffector.Application.Common;
+using AudioEffector.Presentation.Services;
 using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AudioEffector.Presentation;
 
@@ -16,6 +19,9 @@ public static class DependencyInjection
     /// <returns>サービス登録後のサービスコレクション</returns>
     public static IServiceCollection AddPresentationServices(this IServiceCollection services)
     {
+        // UI スレッドディスパッチャー（Infrastructure層のヘッドレス既定実装をWPF実装で上書き）
+        services.Replace(ServiceDescriptor.Singleton<IUiDispatcher, WpfUiDispatcher>());
+
         // 状態保持および画面間共有のため各ViewModelはSingleton登録
         services.AddSingleton<PlayerControlViewModel>();
         services.AddSingleton<LibraryViewModel>();

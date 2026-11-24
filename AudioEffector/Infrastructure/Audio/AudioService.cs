@@ -19,6 +19,19 @@ public class AudioService : IAudioService
 {
     private readonly object _lock = new();
     private readonly HashSet<string> _playedTrackPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly IUiDispatcher _uiDispatcher;
+    private readonly ISettingsService? _settingsService;
+
+    /// <summary>
+    /// AudioServiceの新しいインスタンスを初期化します
+    /// </summary>
+    /// <param name="uiDispatcher">UIスレッドへのディスパッチャー（未指定時はヘッドレス用既定実装を使用）</param>
+    /// <param name="settingsService">設定サービス（未指定時は既定のJSONリポジトリから読み込み）</param>
+    public AudioService(IUiDispatcher? uiDispatcher = null, ISettingsService? settingsService = null)
+    {
+        _uiDispatcher = uiDispatcher ?? ImmediateUiDispatcher.Instance;
+        _settingsService = settingsService;
+    }
 
     private WaveOutEvent? _outputDevice;
     private AudioFileReader? _audioFile;
@@ -564,7 +577,17 @@ public class AudioService : IAudioService
                     ISampleProvider sourceProvider = _audioFile;
 
                     // Apply Peak Normalization if enabled
-                    var settings = new AudioEffector.Application.ApplicationServices.SettingsApplicationService(new AudioEffector.Infrastructure.Repository.JsonSettingsRepository()).LoadSettings();
+                    AppSettings settings;
+                    if (_settingsService != null)
+                    {
+                        settings = _settingsService.LoadSettings();
+                    }
+                    else
+                    {
+                        using var fallbackRepo = new AudioEffector.Infrastructure.Repository.JsonSettingsRepository();
+                        using var fallbackSettings = new AudioEffector.Application.ApplicationServices.SettingsApplicationService(fallbackRepo);
+                        settings = fallbackSettings.LoadSettings();
+                    }
                     if (settings.EnableNormalize)
                     {
                         float maxPeak = 0;
@@ -614,10 +637,7 @@ public class AudioService : IAudioService
                     var endDetector = new EndOfStreamProvider(_masterVolumeProvider);
                     endDetector.EndOfStream += () =>
                     {
-                        System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                        {
-                            OnTrackEnded();
-                        });
+                        _uiDispatcher.BeginInvoke(OnTrackEnded);
                     };
 
                     var waveOut = new WaveOutEvent
