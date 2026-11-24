@@ -225,6 +225,92 @@ public class LibraryApplicationService
     }
 
     /// <summary>
+    /// キーワード・メタデータフィルタ・お気に入り条件およびページネーションを指定してライブラリ内のトラックを検索します。
+    /// お気に入りリポジトリとの最新照合（読み取り専用）を行い、各トラックの <see cref="Track.IsFavorite"/> を反映します。
+    /// </summary>
+    /// <param name="query">複合検索条件およびページネーション指定。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>一致総件数およびページ適用後のトラック一覧を含む検索結果。</returns>
+    public async Task<TrackSearchResult> SearchTracksAsync(
+        TrackSearchQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (query.Limit < TrackSearchQuery.MIN_LIMIT || query.Limit > TrackSearchQuery.MAX_LIMIT)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(query),
+                query.Limit,
+                $"limit は {TrackSearchQuery.MIN_LIMIT}〜{TrackSearchQuery.MAX_LIMIT} の範囲で指定してください。");
+        }
+
+        if (query.Offset < TrackSearchQuery.DEFAULT_OFFSET)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(query),
+                query.Offset,
+                $"offset は {TrackSearchQuery.DEFAULT_OFFSET} 以上で指定してください。");
+        }
+
+        string? trimmedKeyword = string.IsNullOrWhiteSpace(query.Keyword) ? null : query.Keyword.Trim();
+        string? trimmedArtist = string.IsNullOrWhiteSpace(query.Artist) ? null : query.Artist.Trim();
+        string? trimmedAlbum = string.IsNullOrWhiteSpace(query.Album) ? null : query.Album.Trim();
+        string? trimmedGenre = string.IsNullOrWhiteSpace(query.Genre) ? null : query.Genre.Trim();
+
+        IReadOnlyList<Track> candidates = trimmedKeyword is null
+            ? await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)
+            : await _trackRepository.SearchAsync(trimmedKeyword, cancellationToken).ConfigureAwait(false);
+
+        if (candidates.Count == 0)
+        {
+            return new TrackSearchResult(Array.Empty<Track>(), 0, query.Offset, query.Limit);
+        }
+
+        // お気に入り永続化データ（favorites.json）を正本として最新の IsFavorite 状態をメモリ上で反映する（読み取り専用のため書き込みは行わない）
+        var favoriteEntries = await GetFavoriteEntriesAsync(cancellationToken).ConfigureAwait(false);
+        FavoriteTrackMatcher.Reconcile(favoriteEntries, candidates);
+
+        IEnumerable<Track> filtered = candidates;
+
+        if (trimmedArtist is not null)
+        {
+            filtered = filtered.Where(t => t.Artist.Contains(trimmedArtist, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (trimmedAlbum is not null)
+        {
+            filtered = filtered.Where(t => t.Album.Contains(trimmedAlbum, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (trimmedGenre is not null)
+        {
+            filtered = filtered.Where(t => t.Genre.Contains(trimmedGenre, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (query.IsFavoriteOnly)
+        {
+            filtered = filtered.Where(t => t.IsFavorite);
+        }
+
+        var ordered = filtered
+            .OrderBy(t => t.Artist, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.Album, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.TrackNumber)
+            .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.Id.Value)
+            .ToList();
+
+        int totalCount = ordered.Count;
+        var paged = ordered
+            .Skip(query.Offset)
+            .Take(query.Limit)
+            .ToList();
+
+        return new TrackSearchResult(paged, totalCount, query.Offset, query.Limit);
+    }
+
+    /// <summary>
     /// ファイルパスからトラックを取得します。未登録の場合はファイルのメタデータを読み込みます。
     /// </summary>
     /// <param name="filePath">対象オーディオファイルのパス</param>
