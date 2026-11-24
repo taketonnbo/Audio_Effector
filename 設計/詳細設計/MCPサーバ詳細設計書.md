@@ -97,7 +97,7 @@ flowchart TD
     Selector -- "stdio (Phase 1)" --> StdioHost["StdioMcpHostRunner<br/>(Generic Host + WithStdioServerTransport)"]
     Selector -- "http (Phase 3)" --> HttpHost["HttpMcpHostRunner<br/>(ASP.NET Core + MapMcp / 127.0.0.1)"]
 
-    StdioHost --> CommonReg["McpServiceCollectionExtensions<br/>AddAudioEffectorMcpServer()"]
+    StdioHost --> CommonReg["McpServiceCollectionExtensions<br/>AddAudioEffectorMcpCore()"]
     HttpHost --> CommonReg
 
     subgraph SharedCore["トランスポート非依存コア (AudioEffector.McpServer)"]
@@ -146,7 +146,8 @@ classDiagram
 
     class McpResponseFormatter {
         <<static>>
-        +Success~T~(T data) string
+        +Success~T~(T data) CallToolResult
+        +SerializeSuccess~T~(T data) string
         +FromResult~T~(Result~T~ result) CallToolResult
         +FromException(Exception ex) CallToolResult
         +Error(string code, string message, object? details) CallToolResult
@@ -186,8 +187,13 @@ Phase 1 時点から Phase 3（HTTP）互換の CLI オプションおよび環�
 | `--transport` | `AUDIOEFFECTOR_MCP__TRANSPORT` | `string` (`stdio`) | 通信トランスポート（`stdio` \| `http`）。Phase 1 で `http` 指定時は `stderr` へ未実装案内を出力し終了コード `2` で終了。 |
 | `--host` | `AUDIOEFFECTOR_MCP__HOST` | `string` (`127.0.0.1`) | HTTP モード時のバインドアドレス（Phase 3 用）。 |
 | `--port` | `AUDIOEFFECTOR_MCP__PORT` | `int` (`51890`) | HTTP モード時の待受ポート番号（Phase 3 用）。 |
-| `--data-dir` | `AUDIOEFFECTOR_MCP__DATADIR` | `string?` (`null`) | JSON データディレクトリの明示指定（未指定時は `%APPDATA%\AudioEffector`）。テストや隔離検証で利用。 |
-| `--log-level` | `AUDIOEFFECTOR_MCP__LOGLEVEL` | `LogLevel` (`Information`) | `stderr` へ出力する最小ログレベル。 |
+| `--data-dir` | `AUDIOEFFECTOR_MCP__DATADIRECTORY` | `string?` (`null`) | JSON データディレクトリの明示指定（未指定時は `%APPDATA%\AudioEffector`）。テストや隔離検証で利用。 |
+| `--log-level` | `AUDIOEFFECTOR_MCP__MINLOGLEVEL` | `LogLevel` (`Information`) | `stderr` へ出力する最小ログレベル。 |
+
+- **データディレクトリ指定の DI 連携方針（Phase 1 実装事項）**:
+  - 環境変数名は `Microsoft.Extensions.Configuration` の自動バインド規約に合わせ、`McpServerOptions` のプロパティ名（`DataDirectory`, `MinLogLevel` 等）と完全一致させます。
+  - `AddInfrastructureServices(string? dataDirectory = null)` へオーバーロード／既定値付き引数を追加し、未指定時は既定パス、指定時は全 `Json*Repository` へ同一ディレクトリ配下の JSON パスを注入できる構成とします。
+  - 現行の `SettingsApplicationService` は `JsonSettingsRepository` を経由せず直接 `settings.json`（かつ `#if DEBUG` 時のみ `%APPDATA%\AudioEffector_Debug\settings.json`）を読み書きしているため、Phase 1 で共通のディレクトリ解決（`dataDirectory` 引数または `IDataDirectoryProvider`）を受け取れるよう拡張し、`--data-dir` 指定時は `settings.json` を含めて一貫して同一ディレクトリを参照・同期する方針とします。
 
 ### 3.4 `stdout` 汚染防止とロギング分離方針
 
@@ -195,9 +201,10 @@ Phase 1 時点から Phase 3（HTTP）互換の CLI オプションおよび環�
 
 1. **`Microsoft.Extensions.Logging` の `stderr` 強制**:
    - `StdioMcpHostRunner` 構築時に `builder.Logging.ClearProviders()` を実行したうえで、コンソールロガーへ **`LogToStandardErrorThreshold = LogLevel.Trace`** を必ず設定します。これにより `Trace`〜`Critical` の全ログが `stderr` へ出力されます。
-2. **既存 `NLog`（`nlog.config` / `NLogService`）との棲み分け**:
+2. **既存 `NLog`（`nlog.config` / `NLogService`）との棲み分けと明示ロード**:
    - 既存 `AudioEffector/nlog.config` は `File`（`logs/app.log`）と `Debugger` ターゲットのみであり `Console` ターゲットを持たないため原則 `stdout` を汚染しません。
-   - ただし WPF 本体と MCP サーバが同時起動した際のログファイルロック競合を防ぐため、`AudioEffector.McpServer` には専用設定 **`nlog.mcp.config`** を配置し、出力先を **`logs/mcp-server.log`**（ローリング管理）へ分離します。
+   - ただし WPF 本体と MCP サーバが同時起動した際のログファイルロック競合を防ぐため、`AudioEffector.McpServer` には専用設定 **`nlog.mcp.config`**（`.csproj` で `CopyToOutputDirectory=PreserveNewest`）を配置し、出力先を **`logs/mcp-server.log`**（ローリング管理）へ分離します。
+   - NLog は既定で `nlog.config` / `<App>.dll.nlog` のみを自動検索し `nlog.mcp.config` を自動検出しないため、**`Program.cs` 起動時の最初期（DI 構築および `NLogService` 解決前）に `LogManager.Setup().LoadConfigurationFromFile("nlog.mcp.config")` を明示的に呼び出す**ことを必須とします。
    - `nlog.mcp.config` に `Console` / `ColoredConsole`（`stderr="false"`）ターゲットを追加することを禁止します。
 3. **`Console.Write` / `Console.WriteLine` の禁止**:
    - `AudioEffector.McpServer` および共有ライブラリ（`Domain` / `Application` / `Infrastructure`）内で `Console.Write*` を直接呼び出すことを禁止します（必要な場合は必ず `ILogger` または `Console.Error` を使用）。
@@ -238,10 +245,12 @@ WPF 本体と `AudioEffector.McpServer` の 2 プロセスが同時起動する�
    - 各リポジトリは最終読み込み時の `LastWriteTimeUtc` とファイルサイズ（`FileInfo.Length`）を保持する。
    - 読み込みメソッド実行時（`EnsureLoadedAsync` 内）に、対象ファイルの現在の `LastWriteTimeUtc` / `Length` を確認し、変化（またはファイル新規作成／削除）を検知した場合のみ JSON を再読み込みしてメモリキャッシュを最新化する。
    - 変化がない場合は既存の高速オンメモリキャッシュをそのまま利用するため、WPF 側の通常パフォーマンスへの影響は極小（`FileInfo` 参照のみ）に抑えられる。
-2. **名前付きミューテックス ＋ 一意一時ファイルによるプロセス間排他**:
-   - Windows の名前付きミューテックス（`Local\AudioEffector_Repo_<Sha256(NormalizedPath)[..16]>`）でプロセス間排他区間（待機タイムアウト既定 `5000ms`、タイムアウト時は `CONFLICT_LOCK_TIMEOUT` へ変換）を保護し、`AbandonedMutexException` を安全にハンドリングする。
-   - 一時ファイル名を固定 `*.tmp` から **`{_filePath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp`** へ変更し、複数プロセス間の一時ファイル名衝突を根絶する。
-   - 書き込み系操作は「ミューテックス取得 → 最新ファイル再読込 → 変更適用 → 一意一時ファイル書出 → `File.Move(overwrite: true)` → メタデータ更新 → ミューテックス解放」の Read-Modify-Write 手順を徹底する。
+2. **OS ファイルロック（`.lock`） ＋ 一意一時ファイルによるプロセス間排他（`async`/`await` 安全設計）**:
+   - 既存の `Json*Repository` は `await File.ReadAllTextAsync` / `await File.WriteAllTextAsync` による非同期実装であるため、スレッドアフィニティを持つ `System.Threading.Mutex`（`await` 跨ぎの `ReleaseMutex()` で `ApplicationException` が発生するリスク）は**採用せず**、**`{_filePath}.lock` を `FileShare.None` で排他オープンする OS ファイルロック（`FileStream` ＋ 短いジッター付き非同期リトライ `Task.Delay`）** を採用します。
+   - この方式はスレッドアフィニティがなく `async`/`await` および `CancellationToken` と安全に併用でき、さらにプロセスが異常終了した場合も OS によってファイルハンドル（ロック）が自動的に解放されます（待機タイムアウト既定 `5000ms`、タイムアウト時は `CONFLICT_LOCK_TIMEOUT` へ変換）。
+   - 一時ファイル名を固定 `*.tmp` から **`{_filePath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp`** へ変更し、複数プロセス間の一時ファイル名衝突を根絶します。
+   - 書き込み系操作は「`.lock` ファイル排他取得 → 最新ファイル再読込 → 変更適用 → 一意一時ファイル書出 → `File.Move(overwrite: true)` → メタデータ更新 → `FileStream.Dispose()` によるロック解放」の Read-Modify-Write 手順を徹底します。
+   - ※ `SettingsApplicationService` が直接 `settings.json` を読み書きしている箇所についても、同様に本ファイルロック・原子的書き込みヘルパーを適用し、WPF・MCP 間の設定競合を防止します。
 
 ### 4.2 再生制御・再生キューのリアルタイム連携方針
 
@@ -266,7 +275,7 @@ sequenceDiagram
     autonumber
     actor Client as MCP Client (AI Agent)
     participant Mcp as AudioEffector.McpServer
-    participant Repo as Json*Repository (Mutex+鮮度検知)
+    participant Repo as Json*Repository (ファイルロック+鮮度検知)
     participant Json as %APPDATA%/AudioEffector/*.json
     participant Pipe as Named Pipe IPC
     participant Wpf as AudioEffector (WPF本体)
@@ -366,7 +375,7 @@ Phase 2（#301）以降で機能カテゴリごとに子 Issue（#305, #306 等�
 | `FILE_NOT_FOUND` | `FileNotFoundException` / `DirectoryNotFoundException` | 対象音声ファイルがディスク上に存在しない |
 | `WPF_APP_NOT_RUNNING` | IPC 接続先パイプ未存在 | WPF 本体未起動状態で再生制御ツールを実行した |
 | `IPC_CONNECTION_FAILED` | `IOException` / `TimeoutException`（IPC 通信時） | WPF 本体との IPC 通信タイムアウト・切断 |
-| `CONFLICT_LOCK_TIMEOUT` | `Mutex` 待機タイムアウト | 同時ファイル操作の競合によりロック取得に失敗 |
+| `CONFLICT_LOCK_TIMEOUT` | OS ファイルロック（`.lock`）待機タイムアウト | 同時ファイル操作の競合によりロック取得に失敗 |
 | `OPERATION_CANCELLED` | `OperationCanceledException` | クライアント側からのキャンセル要求 |
 | `INTERNAL_ERROR` | その他の未捕捉例外・未分類の `Result.Failure` | 予期しない内部エラー（詳細はログ参照） |
 
