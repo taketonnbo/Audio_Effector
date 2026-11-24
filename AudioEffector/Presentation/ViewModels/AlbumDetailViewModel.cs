@@ -656,7 +656,7 @@ public sealed class AlbumDetailViewModel : ViewModelBase, IDisposable
             : [track];
 
         // #299: 右側パネルにはアルバムの全収録曲を表示し、再生キューには選択曲以降のみを渡す
-        var displayTracks = tracks.Count > 0 ? tracks : [track];
+        var displayTracks = trackIndex >= 0 ? tracks : [track];
         track.IsPlaying = true;
         PlaybackRequested?.Invoke(displayTracks, track, AlbumTitle, Artist);
         _audioService.SetPlaylist(candidateTracks, track);
