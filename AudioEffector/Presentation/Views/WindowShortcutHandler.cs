@@ -310,7 +310,13 @@ public sealed class WindowShortcutHandler
 
     private static bool Matches(ShortcutKeyConfig? config, Key key, ModifierKeys modifiers)
     {
-        return config != null && config.Key != Key.None && config.Key == key && config.Modifiers == modifiers;
+        if (config == null)
+        {
+            return false;
+        }
+
+        Key configKey = ShortcutKeyHelper.ToWpfKey(config.Key);
+        return configKey != Key.None && configKey == key && ShortcutKeyHelper.ToWpfModifiers(config.Modifiers) == modifiers;
     }
 
     private static void ExecuteCommand(ICommand? command)

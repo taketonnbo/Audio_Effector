@@ -164,7 +164,7 @@ public partial class ShortcutInputBox : UserControl
         // Delete または BackSpace で割り当てをクリアする
         if (key == Key.Delete || key == Key.Back)
         {
-            Shortcut = new ShortcutKeyConfig { Key = Key.None, Modifiers = ModifierKeys.None };
+            Shortcut = ShortcutKeyHelper.CreateConfig(Key.None, ModifierKeys.None);
             WarningTextBlock.Visibility = Visibility.Collapsed;
             UpdateDisplayText();
             e.Handled = true;
@@ -210,7 +210,7 @@ public partial class ShortcutInputBox : UserControl
             foreach (var prop in properties)
             {
                 var sc = prop.GetValue(this.DataContext) as ShortcutKeyConfig;
-                if (sc != null && sc.Key == key && sc.Modifiers == modifiers)
+                if (sc != null && ShortcutKeyHelper.ToWpfKey(sc.Key) == key && ShortcutKeyHelper.ToWpfModifiers(sc.Modifiers) == modifiers)
                 {
                     if (!ReferenceEquals(sc, Shortcut))
                     {
@@ -267,7 +267,7 @@ public partial class ShortcutInputBox : UserControl
         }
 
         // ViewModelのsetterを確実に発火させるため新しいインスタンスを生成する
-        var newConfig = new ShortcutKeyConfig { Key = key, Modifiers = modifiers };
+        var newConfig = ShortcutKeyHelper.CreateConfig(key, modifiers);
         Shortcut = newConfig;
 
         // バインディング通知が発生しないケースに備えて表示テキストを強制更新する
