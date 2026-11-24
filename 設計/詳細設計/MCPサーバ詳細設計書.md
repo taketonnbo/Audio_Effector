@@ -174,8 +174,9 @@ classDiagram
 | `IMcpHostRunner` / `StdioMcpHostRunner` | `Hosting/StdioMcpHostRunner.cs` | Generic Host を構築し、`stderr` 専用ロギング、`AddAudioEffectorMcpCore()`、および `WithStdioServerTransport()` を構成して実行する。 |
 | `HttpMcpHostRunner`（Phase 3 拡張点） | `Hosting/HttpMcpHostRunner.cs` | Phase 1 では未実装スタブ（明確なエラーメッセージ＋終了コード `2`）とし、Phase 3 で ASP.NET Core + `ModelContextProtocol.AspNetCore`（`MapMcp()`）へ差し替える。 |
 | `McpServiceCollectionExtensions` | `DependencyInjection/McpServiceCollectionExtensions.cs` | `AddInfrastructureServices()` + `AddApplicationServices()` + `AddMcpServer().WithToolsFromAssembly().WithResourcesFromAssembly()` を一括登録。`IUiDispatcher` は既定の `ImmediateUiDispatcher` を利用。 |
-| `McpResponseFormatter` / `McpErrorMapper` | `Protocol/McpResponseFormatter.cs` | 正常応答 JSON のシリアライズ、`Result` / `Result<T>` 失敗および例外の統一エラーコード変換を担当。 |
-| `SystemTools` | `Tools/SystemTools.cs` | Phase 1 の疎通確認用リファレンス実装（`ping`, `get_server_info`）。 |
+| `McpJsonOptions` / `McpErrorCodes` | `Protocol/McpJsonOptions.cs`, `Protocol/McpErrorCodes.cs` | 共通 `JsonSerializerOptions`（`camelCase` / `null` 省略 / `JsonStringEnumConverter` / 日本語非エスケープ）および標準エラーコード定数を定義。 |
+| `McpResponseFormatter` / `McpErrorMapper` | `Protocol/McpResponseFormatter.cs`, `Protocol/McpErrorMapper.cs` | 正常応答 JSON のシリアライズ、`Result` / `Result<T>` 失敗および例外の統一エラーコード変換・機密詳細の非露出とログ記録を担当。 |
+| `SystemTools` / `SystemDtos` | `Tools/SystemTools.cs`, `Dtos/SystemDtos.cs` | Phase 1 の疎通確認用リファレンス実装（`ping`, `get_server_info`）および応答 DTO。 |
 | `IPlaybackControlGateway` | `Gateways/IPlaybackControlGateway.cs` | 再生制御の抽象化ゲートウェイ（Phase 2 で Named Pipe IPC 実装を接続）。 |
 
 ### 3.3 CLI オプション・設定モデル（将来互換インターフェース）
@@ -452,4 +453,4 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - [インフラストラクチャ層詳細設計書](アーキテクチャ/インフラストラクチャ層詳細設計書.md)
   - [プレゼンテーション層詳細設計書](アーキテクチャ/プレゼンテーション層詳細設計書.md)
   - [テスト方針書](テスト仕様/テスト方針書.md)
-- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306)
+- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311)
