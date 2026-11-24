@@ -1,13 +1,17 @@
+using System.Buffers.Binary;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.ValueObjects;
+using AudioEffector.Infrastructure.Library;
 using AudioEffector.Infrastructure.Repository;
 using AudioEffector.McpServer.Protocol;
 using AudioEffector.McpServer.Tools;
+using AudioEffector.Presentation.ViewModels;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using Moq;
@@ -448,6 +452,213 @@ public sealed class LibraryToolsTests
                 Directory.Delete(tempDir, recursive: true);
             }
         }
+    }
+
+    /// <summary>
+    /// 空の一時データディレクトリとタグ付き MP4 を用い、WPF の通常読み込み経路（LibraryViewModel.LoadLibraryAsync）から別インスタンス MCP の search_tracks まで、追加・タグ更新（ID 維持）・削除・フォルダ切替が一貫して同期されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchTracksAsync_WPF通常読み込み経路でタグ付きMP4をスキャン後_別インスタンスMCPからアーティスト名と曲名で検索でき更新削除フォルダ切替とID維持も同期される()
+    {
+        // Arrange
+        string rootDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorWpfToMcpMp4_{Guid.NewGuid():N}");
+        string dataDir = Path.Combine(rootDir, "data");
+        string musicDirA = Path.Combine(rootDir, "musicA");
+        string musicDirB = Path.Combine(rootDir, "musicB");
+        Directory.CreateDirectory(dataDir);
+        Directory.CreateDirectory(musicDirA);
+        Directory.CreateDirectory(musicDirB);
+
+        try
+        {
+            string tracksPath = Path.Combine(dataDir, "tracks.json");
+            string favoritesPath = Path.Combine(dataDir, "favorites.json");
+            string mp4PathA = Path.Combine(musicDirA, "starlight.mp4");
+            string mp4PathB = Path.Combine(musicDirB, "horizon.mp4");
+
+            CreateTaggedMp4File(mp4PathA, title: "Starlight MP4", artist: "Luna Quartet", album: "Night Sky");
+            CreateTaggedMp4File(mp4PathB, title: "Horizon Line", artist: "Solar Ensemble", album: "Dawn");
+
+            // WPF 側の通常読み込み経路
+            using var wpfTrackRepo = new JsonTrackRepository(tracksPath);
+            using var wpfFavRepo = new JsonFavoriteRepository(favoritesPath);
+            var wpfLibraryService = new LibraryApplicationService(
+                wpfTrackRepo,
+                wpfFavRepo,
+                new TagLibMetadataExtractor(),
+                new InMemoryEventBus());
+            var settingsMock = new Mock<ISettingsService>();
+            settingsMock.Setup(s => s.LoadSettings()).Returns(new AppSettings { DetectMetadataChangesOnRescan = true });
+            using var wpfViewModel = new LibraryViewModel(
+                wpfLibraryService,
+                new Mock<IAudioService>().Object,
+                settingsMock.Object);
+
+            // 別インスタンスの MCP 側
+            using var mcpTrackRepo = new JsonTrackRepository(tracksPath);
+            using var mcpFavRepo = new JsonFavoriteRepository(favoritesPath);
+            var mcpLibraryService = new LibraryApplicationService(
+                mcpTrackRepo,
+                mcpFavRepo,
+                new TagLibMetadataExtractor(),
+                new InMemoryEventBus());
+            var sut = new LibraryTools(mcpLibraryService, new Mock<ILogger<LibraryTools>>().Object);
+
+            // Act 1: WPF の通常読み込みで MP4 をスキャン
+            await wpfViewModel.LoadLibraryAsync(musicDirA);
+            Track wpfTrack = Assert.Single(wpfViewModel.Tracks);
+
+            // Assert 1: 別インスタンス MCP からアーティスト名・曲名それぞれで同一トラックが取得できる
+            CallToolResult byArtist = await sut.SearchTracksAsync(keyword: "Luna Quartet");
+            CallToolResult byTitle = await sut.SearchTracksAsync(keyword: "Starlight MP4");
+
+            Guid initialId;
+            using (JsonDocument artistDoc = JsonDocument.Parse(GetSingleText(byArtist)))
+            {
+                JsonElement trackJson = Assert.Single(artistDoc.RootElement.GetProperty("data").GetProperty("tracks").EnumerateArray());
+                initialId = trackJson.GetProperty("id").GetGuid();
+                Assert.Equal(wpfTrack.Id.Value, initialId);
+                Assert.Equal("Starlight MP4", trackJson.GetProperty("title").GetString());
+                Assert.Equal("Luna Quartet", trackJson.GetProperty("artist").GetString());
+                Assert.Equal("MP4", trackJson.GetProperty("format").GetString());
+            }
+
+            using (JsonDocument titleDoc = JsonDocument.Parse(GetSingleText(byTitle)))
+            {
+                JsonElement trackJson = Assert.Single(titleDoc.RootElement.GetProperty("data").GetProperty("tracks").EnumerateArray());
+                Assert.Equal(initialId, trackJson.GetProperty("id").GetGuid());
+            }
+
+            // Act 2: タグ更新後に再スキャン（既存 TrackId を維持して更新されること）
+            CreateTaggedMp4File(mp4PathA, title: "Starlight Remastered", artist: "Luna Quartet", album: "Night Sky");
+            File.SetLastWriteTimeUtc(mp4PathA, DateTime.UtcNow.AddSeconds(10));
+            await wpfViewModel.LoadLibraryAsync(musicDirA);
+
+            CallToolResult afterUpdate = await sut.SearchTracksAsync(keyword: "Starlight Remastered");
+            using (JsonDocument updatedDoc = JsonDocument.Parse(GetSingleText(afterUpdate)))
+            {
+                JsonElement trackJson = Assert.Single(updatedDoc.RootElement.GetProperty("data").GetProperty("tracks").EnumerateArray());
+                Assert.Equal(initialId, trackJson.GetProperty("id").GetGuid());
+                Assert.Equal("Starlight Remastered", trackJson.GetProperty("title").GetString());
+            }
+
+            // Act 3: フォルダ切替（musicDirB へ切替後、旧フォルダの曲が消え新フォルダの曲だけ検索できること）
+            await wpfViewModel.LoadLibraryAsync(musicDirB);
+
+            CallToolResult oldFolderSearch = await sut.SearchTracksAsync(keyword: "Luna Quartet");
+            CallToolResult newFolderSearch = await sut.SearchTracksAsync(keyword: "Solar Ensemble");
+            using (JsonDocument oldDoc = JsonDocument.Parse(GetSingleText(oldFolderSearch)))
+            {
+                Assert.Equal(0, oldDoc.RootElement.GetProperty("data").GetProperty("totalCount").GetInt32());
+            }
+
+            Guid folderBTrackId;
+            using (JsonDocument newDoc = JsonDocument.Parse(GetSingleText(newFolderSearch)))
+            {
+                JsonElement trackJson = Assert.Single(newDoc.RootElement.GetProperty("data").GetProperty("tracks").EnumerateArray());
+                folderBTrackId = trackJson.GetProperty("id").GetGuid();
+                Assert.Equal("Horizon Line", trackJson.GetProperty("title").GetString());
+            }
+
+            // Act 4: アプリ再起動相当（新しい LibraryViewModel で同フォルダ再読み込み）でも既存 TrackId を維持すること
+            using var restartedWpfViewModel = new LibraryViewModel(
+                wpfLibraryService,
+                new Mock<IAudioService>().Object,
+                settingsMock.Object);
+            await restartedWpfViewModel.LoadLibraryAsync(musicDirB);
+            Track restartedTrack = Assert.Single(restartedWpfViewModel.Tracks);
+            Assert.Equal(folderBTrackId, restartedTrack.Id.Value);
+
+            // Act 5: ファイル削除後に再スキャン（MCP 検索結果が 0 件になること）
+            File.Delete(mp4PathB);
+            await restartedWpfViewModel.LoadLibraryAsync(musicDirB);
+
+            CallToolResult afterDelete = await sut.SearchTracksAsync();
+            using (JsonDocument deleteDoc = JsonDocument.Parse(GetSingleText(afterDelete)))
+            {
+                Assert.Equal(0, deleteDoc.RootElement.GetProperty("data").GetProperty("totalCount").GetInt32());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(rootDir))
+            {
+                Directory.Delete(rootDir, recursive: true);
+            }
+        }
+    }
+
+    private static void CreateTaggedMp4File(string filePath, string title, string artist, string album)
+    {
+        byte[] ftyp = CreateIsoBox("ftyp", [
+            (byte)'M', (byte)'4', (byte)'A', (byte)' ',
+            0, 0, 0, 0,
+            (byte)'M', (byte)'4', (byte)'A', (byte)' ',
+            (byte)'i', (byte)'s', (byte)'o', (byte)'m',
+        ]);
+
+        // mvhd (version 0, 100 bytes payload)
+        byte[] mvhdPayload = new byte[100];
+        BinaryPrimitives.WriteUInt32BigEndian(mvhdPayload.AsSpan(12, 4), 1000); // timescale
+        BinaryPrimitives.WriteUInt32BigEndian(mvhdPayload.AsSpan(16, 4), 180000); // duration (180s)
+        mvhdPayload[20] = 0x00;
+        mvhdPayload[21] = 0x01; // rate 1.0
+        mvhdPayload[24] = 0x01; // volume 1.0
+        BinaryPrimitives.WriteUInt32BigEndian(mvhdPayload.AsSpan(36, 4), 0x00010000);
+        BinaryPrimitives.WriteUInt32BigEndian(mvhdPayload.AsSpan(52, 4), 0x00010000);
+        BinaryPrimitives.WriteUInt32BigEndian(mvhdPayload.AsSpan(68, 4), 0x40000000);
+        BinaryPrimitives.WriteUInt32BigEndian(mvhdPayload.AsSpan(96, 4), 2); // next_track_id
+        byte[] mvhd = CreateIsoBox("mvhd", mvhdPayload);
+
+        byte[] hdlrPayload = new byte[25];
+        Encoding.ASCII.GetBytes("mdir").CopyTo(hdlrPayload, 8);
+        Encoding.ASCII.GetBytes("appl").CopyTo(hdlrPayload, 12);
+        byte[] hdlr = CreateIsoBox("hdlr", hdlrPayload);
+
+        byte[] ilst = CreateIsoBox("ilst", ConcatBytes(
+            CreateMp4TextAtom("\u00A9nam", title),
+            CreateMp4TextAtom("\u00A9ART", artist),
+            CreateMp4TextAtom("\u00A9alb", album)));
+
+        byte[] metaPayload = ConcatBytes([0, 0, 0, 0], hdlr, ilst);
+        byte[] meta = CreateIsoBox("meta", metaPayload);
+        byte[] udta = CreateIsoBox("udta", meta);
+        byte[] moov = CreateIsoBox("moov", ConcatBytes(mvhd, udta));
+
+        File.WriteAllBytes(filePath, ConcatBytes(ftyp, moov));
+    }
+
+    private static byte[] CreateMp4TextAtom(string atomType, string value)
+    {
+        byte[] utf8 = Encoding.UTF8.GetBytes(value);
+        byte[] dataPayload = new byte[8 + utf8.Length];
+        dataPayload[3] = 1; // UTF-8 text type
+        utf8.CopyTo(dataPayload, 8);
+        byte[] dataBox = CreateIsoBox("data", dataPayload);
+        return CreateIsoBox(atomType, dataBox);
+    }
+
+    private static byte[] CreateIsoBox(string type, byte[] payload)
+    {
+        byte[] result = new byte[8 + payload.Length];
+        BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(0, 4), (uint)result.Length);
+        Encoding.Latin1.GetBytes(type).CopyTo(result, 4);
+        payload.CopyTo(result, 8);
+        return result;
+    }
+
+    private static byte[] ConcatBytes(params byte[][] arrays)
+    {
+        int totalLength = arrays.Sum(a => a.Length);
+        byte[] result = new byte[totalLength];
+        int offset = 0;
+        foreach (byte[] arr in arrays)
+        {
+            arr.CopyTo(result, offset);
+            offset += arr.Length;
+        }
+
+        return result;
     }
 
     private static LibraryTools CreateSut(
