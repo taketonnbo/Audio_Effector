@@ -142,7 +142,7 @@ public sealed class McpServerOptions
                         return false;
                     }
 
-                    if (i + 1 >= args.Length)
+                    if (i + 1 >= args.Length || IsKnownOptionToken(args[i + 1]))
                     {
                         errorMessage = $"オプション '{key}' に値が指定されていません。";
                         return false;
@@ -238,5 +238,17 @@ public sealed class McpServerOptions
     private static bool IsKnownOption(string key)
     {
         return key.ToLowerInvariant() is "--transport" or "--host" or "--port" or "--data-dir" or "--log-level";
+    }
+
+    private static bool IsKnownOptionToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return false;
+        }
+
+        int equalsIndex = token.IndexOf('=', StringComparison.Ordinal);
+        string candidateKey = equalsIndex >= 0 ? token[..equalsIndex] : token;
+        return IsKnownOption(candidateKey);
     }
 }
