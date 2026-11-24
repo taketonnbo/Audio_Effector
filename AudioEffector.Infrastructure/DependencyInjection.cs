@@ -19,9 +19,14 @@ public static class DependencyInjection
     /// インフラストラクチャ層の各サービスおよびリポジトリをDIコンテナに登録します
     /// </summary>
     /// <param name="services">登録対象のサービスコレクション</param>
+    /// <param name="dataDirectory">永続化JSONファイルを格納するデータディレクトリ（未指定時は既定の %APPDATA%\AudioEffector）</param>
     /// <returns>サービス登録後のサービスコレクション</returns>
-    public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
+    public static IServiceCollection AddInfrastructureServices(this IServiceCollection services, string? dataDirectory = null)
     {
+        // データディレクトリ解決およびプロセス間ファイルロック基盤
+        services.AddSingleton<IDataDirectoryProvider>(new DataDirectoryProvider(dataDirectory));
+        services.TryAddSingleton<IJsonFileLockHelper>(JsonFileLockHelper.Default);
+
         // 音声再生エンジン（リソース管理・排他制御のためSingleton）
         services.TryAddSingleton<IUiDispatcher, ImmediateUiDispatcher>();
         services.AddSingleton<IAudioEngine, NAudioPlaybackEngine>();
@@ -33,11 +38,21 @@ public static class DependencyInjection
         services.AddSingleton<AlbumArtLoader>();
 
         // リポジトリ（ファイル競合防止・メモリキャッシュ保持のためSingleton）
-        services.AddSingleton<ITrackRepository, JsonTrackRepository>();
-        services.AddSingleton<IPlaylistRepository, JsonPlaylistRepository>();
-        services.AddSingleton<IFavoriteRepository, JsonFavoriteRepository>();
-        services.AddSingleton<ISettingsRepository, JsonSettingsRepository>();
-        services.AddSingleton<IRecentTrackRepository, JsonRecentTrackRepository>();
+        services.AddSingleton<ITrackRepository>(sp => new JsonTrackRepository(
+            sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("tracks.json"),
+            sp.GetRequiredService<IJsonFileLockHelper>()));
+        services.AddSingleton<IPlaylistRepository>(sp => new JsonPlaylistRepository(
+            sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("playlists.json"),
+            sp.GetRequiredService<IJsonFileLockHelper>()));
+        services.AddSingleton<IFavoriteRepository>(sp => new JsonFavoriteRepository(
+            sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("favorites.json"),
+            sp.GetRequiredService<IJsonFileLockHelper>()));
+        services.AddSingleton<ISettingsRepository>(sp => new JsonSettingsRepository(
+            sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("settings.json"),
+            sp.GetRequiredService<IJsonFileLockHelper>()));
+        services.AddSingleton<IRecentTrackRepository>(sp => new JsonRecentTrackRepository(
+            sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("RecentTracks.json"),
+            sp.GetRequiredService<IJsonFileLockHelper>()));
 
         // データ転送アダプター
         services.AddSingleton<IDataTransferRepository, MtpDataTransferAdapter>();
