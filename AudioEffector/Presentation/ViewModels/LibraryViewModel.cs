@@ -24,6 +24,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     private readonly IAudioService _audioService;
     private readonly ISettingsService _settingsService;
     private readonly Func<string, Track> _trackMetadataLoader;
+    private readonly Func<string, IEnumerable<string>> _fileEnumerator;
     private readonly object _favoritesLock = new();
     private readonly List<FavoriteTrackEntry> _favoriteEntries = new();
     private readonly Dictionary<string, DateTime> _trackLastWriteTimes = new(StringComparer.OrdinalIgnoreCase);
@@ -294,24 +295,27 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// カスタムメタデータローダーを指定してLibraryViewModelを初期化します（主に単体テスト用）
+    /// カスタムメタデータローダーやファイル列挙デリゲートを指定してLibraryViewModelを初期化します（主に単体テスト用）
     /// </summary>
     /// <param name="libraryService">ライブラリアプリケーションサービス</param>
     /// <param name="audioService">再生制御サービス</param>
     /// <param name="settingsService">設定サービス</param>
     /// <param name="playlistViewModel">プレイリスト専用ViewModel</param>
     /// <param name="trackMetadataLoader">ファイルパスからTrackを生成するメタデータローダー（省略時はTagLibを使用）</param>
+    /// <param name="fileEnumerator">フォルダー配下のファイルパスを列挙するデリゲート（省略時は <see cref="Directory.GetFiles(string, string, SearchOption)"/> を使用）</param>
     public LibraryViewModel(
         LibraryApplicationService libraryService,
         IAudioService audioService,
         ISettingsService settingsService,
         PlaylistViewModel? playlistViewModel,
-        Func<string, Track>? trackMetadataLoader)
+        Func<string, Track>? trackMetadataLoader,
+        Func<string, IEnumerable<string>>? fileEnumerator = null)
     {
         _libraryService = libraryService ?? throw new ArgumentNullException(nameof(libraryService));
         _audioService = audioService ?? throw new ArgumentNullException(nameof(audioService));
         _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
         _trackMetadataLoader = trackMetadataLoader ?? ExtractTrackFromFile;
+        _fileEnumerator = fileEnumerator ?? (folder => Directory.GetFiles(folder, "*.*", SearchOption.AllDirectories));
         Playlist = playlistViewModel;
         _currentLibraryPath = _settingsService.LoadSettings()?.LastLibraryPath;
 
@@ -471,13 +475,19 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 List<string> files;
                 try
                 {
-                    files = Directory.GetFiles(rootFolder, "*.*", SearchOption.AllDirectories)
+                    files = _fileEnumerator(rootFolder)
                         .Where(f => LibraryApplicationService.SupportedAudioExtensions.Contains(Path.GetExtension(f)))
                         .ToList();
                 }
-                catch
+                catch (OperationCanceledException)
                 {
-                    files = new List<string>();
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // フォルダー列挙に失敗した場合は全曲削除・永続データ上書きを防ぐため、UI差分適用および永続化同期を中止する
+                    System.Diagnostics.Trace.TraceWarning(ex.Message);
+                    return;
                 }
 
                 if (token.IsCancellationRequested) return;
