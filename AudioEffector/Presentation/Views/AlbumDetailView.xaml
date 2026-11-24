@@ -1,0 +1,748 @@
+<UserControl x:Class="AudioEffector.Presentation.Views.AlbumDetailView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:vm="clr-namespace:AudioEffector.Presentation.ViewModels"
+             mc:Ignorable="d"
+             d:DesignHeight="640" d:DesignWidth="960"
+             d:DataContext="{d:DesignInstance vm:AlbumDetailViewModel}">
+    <UserControl.Resources>
+        <!-- SubtleButton Style (Back Navigation) -->
+        <Style x:Key="AlbumDetailSubtleButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextForegroundBrush}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="RootBorder"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RootBorder" Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="RootBorder" Property="Opacity" Value="0.8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="RootBorder" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- PrimaryButton Style (Play All) -->
+        <Style x:Key="AlbumDetailPrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource NeonCyanBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource InverseTextForegroundBrush}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="RootBorder"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RootBorder" Property="Background" Value="{DynamicResource DarkNeonCyanBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="RootBorder" Property="Opacity" Value="0.82"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="RootBorder" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- SecondaryButton Style (Quick Actions) -->
+        <Style x:Key="AlbumDetailSecondaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource ControlBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="RootBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RootBorder" Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="RootBorder" Property="Opacity" Value="0.82"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="RootBorder" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Track Row Icon Button Style -->
+        <Style x:Key="TrackRowIconButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="IconButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="IconButtonBorder" Property="Background" Value="{DynamicResource ControlBackgroundBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="IconButtonBorder" Property="Opacity" Value="0.75"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="IconButtonBorder" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Column Header Text Style -->
+        <Style x:Key="ColumnHeaderTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextForegroundBrush}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Regular"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Background="{DynamicResource WindowBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Row 0: 上部ナビゲーションバー -->
+            <RowDefinition Height="Auto"/> <!-- Row 1: Hero セクション -->
+            <RowDefinition Height="*"/>    <!-- Row 2: 収録曲リスト領域 -->
+        </Grid.RowDefinitions>
+
+        <!-- Row 0: 上部ナビゲーションバー -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource PanelBackgroundBrush}"
+                Padding="16,12,16,8">
+            <Button x:Name="BackToAlbumsButton"
+                    Content="← アルバム一覧に戻る"
+                    Style="{StaticResource AlbumDetailSubtleButtonStyle}"
+                    Command="{Binding BackToAlbumsCommand}"
+                    HorizontalAlignment="Left"/>
+        </Border>
+
+        <!-- Row 1: Hero セクション -->
+        <Border Grid.Row="1"
+                Background="{DynamicResource PanelBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="16,8,16,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- 左列: 大判高精細アルバムアート (200x200px) -->
+                <Border x:Name="AlbumArtBorder"
+                        Grid.Column="0"
+                        Width="200"
+                        Height="200"
+                        CornerRadius="8"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        Background="{DynamicResource ControlBackgroundBrush}"
+                        ClipToBounds="True"
+                        VerticalAlignment="Top"
+                        Margin="0,0,24,0">
+                    <Grid ClipToBounds="True">
+                        <Grid.Clip>
+                            <RectangleGeometry Rect="0,0,198,198" RadiusX="7" RadiusY="7"/>
+                        </Grid.Clip>
+                        <!-- フォールバック画像 (CoverImage が null の場合のみ表示) -->
+                        <Image x:Name="FallbackCoverImage"
+                               Source="pack://application:,,,/AudioEffector;component/Assets/Images/default_now_playing_bg.png"
+                               Stretch="UniformToFill"
+                               RenderOptions.BitmapScalingMode="HighQuality">
+                            <Image.Style>
+                                <Style TargetType="Image">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding CoverImage}" Value="{x:Null}">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Image.Style>
+                        </Image>
+                        <!-- 高解像度カバーアート画像 -->
+                        <Image x:Name="AlbumCoverImage"
+                               Source="{Binding CoverImage}"
+                               Stretch="UniformToFill"
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               Visibility="{Binding CoverImage, Converter={StaticResource NullToVis}}"/>
+                    </Grid>
+                </Border>
+
+                <!-- 右列: メタデータ + クイックアクションボタン群 -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <!-- アルバムタイトル -->
+                    <TextBlock x:Name="AlbumTitleText"
+                               Text="{Binding AlbumTitle}"
+                               ToolTip="{Binding AlbumTitle}"
+                               Foreground="{DynamicResource TextForegroundBrush}"
+                               FontSize="20"
+                               FontWeight="Bold"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,0,0,4"/>
+
+                    <!-- アーティスト名 -->
+                    <TextBlock x:Name="AlbumArtistText"
+                               Text="{Binding Artist}"
+                               ToolTip="{Binding Artist}"
+                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,0,0,8"/>
+
+                    <!-- メタデータ行（リリース年・ジャンル・曲数・総再生時間） -->
+                    <TextBlock x:Name="MetadataSummaryText"
+                               Text="{Binding MetadataSummary}"
+                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                               FontSize="13"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,0,0,8"/>
+
+                    <!-- 音質・フォーマットバッジ -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <Border x:Name="HeroFormatBadge"
+                                Background="{DynamicResource ControlBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="8,2"
+                                Margin="0,0,4,0">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding AudioFormatSummary}" Value="">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock x:Name="HeroFormatText"
+                                       Text="{Binding AudioFormatSummary}"
+                                       Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                       FontSize="9"
+                                       FontWeight="Bold"/>
+                        </Border>
+
+                        <Border x:Name="HeroQualityBadge"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="8,2">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                    <Setter Property="Background" Value="{DynamicResource ControlBackgroundBrush}"/>
+                                    <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding QualityLabel}" Value="">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsHiRes}" Value="True">
+                                            <Setter Property="BorderBrush" Value="{DynamicResource NeonCyanBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock x:Name="HeroQualityText"
+                                       Text="{Binding QualityLabel}"
+                                       FontSize="9"
+                                       FontWeight="Bold">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource SecondaryTextForegroundBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsHiRes}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- クイックアクションボタン群 -->
+                    <WrapPanel Orientation="Horizontal">
+                        <Button x:Name="PlayAllButton"
+                                Content="▶ 全曲再生"
+                                Style="{StaticResource AlbumDetailPrimaryButtonStyle}"
+                                Command="{Binding PlayAllCommand}"
+                                Margin="0,0,8,8"/>
+                        <Button x:Name="ShufflePlayButton"
+                                Content="🔀 シャッフル"
+                                Style="{StaticResource AlbumDetailSecondaryButtonStyle}"
+                                Command="{Binding ShufflePlayCommand}"
+                                Margin="0,0,8,8"/>
+                        <Button x:Name="PlayNextAlbumButton"
+                                Content="⏭ 次に再生"
+                                Style="{StaticResource AlbumDetailSecondaryButtonStyle}"
+                                Command="{Binding PlayNextAlbumCommand}"
+                                Margin="0,0,8,8"/>
+                        <Button x:Name="EnqueueAlbumButton"
+                                Content="＋ 最後に再生"
+                                Style="{StaticResource AlbumDetailSecondaryButtonStyle}"
+                                Command="{Binding EnqueueAlbumCommand}"
+                                Margin="0,0,8,8"/>
+                        <Button x:Name="AddAlbumToPlaylistButton"
+                                Content="＋ プレイリストに追加"
+                                Style="{StaticResource AlbumDetailSecondaryButtonStyle}"
+                                Command="{Binding Playlist.ShowAddAlbumToPlaylistDialogCommand, FallbackValue={x:Null}}"
+                                CommandParameter="{Binding CurrentAlbum}"
+                                IsEnabled="{Binding HasTracks}"
+                                Margin="0,0,8,8"/>
+                        <Button x:Name="DeleteAlbumButton"
+                                Content="🗑 削除"
+                                Style="{StaticResource AlbumDetailSecondaryButtonStyle}"
+                                Command="{Binding DeleteAlbumCommand}"
+                                Margin="0,0,0,8"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Row 2: 収録曲リスト領域 -->
+        <Grid Grid.Row="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> <!-- 固定列ヘッダー行 -->
+                <RowDefinition Height="*"/>    <!-- 仮想化収録曲 ListBox -->
+            </Grid.RowDefinitions>
+
+            <!-- 固定列ヘッダー行 -->
+            <Border Grid.Row="0"
+                    Background="{DynamicResource PanelBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="0,0,0,1"
+                    Height="32"
+                    Padding="0">
+                <Grid x:Name="ColumnHeaderGrid">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="4"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="36"/>
+                        <ColumnDefinition Width="32"/>
+                        <ColumnDefinition Width="2*"/>
+                        <ColumnDefinition Width="1.2*"/>
+                        <ColumnDefinition Width="130"/>
+                        <ColumnDefinition Width="64"/>
+                        <ColumnDefinition Width="36"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 転送選択モード時のチェックボックス列スペーサー -->
+                    <Border Grid.Column="1"
+                            Width="28"
+                            Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}"/>
+
+                    <TextBlock Grid.Column="2" Text="#" Style="{StaticResource ColumnHeaderTextStyle}" HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="3" Text="★" Style="{StaticResource ColumnHeaderTextStyle}" HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="4" Text="タイトル" Style="{StaticResource ColumnHeaderTextStyle}" Margin="8,0,4,0"/>
+                    <TextBlock Grid.Column="5" Text="アーティスト" Style="{StaticResource ColumnHeaderTextStyle}" Margin="4,0"/>
+                    <TextBlock Grid.Column="6" Text="形式" Style="{StaticResource ColumnHeaderTextStyle}" HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Column="7" Text="時間" Style="{StaticResource ColumnHeaderTextStyle}" HorizontalAlignment="Right" Margin="4,0,8,0"/>
+                    <TextBlock Grid.Column="8" Text="操作" Style="{StaticResource ColumnHeaderTextStyle}" HorizontalAlignment="Center"/>
+                </Grid>
+            </Border>
+
+            <!-- 仮想化収録曲 ListBox (親 ScrollViewer 禁止・UI 仮想化 4 属性必須) -->
+            <ListBox x:Name="TracksListBox"
+                     Grid.Row="1"
+                     ItemsSource="{Binding Tracks}"
+                     AlternationCount="2"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Padding="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.CanContentScroll="True"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling"
+                     VirtualizingPanel.ScrollUnit="Pixel">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="TrackRowBorder"
+                                            MinHeight="40"
+                                            Background="Transparent"
+                                            Cursor="Hand"
+                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            MouseLeftButtonDown="TrackRow_MouseLeftButtonDown"
+                                            MouseLeftButtonUp="TrackRow_MouseLeftButtonUp"
+                                            MouseLeave="TrackRow_MouseLeave">
+                                        <Border.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Command="{Binding PlacementTarget.Tag.TogglePlayTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                          CommandParameter="{Binding}">
+                                                    <MenuItem.Style>
+                                                        <Style TargetType="MenuItem">
+                                                            <Setter Property="Header" Value="再生"/>
+                                                            <Style.Triggers>
+                                                                <MultiDataTrigger>
+                                                                    <MultiDataTrigger.Conditions>
+                                                                        <Condition Binding="{Binding IsPlaying}" Value="True"/>
+                                                                        <Condition Binding="{Binding PlacementTarget.Tag.IsPlaying, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue=False}" Value="True"/>
+                                                                    </MultiDataTrigger.Conditions>
+                                                                    <Setter Property="Header" Value="停止"/>
+                                                                </MultiDataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </MenuItem.Style>
+                                                </MenuItem>
+                                                <MenuItem Header="次に再生"
+                                                          Command="{Binding PlacementTarget.Tag.PlayNextTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                          CommandParameter="{Binding}"/>
+                                                <MenuItem Header="最後に再生"
+                                                          Command="{Binding PlacementTarget.Tag.EnqueueTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                          CommandParameter="{Binding}"/>
+                                                <Separator/>
+                                                <MenuItem Command="{Binding PlacementTarget.Tag.ToggleFavoriteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                          CommandParameter="{Binding}">
+                                                    <MenuItem.Style>
+                                                        <Style TargetType="MenuItem">
+                                                            <Setter Property="Header" Value="お気に入りに追加"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                    <Setter Property="Header" Value="お気に入りから解除"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </MenuItem.Style>
+                                                </MenuItem>
+                                                <MenuItem Header="プレイリストに追加..."
+                                                          Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                          CommandParameter="{Binding}"/>
+                                                <Separator/>
+                                                <MenuItem Header="プロパティ"
+                                                          Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                          CommandParameter="{Binding}"/>
+                                                <MenuItem Header="ファイルの場所を開く"
+                                                          Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                          CommandParameter="{Binding}"/>
+                                                <Separator/>
+                                                <MenuItem Header="削除"
+                                                          Command="{Binding PlacementTarget.Tag.DeleteTrackCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                          CommandParameter="{Binding}"/>
+                                            </ContextMenu>
+                                        </Border.ContextMenu>
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                                            <Setter TargetName="TrackRowBorder" Property="Background" Value="{DynamicResource ZebraOddBackgroundBrush}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="TrackRowBorder" Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="TrackRowBorder" Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid MinHeight="40">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="4"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="36"/>
+                                <ColumnDefinition Width="32"/>
+                                <ColumnDefinition Width="2*"/>
+                                <ColumnDefinition Width="1.2*"/>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="64"/>
+                                <ColumnDefinition Width="36"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 左端 3px 再生中 / 選択中ネオンシアンアクセントバー -->
+                            <Border x:Name="AccentBar"
+                                    Grid.Column="0"
+                                    Width="3"
+                                    HorizontalAlignment="Left"
+                                    Background="{DynamicResource NeonCyanBrush}">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Opacity" Value="0"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                <Setter Property="Opacity" Value="1"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                <Setter Property="Opacity" Value="1"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                            </Border>
+
+                            <!-- 機器転送選択 CheckBox -->
+                            <CheckBox x:Name="TransferSelectCheckBox"
+                                      Grid.Column="1"
+                                      Width="28"
+                                      IsChecked="{Binding IsSelected}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      Visibility="{Binding DataContext.IsSelectionMode, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}"
+                                      IsEnabled="{Binding DataContext.DeviceBrowser.IsTransferring, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InvertBool}, FallbackValue=True}">
+                                <CheckBox.Style>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="Opacity" Value="1"/>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter Property="Opacity" Value="0.4"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </CheckBox.Style>
+                            </CheckBox>
+
+                            <!-- トラック番号 / 再生中インジケーター -->
+                            <TextBlock x:Name="TrackNumberText"
+                                       Grid.Column="2"
+                                       FontFamily="Consolas"
+                                       FontSize="12"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="{Binding TrackNumber}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource MutedTextForegroundBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding TrackNumber}" Value="0">
+                                                <Setter Property="Text" Value="-"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                <Setter Property="Text" Value="▶"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <!-- お気に入りトグルボタン -->
+                            <Button x:Name="FavoriteToggleButton"
+                                    Grid.Column="3"
+                                    Command="{Binding DataContext.ToggleFavoriteTrackCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    Style="{StaticResource TrackRowIconButtonStyle}"
+                                    Width="28" Height="28"
+                                    ToolTip="お気に入り切り替え">
+                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="☆"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource MutedTextForegroundBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                    <Setter Property="Text" Value="★"/>
+                                                    <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Button>
+
+                            <!-- 曲名 -->
+                            <TextBlock x:Name="TrackTitleText"
+                                       Grid.Column="4"
+                                       Text="{Binding Title}"
+                                       ToolTip="{Binding Title}"
+                                       FontSize="13"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,4,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                        <Setter Property="FontWeight" Value="Normal"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <!-- アーティスト -->
+                            <TextBlock x:Name="TrackArtistText"
+                                       Grid.Column="5"
+                                       Text="{Binding Artist}"
+                                       ToolTip="{Binding Artist}"
+                                       Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                       FontSize="13"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"
+                                       Margin="4,0"/>
+
+                            <!-- 形式 / 音質バッジ -->
+                            <StackPanel x:Name="TrackQualityPanel"
+                                        Grid.Column="6"
+                                        Orientation="Horizontal"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        ToolTip="{Binding QualityInfo}">
+                                <Border x:Name="TrackFormatBadge"
+                                        Background="{DynamicResource ControlBackgroundBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="6,2"
+                                        VerticalAlignment="Center">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Format}" Value="">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock x:Name="TrackFormatText"
+                                               Text="{Binding Format}"
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                               FontSize="9"
+                                               FontWeight="Bold"/>
+                                </Border>
+                                <Border x:Name="TrackQualityBadge"
+                                        CornerRadius="4"
+                                        BorderThickness="1"
+                                        Padding="6,2"
+                                        Margin="4,0,0,0"
+                                        VerticalAlignment="Center">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Setter Property="Background" Value="{DynamicResource ControlBackgroundBrush}"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding QualityLabel}" Value="">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsHiRes}" Value="True">
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource NeonCyanBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock x:Name="TrackQualityText"
+                                               Text="{Binding QualityLabel}"
+                                               FontSize="9"
+                                               FontWeight="Bold">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextForegroundBrush}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsHiRes}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- 再生時間 -->
+                            <TextBlock x:Name="TrackDurationText"
+                                       Grid.Column="7"
+                                       Text="{Binding DurationString}"
+                                       Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                       FontFamily="Consolas"
+                                       FontSize="12"
+                                       HorizontalAlignment="Right"
+                                       VerticalAlignment="Center"
+                                       Margin="4,0,8,0"/>
+
+                            <!-- プレイリスト追加ボタン -->
+                            <Button x:Name="AddToPlaylistButton"
+                                    Grid.Column="8"
+                                    Content="+"
+                                    ToolTip="プレイリストに追加"
+                                    Command="{Binding DataContext.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=UserControl}, FallbackValue={x:Null}}"
+                                    CommandParameter="{Binding}"
+                                    Style="{StaticResource TrackRowIconButtonStyle}"
+                                    Width="28" Height="28"
+                                    FontSize="14" FontWeight="Bold"
+                                    Foreground="{DynamicResource NeonCyanBrush}"/>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+    </Grid>
+</UserControl>

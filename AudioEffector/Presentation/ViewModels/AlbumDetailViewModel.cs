@@ -210,6 +210,9 @@ public sealed class AlbumDetailViewModel : ViewModelBase, IDisposable
     /// <summary>個別トラック再生コマンド</summary>
     public ICommand PlayTrackCommand { get; }
 
+    /// <summary>個別トラックの再生/停止トグルコマンド（コンテキストメニュー用）</summary>
+    public ICommand TogglePlayTrackCommand { get; }
+
     /// <summary>個別トラックを次に再生コマンド</summary>
     public ICommand PlayNextTrackCommand { get; }
 
@@ -285,6 +288,13 @@ public sealed class AlbumDetailViewModel : ViewModelBase, IDisposable
             if (param is Track track)
             {
                 PlayTrack(track);
+            }
+        });
+        TogglePlayTrackCommand = new RelayCommand(param =>
+        {
+            if (param is Track track)
+            {
+                TogglePlayTrack(track);
             }
         });
         PlayNextTrackCommand = new RelayCommand(param =>
@@ -623,6 +633,17 @@ public sealed class AlbumDetailViewModel : ViewModelBase, IDisposable
         {
             _libraryViewModel.DeleteAlbumCommand.Execute(_currentAlbum);
         }
+    }
+
+    private void TogglePlayTrack(Track track)
+    {
+        if (track.IsPlaying && _audioService.IsPlaying)
+        {
+            _audioService.TogglePlayPause();
+            return;
+        }
+
+        PlayTrack(track);
     }
 
     private void PlayTrack(Track track)

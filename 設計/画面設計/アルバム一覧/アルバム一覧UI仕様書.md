@@ -103,4 +103,4 @@
 - [デザイントークン](../../デザインシステム/01_デザイントークン仕様書.md)・[共通コントロール](../../デザインシステム/02_共通コントロールスタイル仕様書.md)
 - [コードビハインド](../../../AudioEffector/Presentation/Views/LibraryView.xaml.cs)
 - [LibraryViewModel](../../../AudioEffector/Presentation/ViewModels/LibraryViewModel.cs)
-- 関連Issue（設計経緯）: [#166](https://github.com/taketonnbo/Audio_Effector/issues/166)、[#167](https://github.com/taketonnbo/Audio_Effector/issues/167)、[#168](https://github.com/taketonnbo/Audio_Effector/issues/168)、[#264](https://github.com/taketonnbo/Audio_Effector/issues/264)
+- 関連Issue（設計経緯）: [#166](https://github.com/taketonnbo/Audio_Effector/issues/166)、[#167](https://github.com/taketonnbo/Audio_Effector/issues/167)、[#168](https://github.com/taketonnbo/Audio_Effector/issues/168)、[#264](https://github.com/taketonnbo/Audio_Effector/issues/264)、[#291](https://github.com/taketonnbo/Audio_Effector/issues/291)
