@@ -133,6 +133,9 @@ public sealed class McpServerOptionsTests
     [InlineData("--log-level", "Verbose")]
     [InlineData("--unknown", "value")]
     [InlineData("--transport")]
+    [InlineData("--data-dir", "--transport=http")]
+    [InlineData("--host", "--port", "51900")]
+    [InlineData("--data-dir", "--log-level", "Debug")]
     public void TryParse_不正な引数指定時_Falseとエラーメッセージを返す(params string[] args)
     {
         // Arrange
@@ -145,5 +148,25 @@ public sealed class McpServerOptionsTests
         Assert.False(succeeded);
         Assert.Null(sut);
         Assert.False(string.IsNullOrWhiteSpace(error));
+    }
+
+    /// <summary>
+    /// イコール区切りで明示指定した場合はオプション名と同じ文字列であっても値として受理されることを検証します。
+    /// </summary>
+    [Fact]
+    public void TryParse_イコール区切りでオプション名と同名の値を指定した場合_値として受理される()
+    {
+        // Arrange
+        string[] args = ["--data-dir=--transport=http"];
+        static string? EmptyEnv(string _) => null;
+
+        // Act
+        bool succeeded = McpServerOptions.TryParse(args, out McpServerOptions? sut, out string? error, EmptyEnv);
+
+        // Assert
+        Assert.True(succeeded);
+        Assert.Null(error);
+        Assert.NotNull(sut);
+        Assert.Equal("--transport=http", sut.DataDirectory);
     }
 }
