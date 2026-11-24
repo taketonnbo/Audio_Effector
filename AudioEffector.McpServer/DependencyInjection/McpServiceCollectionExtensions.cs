@@ -52,7 +52,12 @@ public static class McpServiceCollectionExtensions
         return services;
     }
 
-    private static string GetServerVersion(Assembly assembly)
+    /// <summary>
+    /// 指定されたアセンブリのバージョン文字列を取得します。
+    /// </summary>
+    /// <param name="assembly">対象アセンブリ。</param>
+    /// <returns>バージョン文字列。</returns>
+    internal static string GetServerVersion(Assembly assembly)
     {
         string? infoVersion = assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()

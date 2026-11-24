@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -171,6 +171,30 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
         {
             await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
             return _tracks.Values.ToList();
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// 永続化ファイルの整合性を検証したうえで登録トラック件数を取得します。
+    /// ファイル未作成時は正常な空ライブラリとして 0 を返し、JSON 破損や読み込み異常時は例外を伝播させます。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>登録されているトラック件数</returns>
+    public async Task<int> GetVerifiedCountAsync(CancellationToken cancellationToken = default)
+    {
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using IDisposable fileLock = await _fileLockHelper
+                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
+            return _tracks.Count;
         }
         finally
         {
