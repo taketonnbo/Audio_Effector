@@ -1,5 +1,4 @@
-﻿using System;
-using NAudio.Dsp;
+using System;
 
 namespace AudioEffector.Application.Common;
 
@@ -11,14 +10,14 @@ public class FftEventArgs : EventArgs
     /// <summary>
     /// FFT計算結果の複素数配列
     /// </summary>
-    public Complex[] Result { get; }
+    public FftComplex[] Result { get; }
 
     /// <summary>
     /// FftEventArgsを初期化します
     /// </summary>
     /// <param name="result">FFT複素数配列</param>
-    public FftEventArgs(Complex[] result)
+    public FftEventArgs(FftComplex[] result)
     {
-        Result = result ?? Array.Empty<Complex>();
+        Result = result ?? Array.Empty<FftComplex>();
     }
 }
