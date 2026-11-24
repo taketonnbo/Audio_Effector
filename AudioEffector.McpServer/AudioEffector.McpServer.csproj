@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AudioEffector.Domain\AudioEffector.Domain.csproj" />
+    <ProjectReference Include="..\AudioEffector.Application\AudioEffector.Application.csproj" />
+    <ProjectReference Include="..\AudioEffector.Infrastructure\AudioEffector.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="nlog.mcp.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

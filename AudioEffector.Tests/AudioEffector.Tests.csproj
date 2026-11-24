@@ -27,6 +27,7 @@
     <ProjectReference Include="..\AudioEffector.Domain\AudioEffector.Domain.csproj" />
     <ProjectReference Include="..\AudioEffector.Application\AudioEffector.Application.csproj" />
     <ProjectReference Include="..\AudioEffector.Infrastructure\AudioEffector.Infrastructure.csproj" />
+    <ProjectReference Include="..\AudioEffector.McpServer\AudioEffector.McpServer.csproj" />
   </ItemGroup>
 
   <ItemGroup>
