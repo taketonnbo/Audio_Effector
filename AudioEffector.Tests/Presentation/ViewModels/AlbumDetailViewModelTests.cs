@@ -275,10 +275,11 @@ public sealed class AlbumDetailViewModelTests
     }
 
     /// <summary>
-    /// 途中曲からPlayTrackCommandを実行した際、#276仕様に従い選択曲より前の曲がキューに含まれないことを検証します
+    /// 途中曲からPlayTrackCommandを実行した際、PlaybackRequestedにはアルバム全収録曲が渡され、
+    /// AudioService.SetPlaylistには#276仕様に従い選択曲以降の楽曲のみが渡されることを検証します
     /// </summary>
     [Fact]
-    public void PlayTrackCommand_途中曲を指定して実行_選択曲以降の楽曲のみが再生キューへ渡される()
+    public void PlayTrackCommand_途中曲を指定して実行_PlaybackRequestedには全収録曲が渡され再生キューには選択曲以降のみが渡される()
     {
         // Arrange
         var (sut, library, audioMock) = CreateSut();
@@ -292,14 +293,20 @@ public sealed class AlbumDetailViewModelTests
         sut.SetAlbum(album);
 
         IReadOnlyList<Track>? requestedTracks = null;
-        sut.PlaybackRequested += (tracks, _, _, _) => requestedTracks = tracks;
+        Track? requestedStartTrack = null;
+        sut.PlaybackRequested += (tracks, start, _, _) =>
+        {
+            requestedTracks = tracks;
+            requestedStartTrack = start;
+        };
 
         // Act
         sut.PlayTrackCommand.Execute(t2);
 
         // Assert
         Assert.NotNull(requestedTracks);
-        Assert.Equal([t2, t3], requestedTracks);
+        Assert.Equal([t1, t2, t3], requestedTracks);
+        Assert.Same(t2, requestedStartTrack);
         audioMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(list => list.SequenceEqual(new[] { t2, t3 })), t2), Times.Once);
         audioMock.Verify(a => a.PlayTrack(t2), Times.Once);
     }
