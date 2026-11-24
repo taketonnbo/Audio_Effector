@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using AudioEffector.Domain.Entities;
 
@@ -19,4 +20,9 @@ public interface IRecentTrackRepository
     /// </summary>
     /// <param name="entries">保存対象の履歴エントリ一覧</param>
     void Save(IReadOnlyList<RecentTrackEntry> entries);
+
+    /// <summary>ロック中に最新の履歴へ変更を適用し保存します</summary>
+    /// <param name="update">追加、削除または全消去の処理</param>
+    /// <returns>更新後の履歴一覧</returns>
+    IReadOnlyList<RecentTrackEntry> Update(Action<List<RecentTrackEntry>> update);
 }

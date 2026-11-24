@@ -45,7 +45,6 @@ public sealed class JsonRecentTrackRepository : IRecentTrackRepository
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string appDir = Path.Combine(appData, "AudioEffector");
-            Directory.CreateDirectory(appDir);
             _filePath = Path.Combine(appDir, "RecentTracks.json");
         }
         else
@@ -67,92 +66,95 @@ public sealed class JsonRecentTrackRepository : IRecentTrackRepository
 
             using IDisposable fileLock = _fileLockHelper.AcquireLock(_filePath);
 
-            currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
-            if (_isLoaded && currentMetadata == _lastLoadedMetadata)
-            {
-                return _cachedEntries.ToList();
-            }
-
-            if (!currentMetadata.Exists)
-            {
-                _cachedEntries = new List<RecentTrackEntry>();
-                _lastLoadedMetadata = FileMetadataSnapshot.Missing;
-                _isLoaded = true;
-                return Array.Empty<RecentTrackEntry>();
-            }
-
             try
             {
-                string json = File.ReadAllText(_filePath);
-                var dtos = JsonSerializer.Deserialize<List<RecentTrackDto?>>(json);
-                var result = new List<RecentTrackEntry>(dtos?.Count ?? 0);
-                if (dtos != null)
-                {
-                    foreach (var dto in dtos)
-                    {
-                        if (dto == null || string.IsNullOrWhiteSpace(dto.FilePath))
-                        {
-                            continue;
-                        }
+                _cachedEntries = ReadEntries();
+            }
+            catch (Exception ex) when (ex is JsonException or OverflowException)
+            {
+                _cachedEntries = new();
+            }
+            _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+            _isLoaded = true;
+            return _cachedEntries.ToList();
+        }
+    }
 
-                        var track = new Track
-                        {
-                            FilePath = dto.FilePath,
-                            Title = string.IsNullOrWhiteSpace(dto.Title) ? Path.GetFileNameWithoutExtension(dto.FilePath) : dto.Title,
-                            Artist = string.IsNullOrWhiteSpace(dto.Artist) ? "Unknown Artist" : dto.Artist,
-                            Album = string.IsNullOrWhiteSpace(dto.Album) ? "Unknown Album" : dto.Album,
-                            Duration = TimeSpan.FromSeconds(Math.Max(0, dto.DurationSeconds)),
-                        };
-                        result.Add(new RecentTrackEntry(track, dto.PlayedAt));
-                    }
+    private List<RecentTrackEntry> ReadEntries()
+    {
+        if (!File.Exists(_filePath))
+        {
+            return new();
+        }
+
+        string json = File.ReadAllText(_filePath);
+        var dtos = JsonSerializer.Deserialize<List<RecentTrackDto?>>(json);
+        var result = new List<RecentTrackEntry>(dtos?.Count ?? 0);
+        if (dtos != null)
+        {
+            foreach (var dto in dtos)
+            {
+                if (dto == null || string.IsNullOrWhiteSpace(dto.FilePath))
+                {
+                    continue;
                 }
 
-                _cachedEntries = result;
-                _lastLoadedMetadata = currentMetadata;
-                _isLoaded = true;
-                return _cachedEntries.ToList();
-            }
-            catch
-            {
-                _cachedEntries = new List<RecentTrackEntry>();
-                _lastLoadedMetadata = currentMetadata;
-                _isLoaded = true;
-                return Array.Empty<RecentTrackEntry>();
+                var track = new Track
+                {
+                    FilePath = dto.FilePath,
+                    Title = string.IsNullOrWhiteSpace(dto.Title) ? Path.GetFileNameWithoutExtension(dto.FilePath) : dto.Title,
+                    Artist = string.IsNullOrWhiteSpace(dto.Artist) ? "Unknown Artist" : dto.Artist,
+                    Album = string.IsNullOrWhiteSpace(dto.Album) ? "Unknown Album" : dto.Album,
+                    Duration = TimeSpan.FromSeconds(Math.Max(0, dto.DurationSeconds)),
+                };
+                result.Add(new RecentTrackEntry(track, dto.PlayedAt));
             }
         }
+
+        return result;
     }
 
     /// <inheritdoc />
     public void Save(IReadOnlyList<RecentTrackEntry> entries)
     {
         ArgumentNullException.ThrowIfNull(entries);
-
         lock (_syncLock)
         {
-            using IDisposable fileLock = _fileLockHelper.AcquireLock(_filePath);
-            try
-            {
-                var dtos = entries.Select(e => new RecentTrackDto
-                {
-                    FilePath = e.FilePath,
-                    Title = e.Title,
-                    Artist = e.Artist,
-                    Album = e.Album,
-                    DurationSeconds = e.Duration.TotalSeconds,
-                    PlayedAt = e.PlayedAt,
-                }).ToList();
-
-                string json = JsonSerializer.Serialize(dtos, JsonOptions);
-                _fileLockHelper.WriteAllTextAtomic(_filePath, json);
-
-                _cachedEntries = entries.ToList();
-                _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
-                _isLoaded = true;
-            }
-            catch (Exception ex) when (ex is not FileLockTimeoutException)
-            {
-                // 永続化失敗時はアプリ動作を止めない
-            }
+            using var fileLock = _fileLockHelper.AcquireLock(_filePath);
+            WriteEntries(entries);
         }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<RecentTrackEntry> Update(Action<List<RecentTrackEntry>> update)
+    {
+        lock (_syncLock)
+        {
+            using var fileLock = _fileLockHelper.AcquireLock(_filePath);
+            var entries = ReadEntries();
+            update(entries);
+            WriteEntries(entries);
+            return entries;
+        }
+    }
+
+    private void WriteEntries(IReadOnlyList<RecentTrackEntry> entries)
+    {
+        var dtos = entries.Select(e => new RecentTrackDto
+        {
+            FilePath = e.FilePath,
+            Title = e.Title,
+            Artist = e.Artist,
+            Album = e.Album,
+            DurationSeconds = e.Duration.TotalSeconds,
+            PlayedAt = e.PlayedAt,
+        }).ToList();
+
+        string json = JsonSerializer.Serialize(dtos, JsonOptions);
+        _fileLockHelper.WriteAllTextAtomic(_filePath, json);
+
+        _cachedEntries = entries.ToList();
+        _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+        _isLoaded = true;
     }
 }
