@@ -109,12 +109,22 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
         _isLoaded = true;
     }
 
-    private async Task SaveToFileCoreAsync(CancellationToken cancellationToken)
+    private async Task SaveCandidateTracksCoreAsync(
+        Dictionary<TrackId, Track> candidateTracks,
+        CancellationToken cancellationToken)
     {
-        var dtos = _tracks.Values.Select(TrackDto.FromEntity).ToList();
+        var dtos = candidateTracks.Values.Select(TrackDto.FromEntity).ToList();
         string json = JsonSerializer.Serialize(dtos, _jsonOptions);
 
         await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
+
+        // 原子的なファイル置換が成功した後にのみオンメモリキャッシュとメタデータを更新する
+        _tracks.Clear();
+        foreach (var kvp in candidateTracks)
+        {
+            _tracks[kvp.Key] = kvp.Value;
+        }
+
         _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
         _isLoaded = true;
     }
@@ -249,8 +259,11 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
                 .ConfigureAwait(false);
 
             await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
-            _tracks[track.Id] = track;
-            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            var candidateTracks = new Dictionary<TrackId, Track>(_tracks)
+            {
+                [track.Id] = track,
+            };
+            await SaveCandidateTracksCoreAsync(candidateTracks, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -276,12 +289,13 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
                 .ConfigureAwait(false);
 
             await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
+            var candidateTracks = new Dictionary<TrackId, Track>(_tracks);
             foreach (var track in tracks)
             {
-                _tracks[track.Id] = track;
+                candidateTracks[track.Id] = track;
             }
 
-            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            await SaveCandidateTracksCoreAsync(candidateTracks, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -307,13 +321,13 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
                 .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            _tracks.Clear();
+            var candidateTracks = new Dictionary<TrackId, Track>(trackList.Count);
             foreach (var track in trackList)
             {
-                _tracks[track.Id] = track;
+                candidateTracks[track.Id] = track;
             }
 
-            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            await SaveCandidateTracksCoreAsync(candidateTracks, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -337,9 +351,11 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
                 .ConfigureAwait(false);
 
             await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
-            if (_tracks.Remove(id))
+            if (_tracks.ContainsKey(id))
             {
-                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+                var candidateTracks = new Dictionary<TrackId, Track>(_tracks);
+                candidateTracks.Remove(id);
+                await SaveCandidateTracksCoreAsync(candidateTracks, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
