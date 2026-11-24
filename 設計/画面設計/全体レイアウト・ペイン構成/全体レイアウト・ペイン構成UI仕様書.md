@@ -1,4 +1,4 @@
-﻿# 全体レイアウト・ペイン構成 UI仕様書
+# 全体レイアウト・ペイン構成 UI仕様書
 
 ## 1. 概要 (Overview)
 
@@ -26,7 +26,7 @@
 |    | | 5  | ☆ | Acoustic Evening     | Guitar Duo        | Unplugged Sessions  | 03:33 | | [Lyrics / Tag Info]       |
 | [D]| +-----------------------------------------------------------------------------+ | +-------------------------+ |
 |    |                                                                                 | [<<] スライドキュー (360px) |
-| [S]| 中央ワークスペース (ContentControl: 10画面切替)                                 | (オーバーレイ開閉)          |
+| [S]| 中央ワークスペース (ContentControl: 11画面切替)                                 | (オーバーレイ開閉)          |
 +----+---------------------------------------------------------------------------------+-----------------------------+
 | [▲] スペクトラムアナライザ (Toggle: 22px / 展開時: 140px) [ ▂▃▅▆▇█▇▆▅▃  ▂▃▅▆▇█▇▆▅▃ ]                               |
 +--------------------------------------------------------------------------------------------------------------------+
@@ -58,7 +58,7 @@
 
 | 領域 | 表示条件・構成 |
 | :--- | :--- |
-| ワークスペース | `CurrentViewType`（初期値: `ViewType.Albums`）の10値を `ContentControl.ContentTemplate` の `DataTrigger` で切り替える |
+| ワークスペース | `CurrentViewType`（初期値: `ViewType.Albums`）の11値を `ContentControl.ContentTemplate` の `DataTrigger` で切り替える |
 | 上部プレイヤー | 通常高 `60px`。右パネルの開状態（`IsRightPanelOpen = True`）に連動して高 `0px` へ格納 |
 | 右側情報パネル | `IsRightPanelOpen`（初期 `false`）で開閉、`IsAlbumViewMaximized`（初期 `true`）で最大化/コンパクトを切替 |
 | 読込中オーバーレイ | `IsMainLoadingOverlayVisible = True`（`IsLoading = True` かつ `CurrentViewType != ViewType.Folders`）でワークスペース上に半透明オーバーレイと `"LOADING..."` テキストを表示（フォルダタブ表示中はフォルダタブ内の専用プログレスインジケーターへ表示を委譲） |

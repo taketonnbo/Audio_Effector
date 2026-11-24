@@ -126,8 +126,8 @@ AlbumDetailView (Root Grid)
      - **ジャンル**: 収録曲のうち空文字でない `Track.Genre` の最頻値（同数の場合はトラック順で先頭のもの）を採用する。全曲空の場合は項目を省略する。
      - 余分な区切り文字（`•`）が生じないよう、非空項目のみを結合して表示する。
    - **音質／フォーマットバッジ**:
-     - 代表フォーマットバッジ（例: `FLAC`, `WAV`, `MP3` 等）: 収録曲のうち空文字でない `Track.Format` の最頻値（同数の場合はトラック順で先頭のもの）を採用する。該当値がない場合は `Visibility="Collapsed"` とする。
-     - 音質バッジ：`ContainsHiRes == True` のとき `Hi-Res` バッジ（`NeonCyanBrush` 強調）、`ContainsHiRes == False` かつ `ContainsLossless == True` のとき `Lossless` バッジを表示。非該当バッジは `Visibility="Collapsed"` とする。
+     - 代表フォーマットバッジ（例: `FLAC`, `WAV`, `MP3` 等、`AudioFormatSummary`）: 収録曲のうち空文字でない `Track.Format` の最頻値（同数の場合はトラック順で先頭のもの）を採用する。該当値がない場合は `Visibility="Collapsed"` とする。
+     - 音質バッジ（`QualityLabel`）：`IsHiRes == True` のとき `Hi-Res` バッジ（`NeonCyanBrush` 強調）、`IsHiRes == False` かつ `IsLossless == True` のとき `Lossless` バッジを表示。非該当バッジは `Visibility="Collapsed"` とする。
 3. **クイックアクションボタン群（`WrapPanel`）**:
    - **全曲再生 (`▶ 全曲再生`)**: `PrimaryButton` バリアント（`PlayAllCommand`）。
    - **シャッフル再生 (`🔀 シャッフル`)**: `SecondaryButton` バリアント（`ShufflePlayCommand`）。
@@ -258,6 +258,10 @@ ScrollViewer.CanContentScroll="True"
   - 仕様策定 Issue: [#289](https://github.com/taketonnbo/Audio_Effector/issues/289)
   - 後続実装 Issue: [#290](https://github.com/taketonnbo/Audio_Effector/issues/290)（ViewModel・画面遷移・高解像度アートワーク読込基盤）、[#291](https://github.com/taketonnbo/Audio_Effector/issues/291)（`AlbumDetailView` UI 実装・遷移導線接続）
   - 関連 Issue: [#168](https://github.com/taketonnbo/Audio_Effector/issues/168)（アルバム情報ボタン追加）、[#264](https://github.com/taketonnbo/Audio_Effector/issues/264)（アルバム一覧リスト展開楽曲情報拡充）
+- **実装参照**:
+  - [AlbumDetailView.xaml](../../../AudioEffector/Presentation/Views/AlbumDetailView.xaml)
+  - [AlbumDetailView.xaml.cs](../../../AudioEffector/Presentation/Views/AlbumDetailView.xaml.cs)
+  - [AlbumDetailViewModel.cs](../../../AudioEffector/Presentation/ViewModels/AlbumDetailViewModel.cs)
 - **関連仕様書**:
   - [画面遷移・ナビゲーション設計書](../画面遷移・ナビゲーション設計書.md)
   - [アルバム一覧 UI仕様書](../アルバム一覧/アルバム一覧UI仕様書.md)
