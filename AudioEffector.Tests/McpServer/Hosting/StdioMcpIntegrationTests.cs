@@ -95,6 +95,7 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                     .ToList();
                 Assert.Contains("ping", toolNames);
                 Assert.Contains("get_server_info", toolNames);
+                Assert.Contains("search_tracks", toolNames);
             }
 
             // Act & Assert 3: tools/call (ping)
@@ -137,6 +138,29 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Equal(2, data.GetProperty("libraryTrackCount").GetInt32());
                 Assert.Equal(_tempDataDir, data.GetProperty("dataDirectory").GetString());
                 Assert.Equal(SystemTools.WPF_IPC_STATUS_NOT_CONFIGURED, data.GetProperty("wpfIpcStatus").GetString());
+            }
+
+            // Act & Assert 4b: tools/call (search_tracks)
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"search_tracks","arguments":{"keyword":"統合テスト曲 1","limit":10,"offset":0}}}""",
+                timeoutCts.Token);
+
+            string searchLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument searchDoc = JsonDocument.Parse(searchLine))
+            {
+                JsonElement result = searchDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                JsonElement data = payloadDoc.RootElement.GetProperty("data");
+                Assert.Equal(1, data.GetProperty("totalCount").GetInt32());
+                Assert.Equal(1, data.GetProperty("count").GetInt32());
+                JsonElement track = Assert.Single(data.GetProperty("tracks").EnumerateArray());
+                Assert.Equal("統合テスト曲 1", track.GetProperty("title").GetString());
+                Assert.Equal("テストアーティスト", track.GetProperty("artist").GetString());
             }
 
             // Act & Assert 5: 存在しないツール呼び出し（エラー発生時も stdout が有効な JSON-RPC のみであること）

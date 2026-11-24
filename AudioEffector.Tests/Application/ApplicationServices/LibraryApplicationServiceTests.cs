@@ -342,4 +342,73 @@ public sealed class LibraryApplicationServiceTests : IDisposable
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
+
+    /// <summary>
+    /// SearchTracksAsync(TrackSearchQuery) がお気に入りリポジトリと読み取り専用照合を行い、複合条件フィルタおよびページネーションを適用することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchTracksAsync_複合条件クエリ指定_お気に入り照合と絞り込みおよびページネーションが適用され書き込み副作用がないこと()
+    {
+        // Arrange
+        var track1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\1.flac"), "Track 1", "Artist A", "Album X", TimeSpan.FromSeconds(200), trackNumber: 1, genre: "Jazz");
+        var track2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\2.flac"), "Track 2", "Artist A", "Album X", TimeSpan.FromSeconds(210), trackNumber: 2, genre: "Jazz");
+        var track3 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\3.flac"), "Track 3", "Artist A", "Album X", TimeSpan.FromSeconds(220), trackNumber: 3, genre: "Rock");
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.SearchAsync("Artist", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track2, track3, track1]);
+
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new FavoriteTrackEntry("Track 1", "Artist A", "Album X", 1, 200.0, @"D:\OldPath\1.mp3", DateTime.UtcNow),
+                FavoriteTrackEntry.FromTrack(track2),
+            ]);
+
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+
+        var query = new TrackSearchQuery(
+            Keyword: "Artist",
+            Artist: "artist a",
+            Album: "album x",
+            Genre: "jazz",
+            IsFavoriteOnly: true,
+            Limit: 1,
+            Offset: 1);
+
+        // Act
+        TrackSearchResult actual = await sut.SearchTracksAsync(query);
+
+        // Assert
+        Assert.Equal(2, actual.TotalCount);
+        Assert.Equal(1, actual.Offset);
+        Assert.Equal(1, actual.Limit);
+        Track returned = Assert.Single(actual.Tracks);
+        Assert.Equal("Track 2", returned.Title);
+        Assert.True(returned.IsFavorite);
+        mockFavRepo.Verify(
+            r => r.UpdateMetadataAsync(It.IsAny<IReadOnlyList<FavoriteMetadataChange>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// SearchTracksAsync(TrackSearchQuery) に範囲外の limit または負の offset を指定した場合、ArgumentOutOfRangeException がスローされることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(201, 0)]
+    [InlineData(50, -1)]
+    public async Task SearchTracksAsync_ページネーション範囲外指定_ArgumentOutOfRangeExceptionをスローすること(int limit, int offset)
+    {
+        // Arrange
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var query = new TrackSearchQuery(Limit: limit, Offset: offset);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => sut.SearchTracksAsync(query));
+    }
 }
