@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -41,4 +42,11 @@ public interface ISettingsRepository
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>非同期タスク</returns>
     Task RemoveAsync(string key, CancellationToken cancellationToken = default);
+
+    /// <summary>ロック内でキーの最新値に変更を適用します</summary>
+    /// <param name="key">設定キー</param>
+    /// <param name="update">最新値から保存する値を返す処理（nullは削除）</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>値が変更された場合はtrue</returns>
+    Task<bool> UpdateValueAsync(string key, Func<string?, string?> update, CancellationToken cancellationToken = default);
 }

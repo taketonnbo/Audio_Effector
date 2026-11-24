@@ -142,8 +142,15 @@ public class JsonSettingsRepository : ISettingsRepository, IDisposable
     /// <param name="value">設定値文字列</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>非同期タスク</returns>
-    public async Task SetValueAsync(string key, string? value, CancellationToken cancellationToken = default)
+    public Task SetValueAsync(string key, string? value, CancellationToken cancellationToken = default)
     {
+        return UpdateValueAsync(key, _ => value, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> UpdateValueAsync(string key, Func<string?, string?> update, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(update);
         ArgumentNullException.ThrowIfNull(key);
 
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -154,6 +161,10 @@ public class JsonSettingsRepository : ISettingsRepository, IDisposable
                 .ConfigureAwait(false);
 
             await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
+            _settings.TryGetValue(key, out var previous);
+            var value = update(previous);
+            if (value == previous) return false;
+
             if (value == null)
             {
                 _settings.Remove(key);
@@ -164,6 +175,7 @@ public class JsonSettingsRepository : ISettingsRepository, IDisposable
             }
 
             await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            return true;
         }
         finally
         {

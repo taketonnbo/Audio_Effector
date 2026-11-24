@@ -203,24 +203,26 @@ public class EqualizerApplicationService
     /// <param name="preset">保存対象のプリセット</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>非同期タスク</returns>
-    public async Task SaveCustomPresetAsync(EqualizerPreset preset, CancellationToken cancellationToken = default)
+    public Task SaveCustomPresetAsync(EqualizerPreset preset, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(preset);
 
-        var presets = (await GetPresetsAsync(cancellationToken)).Where(p => p.IsCustom).ToList();
-        int existingIndex = presets.FindIndex(p => string.Equals(p.Name, preset.Name, StringComparison.OrdinalIgnoreCase));
-        if (existingIndex >= 0)
+        return _settingsRepository.UpdateValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, json =>
         {
-            presets[existingIndex] = preset;
-        }
-        else
-        {
-            presets.Add(preset);
-        }
+            var presets = ReadCustomPresets(json);
+            int index = presets.FindIndex(p => string.Equals(p.Name, preset.Name, StringComparison.OrdinalIgnoreCase));
+            var dto = PresetDto.FromEntity(preset);
+            if (index >= 0)
+            {
+                presets[index] = dto;
+            }
+            else
+            {
+                presets.Add(dto);
+            }
 
-        var dtos = presets.Select(PresetDto.FromEntity).ToList();
-        string json = JsonSerializer.Serialize(dtos);
-        await _settingsRepository.SetValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, json, cancellationToken);
+            return JsonSerializer.Serialize(presets);
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -229,26 +231,23 @@ public class EqualizerApplicationService
     /// <param name="presetName">削除対象のプリセット名</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>削除対象が存在した場合はtrue</returns>
-    public async Task<bool> DeleteCustomPresetAsync(string presetName, CancellationToken cancellationToken = default)
+    public Task<bool> DeleteCustomPresetAsync(string presetName, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(presetName))
         {
-            return false;
+            return Task.FromResult(false);
         }
 
-        var customPresets = (await GetPresetsAsync(cancellationToken)).Where(p => p.IsCustom).ToList();
-        int removedCount = customPresets.RemoveAll(
-            p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
-        if (removedCount == 0)
+        return _settingsRepository.UpdateValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, json =>
         {
-            return false;
-        }
-
-        var dtos = customPresets.Select(PresetDto.FromEntity).ToList();
-        string json = JsonSerializer.Serialize(dtos);
-        await _settingsRepository.SetValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, json, cancellationToken);
-        return true;
+            var presets = ReadCustomPresets(json);
+            int removed = presets.RemoveAll(p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
+            return removed > 0 ? JsonSerializer.Serialize(presets) : json;
+        }, cancellationToken);
     }
+
+    private static List<PresetDto> ReadCustomPresets(string? json) =>
+        string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<List<PresetDto>>(json) ?? [];
 
     private static EqualizerPreset CreatePreset(string name, params float[] gainsDb)
     {

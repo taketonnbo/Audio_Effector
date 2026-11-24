@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
@@ -9,6 +11,7 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Events;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.ValueObjects;
+using AudioEffector.Infrastructure.Repository;
 using Moq;
 using Xunit;
 
@@ -140,6 +143,39 @@ public sealed class EqualizerApplicationServiceTests
         Assert.Contains(presets, p => p.Name == "CustomBass" && p.IsCustom);
     }
 
+    /// <summary>同じ設定ファイルを使う2サービスの保存・削除で別名のプリセットが残ることを検証します</summary>
+    [Fact]
+    public async Task カスタムプリセット_別インスタンスの並行保存と削除で他の名前の変更が残る()
+    {
+        // Arrange
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(directory.FullName, "settings.json");
+            using var firstRepo = new JsonSettingsRepository(path);
+            using var secondRepo = new JsonSettingsRepository(path);
+            var first = new EqualizerApplicationService(Mock.Of<IAudioEngine>(), firstRepo, new InMemoryEventBus());
+            var second = new EqualizerApplicationService(Mock.Of<IAudioEngine>(), secondRepo, new InMemoryEventBus());
+
+            // Act
+            await Task.WhenAll(first.SaveCustomPresetAsync(CreateSamplePreset("A")), second.SaveCustomPresetAsync(CreateSamplePreset("B")));
+            var both = await first.GetPresetsAsync();
+            var deletion = second.DeleteCustomPresetAsync("a");
+            await Task.WhenAll(deletion, first.SaveCustomPresetAsync(CreateSamplePreset("C")));
+
+            // Assert
+            Assert.Equal(new[] { "A", "B" }, both.Where(p => p.IsCustom).Select(p => p.Name).OrderBy(n => n));
+            Assert.True(await deletion);
+            Assert.False(await second.DeleteCustomPresetAsync("a"));
+            var remaining = await second.GetPresetsAsync();
+            Assert.Equal(new[] { "B", "C" }, remaining.Where(p => p.IsCustom).Select(p => p.Name).OrderBy(n => n));
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
+    }
+
     /// <summary>
     /// 新規カスタムプリセットをSaveCustomPresetAsyncで保存した際、リポジトリへJSONシリアライズされて保存されるかを検証します。
     /// </summary>
@@ -151,8 +187,7 @@ public sealed class EqualizerApplicationServiceTests
         var mockSettings = new Mock<ISettingsRepository>();
         var mockEventBus = new Mock<IEventBus>();
 
-        mockSettings.Setup(r => r.GetValueAsync("Equalizer_CustomPresets", null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string?)null);
+        var readSaved = CapturePresetUpdates(mockSettings, null);
 
         var sut = new EqualizerApplicationService(mockEngine.Object, mockSettings.Object, mockEventBus.Object);
         var custom = CreateSamplePreset("MyStudio");
@@ -161,10 +196,7 @@ public sealed class EqualizerApplicationServiceTests
         await sut.SaveCustomPresetAsync(custom);
 
         // Assert
-        mockSettings.Verify(r => r.SetValueAsync(
-            "Equalizer_CustomPresets",
-            It.Is<string?>(json => json != null && json.Contains("MyStudio")),
-            It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Contains("MyStudio", readSaved());
     }
 
     /// <summary>
@@ -186,8 +218,7 @@ public sealed class EqualizerApplicationServiceTests
               }
             ]
             """;
-        mockSettings.Setup(r => r.GetValueAsync("Equalizer_CustomPresets", null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(existingJson);
+        var readSaved = CapturePresetUpdates(mockSettings, existingJson);
 
         var sut = new EqualizerApplicationService(mockEngine.Object, mockSettings.Object, mockEventBus.Object);
         var updated = CreateSamplePreset("MyStudio"); // 全ゲイン 2.0f
@@ -196,10 +227,10 @@ public sealed class EqualizerApplicationServiceTests
         await sut.SaveCustomPresetAsync(updated);
 
         // Assert
-        mockSettings.Verify(r => r.SetValueAsync(
-            "Equalizer_CustomPresets",
-            It.Is<string?>(json => json != null && json.Contains("MyStudio")),
-            It.IsAny<CancellationToken>()), Times.Once);
+        using var document = JsonDocument.Parse(readSaved()!);
+        var stored = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal("MyStudio", stored.GetProperty("Name").GetString());
+        Assert.All(stored.GetProperty("GainsDb").EnumerateArray(), gain => Assert.Equal(2f, gain.GetSingle()));
     }
 
     /// <summary>
@@ -221,8 +252,7 @@ public sealed class EqualizerApplicationServiceTests
               }
             ]
             """;
-        mockSettings.Setup(r => r.GetValueAsync("Equalizer_CustomPresets", null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(existingJson);
+        var readSaved = CapturePresetUpdates(mockSettings, existingJson);
 
         var sut = new EqualizerApplicationService(mockEngine.Object, mockSettings.Object, mockEventBus.Object);
 
@@ -231,9 +261,18 @@ public sealed class EqualizerApplicationServiceTests
 
         // Assert
         Assert.True(result);
-        mockSettings.Verify(r => r.SetValueAsync(
-            "Equalizer_CustomPresets",
-            It.Is<string?>(json => json != null && !json.Contains("ToDelete")),
-            It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal("[]", readSaved());
+    }
+
+    private static Func<string?> CapturePresetUpdates(Mock<ISettingsRepository> mockSettings, string? value)
+    {
+        mockSettings.Setup(r => r.UpdateValueAsync("Equalizer_CustomPresets", It.IsAny<Func<string?, string?>>(), It.IsAny<CancellationToken>()))
+            .Returns<string, Func<string?, string?>, CancellationToken>((_, update, _) =>
+            {
+                var previous = value;
+                value = update(previous);
+                return Task.FromResult(value != previous);
+            });
+        return () => value;
     }
 }
