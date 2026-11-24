@@ -127,6 +127,71 @@ public sealed class SampleAggregatorTests
     }
 
     /// <summary>
+    /// 非ゼロ波形入力時にComplexFftCalculatedで通知されるFftComplex(X, Y)から算出した振幅が、FftCalculatedのMagnitudesと一致することを検証します。
+    /// </summary>
+    [Fact]
+    public void ComplexFftCalculated_非ゼロ波形入力時_複素数から算出した振幅がFftCalculatedと一致すること()
+    {
+        // Arrange
+        const int fftLength = 256;
+        var samples = new float[fftLength];
+        for (int i = 0; i < fftLength; i++)
+        {
+            samples[i] = MathF.Sin(2.0f * MathF.PI * 440.0f * i / 44100.0f);
+        }
+
+        var source = new TestSampleProvider(channels: 1, samples: samples);
+        var sut = new SampleAggregator(source, fftLength);
+        var buffer = new float[fftLength];
+
+        FftCalculatedEventArgs? magArgs = null;
+        FftEventArgs? complexArgs = null;
+        sut.FftCalculated += (_, e) => magArgs = e;
+        sut.ComplexFftCalculated += (_, e) => complexArgs = e;
+
+        // Act
+        sut.Read(buffer, 0, fftLength);
+
+        // Assert
+        Assert.NotNull(magArgs);
+        Assert.NotNull(complexArgs);
+        Assert.Equal(fftLength, complexArgs.Result.Length);
+
+        bool hasNonZero = false;
+        for (int i = 0; i < magArgs.Magnitudes.Length; i++)
+        {
+            double real = complexArgs.Result[i].X;
+            double imag = complexArgs.Result[i].Y;
+            double expectedMagnitude = Math.Sqrt((real * real) + (imag * imag));
+            Assert.Equal(expectedMagnitude, magArgs.Magnitudes[i], precision: 10);
+            if (expectedMagnitude > 0.0)
+            {
+                hasNonZero = true;
+            }
+        }
+
+        Assert.True(hasNonZero);
+    }
+
+    /// <summary>
+    /// FftEventArgsにnull配列を渡した場合に空配列へ安全にフォールバックし、FftComplexが値等価比較できることを検証します。
+    /// </summary>
+    [Fact]
+    public void FftEventArgs_nullを指定した場合_空配列にフォールバックすること()
+    {
+        // Arrange & Act
+        var sut = new FftEventArgs(null!);
+        var left = new FftComplex(1.5f, -2.5f);
+        var right = new FftComplex(1.5f, -2.5f);
+
+        // Assert
+        Assert.NotNull(sut.Result);
+        Assert.Empty(sut.Result);
+        Assert.Equal(left, right);
+        Assert.True(left == right);
+    }
+
+    /// <summary>
     /// 蓄積サンプル数がfftLength未満の場合、FftCalculatedイベントが発火しないことを検証します。
     /// </summary>
     [Fact]

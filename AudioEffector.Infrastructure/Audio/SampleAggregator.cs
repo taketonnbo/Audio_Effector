@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using AudioEffector.Application.Common;
 using NAudio.Dsp;
 using NAudio.Wave;
@@ -13,6 +13,7 @@ public class SampleAggregator : ISampleProvider
     private readonly ISampleProvider _source;
     private readonly int _fftLength;
     private readonly Complex[] _fftBuffer;
+    private readonly FftComplex[] _complexResultBuffer;
     private readonly float[] _sampleBuffer;
     private int _sampleBufferIndex;
 
@@ -43,6 +44,7 @@ public class SampleAggregator : ISampleProvider
         _source = source;
         _fftLength = fftLength;
         _fftBuffer = new Complex[fftLength];
+        _complexResultBuffer = new FftComplex[fftLength];
         _sampleBuffer = new float[fftLength];
         _sampleBufferIndex = 0;
     }
@@ -103,6 +105,14 @@ public class SampleAggregator : ISampleProvider
         }
 
         FftCalculated?.Invoke(this, new FftCalculatedEventArgs(magnitudes, _source.WaveFormat.SampleRate));
-        ComplexFftCalculated?.Invoke(this, new FftEventArgs(_fftBuffer));
+        if (ComplexFftCalculated is not null)
+        {
+            for (int i = 0; i < _fftLength; i++)
+            {
+                _complexResultBuffer[i] = new FftComplex(_fftBuffer[i].X, _fftBuffer[i].Y);
+            }
+
+            ComplexFftCalculated.Invoke(this, new FftEventArgs(_complexResultBuffer));
+        }
     }
 }

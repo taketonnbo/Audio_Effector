@@ -3,29 +3,20 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Version>19.0.0</Version>
     <ApplicationIcon>Audio_Effector_icon_1.0.1.ico</ApplicationIcon>
     <EnableDefaultPageItems>false</EnableDefaultPageItems>
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <EnableNETAnalyzers>true</EnableNETAnalyzers>
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
-    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MediaDevices" Version="1.10.0" />
+    <ProjectReference Include="..\AudioEffector.Domain\AudioEffector.Domain.csproj" />
+    <ProjectReference Include="..\AudioEffector.Application\AudioEffector.Application.csproj" />
+    <ProjectReference Include="..\AudioEffector.Infrastructure\AudioEffector.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
-    <PackageReference Include="NAudio" Version="2.2.1" />
-    <PackageReference Include="NLog" Version="6.2.0" />
-    <PackageReference Include="StyleCop.Analyzers" Version="1.2.0-beta.556">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="TagLibSharp" Version="2.3.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -56,10 +47,6 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-  </ItemGroup>
-
-  <ItemGroup>
-    <InternalsVisibleTo Include="AudioEffector.Tests" />
   </ItemGroup>
 
 </Project>

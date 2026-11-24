@@ -18,7 +18,7 @@
 
 ## 3. 属性（プロパティ）定義
 
-| プロパティ名 | 型 | 説明 | 表示箇所 | 実装プロパティ ([EqualizerPreset.cs](../../AudioEffector/Domain/Entities/EqualizerPreset.cs)) |
+| プロパティ名 | 型 | 説明 | 表示箇所 | 実装プロパティ ([EqualizerPreset.cs](../../AudioEffector.Domain/Entities/EqualizerPreset.cs)) |
 | :--- | :--- | :--- | :---: | :--- |
 | **Name** | `string` | プリセット名称（例：Flat, Rock, Pop, ユーザー保存名） | プリセット選択コンボボックス | `EqualizerPreset.Name` |
 | **Bands** | `IReadOnlyList<FrequencyBand>` | 10バンドの周波数とGain値オブジェクトのリスト | 内部ドメインモデル | `EqualizerPreset.Bands` |

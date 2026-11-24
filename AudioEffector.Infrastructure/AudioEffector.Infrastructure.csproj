@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AudioEffector.Domain\AudioEffector.Domain.csproj" />
+    <ProjectReference Include="..\AudioEffector.Application\AudioEffector.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MediaDevices" Version="1.10.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.0" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="NLog" Version="6.2.0" />
+    <PackageReference Include="TagLibSharp" Version="2.3.0" />
+  </ItemGroup>
+
+</Project>

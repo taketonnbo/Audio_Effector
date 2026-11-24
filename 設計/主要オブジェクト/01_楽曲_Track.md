@@ -21,7 +21,7 @@
 
 ## 3. 属性（プロパティ）定義
 
-| プロパティ名 | 型 | 説明 | コレクション表示 | シングル表示 | 実装プロパティ ([Track.cs](../../AudioEffector/Domain/Entities/Track.cs)) |
+| プロパティ名 | 型 | 説明 | コレクション表示 | シングル表示 | 実装プロパティ ([Track.cs](../../AudioEffector.Domain/Entities/Track.cs)) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **Id** | `TrackId` | 楽曲の一意識別子 | - | - | `Track.Id` |
 | **Title** | `string` | 楽曲タイトル（曲名） | ○ | ○ | `Track.Title` |

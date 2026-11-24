@@ -76,7 +76,7 @@
 ## 8. 関連Issue・仕様書
 
 - [PlaylistTracksView.xaml](../../../AudioEffector/Presentation/Views/PlaylistTracksView.xaml) / [PlaylistViewModel.cs](../../../AudioEffector/Presentation/ViewModels/PlaylistViewModel.cs)
-- [FavoriteTrackMatcher.cs](../../../AudioEffector/Domain/Services/FavoriteTrackMatcher.cs) / [JsonFavoriteRepository.cs](../../../AudioEffector/Infrastructure/Repository/JsonFavoriteRepository.cs)
+- [FavoriteTrackMatcher.cs](../../../AudioEffector.Domain/Services/FavoriteTrackMatcher.cs) / [JsonFavoriteRepository.cs](../../../AudioEffector.Infrastructure/Repository/JsonFavoriteRepository.cs)
 - [ユースケース: 楽曲ライブラリ管理](../../ユースケース/02_楽曲ライブラリ管理.md)
 - [主要オブジェクト一覧](../../主要オブジェクト/index.md)
 - [デザイントークン](../../デザインシステム/01_デザイントークン仕様書.md)・[共通コントロール](../../デザインシステム/02_共通コントロールスタイル仕様書.md)
