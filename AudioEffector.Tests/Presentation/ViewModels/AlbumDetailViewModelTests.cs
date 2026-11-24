@@ -312,6 +312,43 @@ public sealed class AlbumDetailViewModelTests
     }
 
     /// <summary>
+    /// 現在のアルバムTracksに含まれないトラックでPlayTrackCommandを実行した際、
+    /// PlaybackRequestedおよびSetPlaylistの両方が単曲フォールバック([track])になることを検証します
+    /// </summary>
+    [Fact]
+    public void PlayTrackCommand_収録曲外のトラックを指定して実行_PlaybackRequestedと再生キューの両方が単曲へフォールバックする()
+    {
+        // Arrange
+        var (sut, library, audioMock) = CreateSut();
+        using var _lib = library;
+        using var _sut = sut;
+
+        var t1 = CreateTrack("Track 1");
+        var t2 = CreateTrack("Track 2");
+        var externalTrack = CreateTrack("External Track", album: "Other Album");
+        var album = new Album("RAM", "Daft Punk", 2013, [t1, t2]);
+        sut.SetAlbum(album);
+
+        IReadOnlyList<Track>? requestedTracks = null;
+        Track? requestedStartTrack = null;
+        sut.PlaybackRequested += (tracks, start, _, _) =>
+        {
+            requestedTracks = tracks;
+            requestedStartTrack = start;
+        };
+
+        // Act
+        sut.PlayTrackCommand.Execute(externalTrack);
+
+        // Assert
+        Assert.NotNull(requestedTracks);
+        Assert.Equal([externalTrack], requestedTracks);
+        Assert.Same(externalTrack, requestedStartTrack);
+        audioMock.Verify(a => a.SetPlaylist(It.Is<List<Track>>(list => list.SequenceEqual(new[] { externalTrack })), externalTrack), Times.Once);
+        audioMock.Verify(a => a.PlayTrack(externalTrack), Times.Once);
+    }
+
+    /// <summary>
     /// 次に再生・最後に再生・お気に入り切替・戻るの各コマンドが期待通りに動作することを検証します
     /// </summary>
     [Fact]
