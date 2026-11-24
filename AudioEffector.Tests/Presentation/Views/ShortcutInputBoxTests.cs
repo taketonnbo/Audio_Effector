@@ -70,13 +70,13 @@ public sealed class ShortcutInputBoxTests
             // Assert
             Assert.True(assignedSingle);
             Assert.NotNull(singleResult);
-            Assert.Equal(Key.P, singleResult.Key);
-            Assert.Equal(ModifierKeys.None, singleResult.Modifiers);
+            Assert.Equal(ShortcutKeyHelper.FromWpfKey(Key.P), singleResult.Key);
+            Assert.Equal(ShortcutModifiers.None, singleResult.Modifiers);
 
             Assert.True(assignedMedia);
             Assert.NotNull(mediaResult);
-            Assert.Equal(Key.MediaPlayPause, mediaResult.Key);
-            Assert.Equal(ModifierKeys.None, mediaResult.Modifiers);
+            Assert.Equal(ShortcutKeyHelper.FromWpfKey(Key.MediaPlayPause), mediaResult.Key);
+            Assert.Equal(ShortcutModifiers.None, mediaResult.Modifiers);
         });
     }
 
@@ -141,8 +141,8 @@ public sealed class ShortcutInputBoxTests
 
                 // Assert
                 Assert.NotNull(sut.Shortcut);
-                Assert.Equal(Key.MediaPlayPause, sut.Shortcut.Key);
-                Assert.Equal(ModifierKeys.None, sut.Shortcut.Modifiers);
+                Assert.Equal(ShortcutKeyHelper.FromWpfKey(Key.MediaPlayPause), sut.Shortcut.Key);
+                Assert.Equal(ShortcutModifiers.None, sut.Shortcut.Modifiers);
                 Assert.Equal("MediaPlayPause (再生/一時停止)", inputBox.Text);
             }
             finally

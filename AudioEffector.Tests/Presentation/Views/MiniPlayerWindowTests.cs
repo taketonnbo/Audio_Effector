@@ -697,8 +697,8 @@ public sealed class MiniPlayerWindowTests
             // Arrange
             var settings = new AppSettings
             {
-                PlayPauseShortcut = new ShortcutKeyConfig { Key = Key.Space, Modifiers = ModifierKeys.None },
-                MuteShortcut = new ShortcutKeyConfig { Key = Key.M, Modifiers = ModifierKeys.None }
+                PlayPauseShortcut = ShortcutKeyHelper.CreateConfig(Key.Space, ModifierKeys.None),
+                MuteShortcut = ShortcutKeyHelper.CreateConfig(Key.M, ModifierKeys.None)
             };
             var settingsServiceMock = new Mock<ISettingsService>();
             settingsServiceMock.Setup(s => s.LoadSettings()).Returns(settings);
