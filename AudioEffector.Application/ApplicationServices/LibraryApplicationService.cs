@@ -258,20 +258,29 @@ public class LibraryApplicationService
         string? trimmedAlbum = string.IsNullOrWhiteSpace(query.Album) ? null : query.Album.Trim();
         string? trimmedGenre = string.IsNullOrWhiteSpace(query.Genre) ? null : query.Genre.Trim();
 
-        IReadOnlyList<Track> candidates = trimmedKeyword is null
-            ? await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)
-            : await _trackRepository.SearchAsync(trimmedKeyword, cancellationToken).ConfigureAwait(false);
-
-        if (candidates.Count == 0)
+        // 検索条件で候補集合を狭める前に全曲でお気に入り照合を行い、メタデータ優先・パスフォールバックの対応先を一貫して確定させる
+        IReadOnlyList<Track> allTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        if (allTracks.Count == 0)
         {
             return new TrackSearchResult(Array.Empty<Track>(), 0, query.Offset, query.Limit);
         }
 
         // お気に入り永続化データ（favorites.json）を正本として最新の IsFavorite 状態をメモリ上で反映する（読み取り専用のため書き込みは行わない）
         var favoriteEntries = await GetFavoriteEntriesAsync(cancellationToken).ConfigureAwait(false);
-        FavoriteTrackMatcher.Reconcile(favoriteEntries, candidates);
+        var reconciliation = FavoriteTrackMatcher.Reconcile(favoriteEntries, allTracks);
+        var favoriteTrackIds = reconciliation.MatchedTracks
+            .Select(t => t.Id)
+            .ToHashSet();
 
-        IEnumerable<Track> filtered = candidates;
+        IEnumerable<Track> filtered = allTracks;
+
+        if (trimmedKeyword is not null)
+        {
+            filtered = filtered.Where(t =>
+                t.Title.Contains(trimmedKeyword, StringComparison.OrdinalIgnoreCase) ||
+                t.Artist.Contains(trimmedKeyword, StringComparison.OrdinalIgnoreCase) ||
+                t.Album.Contains(trimmedKeyword, StringComparison.OrdinalIgnoreCase));
+        }
 
         if (trimmedArtist is not null)
         {
@@ -290,7 +299,7 @@ public class LibraryApplicationService
 
         if (query.IsFavoriteOnly)
         {
-            filtered = filtered.Where(t => t.IsFavorite);
+            filtered = filtered.Where(t => favoriteTrackIds.Contains(t.Id));
         }
 
         var ordered = filtered
