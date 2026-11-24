@@ -17,7 +17,9 @@
     "*.csproj",
     "**/AssemblyInfo.cs",
     "AudioEffector/bin/**",
-    "AudioEffector/obj/**"
+    "AudioEffector/obj/**",
+    "AudioEffector.McpServer/bin/**",
+    "AudioEffector.McpServer/obj/**"
   ],
   "mappings": [
     {
@@ -350,6 +352,20 @@
       ],
       "related_specs": [
         "設計/詳細設計/テスト仕様/テスト方針書.md"
+      ]
+    },
+    {
+      "id": "mcp-server",
+      "name": "MCP サーバ（ホスト・トランスポート・Tools/Resources）",
+      "code_patterns": [
+        "AudioEffector.McpServer/**"
+      ],
+      "primary_specs": [
+        "設計/機能仕様/MCPサーバ機能仕様書.md",
+        "設計/詳細設計/MCPサーバ詳細設計書.md"
+      ],
+      "related_specs": [
+        "設計/詳細設計/アーキテクチャ/アーキテクチャ全体設計書.md"
       ]
     }
   ]
