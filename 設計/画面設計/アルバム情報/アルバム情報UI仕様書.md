@@ -102,8 +102,8 @@ AlbumDetailView (Root Grid)
 | 音質・フォーマットバッジ | `Typography.Micro` (`9pt`, Bold) | `Radius.Small (4px)` | 内側余白 `Spacing.S (8px), Spacing.XXS (2px)`、バッジ間隔 `Spacing.XS (4px)` |
 | クイックアクションボタン | `Typography.Body` (`13pt`, SemiBold / Regular) | `Radius.Small (4px)` | 内側余白 `Spacing.M (12px), Spacing.S (8px)`、ボタン間隔 `Spacing.S (8px)` |
 | カバーアート枠（200×200px） | - | `Radius.Medium (8px)` | 右余白 `Spacing.XL (24px)` |
-| 列ヘッダー | `Typography.Caption` (`11pt`, Regular) | - | 左右パディング `Spacing.L (16px)` |
-| 収録曲リスト行テキスト | `Typography.Body` (`13pt`, Regular) / 再生時間・トラック番号は等幅フォント（`Consolas`） | `Radius.Small (4px)`（行内バッジ） | 行内横パディング `Spacing.L (16px)`、列間余白 `Spacing.S (8px)` |
+| 列ヘッダー | `Typography.Caption` (`11pt`, Regular) | - | 左右パディング `0px`（左端 `4px` アクセントバー列・各列内余白 `Spacing.XS (4px)`〜`Spacing.S (8px)`、スクロールバー表示時は右余白自動補正） |
+| 収録曲リスト行テキスト | `Typography.Body` (`13pt`, Regular) / 再生時間・トラック番号は等幅フォント（`Consolas`） | `Radius.Small (4px)`（行内バッジ） | 行内左右パディング `0px`（左端 `4px` アクセントバー列・各列内余白 `Spacing.XS (4px)`〜`Spacing.S (8px)`） |
 
 ---
 
