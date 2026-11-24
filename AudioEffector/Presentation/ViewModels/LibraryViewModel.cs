@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -276,6 +276,9 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
 
     /// <summary>ライブラリスキャン・差分同期完了通知イベント</summary>
     public event Action<LibrarySyncResult>? LibrarySynced;
+
+    /// <summary>アルバム詳細画面遷移要求イベント</summary>
+    public event Action<Album>? AlbumDetailRequested;
 
     /// <summary>
     /// LibraryViewModelを初期化します
@@ -987,13 +990,14 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// アルバムの詳細情報を表示します（#168: 後続Issueにてアルバム詳細画面遷移を実装）。
+    /// アルバムの詳細情報画面への遷移を要求します。展開中の収録曲トレイがあれば自動的に閉じます。
     /// </summary>
     /// <param name="album">対象アルバム</param>
     public void ShowAlbumInfo(Album album)
     {
         ArgumentNullException.ThrowIfNull(album);
-        // TODO: 後続Issueにてアルバム詳細画面への遷移・表示を実装
+        CloseExpandedAlbum();
+        AlbumDetailRequested?.Invoke(album);
     }
 
     private void DeleteAlbum(object? parameter)

@@ -1,4 +1,4 @@
-﻿namespace AudioEffector.Presentation.ViewModels;
+namespace AudioEffector.Presentation.ViewModels;
 
 /// <summary>
 /// メインコンテンツ領域に表示する画面ビューの種類を表す列挙体
@@ -10,6 +10,9 @@ public enum ViewType
 
     /// <summary>アルバム一覧画面</summary>
     Albums,
+
+    /// <summary>アルバム情報詳細画面</summary>
+    AlbumDetail,
 
     /// <summary>アーティスト一覧画面</summary>
     Artists,

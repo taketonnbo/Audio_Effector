@@ -1,4 +1,4 @@
-﻿using AudioEffector.Presentation.ViewModels;
+using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,6 +19,7 @@ public static class DependencyInjection
         // 状態保持および画面間共有のため各ViewModelはSingleton登録
         services.AddSingleton<PlayerControlViewModel>();
         services.AddSingleton<LibraryViewModel>();
+        services.AddSingleton<AlbumDetailViewModel>();
         services.AddSingleton<AllSongsViewModel>();
         services.AddSingleton<ArtistsViewModel>();
         services.AddSingleton<RecentViewModel>();

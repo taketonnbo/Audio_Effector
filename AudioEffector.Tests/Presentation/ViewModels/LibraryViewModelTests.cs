@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -143,20 +143,29 @@ public sealed class LibraryViewModelTests
         Assert.Null(vm.ExpandedAlbum);
     }
 
+    /// <summary>
+    /// ShowAlbumInfoCommand実行時に展開中トレイが閉じられ、AlbumDetailRequestedイベントが発火することを検証します
+    /// </summary>
     [Fact]
-    public void ShowAlbumInfoCommand_正常に初期化されアルバムを渡して実行できる()
+    public void ShowAlbumInfoCommand_展開中アルバムありで実行_トレイが閉じられAlbumDetailRequestedが発火する()
     {
         // Arrange
-        using var vm = CreateViewModel();
-        var album = new Album("Test Album", "Test Artist");
+        using var sut = CreateViewModel();
+        var expandedAlbum = new Album("Expanded Album", "Artist 1");
+        var targetAlbum = new Album("Test Album", "Test Artist");
+        sut.ToggleAlbumTracksCommand.Execute(expandedAlbum);
+        Assert.True(expandedAlbum.IsTracksExpanded);
 
-        // Assert 1: コマンドが初期化されている
-        Assert.NotNull(vm.ShowAlbumInfoCommand);
-        Assert.True(vm.ShowAlbumInfoCommand.CanExecute(album));
+        Album? requestedAlbum = null;
+        sut.AlbumDetailRequested += album => requestedAlbum = album;
 
-        // Act & Assert 2: 例外なく実行できる
-        var exception = Record.Exception(() => vm.ShowAlbumInfoCommand.Execute(album));
-        Assert.Null(exception);
+        // Act
+        sut.ShowAlbumInfoCommand.Execute(targetAlbum);
+
+        // Assert
+        Assert.False(expandedAlbum.IsTracksExpanded);
+        Assert.Null(sut.ExpandedAlbum);
+        Assert.Same(targetAlbum, requestedAlbum);
     }
 
     /// <summary>
