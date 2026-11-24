@@ -158,14 +158,11 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.True(hasError);
             }
 
-            // Act & Assert 6: stdin EOF でグレースフルシャットダウンし、残余 stdout にゴミが出ないこと
+            // Act & Assert 6: stdin EOF でグレースフルシャットダウンし、残余 stdout に空行やゴミが一切出ないこと
             sut.StandardInput.Close();
             while (await sut.StandardOutput.ReadLineAsync(timeoutCts.Token) is { } trailingLine)
             {
-                if (!string.IsNullOrWhiteSpace(trailingLine))
-                {
-                    allStdoutLines.Add(trailingLine);
-                }
+                allStdoutLines.Add(trailingLine);
             }
 
             await sut.WaitForExitAsync(timeoutCts.Token);
@@ -174,9 +171,10 @@ public sealed class StdioMcpIntegrationTests : IDisposable
             Assert.Equal(0, sut.ExitCode);
             Assert.NotEmpty(allStdoutLines);
 
-            // 全フェーズの stdout 行がすべて有効な JSON-RPC 2.0 オブジェクトであることを検証
+            // 全フェーズの stdout 行（EOF までの全行）が単独の空行を含まずすべて有効な JSON-RPC 2.0 オブジェクトであることを検証
             foreach (string line in allStdoutLines)
             {
+                Assert.False(string.IsNullOrWhiteSpace(line), "stdout に空行または空白行が混入しました。");
                 using JsonDocument doc = JsonDocument.Parse(line);
                 Assert.Equal(JsonValueKind.Object, doc.RootElement.ValueKind);
                 Assert.Equal("2.0", doc.RootElement.GetProperty("jsonrpc").GetString());
@@ -267,17 +265,10 @@ public sealed class StdioMcpIntegrationTests : IDisposable
         List<string> collectedLines,
         CancellationToken cancellationToken)
     {
-        while (true)
-        {
-            string? line = await stdout.ReadLineAsync(cancellationToken);
-            Assert.NotNull(line);
-            if (string.IsNullOrWhiteSpace(line))
-            {
-                continue;
-            }
-
-            collectedLines.Add(line);
-            return line;
-        }
+        string? line = await stdout.ReadLineAsync(cancellationToken);
+        Assert.NotNull(line);
+        collectedLines.Add(line);
+        Assert.False(string.IsNullOrWhiteSpace(line), "stdout に空行または空白行が混入しました。");
+        return line;
     }
 }
