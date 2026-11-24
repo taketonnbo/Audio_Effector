@@ -74,13 +74,13 @@ flowchart TD
 
 MCP プロトコル（JSON-RPC 2.0、Capability Negotiation、Tool / Resource / Prompt スキーマ生成、`stdio` および Streamable HTTP トランスポート）の仕様追従コストと保守性を最小化するため、**Microsoft と共同メンテナンスされている C# 公式 MCP SDK（`ModelContextProtocol` ファミリー）**を採用します。
 
-| パッケージ名 | 導入フェーズ | .NET 8 互換 | 用途・選定理由 |
-| :--- | :---: | :---: | :--- |
-| **`ModelContextProtocol`** | Phase 1 (#296) | 互換あり | 公式 C# MCP SDK 本体。`Microsoft.Extensions.DependencyInjection` / `Hosting` とネイティブ統合され、`AddMcpServer()`, `WithStdioServerTransport()`, `WithToolsFromAssembly()`, `[McpServerToolType]` / `[McpServerTool]` 属性による宣言的ツール定義と JSON Schema 自動生成を提供。 |
-| **`Microsoft.Extensions.Hosting`** | Phase 1 (#296) | 互換あり（`8.x`） | 汎用ホスト（`Host.CreateApplicationBuilder`）、DI、構成（CLI 引数・環境変数）、ロギング、および `CancellationToken` / `SIGINT` によるグレースフルシャットダウン基盤を提供。 |
-| **`ModelContextProtocol.AspNetCore`** | Phase 3 | 互換あり | 公式 SDK の ASP.NET Core 統合パッケージ。`app.MapMcp()` により Streamable HTTP エンドポイントを提供し、Phase 1・Phase 2 で実装した `[McpServerToolType]` 群を無修正で HTTP 公開できる。 |
+| パッケージ名 | 導入フェーズ | 採用バージョン | .NET 8 互換 | 用途・選定理由 |
+| :--- | :---: | :---: | :---: | :--- |
+| **`ModelContextProtocol`** | Phase 1 (#310) | `2.4.0` | 互換あり | 公式 C# MCP SDK 本体。`Microsoft.Extensions.DependencyInjection` / `Hosting` とネイティブ統合され、`AddMcpServer()`, `WithStdioServerTransport()`, `WithToolsFromAssembly()`, `[McpServerToolType]` / `[McpServerTool]` 属性による宣言的ツール定義と JSON Schema 自動生成を提供。 |
+| **`Microsoft.Extensions.Hosting`** | Phase 1 (#310) | `8.0.1` | 互換あり（`8.x`） | 汎用ホスト（`Host.CreateApplicationBuilder`）、DI、構成（CLI 引数・環境変数）、ロギング、および `CancellationToken` / `SIGINT` によるグレースフルシャットダウン基盤を提供。 |
+| **`ModelContextProtocol.AspNetCore`** | Phase 3 | 未定 | 互換あり | 公式 SDK の ASP.NET Core 統合パッケージ。`app.MapMcp()` により Streamable HTTP エンドポイントを提供し、Phase 1・Phase 2 で実装した `[McpServerToolType]` 群を無修正で HTTP 公開できる。 |
 
-- **バージョン管理方針**: Phase 1 実装時点で NuGet に公開されている `.NET 8` 互換の最新安定版（例: `ModelContextProtocol` 安定版、`Microsoft.Extensions.Hosting` `8.0.x`）を明示バージョン指定で導入し、ビルド再現性を担保します。
+- **バージョン管理方針**: `.NET 8` 互換の安定版（`ModelContextProtocol 2.4.0`、`Microsoft.Extensions.Hosting 8.0.1`）を明示バージョン指定で導入し、ビルド再現性を担保しています。
 
 ---
 
