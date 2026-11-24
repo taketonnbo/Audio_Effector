@@ -78,7 +78,7 @@ public sealed class AlbumDetailViewTests
         }
     }
 
-    private static (AlbumDetailViewModel DetailVm, LibraryViewModel LibraryVm) CreateViewModels()
+    private static (AlbumDetailViewModel DetailVm, LibraryViewModel LibraryVm) CreateViewModels(bool isPlaying = false)
     {
         var trackRepoMock = new Mock<ITrackRepository>();
         var favoriteRepoMock = new Mock<IFavoriteRepository>();
@@ -91,6 +91,7 @@ public sealed class AlbumDetailViewTests
             eventBus);
 
         var audioServiceMock = new Mock<IAudioService>();
+        audioServiceMock.Setup(a => a.IsPlaying).Returns(isPlaying);
         var settingsServiceMock = new Mock<ISettingsService>();
         settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
 
@@ -608,38 +609,92 @@ public sealed class AlbumDetailViewTests
     }
 
     /// <summary>
-    /// 収録曲行のコンテキストメニューに仕様通りの項目が揃っていることを検証します。
+    /// 収録曲行のコンテキストメニューで動的ヘッダー（「再生」/「停止」「お気に入りに追加」/「お気に入りから解除」）と主要コマンドバインディングが正しく解決され、バインディングエラーが 0 件であることを検証します。
     /// </summary>
     [Fact]
-    public void TrackRowContextMenu_初期生成時_必要なメニュー項目が定義されていること()
+    public void TrackRowContextMenu_PlacementTarget設定時_動的ヘッダーと各コマンドが正しく解決されバインディングエラーが0件であること()
     {
         RunInStaThread(() =>
         {
             // Arrange
-            var (detailVm, libraryVm) = CreateViewModels();
+            var (detailVm, libraryVm) = CreateViewModels(isPlaying: true);
             using var disposableLibrary = libraryVm;
             using var disposableDetail = detailVm;
             detailVm.SetAlbum(CreateSampleAlbum());
 
+            using var listener = new BindingErrorTraceListener();
             EnsureApplicationResources();
             var sut = new AlbumDetailView { DataContext = detailVm };
             AttachThemeResources(sut.Resources, "DarkTheme.xaml");
 
-            // Act
+            // Act & Assert
             RunWithHostWindow(sut, null, _ =>
             {
-                var rowBorder = FindVisualChildren<Border>(sut).First(b => b.Name == "TrackRowBorder");
-                var contextMenu = Assert.IsType<ContextMenu>(rowBorder.ContextMenu);
-                var headers = contextMenu.Items.OfType<MenuItem>().Select(mi => mi.Header as string).ToArray();
+                var rowBorders = FindVisualChildren<Border>(sut).Where(b => b.Name == "TrackRowBorder").ToArray();
+                Assert.Equal(3, rowBorders.Length);
 
-                // Assert
-                Assert.Contains("次に再生", headers);
-                Assert.Contains("最後に再生", headers);
-                Assert.Contains("プレイリストに追加...", headers);
-                Assert.Contains("プロパティ", headers);
-                Assert.Contains("ファイルの場所を開く", headers);
-                Assert.Contains("削除", headers);
-                Assert.Equal(8, headers.Length);
+                // 1曲目: 未再生かつお気に入り登録済み
+                var firstRow = rowBorders[0];
+                var firstMenu = Assert.IsType<ContextMenu>(firstRow.ContextMenu);
+                firstMenu.PlacementTarget = firstRow;
+                firstMenu.Placement = PlacementMode.AbsolutePoint;
+                firstMenu.HorizontalOffset = -32000;
+                firstMenu.VerticalOffset = -32000;
+                firstMenu.DataContext = firstRow.DataContext;
+
+                try
+                {
+                    firstMenu.IsOpen = true;
+                    firstMenu.UpdateLayout();
+
+                    var menuItems = firstMenu.Items.OfType<MenuItem>().ToArray();
+                    Assert.Equal(8, menuItems.Length);
+                    Assert.Equal("再生", menuItems[0].Header);
+                    Assert.Same(detailVm.TogglePlayTrackCommand, menuItems[0].Command);
+                    Assert.Equal("次に再生", menuItems[1].Header);
+                    Assert.Same(detailVm.PlayNextTrackCommand, menuItems[1].Command);
+                    Assert.Equal("最後に再生", menuItems[2].Header);
+                    Assert.Same(detailVm.EnqueueTrackCommand, menuItems[2].Command);
+                    Assert.Equal("お気に入りから解除", menuItems[3].Header);
+                    Assert.Same(detailVm.ToggleFavoriteTrackCommand, menuItems[3].Command);
+                    Assert.Equal("プレイリストに追加...", menuItems[4].Header);
+                    Assert.Equal("プロパティ", menuItems[5].Header);
+                    Assert.Same(detailVm.ShowTrackPropertiesCommand, menuItems[5].Command);
+                    Assert.Equal("ファイルの場所を開く", menuItems[6].Header);
+                    Assert.Same(detailVm.OpenFileLocationCommand, menuItems[6].Command);
+                    Assert.Equal("削除", menuItems[7].Header);
+                    Assert.Same(detailVm.DeleteTrackCommand, menuItems[7].Command);
+                }
+                finally
+                {
+                    firstMenu.IsOpen = false;
+                }
+
+                // 2曲目: 再生中かつお気に入り未登録 → 「停止」「お気に入りに追加」
+                var secondRow = rowBorders[1];
+                var secondMenu = Assert.IsType<ContextMenu>(secondRow.ContextMenu);
+                secondMenu.PlacementTarget = secondRow;
+                secondMenu.Placement = PlacementMode.AbsolutePoint;
+                secondMenu.HorizontalOffset = -32000;
+                secondMenu.VerticalOffset = -32000;
+                secondMenu.DataContext = secondRow.DataContext;
+
+                try
+                {
+                    secondMenu.IsOpen = true;
+                    secondMenu.UpdateLayout();
+
+                    var secondItems = secondMenu.Items.OfType<MenuItem>().ToArray();
+                    Assert.Equal("停止", secondItems[0].Header);
+                    Assert.Same(detailVm.TogglePlayTrackCommand, secondItems[0].Command);
+                    Assert.Equal("お気に入りに追加", secondItems[3].Header);
+                }
+                finally
+                {
+                    secondMenu.IsOpen = false;
+                }
+
+                Assert.False(listener.HasErrors, $"ContextMenu 評価でバインディングエラーが検出されました: {string.Join("; ", listener.Errors)}");
             });
         });
     }

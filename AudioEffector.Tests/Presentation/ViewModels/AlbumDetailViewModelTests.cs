@@ -623,4 +623,62 @@ public sealed class AlbumDetailViewModelTests
         Assert.Null(sut.CoverImage);
         Assert.False(sut.IsPlaying);
     }
+
+    /// <summary>
+    /// TogglePlayTrackCommand で再生中トラックを指定した場合、再再生せず TogglePlayPause が呼び出されることを検証します
+    /// </summary>
+    [Fact]
+    public void TogglePlayTrackCommand_再生中トラック指定時_TogglePlayPauseが呼ばれ再再生しない()
+    {
+        // Arrange
+        var (sut, library, audioMock) = CreateSut();
+        using var _lib = library;
+        using var _sut = sut;
+
+        audioMock.Setup(a => a.IsPlaying).Returns(true);
+        var playingTrack = CreateTrack("Playing Track");
+        playingTrack.IsPlaying = true;
+        var album = new Album("RAM", "Daft Punk", 2013, [playingTrack]);
+        sut.SetAlbum(album);
+
+        bool playbackRequested = false;
+        sut.PlaybackRequested += (_, _, _, _) => playbackRequested = true;
+
+        // Act
+        sut.TogglePlayTrackCommand.Execute(playingTrack);
+
+        // Assert
+        audioMock.Verify(a => a.TogglePlayPause(), Times.Once);
+        audioMock.Verify(a => a.PlayTrack(It.IsAny<Track>()), Times.Never);
+        Assert.False(playbackRequested);
+    }
+
+    /// <summary>
+    /// TogglePlayTrackCommand で未再生トラックを指定した場合、通常の再生開始（SetPlaylist および PlayTrack）が実行されることを検証します
+    /// </summary>
+    [Fact]
+    public void TogglePlayTrackCommand_未再生トラック指定時_PlayTrackが呼ばれ再生開始される()
+    {
+        // Arrange
+        var (sut, library, audioMock) = CreateSut();
+        using var _lib = library;
+        using var _sut = sut;
+
+        audioMock.Setup(a => a.IsPlaying).Returns(true);
+        var idleTrack = CreateTrack("Idle Track");
+        idleTrack.IsPlaying = false;
+        var album = new Album("RAM", "Daft Punk", 2013, [idleTrack]);
+        sut.SetAlbum(album);
+
+        Track? startedTrack = null;
+        sut.PlaybackRequested += (_, startTrack, _, _) => startedTrack = startTrack;
+
+        // Act
+        sut.TogglePlayTrackCommand.Execute(idleTrack);
+
+        // Assert
+        audioMock.Verify(a => a.TogglePlayPause(), Times.Never);
+        audioMock.Verify(a => a.PlayTrack(idleTrack), Times.Once);
+        Assert.Same(idleTrack, startedTrack);
+    }
 }
