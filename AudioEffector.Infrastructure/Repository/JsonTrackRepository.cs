@@ -71,7 +71,7 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             return;
         }
 
-        if (!currentMetadata.Exists)
+        if (!forceReload && !currentMetadata.Exists)
         {
             _tracks.Clear();
             _lastLoadedMetadata = FileMetadataSnapshot.Missing;
@@ -82,22 +82,24 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
         try
         {
             string json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
-            var dtos = JsonSerializer.Deserialize<List<TrackDto>>(json);
+            var dtos = JsonSerializer.Deserialize<List<TrackDto>>(json) ?? throw new JsonException();
+            var tracks = dtos.Select(dto => dto.ToEntity()).ToList();
             _tracks.Clear();
-            if (dtos != null)
+            foreach (var track in tracks)
             {
-                foreach (var dto in dtos)
-                {
-                    var track = dto.ToEntity();
-                    _tracks[track.Id] = track;
-                }
+                _tracks[track.Id] = track;
             }
+        }
+        catch (FileNotFoundException)
+        {
+            _tracks.Clear();
+            currentMetadata = FileMetadataSnapshot.Missing;
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch
+        catch when (!forceReload)
         {
             // 読み込みエラー時は空のまま開始
             _tracks.Clear();
