@@ -3,11 +3,11 @@
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- テストデータ配列リテラルやテスト内カルチャ指定の軽微なアナライザ警告を抑制（MCPサーバ詳細設計書 2.2 準拠） -->
+    <NoWarn>$(NoWarn);CA1304;CA1311;CA1861</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,6 +24,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AudioEffector\AudioEffector.csproj" />
+    <ProjectReference Include="..\AudioEffector.Domain\AudioEffector.Domain.csproj" />
+    <ProjectReference Include="..\AudioEffector.Application\AudioEffector.Application.csproj" />
+    <ProjectReference Include="..\AudioEffector.Infrastructure\AudioEffector.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
