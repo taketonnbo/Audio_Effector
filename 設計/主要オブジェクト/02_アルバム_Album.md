@@ -20,7 +20,7 @@
 
 ## 3. 属性（プロパティ）定義
 
-| プロパティ名 | 型 | 説明 | コレクション表示 | 展開・詳細表示 | 実装プロパティ ([Album.cs](../../AudioEffector/Domain/Entities/Album.cs)) |
+| プロパティ名 | 型 | 説明 | コレクション表示 | 展開・詳細表示 | 実装プロパティ ([Album.cs](../../AudioEffector.Domain/Entities/Album.cs)) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **Title / Name** | `string` | アルバムタイトル名 | ○ | ○ | `Album.Title`, `Album.Name` |
 | **Artist** | `string` | アルバムアーティスト名 | ○ | ○ | `Album.Artist` |
@@ -45,7 +45,7 @@
 | **トラック一覧展開** | Expand Tracks | グリッド時: 下部トグルボタン押下 / リスト時: Expander押下 | 収録曲リスト（ソケットトレイまたはExpander）を展開 | 実装済み | `IsTracksExpanded` |
 | **プレイリスト追加** | Add to Playlist | アルバム内 `+` ボタン、または右クリック「プレイリストに追加...」 | プレイリスト選択ダイアログからアルバム収録曲を一括追加 | 実装済み | `ShowAddToPlaylistDialogCommand` ([PlaylistViewModel.cs](../../AudioEffector/Presentation/ViewModels/PlaylistViewModel.cs)) |
 | **削除する** | Delete | アルバム右クリック「削除」 | 確認ダイアログのうえアルバムと収録曲をライブラリ・お気に入りから除外 | 実装済み | `DeleteAlbumCommand` ([LibraryViewModel.cs](../../AudioEffector/Presentation/ViewModels/LibraryViewModel.cs)) |
-| **フォルダスキャン** | Scan Folder | フォルダ画面の「SCAN FOLDER」ボタン | 指定フォルダを走査しアルバム・楽曲を構築 | 実装済み | `ScanFolderAsync` ([LibraryApplicationService.cs](../../AudioEffector/Application/ApplicationServices/LibraryApplicationService.cs)) |
+| **フォルダスキャン** | Scan Folder | フォルダ画面の「SCAN FOLDER」ボタン | 指定フォルダを走査しアルバム・楽曲を構築 | 実装済み | `ScanFolderAsync` ([LibraryApplicationService.cs](../../AudioEffector.Application/ApplicationServices/LibraryApplicationService.cs)) |
 | **詳細情報画面の表示** | Show Details | グリッド右下情報ボタン、または右クリック「アルバム詳細情報を表示」 | 中央ワークスペースに `AlbumDetailView`（`ViewType.AlbumDetail`）を表示し、詳細メタデータと全収録曲を操作可能にする | 仕様策定済み (#188 / #289) | `ShowAlbumInfoCommand` ([LibraryViewModel.cs](../../AudioEffector/Presentation/ViewModels/LibraryViewModel.cs)) / `AlbumDetailViewModel` |
 
 ## 5. 関連仕様・設計指針

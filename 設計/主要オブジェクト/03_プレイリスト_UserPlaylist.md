@@ -18,7 +18,7 @@
 
 ## 3. 属性（プロパティ）定義
 
-| プロパティ名 | 型 | 説明 | コレクション表示 | シングル表示 | 実装プロパティ ([UserPlaylist.cs](../../AudioEffector/Domain/Entities/UserPlaylist.cs)) |
+| プロパティ名 | 型 | 説明 | コレクション表示 | シングル表示 | 実装プロパティ ([UserPlaylist.cs](../../AudioEffector.Domain/Entities/UserPlaylist.cs)) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **Id** | `PlaylistId` | プレイリストの一意識別子 | - | - | `UserPlaylist.Id` |
 | **Name** | `string` | プレイリストのタイトル | ○ | ○ | `UserPlaylist.Name` |
@@ -43,7 +43,7 @@
 | **楽曲を追加する** | Add Track | 楽曲/アルバムの `+` ボタン、または右クリック「プレイリストに追加...」 | `PlaylistSelectionDialog` で選択したプレイリストへ重複を除いて楽曲を追加 | 実装済み | `ShowAddToPlaylistDialogCommand` |
 | **楽曲を除外する** | Remove Track | シングルビュー内の楽曲右端「`-`」ボタン | 確認ダイアログのうえプレイリストから該当曲を除外（お気に入り表示時は確認なしで即解除） | 実装済み | `RemoveFromPlaylistCommand` |
 | **一覧へ戻る** | Close | シングルビュー右上の閉じるボタン「`X`」 | `PlaylistSelectorView`（プレイリスト一覧）へ戻る | 実装済み | `ShowPlaylistSelectorCommand` |
-| **曲順並び替え / M3U入出力 / スマートプレイリスト** | Reorder / M3U / Smart | D&D曲順変更（Domain/App層 `ReorderTrackAsync` は実装済み、UI未接続）、M3Uエクスポート/インポート | プレイリストの高度な編集・外部連携 | 拡張構想 (#233) | [PlaylistApplicationService.cs](../../AudioEffector/Application/ApplicationServices/PlaylistApplicationService.cs) |
+| **曲順並び替え / M3U入出力 / スマートプレイリスト** | Reorder / M3U / Smart | D&D曲順変更（Domain/App層 `ReorderTrackAsync` は実装済み、UI未接続）、M3Uエクスポート/インポート | プレイリストの高度な編集・外部連携 | 拡張構想 (#233) | [PlaylistApplicationService.cs](../../AudioEffector.Application/ApplicationServices/PlaylistApplicationService.cs) |
 
 ## 5. 拡張設計指針
 - **UI上でのD&D曲順並び替え接続**: Domain層（`UserPlaylist.Reorder`）およびApplication層（`PlaylistApplicationService.ReorderTrackAsync`）に実装済みの順序変更ロジックを `PlaylistTracksView` のドラッグ＆ドロップ操作へ接続する。

@@ -117,7 +117,7 @@
 
 ## 8. 関連Issue・仕様書
 
-- [RecentView.xaml](../../../AudioEffector/Presentation/Views/RecentView.xaml) / [RecentViewModel.cs](../../../AudioEffector/Presentation/ViewModels/RecentViewModel.cs) / [JsonRecentTrackRepository.cs](../../../AudioEffector/Infrastructure/Repository/JsonRecentTrackRepository.cs)
+- [RecentView.xaml](../../../AudioEffector/Presentation/Views/RecentView.xaml) / [RecentViewModel.cs](../../../AudioEffector/Presentation/ViewModels/RecentViewModel.cs) / [JsonRecentTrackRepository.cs](../../../AudioEffector.Infrastructure/Repository/JsonRecentTrackRepository.cs)
 - [主要オブジェクト仕様: 楽曲 (`Track`)](../../主要オブジェクト/01_楽曲_Track.md)
 - [主要オブジェクト仕様: 再生キュー (`PlayQueue`)](../../主要オブジェクト/04_再生キュー_PlayQueue.md)
 - [インタラクション標準化ガイドライン](../../主要オブジェクト/インタラクション標準化ガイドライン.md)
