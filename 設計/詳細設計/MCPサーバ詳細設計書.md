@@ -464,6 +464,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 #### 実装詳細・整合性・エラーケース
 
 - **リポジトリ鮮度・お気に入り照合**:
+  - WPF 側の通常読み込み・再スキャン（`LibraryViewModel.LoadLibraryAsync`）および削除操作で確定した楽曲一覧は、`LibraryApplicationService.SyncLibraryTracksAsync`（内部で既存 `TrackId` を維持しつつ `ITrackRepository.ReplaceAllAsync` により原子的置換）を通じて `tracks.json` へ同期されます。スキャン対象拡張子は `LibraryApplicationService.SupportedAudioExtensions`（`.mp3`, `.wav`, `.aiff`, `.wma`, `.m4a`, `.mp4`, `.flac`, `.aac`, `.ogg`, `.opus`, `.alac`）として WPF・Application 間で共通化しています。
   - `ITrackRepository.GetAllAsync` により `JsonTrackRepository` のメタデータ鮮度監視を通じて最新の全トラックを取得します。
   - 検索条件で候補集合を狭める前に、全トラックと `IFavoriteRepository.GetAllAsync`（`favorites.json`）を `FavoriteTrackMatcher.Reconcile` で読み取り専用照合し、お気に入り対応先のトラック ID 集合および各トラックの `IsFavorite` を一貫して確定させます（検索時の不要なファイル書き込みを回避しつつ、メタデータ優先・パスフォールバックによる誤割り当てを防止）。
   - お気に入り確定後に `keyword` / `artist` / `album` / `genre` / `isFavoriteOnly` の各フィルタ条件を適用します。
