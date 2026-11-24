@@ -325,6 +325,88 @@ public sealed class JsonRepositoryConcurrencyAndDiTests : IDisposable
         await Assert.ThrowsAsync<FileLockTimeoutException>(() => sut.SaveSettingsAsync(new AppSettings()));
     }
 
+    /// <summary>旧形式の設定を読み込み、両APIの保存後にも設定とプリセットを復元できることを検証します</summary>
+    [Theory]
+    [InlineData("""{"Volume":0.35,"StartMinimized":true}""", false)]
+    [InlineData("""{"CustomPreset":"legacy"}""", true)]
+    public async Task 設定の交互更新_旧形式からの移行後も両方の値を保持する(string legacyJson, bool hasPreset)
+    {
+        // Arrange
+        var directory = new DataDirectoryProvider(_tempDirectory);
+        var path = directory.GetFilePath("settings.json");
+        await File.WriteAllTextAsync(path, legacyJson);
+        using var repository = new JsonSettingsRepository(path);
+        using var sut = new SettingsApplicationService(repository, directory, JsonFileLockHelper.Default);
+
+        // Act
+        if (hasPreset)
+        {
+            sut.SaveSettings(new AppSettings { Volume = 0.35f });
+            Assert.Equal("legacy", await sut.GetSettingAsync<string>("CustomPreset"));
+        }
+        await sut.SaveSettingAsync("CustomPreset", "updated");
+        using var secondRepository = new JsonSettingsRepository(path);
+        using var second = new SettingsApplicationService(secondRepository, directory, JsonFileLockHelper.Default);
+        await Task.WhenAll(
+            Task.Run(() => sut.UpdateSettings(settings => settings.AutoStart = true)),
+            second.UpdateSettingsAsync(settings => settings.AudioBufferSizeMs = 240));
+
+        // Assert
+        var saved = await second.LoadSettingsAsync();
+        Assert.Equal(0.35f, saved.Volume);
+        Assert.Equal(!hasPreset, saved.StartMinimized);
+        Assert.True(saved.AutoStart);
+        Assert.Equal(240, saved.AudioBufferSizeMs);
+        Assert.Equal("updated", await second.GetSettingAsync<string>("CustomPreset"));
+    }
+
+    /// <summary>同一プレイリストへの並行追加で両方の曲を保持することを検証します</summary>
+    [Fact]
+    public async Task プレイリスト_別インスタンスから同時に追加した両方の曲を保持する()
+    {
+        // Arrange
+        var path = Path.Combine(_tempDirectory, "playlists.json");
+        using var first = new JsonPlaylistRepository(path);
+        using var second = new JsonPlaylistRepository(path);
+        var playlist = new UserPlaylist(PlaylistId.New(), "Favorites");
+        await first.SaveAsync(playlist);
+        var firstTrack = TrackId.New();
+        var secondTrack = TrackId.New();
+        var firstService = new PlaylistApplicationService(first, Moq.Mock.Of<ITrackRepository>(), new InMemoryEventBus());
+        var secondService = new PlaylistApplicationService(second, Moq.Mock.Of<ITrackRepository>(), new InMemoryEventBus());
+
+        // Act
+        await Task.WhenAll(firstService.AddTrackAsync(playlist.Id, firstTrack), secondService.AddTrackAsync(playlist.Id, secondTrack));
+
+        // Assert
+        using var reader = new JsonPlaylistRepository(path);
+        var saved = await reader.GetByIdAsync(playlist.Id);
+        Assert.Equal(2, saved!.TrackIds.Count);
+        Assert.Contains(firstTrack, saved.TrackIds);
+        Assert.Contains(secondTrack, saved.TrackIds);
+    }
+
+    /// <summary>既存ライブラリの再読込に失敗した場合に元ファイルが保持されることを検証します</summary>
+    [Theory]
+    [InlineData("[")]
+    [InlineData("null")]
+    [InlineData("""[{"FilePath":""}]""")]
+    public async Task ライブラリ_解析または復元に失敗した場合に元ファイルを保持する(string invalid)
+    {
+        // Arrange
+        var path = Path.Combine(_tempDirectory, "tracks.json");
+        using var sut = new JsonTrackRepository(path);
+        await sut.SaveAsync(CreateSampleTrack("First"));
+        await File.WriteAllTextAsync(path, invalid);
+
+        // Act
+        var error = await Record.ExceptionAsync(() => sut.SaveAsync(CreateSampleTrack("Second")));
+
+        // Assert
+        Assert.NotNull(error);
+        Assert.Equal(invalid, await File.ReadAllTextAsync(path));
+    }
+
     /// <summary>
     /// AddInfrastructureServicesにカスタムdataDirectoryを指定した場合、全リポジトリおよびSettingsApplicationServiceが指定ディレクトリ配下へ読み書きすることを検証します。
     /// </summary>
