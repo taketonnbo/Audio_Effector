@@ -557,7 +557,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 - **パイプ名・トランスポート**: 既存 `AppIpcServer` と同一のユーザー／セッション限定 Named Pipe（`AudioEffector.Ipc.v1.<CurrentUserSidHash>.s<SessionId>`、`PipeOptions.CurrentUserOnly`）上で改行区切り UTF-8 JSON（NDJSON）を送受信します。
 - **リクエスト JSON**:
   ```json
-  {"command":"play_track","trackId":"11111111-2222-3333-4444-555555555555"}
+  {"command":"play_track","trackId":"11111111-2222-3333-4444-555555555555","deadlineUtc":"2026-11-25T12:00:03Z"}
   ```
 - **レスポンス JSON（成功時）**:
   ```json
@@ -567,16 +567,18 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   ```json
   {"ok":false,"errorCode":"NOT_FOUND","error":"..."}
   ```
-- **タイムアウト分離**:
-  - `IpcPlaybackControlGateway` はパイプ接続確立（既定 `500ms`）とコマンド送受信（既定 `3000ms`）を分離して監視します。接続確立前のタイムアウト・未存在は **`WPF_APP_NOT_RUNNING`**（`launch_app` 案内付き）、接続後の応答タイムアウト・切断・不正応答は **`IPC_CONNECTION_FAILED`** へ分類します。
-- **WPF 側トラック解決・画面同期**:
+- **タイムアウト分離・期限伝播・応答検証**:
+  - `IpcPlaybackControlGateway` はパイプ接続確立（既定 `500ms`）とコマンド送受信（既定 `3000ms`）を分離して監視し、リクエストにクライアント有効期限（`deadlineUtc`）を付与して WPF 側へ伝播します。接続確立前のタイムアウト・未存在は **`WPF_APP_NOT_RUNNING`**（`launch_app` 案内付き）、接続後の応答タイムアウト・切断・必須項目（`playbackState` / `track`）欠損等の不正応答は **`IPC_CONNECTION_FAILED`** へ分類します。
+  - `--data-dir` によるカスタムデータディレクトリ使用時は、MCP 側リポジトリ（`ITrackRepository`）で `trackId` から `filePath` を解決して WPF 側へ送信することで、検索と再生のライブラリ参照先を一致させます。
+- **WPF 側トラック解決・再生開始待機・画面同期**:
   - `AudioEffector/App.xaml.cs` は `ITrackRepository`・`LibraryApplicationService`・`IAudioService`・`IUiDispatcher` を注入した `PlaybackIpcCommandHandler` を `AppIpcServer` へ登録して待受開始します。
-  - `trackId` 指定時は `ITrackRepository.GetByIdAsync` で取得し、`filePath` 指定時はファイル存在確認後に `LibraryApplicationService.GetTrackByPathAsync`（リポジトリ優先＋メタデータ抽出フォールバック）でトラックを解決します。
-  - 再生要求は必ず `IUiDispatcher.Invoke(() => _audioService.PlayTrack(track))` で UI スレッドへディスパッチされ、`IAudioService` の `TrackChanged` / `PlaylistChanged` / `PlaybackStateChanged` イベント経由で `MainViewModel`・`PlayerControlViewModel`・再生キュー・ミニプレイヤー・スペクトラムアナライザが完全リアルタイム同期されます。ウィンドウ状態（通常メイン画面／ミニプレイヤー）は変更せずそのまま維持します。
+  - `trackId` 指定時は `ITrackRepository.GetByIdAsync` で取得し、`filePath` 指定時は絶対パス検証（`Path.IsPathFullyQualified`）およびファイル存在確認後に `LibraryApplicationService.GetTrackByPathAsync`（リポジトリ優先＋メタデータ抽出フォールバック）でトラックを解決します。
+  - `AppIpcServer` および `PlaybackIpcCommandHandler` は `deadlineUtc` に連動したキャンセル制御を行い、`IUiDispatcher.Invoke` 上で再生を開始する直前にも期限超過を再確認してタイムアウト後の遅延再生を防止します。
+  - 再生要求は `IAudioService.PlayTrackAsync` によりデコードおよび出力デバイス初期化・再生開始完了まで非同期で待機し、破損ファイル等で再生開始に失敗した場合は `INTERNAL_ERROR` を返却します。正常開始時は `IAudioService` の `TrackChanged` / `PlaylistChanged` / `PlaybackStateChanged` イベント経由で `MainViewModel`・`PlayerControlViewModel`・再生キュー・ミニプレイヤー・スペクトラムアナライザが完全リアルタイム同期され、ウィンドウ状態（通常メイン画面／ミニプレイヤー）は変更せずそのまま維持します。
 
 #### エラーケース
 
-- `trackId`・`filePath` 両方未指定、または `trackId` が無効・空 GUID → `INVALID_PARAMETER`
+- `trackId`・`filePath` 両方未指定、`trackId` が無効・空 GUID、または `filePath` に相対パスを指定 → `INVALID_PARAMETER`
 - WPF 本体未起動（パイプ接続不可）→ `WPF_APP_NOT_RUNNING`（`launch_app` ツールでの事前起動案内メッセージ付き）
 - 指定 `trackId` に一致するトラック未存在 → `NOT_FOUND`
 - 対象音声ファイルがディスク上に未存在 → `FILE_NOT_FOUND`
