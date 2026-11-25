@@ -239,6 +239,41 @@ public class LibraryApplicationService
     }
 
     /// <summary>
+    /// リポジトリに永続化されている既存トラックのパス別（TrackId, AlbumId）および作品キー別 AlbumId マップを取得します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>ファイルパス別の ID マップと作品キー別の AlbumId マップ。</returns>
+    public async Task<(
+        IReadOnlyDictionary<string, (TrackId TrackId, AlbumId AlbumId)> TrackIdentitiesByPath,
+        IReadOnlyDictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId> AlbumIdsByKey)> GetPersistedIdentitiesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var existingTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)
+            ?? Array.Empty<Track>();
+
+        var trackIdentitiesByPath = new Dictionary<string, (TrackId TrackId, AlbumId AlbumId)>(existingTracks.Count, StringComparer.OrdinalIgnoreCase);
+        var albumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>();
+        var existingResolved = AlbumGroupingResolver.Resolve(existingTracks);
+
+        foreach (var track in existingTracks)
+        {
+            if (!string.IsNullOrWhiteSpace(track.FilePath))
+            {
+                trackIdentitiesByPath.TryAdd(track.FilePath, (track.Id, track.AlbumId));
+            }
+
+            if (existingResolved.TryGetValue(track.Id, out var identity))
+            {
+                albumIdsByKey.TryAdd(
+                    AlbumGroupingResolver.CreateGroupKey(track.Album, identity.AlbumArtist),
+                    track.AlbumId);
+            }
+        }
+
+        return (trackIdentitiesByPath, albumIdsByKey);
+    }
+
+    /// <summary>
     /// 現在のライブラリ楽曲一覧（追加・タグ更新・削除・フォルダ切替後）をリポジトリへ完全同期します。
     /// 同一ファイルパスの既存トラックが存在する場合は、既存の <see cref="TrackId"/> を維持したうえで最新メタデータを保存します。
     /// </summary>

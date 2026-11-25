@@ -457,10 +457,13 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             {
                 if (token.IsCancellationRequested) return;
 
-                IReadOnlyDictionary<string, Domain.ValueObjects.TrackId> persistedIdsByPath;
+                IReadOnlyDictionary<string, (TrackId TrackId, AlbumId AlbumId)> persistedIdentitiesByPath;
+                IReadOnlyDictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId> persistedAlbumIdsByKey;
                 try
                 {
-                    persistedIdsByPath = await _libraryService.GetTrackIdsByPathAsync(token).ConfigureAwait(false);
+                    (persistedIdentitiesByPath, persistedAlbumIdsByKey) = await _libraryService
+                        .GetPersistedIdentitiesAsync(token)
+                        .ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -468,7 +471,8 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 }
                 catch
                 {
-                    persistedIdsByPath = new Dictionary<string, Domain.ValueObjects.TrackId>(StringComparer.OrdinalIgnoreCase);
+                    persistedIdentitiesByPath = new Dictionary<string, (TrackId TrackId, AlbumId AlbumId)>(StringComparer.OrdinalIgnoreCase);
+                    persistedAlbumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>();
                 }
 
                 if (token.IsCancellationRequested) return;
@@ -578,10 +582,10 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 {
                     if (parsedTracksByPath.TryGetValue(path, out var addedTrack))
                     {
-                        if (persistedIdsByPath.TryGetValue(addedTrack.FilePath, out var existingId) &&
-                            !addedTrack.Id.Equals(existingId))
+                        if (persistedIdentitiesByPath.TryGetValue(addedTrack.FilePath, out var existingIdentity) &&
+                            (!addedTrack.Id.Equals(existingIdentity.TrackId) || !addedTrack.AlbumId.Equals(existingIdentity.AlbumId)))
                         {
-                            addedTrack = CloneTrackWithId(addedTrack, existingId);
+                            addedTrack = CloneTrackWithIds(addedTrack, existingIdentity.TrackId, existingIdentity.AlbumId);
                         }
 
                         addedTracks.Add(addedTrack);
@@ -648,7 +652,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     bool hasTrackDiff = removedTracks.Count > 0 || addedTracks.Count > 0 || updatedCount > 0 || (Tracks.Count > 0 && Albums.Count == 0);
                     if (hasTrackDiff)
                     {
-                        SyncAlbumsFromTracks();
+                        SyncAlbumsFromTracks(persistedAlbumIdsByKey);
                     }
 
                     // 6. お気に入り状態の再照合（フォルダ移動・パス変更時もメタデータ一致でパスを自動更新）
@@ -778,7 +782,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         destination.IsHiRes = source.IsHiRes;
     }
 
-    private static Track CloneTrackWithId(Track source, Domain.ValueObjects.TrackId id)
+    private static Track CloneTrackWithIds(Track source, TrackId id, AlbumId albumId)
     {
         return new Track(
             id: id,
@@ -797,16 +801,25 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             isFavorite: source.IsFavorite,
             isLossless: source.IsLossless,
             isHiRes: source.IsHiRes,
-            albumId: source.AlbumId,
+            albumId: albumId,
             albumArtist: source.AlbumArtist);
     }
 
-    private void SyncAlbumsFromTracks()
+    private void SyncAlbumsFromTracks(
+        IReadOnlyDictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>? persistedAlbumIdsByKey = null)
     {
         var existingAlbumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>(Albums.Count);
         foreach (var album in Albums)
         {
             existingAlbumIdsByKey.TryAdd(AlbumGroupingResolver.CreateGroupKey(album.Title, album.Artist), album.Id);
+        }
+
+        if (persistedAlbumIdsByKey != null)
+        {
+            foreach (var kvp in persistedAlbumIdsByKey)
+            {
+                existingAlbumIdsByKey.TryAdd(kvp.Key, kvp.Value);
+            }
         }
 
         var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(Tracks, existingAlbumIdsByKey);
