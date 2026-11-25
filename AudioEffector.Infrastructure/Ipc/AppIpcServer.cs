@@ -221,9 +221,24 @@ public sealed class AppIpcServer : IDisposable
             return SerializeResponse(AppIpcResponse.Failure(AppIpcErrorCodes.UNSUPPORTED_COMMAND, "unsupported_command"));
         }
 
+        CancellationTokenSource? deadlineCts = null;
+        CancellationToken effectiveToken = cancellationToken;
+        if (request.DeadlineUtc.HasValue)
+        {
+            TimeSpan remaining = request.DeadlineUtc.Value - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new OperationCanceledException("IPC リクエストの有効期限を超過しているため処理を中止します。");
+            }
+
+            deadlineCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadlineCts.CancelAfter(remaining);
+            effectiveToken = deadlineCts.Token;
+        }
+
         try
         {
-            AppIpcResponse response = await _commandHandler.HandleAsync(request, cancellationToken).ConfigureAwait(false);
+            AppIpcResponse response = await _commandHandler.HandleAsync(request, effectiveToken).ConfigureAwait(false);
             return SerializeResponse(response);
         }
         catch (OperationCanceledException)
@@ -234,6 +249,10 @@ public sealed class AppIpcServer : IDisposable
         {
             Logger.Error(ex, "Named Pipe IPC コマンド処理中に予期しないエラーが発生しました（Command: {0}）。", request.Command);
             return SerializeResponse(AppIpcResponse.Failure(AppIpcErrorCodes.INTERNAL_ERROR, "internal_error"));
+        }
+        finally
+        {
+            deadlineCts?.Dispose();
         }
     }
 

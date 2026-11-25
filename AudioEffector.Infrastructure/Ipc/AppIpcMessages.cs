@@ -45,10 +45,12 @@ public static class AppIpcErrorCodes
 /// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>play_track</c>）。</param>
 /// <param name="TrackId">再生対象トラックの GUID 文字列（任意）。</param>
 /// <param name="FilePath">再生対象音声ファイルの絶対パス（任意）。</param>
+/// <param name="DeadlineUtc">クライアント側が設定した要求の有効期限（UTC、任意）。期限超過時は処理を実行しない。</param>
 public sealed record AppIpcRequest(
     string Command,
     string? TrackId = null,
-    string? FilePath = null);
+    string? FilePath = null,
+    DateTimeOffset? DeadlineUtc = null);
 
 /// <summary>
 /// Named Pipe IPC 応答で返却する再生中トラック情報です。

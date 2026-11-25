@@ -23,6 +23,7 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
     private readonly IAudioService _audioService;
     private readonly IUiDispatcher _uiDispatcher;
     private readonly Func<string, bool> _fileExists;
+    private readonly Func<DateTimeOffset> _utcNow;
 
     /// <summary>
     /// <see cref="PlaybackIpcCommandHandler"/> の新しいインスタンスを初期化します。
@@ -36,24 +37,26 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
         LibraryApplicationService libraryService,
         IAudioService audioService,
         IUiDispatcher uiDispatcher)
-        : this(trackRepository, libraryService, audioService, uiDispatcher, File.Exists)
+        : this(trackRepository, libraryService, audioService, uiDispatcher, File.Exists, static () => DateTimeOffset.UtcNow)
     {
     }
 
     /// <summary>
-    /// ファイル存在確認デリゲートを差し替え可能なコンストラクタ（単体テスト用）。
+    /// ファイル存在確認および現在時刻取得デリゲートを差し替え可能なコンストラクタ（単体テスト用）。
     /// </summary>
     /// <param name="trackRepository">トラックリポジトリ。</param>
     /// <param name="libraryService">楽曲ライブラリアプリケーションサービス。</param>
     /// <param name="audioService">オーディオ再生サービス。</param>
     /// <param name="uiDispatcher">UI スレッドディスパッチャー。</param>
     /// <param name="fileExists">ファイル存在確認デリゲート。</param>
+    /// <param name="utcNow">現在 UTC 時刻取得デリゲート（省略時は <see cref="DateTimeOffset.UtcNow"/>）。</param>
     internal PlaybackIpcCommandHandler(
         ITrackRepository trackRepository,
         LibraryApplicationService libraryService,
         IAudioService audioService,
         IUiDispatcher uiDispatcher,
-        Func<string, bool> fileExists)
+        Func<string, bool> fileExists,
+        Func<DateTimeOffset>? utcNow = null)
     {
         ArgumentNullException.ThrowIfNull(trackRepository);
         ArgumentNullException.ThrowIfNull(libraryService);
@@ -66,6 +69,7 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
         _audioService = audioService;
         _uiDispatcher = uiDispatcher;
         _fileExists = fileExists;
+        _utcNow = utcNow ?? (static () => DateTimeOffset.UtcNow);
     }
 
     /// <inheritdoc />
@@ -83,6 +87,8 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
 
     private async Task<AppIpcResponse> HandlePlayTrackAsync(AppIpcRequest request, CancellationToken cancellationToken)
     {
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
         bool hasTrackId = !string.IsNullOrWhiteSpace(request.TrackId);
         bool hasFilePath = !string.IsNullOrWhiteSpace(request.FilePath);
 
@@ -124,6 +130,13 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
         else
         {
             string trimmedPath = request.FilePath!.Trim();
+            if (!Path.IsPathFullyQualified(trimmedPath))
+            {
+                return AppIpcResponse.Failure(
+                    AppIpcErrorCodes.INVALID_PARAMETER,
+                    "filePath には絶対パスを指定してください。");
+            }
+
             if (!_fileExists(trimmedPath))
             {
                 return AppIpcResponse.Failure(
@@ -143,10 +156,36 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
             }
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
 
-        // ウィンドウ状態（メイン画面／ミニプレイヤー）は変更せず、UI スレッド経由で IAudioService へ再生を委譲し画面全体を同期させる
-        _uiDispatcher.Invoke(() => _audioService.PlayTrack(resolvedTrack));
+        // ウィンドウ状態（メイン画面／ミニプレイヤー）は変更せず、UI スレッド上で直前にも期限確認したうえで再生開始を待機する
+        Task<bool>? playTask = null;
+        bool abortedBeforePlayback = false;
+        _uiDispatcher.Invoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || IsExpired(request.DeadlineUtc))
+            {
+                abortedBeforePlayback = true;
+                return;
+            }
+
+            playTask = _audioService.PlayTrackAsync(resolvedTrack, cancellationToken);
+        });
+
+        if (abortedBeforePlayback || playTask is null)
+        {
+            throw new OperationCanceledException("要求期限を超過したため再生開始を中止しました。", cancellationToken);
+        }
+
+        bool started = await playTask.ConfigureAwait(false);
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        if (!started)
+        {
+            return AppIpcResponse.Failure(
+                AppIpcErrorCodes.INTERNAL_ERROR,
+                "音声ファイルの再生開始に失敗しました。");
+        }
 
         var trackInfo = new AppIpcTrackInfo(
             Id: resolvedTrack.Id.Value,
@@ -158,5 +197,19 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
             FilePath: resolvedTrack.FilePath);
 
         return AppIpcResponse.SuccessPlayback(PLAYBACK_STATE_PLAYING, trackInfo);
+    }
+
+    private bool IsExpired(DateTimeOffset? deadlineUtc)
+    {
+        return deadlineUtc.HasValue && _utcNow() >= deadlineUtc.Value;
+    }
+
+    private void ThrowIfCancelledOrExpired(DateTimeOffset? deadlineUtc, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (IsExpired(deadlineUtc))
+        {
+            throw new OperationCanceledException("要求期限を超過したため処理を中止しました。", cancellationToken);
+        }
     }
 }
