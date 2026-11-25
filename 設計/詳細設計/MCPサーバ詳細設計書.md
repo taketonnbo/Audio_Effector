@@ -569,7 +569,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   ```
 - **タイムアウト分離・期限伝播・応答検証**:
   - `IpcPlaybackControlGateway` はパイプ接続確立（既定 `500ms`）とコマンド送受信（既定 `3000ms`）を分離して監視し、リクエストにクライアント有効期限（`deadlineUtc`）を付与して WPF 側へ伝播します。接続確立前のタイムアウト・未存在は **`WPF_APP_NOT_RUNNING`**（`launch_app` 案内付き）、接続後の応答タイムアウト・切断・必須項目（`playbackState` / `track`）欠損等の不正応答は **`IPC_CONNECTION_FAILED`** へ分類します。
-  - `--data-dir` によるカスタムデータディレクトリ使用時は、MCP 側リポジトリ（`ITrackRepository`）で `trackId` から `filePath` を解決して WPF 側へ送信することで、検索と再生のライブラリ参照先を一致させます。
+  - `--data-dir` によるカスタムデータディレクトリ使用時は、MCP 側リポジトリ（`ITrackRepository`）で `trackId` から `filePath` を解決して WPF 側へ送信し、成功応答の `track.id` には MCP 側で解決した `trackId` を引き継ぐことで、検索と再生のライブラリ参照先および再利用可能な ID を一致させます。
 - **WPF 側トラック解決・再生開始待機・画面同期**:
   - `AudioEffector/App.xaml.cs` は `ITrackRepository`・`LibraryApplicationService`・`IAudioService`・`IUiDispatcher` を注入した `PlaybackIpcCommandHandler` を `AppIpcServer` へ登録して待受開始します。
   - `trackId` 指定時は `ITrackRepository.GetByIdAsync` で取得し、`filePath` 指定時は絶対パス検証（`Path.IsPathFullyQualified`）およびファイル存在確認後に `LibraryApplicationService.GetTrackByPathAsync`（リポジトリ優先＋メタデータ抽出フォールバック）でトラックを解決します。
