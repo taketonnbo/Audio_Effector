@@ -25,6 +25,11 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
     public const string MINI_PLAYER_ARGUMENT = "--mini-player";
 
     /// <summary>
+    /// 通常ウィンドウ起動時に WPF 本体へ渡す CLI 引数（StartMinimized 設定を抑止して通常表示する）。
+    /// </summary>
+    public const string NORMAL_ARGUMENT = "--normal";
+
+    /// <summary>
     /// ミニプレイヤー起動モードを表す応答文字列。
     /// </summary>
     public const string MODE_MINI_PLAYER = "mini_player";
@@ -59,7 +64,7 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
         LoggerMessage.Define(
             LogLevel.Information,
             new EventId(2002, "WpfAppAlreadyRunning"),
-            "Audio Effector 本体はすでに起動済みのため、新規起動をスキップします。");
+            "Audio Effector 本体はすでに起動済み（または起動進行中）のため、新規起動をスキップします。");
 
     private static readonly Action<ILogger, string, Exception?> LogExecutableNotFoundDelegate =
         LoggerMessage.Define<string>(
@@ -73,18 +78,23 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
     private readonly Func<string, bool> _fileExists;
     private readonly Func<bool> _isAlreadyRunning;
     private readonly Func<ProcessStartInfo, ILaunchedProcess?> _processStarter;
-    private readonly Func<CancellationToken, Task<bool>>? _ipcReadinessProbe;
+    private readonly Func<CancellationToken, Task<bool>> _ipcReadinessProbe;
     private readonly TimeSpan _readyTimeout;
     private readonly TimeSpan _pollInterval;
     private readonly SemaphoreSlim _launchLock = new(1, 1);
+    private ILaunchedProcess? _trackedProcess;
     private bool _disposed;
 
     /// <summary>
     /// <see cref="WpfAppLauncher"/> の新しいインスタンスを初期化します。
     /// </summary>
     /// <param name="options">MCP サーバ起動オプション。</param>
+    /// <param name="ipcReadinessProbe">WPF 本体の IPC 待受準備完了を確認するプローブ。</param>
     /// <param name="logger">診断ロガー。</param>
-    public WpfAppLauncher(McpServerOptions options, ILogger<WpfAppLauncher> logger)
+    public WpfAppLauncher(
+        McpServerOptions options,
+        IIpcReadinessProbe ipcReadinessProbe,
+        ILogger<WpfAppLauncher> logger)
         : this(
             options,
             logger,
@@ -92,7 +102,7 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
             File.Exists,
             IsSingleInstanceMutexActive,
             StartSystemProcess,
-            ipcReadinessProbe: null,
+            (ipcReadinessProbe ?? throw new ArgumentNullException(nameof(ipcReadinessProbe))).IsReadyAsync,
             DefaultReadyTimeout,
             DefaultPollInterval)
     {
@@ -107,7 +117,7 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
     /// <param name="fileExists">実行ファイル存在確認デリゲート。</param>
     /// <param name="isAlreadyRunning">起動済み判定デリゲート。</param>
     /// <param name="processStarter">プロセス起動デリゲート。</param>
-    /// <param name="ipcReadinessProbe">IPC 準備完了確認デリゲート（任意）。</param>
+    /// <param name="ipcReadinessProbe">IPC 準備完了確認デリゲート。</param>
     /// <param name="readyTimeout">起動待機タイムアウト時間（任意）。</param>
     /// <param name="pollInterval">起動待機ポーリング間隔（任意）。</param>
     internal WpfAppLauncher(
@@ -117,7 +127,7 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
         Func<string, bool> fileExists,
         Func<bool> isAlreadyRunning,
         Func<ProcessStartInfo, ILaunchedProcess?> processStarter,
-        Func<CancellationToken, Task<bool>>? ipcReadinessProbe = null,
+        Func<CancellationToken, Task<bool>> ipcReadinessProbe,
         TimeSpan? readyTimeout = null,
         TimeSpan? pollInterval = null)
     {
@@ -127,6 +137,7 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
         ArgumentNullException.ThrowIfNull(fileExists);
         ArgumentNullException.ThrowIfNull(isAlreadyRunning);
         ArgumentNullException.ThrowIfNull(processStarter);
+        ArgumentNullException.ThrowIfNull(ipcReadinessProbe);
 
         _options = options;
         _logger = logger;
@@ -164,15 +175,19 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
         await _launchLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_isAlreadyRunning())
+            bool trackedAlive = IsTrackedProcessAlive();
+            if (_isAlreadyRunning() || trackedAlive)
             {
                 LogAlreadyRunningDelegate(_logger, null);
-                bool ipcReady = await CheckIpcReadyAsync(cancellationToken).ConfigureAwait(false);
+                bool existingIpcReady = waitForReady
+                    ? await WaitUntilIpcReadyAsync(trackedAlive ? _trackedProcess : null, cancellationToken).ConfigureAwait(false)
+                    : await _ipcReadinessProbe(cancellationToken).ConfigureAwait(false);
+
                 return new AppLaunchResult(
                     Launched: false,
                     AlreadyRunning: true,
                     Mode: MODE_EXISTING,
-                    IpcReady: ipcReady);
+                    IpcReady: existingIpcReady);
             }
 
             string executablePath = ResolveExecutablePath();
@@ -192,21 +207,20 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
                 UseShellExecute = false,
             };
 
-            if (mode == AppLaunchMode.MiniPlayer)
-            {
-                startInfo.ArgumentList.Add(MINI_PLAYER_ARGUMENT);
-            }
+            startInfo.ArgumentList.Add(mode == AppLaunchMode.MiniPlayer ? MINI_PLAYER_ARGUMENT : NORMAL_ARGUMENT);
 
-            // 起動したプロセスは独立プロセスとして継続動作させる（Process ラッパーの Dispose ではプロセスを終了しない）
-            using ILaunchedProcess? process = _processStarter(startInfo);
+            // 起動したプロセスは独立プロセスとして継続動作させ、Mutex 確立前の後続呼び出しを合流できるよう追跡する
+            ILaunchedProcess? process = _processStarter(startInfo);
             if (process is null)
             {
                 throw new InvalidOperationException("Audio Effector 本体のプロセス起動に失敗しました。");
             }
 
+            ReplaceTrackedProcess(process);
+
             if (!waitForReady)
             {
-                bool immediateIpcReady = await CheckIpcReadyAsync(cancellationToken).ConfigureAwait(false);
+                bool immediateIpcReady = await _ipcReadinessProbe(cancellationToken).ConfigureAwait(false);
                 return new AppLaunchResult(
                     Launched: true,
                     AlreadyRunning: false,
@@ -214,7 +228,7 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
                     IpcReady: immediateIpcReady);
             }
 
-            bool readyIpc = await WaitUntilReadyAsync(process, cancellationToken).ConfigureAwait(false);
+            bool readyIpc = await WaitUntilIpcReadyAsync(process, cancellationToken).ConfigureAwait(false);
             return new AppLaunchResult(
                 Launched: true,
                 AlreadyRunning: false,
@@ -236,10 +250,38 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
         }
 
         _disposed = true;
+        ReplaceTrackedProcess(null);
         _launchLock.Dispose();
     }
 
-    private async Task<bool> WaitUntilReadyAsync(ILaunchedProcess process, CancellationToken cancellationToken)
+    private bool IsTrackedProcessAlive()
+    {
+        if (_trackedProcess is null)
+        {
+            return false;
+        }
+
+        if (_trackedProcess.HasExited)
+        {
+            ReplaceTrackedProcess(null);
+            return false;
+        }
+
+        return true;
+    }
+
+    private void ReplaceTrackedProcess(ILaunchedProcess? nextProcess)
+    {
+        if (ReferenceEquals(_trackedProcess, nextProcess))
+        {
+            return;
+        }
+
+        _trackedProcess?.Dispose();
+        _trackedProcess = nextProcess;
+    }
+
+    private async Task<bool> WaitUntilIpcReadyAsync(ILaunchedProcess? trackedProcess, CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
 
@@ -247,42 +289,31 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (process.HasExited)
+            if (trackedProcess is not null && trackedProcess.HasExited)
             {
-                throw new InvalidOperationException($"Audio Effector 本体プロセスが準備完了前に終了しました（ExitCode: {process.ExitCode}）。");
+                int exitCode = trackedProcess.ExitCode;
+                if (ReferenceEquals(_trackedProcess, trackedProcess))
+                {
+                    ReplaceTrackedProcess(null);
+                }
+
+                throw new InvalidOperationException($"Audio Effector 本体プロセスが準備完了前に終了しました（ExitCode: {exitCode}）。");
             }
 
-            if (_ipcReadinessProbe is not null)
+            if (await _ipcReadinessProbe(cancellationToken).ConfigureAwait(false))
             {
-                if (await _ipcReadinessProbe(cancellationToken).ConfigureAwait(false))
-                {
-                    return true;
-                }
-            }
-            else if (_isAlreadyRunning())
-            {
-                return false;
+                return true;
             }
 
             TimeSpan remaining = _readyTimeout - stopwatch.Elapsed;
             if (remaining <= TimeSpan.Zero)
             {
-                throw new TimeoutException($"Audio Effector 本体の起動待機がタイムアウトしました（TimeoutMs: {_readyTimeout.TotalMilliseconds:F0}）。");
+                throw new TimeoutException($"Audio Effector 本体の IPC 接続準備待機がタイムアウトしました（TimeoutMs: {_readyTimeout.TotalMilliseconds:F0}）。");
             }
 
             TimeSpan delay = remaining < _pollInterval ? remaining : _pollInterval;
             await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
         }
-    }
-
-    private async Task<bool> CheckIpcReadyAsync(CancellationToken cancellationToken)
-    {
-        if (_ipcReadinessProbe is null)
-        {
-            return false;
-        }
-
-        return await _ipcReadinessProbe(cancellationToken).ConfigureAwait(false);
     }
 
     private static bool IsSingleInstanceMutexActive()
