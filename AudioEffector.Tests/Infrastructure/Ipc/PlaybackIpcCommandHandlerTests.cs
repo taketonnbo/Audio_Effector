@@ -1,8 +1,10 @@
+using System.IO;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.ValueObjects;
+using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Infrastructure.Ipc;
 using Moq;
 
@@ -27,6 +29,9 @@ public sealed class PlaybackIpcCommandHandlerTests
 
         var libraryService = CreateLibraryService(trackRepo.Object);
         var audioService = new Mock<IAudioService>();
+        audioService
+            .Setup(a => a.PlayTrackAsync(track, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
         var recordingDispatcher = new RecordingUiDispatcher();
 
         var sut = new PlaybackIpcCommandHandler(
@@ -53,7 +58,7 @@ public sealed class PlaybackIpcCommandHandlerTests
         Assert.Equal("03:45", response.Track.DurationString);
         Assert.Equal(@"C:\Music\Jazz\BlueNote.flac", response.Track.FilePath);
         Assert.Equal(1, recordingDispatcher.InvokeCount);
-        audioService.Verify(a => a.PlayTrack(track), Times.Once);
+        audioService.Verify(a => a.PlayTrackAsync(track, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>
@@ -78,6 +83,9 @@ public sealed class PlaybackIpcCommandHandlerTests
 
         var libraryService = CreateLibraryService(trackRepo.Object, metadataExtractor.Object);
         var audioService = new Mock<IAudioService>();
+        audioService
+            .Setup(a => a.PlayTrackAsync(extractedTrack, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
         var recordingDispatcher = new RecordingUiDispatcher();
 
         var sut = new PlaybackIpcCommandHandler(
@@ -98,7 +106,7 @@ public sealed class PlaybackIpcCommandHandlerTests
         Assert.NotNull(response.Track);
         Assert.Equal("Sample Song", response.Track.Title);
         Assert.Equal(1, recordingDispatcher.InvokeCount);
-        audioService.Verify(a => a.PlayTrack(extractedTrack), Times.Once);
+        audioService.Verify(a => a.PlayTrackAsync(extractedTrack, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>
@@ -274,6 +282,166 @@ public sealed class PlaybackIpcCommandHandlerTests
         // Assert
         Assert.False(response.Ok);
         Assert.Equal(AppIpcErrorCodes.UNSUPPORTED_COMMAND, response.ErrorCode);
+    }
+
+    /// <summary>
+    /// AudioService.PlayTrackAsync が再生開始失敗（false）を返した場合に playing を返さず INTERNAL_ERROR を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_再生開始失敗時_INTERNAL_ERRORを返す()
+    {
+        // Arrange
+        var trackId = TrackId.New();
+        var track = CreateTrack(trackId, @"C:\Music\Corrupted.flac", "Corrupted", "Artist", "Album");
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetByIdAsync(trackId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(track);
+
+        var audioService = new Mock<IAudioService>();
+        audioService
+            .Setup(a => a.PlayTrackAsync(track, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_PLAY_TRACK, TrackId: trackId.Value.ToString("D"));
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.INTERNAL_ERROR, response.ErrorCode);
+        Assert.Null(response.PlaybackState);
+    }
+
+    /// <summary>
+    /// 実体の AudioService へ破損した音声ファイルを渡した場合、デコード失敗を検知して INTERNAL_ERROR を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_破損音声ファイルを実体AudioServiceで再生時_INTERNAL_ERRORを返す()
+    {
+        // Arrange
+        string tempFile = Path.Combine(Path.GetTempPath(), $"AudioEffectorCorrupt_{Guid.NewGuid():N}.wav");
+        await File.WriteAllBytesAsync(tempFile, [0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE]);
+
+        try
+        {
+            var trackId = TrackId.New();
+            var track = CreateTrack(trackId, tempFile, "Broken", "Artist", "Album");
+
+            var trackRepo = new Mock<ITrackRepository>();
+            trackRepo
+                .Setup(r => r.GetByIdAsync(trackId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(track);
+
+            using var audioService = new AudioService(ImmediateUiDispatcher.Instance);
+            var sut = new PlaybackIpcCommandHandler(
+                trackRepo.Object,
+                CreateLibraryService(trackRepo.Object),
+                audioService,
+                ImmediateUiDispatcher.Instance);
+
+            var request = new AppIpcRequest(AppIpcServer.COMMAND_PLAY_TRACK, TrackId: trackId.Value.ToString("D"));
+
+            // Act
+            AppIpcResponse response = await sut.HandleAsync(request);
+
+            // Assert
+            Assert.False(response.Ok);
+            Assert.Equal(AppIpcErrorCodes.INTERNAL_ERROR, response.ErrorCode);
+            Assert.False(audioService.IsPlaying);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    /// <summary>
+    /// UI スレッドの Invoke 待機中に要求の有効期限が切れた場合、再生を開始せず OperationCanceledException を送出することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_Invoke待機中に期限超過時_再生を開始せずキャンセルされる()
+    {
+        // Arrange
+        var trackId = TrackId.New();
+        var track = CreateTrack(trackId, @"C:\Music\Late.flac", "Late", "Artist", "Album");
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetByIdAsync(trackId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(track);
+
+        var audioService = new Mock<IAudioService>();
+        DateTimeOffset now = new(2026, 11, 25, 12, 0, 0, TimeSpan.Zero);
+        DateTimeOffset deadline = now.AddSeconds(3);
+
+        var dispatcher = new Mock<IUiDispatcher>();
+        dispatcher
+            .Setup(d => d.Invoke(It.IsAny<Action>()))
+            .Callback<Action>(action =>
+            {
+                // Invoke の順番待ち中に期限が超過した状態を模擬する
+                now = deadline.AddMilliseconds(10);
+                action();
+            });
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            dispatcher.Object,
+            fileExists: _ => true,
+            utcNow: () => now);
+
+        var request = new AppIpcRequest(
+            AppIpcServer.COMMAND_PLAY_TRACK,
+            TrackId: trackId.Value.ToString("D"),
+            DeadlineUtc: deadline);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<OperationCanceledException>(() => sut.HandleAsync(request));
+        audioService.Verify(a => a.PlayTrackAsync(It.IsAny<Track>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// filePath に相対パスを指定した場合に INVALID_PARAMETER を返し再生を実行しないことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("song.wav")]
+    [InlineData(@"music\song.flac")]
+    public async Task HandleAsync_filePathに相対パス指定時_INVALID_PARAMETERを返す(string relativePath)
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_PLAY_TRACK, FilePath: relativePath);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.INVALID_PARAMETER, response.ErrorCode);
+        audioService.Verify(a => a.PlayTrackAsync(It.IsAny<Track>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     private static LibraryApplicationService CreateLibraryService(
