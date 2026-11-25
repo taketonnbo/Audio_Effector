@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 
@@ -162,6 +164,15 @@ public interface IAudioService : IDisposable
     /// <param name="insertAtBeginning">再生キューの先頭に挿入して再生するかどうか</param>
     [LogDescription("指定された楽曲を再生します")]
     void PlayTrack(Track track, bool insertAtBeginning);
+
+    /// <summary>
+    /// 指定された楽曲を再生し、デコードおよび出力デバイスの初期化・再生開始完了まで非同期で待機します
+    /// </summary>
+    /// <param name="track">再生対象のトラック</param>
+    /// <param name="cancellationToken">キャンセル要求トークン</param>
+    /// <returns>対象トラックの再生が正常に開始された場合は <see langword="true"/>、デコードやデバイス初期化に失敗または後続リクエストで中断された場合は <see langword="false"/></returns>
+    [LogDescription("指定された楽曲を再生し開始完了を待機します")]
+    Task<bool> PlayTrackAsync(Track track, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 再生と一時停止を切り替えます

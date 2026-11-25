@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
@@ -478,6 +479,27 @@ public class AudioService : IAudioService
     /// <param name="insertAtBeginning">再生キューの先頭に挿入して再生するかどうか</param>
     public void PlayTrack(Track track, bool insertAtBeginning)
     {
+        PrepareTrackForPlayback(track);
+        PlayTrackInternal(track);
+    }
+
+    /// <summary>
+    /// 指定された楽曲を再生し、デコードおよび出力デバイスの初期化・再生開始完了まで非同期で待機します
+    /// </summary>
+    /// <param name="track">再生対象のトラック</param>
+    /// <param name="cancellationToken">キャンセル要求トークン</param>
+    /// <returns>対象トラックの再生が正常に開始された場合は <see langword="true"/>、失敗または中断された場合は <see langword="false"/></returns>
+    public Task<bool> PlayTrackAsync(Track track, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        PrepareTrackForPlayback(track);
+        return PlayTrackCoreAsync(track, cancellationToken);
+    }
+
+    private void PrepareTrackForPlayback(Track track)
+    {
         lock (_lock)
         {
             _currentlyPlayingTrack = track;
@@ -487,7 +509,6 @@ public class AudioService : IAudioService
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
-        PlayTrackInternal(track);
     }
 
     private Track? CheckAndPreparePlaybackEnded(bool forceEnded = false)
@@ -541,6 +562,13 @@ public class AudioService : IAudioService
 
     private async void PlayTrackInternal(Track trackToPlay)
     {
+        await PlayTrackCoreAsync(trackToPlay, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private async Task<bool> PlayTrackCoreAsync(Track trackToPlay, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
         Guid thisPlaybackId = Guid.NewGuid();
         Track? endedTrack = null;
         lock (_lock)
@@ -563,13 +591,16 @@ public class AudioService : IAudioService
 
         TrackChanged?.Invoke(trackToPlay);
 
-        await Task.Run(() =>
+        bool started = await Task.Run(() =>
         {
             try
             {
                 lock (_lock)
                 {
-                    if (_currentPlaybackId != thisPlaybackId) return;
+                    if (_currentPlaybackId != thisPlaybackId || cancellationToken.IsCancellationRequested)
+                    {
+                        return false;
+                    }
 
                     StopInternal();
 
@@ -597,6 +628,12 @@ public class AudioService : IAudioService
                             int read;
                             while ((read = tempReader.Read(buffer, 0, buffer.Length)) > 0)
                             {
+                                if (_currentPlaybackId != thisPlaybackId || cancellationToken.IsCancellationRequested)
+                                {
+                                    StopInternal();
+                                    return false;
+                                }
+
                                 for (int i = 0; i < read; i++)
                                 {
                                     var abs = Math.Abs(buffer[i]);
@@ -649,13 +686,14 @@ public class AudioService : IAudioService
                     _outputDevice.Init(endDetector);
                     _outputDevice.PlaybackStopped += OnPlaybackStopped;
 
-                    if (_currentPlaybackId != thisPlaybackId)
+                    if (_currentPlaybackId != thisPlaybackId || cancellationToken.IsCancellationRequested)
                     {
                         StopInternal();
-                        return;
+                        return false;
                     }
 
                     _outputDevice.Play();
+                    return _outputDevice.PlaybackState == NAudio.Wave.PlaybackState.Playing;
                 }
             }
             catch
@@ -667,11 +705,25 @@ public class AudioService : IAudioService
                         StopInternal();
                     }
                 }
-            }
-        });
 
-        await Task.Delay(100);
-        PlaybackStateChanged?.Invoke(IsPlaying);
+                return false;
+            }
+        }).ConfigureAwait(false);
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            PlaybackStateChanged?.Invoke(IsPlaying);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        if (started)
+        {
+            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+        }
+
+        bool isPlayingNow = IsPlaying;
+        PlaybackStateChanged?.Invoke(isPlayingNow);
+        return started && isPlayingNow;
     }
 
 
