@@ -215,6 +215,8 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
 
                 LogLaunchingAppDelegate(_logger, modeLabel, executablePath, null);
 
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = executablePath,
@@ -234,8 +236,10 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
                 ReplaceTrackedProcess(process);
                 localTrackedProcess = process;
                 sharedTrackedIdentity = process.Identity;
+
+                // 子プロセス生成済みのため、呼び出しキャンセルで記録が欠落しないよう CancellationToken.None でロック保持中に確定する
                 await _launchCoordinator
-                    .RecordLaunchedProcessAsync(process.Identity, cancellationToken)
+                    .RecordLaunchedProcessAsync(process.Identity, CancellationToken.None)
                     .ConfigureAwait(false);
                 launchedByThisCall = true;
             }
@@ -244,6 +248,8 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
         {
             _launchLock.Release();
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (!waitForReady)
         {
@@ -326,7 +332,7 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
             if (localTrackedProcess is not null && localTrackedProcess.HasExited)
             {
                 int exitCode = localTrackedProcess.ExitCode;
-                await ClearExitedTrackedProcessAsync(localTrackedProcess, sharedTrackedIdentity, cancellationToken)
+                await ClearExitedLocalTrackedProcessAsync(localTrackedProcess, cancellationToken)
                     .ConfigureAwait(false);
 
                 // 別経路で起動済みの既存 WPF が稼働している場合はエラーとせず IPC 待受を継続する
@@ -342,10 +348,7 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
                 && sharedTrackedIdentity is not null
                 && !_launchCoordinator.IsProcessAlive(sharedTrackedIdentity))
             {
-                await _launchCoordinator
-                    .ClearLaunchedProcessAsync(sharedTrackedIdentity, cancellationToken)
-                    .ConfigureAwait(false);
-
+                // 共有状態ファイルの削除は次回のセッションロック内 TryGetActiveLaunchAsync の生存確認へ集約し、新起動記録との競合を防ぐ
                 if (!_isAlreadyRunning())
                 {
                     throw new InvalidOperationException("先行起動された Audio Effector 本体プロセスが準備完了前に終了しました。");
@@ -365,9 +368,8 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
         }
     }
 
-    private async Task ClearExitedTrackedProcessAsync(
+    private async Task ClearExitedLocalTrackedProcessAsync(
         ILaunchedProcess exitedProcess,
-        LaunchedProcessIdentity? sharedTrackedIdentity,
         CancellationToken cancellationToken)
     {
         await _launchLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -381,13 +383,6 @@ public sealed class WpfAppLauncher : IAppLauncher, IDisposable
         finally
         {
             _launchLock.Release();
-        }
-
-        if (sharedTrackedIdentity is not null)
-        {
-            await _launchCoordinator
-                .ClearLaunchedProcessAsync(sharedTrackedIdentity, cancellationToken)
-                .ConfigureAwait(false);
         }
     }
 
