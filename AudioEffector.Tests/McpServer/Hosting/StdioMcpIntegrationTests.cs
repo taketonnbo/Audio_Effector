@@ -96,6 +96,7 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Contains("ping", toolNames);
                 Assert.Contains("get_server_info", toolNames);
                 Assert.Contains("search_tracks", toolNames);
+                Assert.Contains("launch_app", toolNames);
             }
 
             // Act & Assert 3: tools/call (ping)
@@ -161,6 +162,24 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 JsonElement track = Assert.Single(data.GetProperty("tracks").EnumerateArray());
                 Assert.Equal("統合テスト曲 1", track.GetProperty("title").GetString());
                 Assert.Equal("テストアーティスト", track.GetProperty("artist").GetString());
+            }
+
+            // Act & Assert 4c: tools/call (launch_app 不正 mode パラメータ検証)
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"launch_app","arguments":{"mode":"invalid_mode"}}}""",
+                timeoutCts.Token);
+
+            string launchErrLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument launchErrDoc = JsonDocument.Parse(launchErrLine))
+            {
+                JsonElement result = launchErrDoc.RootElement.GetProperty("result");
+                Assert.True(result.GetProperty("isError").GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.False(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                Assert.Equal("INVALID_PARAMETER", payloadDoc.RootElement.GetProperty("error").GetProperty("code").GetString());
             }
 
             // Act & Assert 5: 存在しないツール呼び出し（エラー発生時も stdout が有効な JSON-RPC のみであること）

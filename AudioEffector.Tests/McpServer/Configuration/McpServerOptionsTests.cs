@@ -27,6 +27,7 @@ public sealed class McpServerOptionsTests
         Assert.Equal(McpServerOptions.DEFAULT_PORT, sut.Port);
         Assert.Null(sut.DataDirectory);
         Assert.Equal(LogLevel.Information, sut.MinLogLevel);
+        Assert.Null(sut.WpfAppPath);
     }
 
     /// <summary>
@@ -43,6 +44,7 @@ public sealed class McpServerOptionsTests
             "--port", "52000",
             "--data-dir", @"C:\Temp\AudioEffectorMcp",
             "--log-level", "Debug",
+            "--wpf-app-path", @"C:\Apps\AudioEffector.exe",
         ];
         static string? EmptyEnv(string _) => null;
 
@@ -58,6 +60,7 @@ public sealed class McpServerOptionsTests
         Assert.Equal(52000, sut.Port);
         Assert.Equal(@"C:\Temp\AudioEffectorMcp", sut.DataDirectory);
         Assert.Equal(LogLevel.Debug, sut.MinLogLevel);
+        Assert.Equal(@"C:\Apps\AudioEffector.exe", sut.WpfAppPath);
     }
 
     /// <summary>
@@ -101,6 +104,7 @@ public sealed class McpServerOptionsTests
             [McpServerOptions.ENV_PORT] = "53000",
             [McpServerOptions.ENV_DATA_DIRECTORY] = @"C:\EnvData",
             [McpServerOptions.ENV_MIN_LOG_LEVEL] = "Error",
+            [McpServerOptions.ENV_WPF_APP_PATH] = @"C:\EnvApps\AudioEffector.exe",
         };
         string[] args = ["--transport", "stdio", "--port", "54000"];
 
@@ -120,6 +124,7 @@ public sealed class McpServerOptionsTests
         Assert.Equal(54000, sut.Port);
         Assert.Equal(@"C:\EnvData", sut.DataDirectory);
         Assert.Equal(LogLevel.Error, sut.MinLogLevel);
+        Assert.Equal(@"C:\EnvApps\AudioEffector.exe", sut.WpfAppPath);
     }
 
     /// <summary>
