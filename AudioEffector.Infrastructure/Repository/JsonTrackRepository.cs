@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.Common;
@@ -394,6 +395,7 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     private sealed class TrackDto
     {
         public Guid Id { get; set; }
+        [JsonConverter(typeof(LenientAlbumIdJsonConverter))]
         public string? AlbumId { get; set; }
         public string FilePath { get; set; } = string.Empty;
         public string Title { get; set; } = string.Empty;
@@ -459,6 +461,37 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             }
 
             return null;
+        }
+    }
+
+    private sealed class LenientAlbumIdJsonConverter : JsonConverter<string?>
+    {
+        public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.String)
+            {
+                return reader.GetString();
+            }
+
+            if (reader.TokenType == JsonTokenType.Null)
+            {
+                return null;
+            }
+
+            // 数値・真偽値・オブジェクト・配列などの不正型はその項目のみ読み飛ばして自動補完へフォールバックする
+            reader.Skip();
+            return null;
+        }
+
+        public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
+        {
+            if (value is null)
+            {
+                writer.WriteNullValue();
+                return;
+            }
+
+            writer.WriteStringValue(value);
         }
     }
 }
