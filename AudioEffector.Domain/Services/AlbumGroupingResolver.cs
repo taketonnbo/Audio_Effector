@@ -96,41 +96,49 @@ public static class AlbumGroupingResolver
             entry.GroupTracks.Add(track);
         }
 
-        // 各作品グループへ単一の AlbumId を決定（既存引き継ぎ優先 → グループ内トラックの既存ID → 新規採番）
+        // 各作品グループへ単一の AlbumId を決定（2パス: 先に既存キーが残るグループへ既存IDを予約し、残りを解決）
         var usedAlbumIds = new HashSet<AlbumId>();
+        var resolvedIdByGroupKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>(groupsByKey.Count);
+
+        // Pass 1: existingAlbumIdsByKey に一致する既存作品グループへ既存 ID を先に予約
+        if (existingAlbumIdsByKey != null)
+        {
+            foreach (var kvp in groupsByKey)
+            {
+                if (existingAlbumIdsByKey.TryGetValue(kvp.Key, out var existingId) &&
+                    usedAlbumIds.Add(existingId))
+                {
+                    resolvedIdByGroupKey[kvp.Key] = existingId;
+                }
+            }
+        }
+
+        // Pass 2: 残りの新規グループを解決（Pass 1 で残存既存作品に予約済みの ID は奪わない）
         foreach (var kvp in groupsByKey)
         {
-            var groupKey = kvp.Key;
+            if (resolvedIdByGroupKey.ContainsKey(kvp.Key))
+            {
+                continue;
+            }
+
+            var (_, groupTracks) = kvp.Value;
+
+            // グループ内トラックが持つ既存の AlbumId のうち、未使用のものを優先して引き継ぐ（最頻出優先）
+            AlbumId? candidateFromTracks = groupTracks
+                .GroupBy(t => t.AlbumId)
+                .OrderByDescending(g => g.Count())
+                .Select(g => (AlbumId?)g.Key)
+                .FirstOrDefault(id => id.HasValue && !usedAlbumIds.Contains(id.Value));
+
+            AlbumId resolvedId = candidateFromTracks ?? AlbumId.New();
+            usedAlbumIds.Add(resolvedId);
+            resolvedIdByGroupKey[kvp.Key] = resolvedId;
+        }
+
+        foreach (var kvp in groupsByKey)
+        {
+            var resolvedId = resolvedIdByGroupKey[kvp.Key];
             var (displayArtist, groupTracks) = kvp.Value;
-
-            AlbumId resolvedId;
-            if (existingAlbumIdsByKey != null &&
-                existingAlbumIdsByKey.TryGetValue(groupKey, out var existingId) &&
-                usedAlbumIds.Add(existingId))
-            {
-                resolvedId = existingId;
-            }
-            else
-            {
-                // グループ内トラックが持つ既存の AlbumId のうち未使用のものを優先して引き継ぐ（最頻出優先）
-                AlbumId? candidateFromTracks = groupTracks
-                    .GroupBy(t => t.AlbumId)
-                    .OrderByDescending(g => g.Count())
-                    .Select(g => (AlbumId?)g.Key)
-                    .FirstOrDefault(id => id.HasValue && !usedAlbumIds.Contains(id.Value));
-
-                if (candidateFromTracks.HasValue)
-                {
-                    resolvedId = candidateFromTracks.Value;
-                    usedAlbumIds.Add(resolvedId);
-                }
-                else
-                {
-                    resolvedId = AlbumId.New();
-                    usedAlbumIds.Add(resolvedId);
-                }
-            }
-
             foreach (var track in groupTracks)
             {
                 result[track.Id] = new ResolvedAlbumIdentity(resolvedId, displayArtist);
