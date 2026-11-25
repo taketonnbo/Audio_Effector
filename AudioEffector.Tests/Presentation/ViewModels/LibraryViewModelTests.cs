@@ -1296,4 +1296,76 @@ public sealed class LibraryViewModelTests : IDisposable
         Assert.Equal(2, queuedTracks.Count);
         Assert.Equal(blueNoteAlbum.Tracks.Select(t => t.Id), queuedTracks.Select(t => t.Id));
     }
+
+    /// <summary>
+    /// 1曲を登録・永続化した後、新しいLibraryViewModelインスタンスを作り直して同一フォルダーを再読み込みした場合、
+    /// アルバムカードのId・収録トラックのAlbumId・GetAlbumByIdAsyncの結果がいずれも初回保存済みのAlbumIdと一致することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_再起動後に新しいLibraryViewModelで再読込_アルバムカードのIdと保存済みAlbumIdおよびGetAlbumByIdAsyncが完全一致すること()
+    {
+        // Arrange
+        string musicDir = Path.Combine(_tempDirectory.FullName, "music_restart_album_id");
+        string dataDir = Path.Combine(_tempDirectory.FullName, "data_restart_album_id");
+        Directory.CreateDirectory(musicDir);
+        Directory.CreateDirectory(dataDir);
+        string songPath = Path.Combine(musicDir, "track1.flac");
+        await File.WriteAllTextAsync(songPath, "dummy audio");
+
+        string tracksJsonPath = Path.Combine(dataDir, "tracks.json");
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+
+        AlbumId initialAlbumId;
+        using (var initialRepo = new JsonTrackRepository(tracksJsonPath))
+        {
+            var initialService = new LibraryApplicationService(initialRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+            using var initialVm = new LibraryViewModel(
+                initialService,
+                _audioServiceMock.Object,
+                _settingsServiceMock.Object,
+                playlistViewModel: null,
+                trackMetadataLoader: file => new Track
+                {
+                    FilePath = file,
+                    Title = "Restart Track",
+                    Artist = "Restart Artist",
+                    Album = "Restart Album",
+                    TrackNumber = 1,
+                });
+
+            await initialVm.LoadLibraryAsync(musicDir);
+            initialAlbumId = Assert.Single(initialVm.Albums).Id;
+        }
+
+        // Act: アプリ再起動相当（新しい JsonTrackRepository と新しい LibraryViewModel で同じフォルダーを読み込む）
+        using var restartedRepo = new JsonTrackRepository(tracksJsonPath);
+        var restartedService = new LibraryApplicationService(restartedRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+        using var restartedVm = new LibraryViewModel(
+            restartedService,
+            _audioServiceMock.Object,
+            _settingsServiceMock.Object,
+            playlistViewModel: null,
+            trackMetadataLoader: file => new Track
+            {
+                FilePath = file,
+                Title = "Restart Track",
+                Artist = "Restart Artist",
+                Album = "Restart Album",
+                TrackNumber = 1,
+            });
+
+        await restartedVm.LoadLibraryAsync(musicDir);
+
+        // Assert
+        Album restartedAlbum = Assert.Single(restartedVm.Albums);
+        Track restartedTrack = Assert.Single(restartedAlbum.Tracks);
+        Assert.Equal(initialAlbumId, restartedAlbum.Id);
+        Assert.Equal(restartedAlbum.Id, restartedTrack.AlbumId);
+
+        Album? fetched = await restartedService.GetAlbumByIdAsync(restartedAlbum.Id);
+        Assert.NotNull(fetched);
+        Assert.Equal(restartedAlbum.Id, fetched.Id);
+        Assert.Equal(restartedTrack.Id, Assert.Single(fetched.Tracks).Id);
+    }
 }

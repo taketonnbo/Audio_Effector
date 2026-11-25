@@ -168,4 +168,35 @@ public sealed class AlbumGroupingResolverTests
         // Assert
         Assert.NotEqual(trackA.AlbumId, trackB.AlbumId);
     }
+
+    /// <summary>
+    /// 同一作品Aに属していた2曲のうち片方のアルバム名だけをBへ変更して再集約した際、
+    /// 入力順に関わらず変更していない作品Aの既存IDが維持され、移動した曲（作品B）には新しいAlbumIdが採番されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ResolveAndApply_作品分割時に片方の曲だけ別アルバムへ移動した場合_入力順に関わらず既存作品AのIDが維持され新規作品Bへ別IDが採番されること(bool renameFirstTrack)
+    {
+        // Arrange
+        var albumAId = AlbumId.New();
+        var track1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\AlbumA\01.flac"), "Song 1", "Artist A", "Album A", TimeSpan.FromMinutes(3), trackNumber: 1, albumId: albumAId);
+        var track2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\AlbumA\02.flac"), "Song 2", "Artist A", "Album A", TimeSpan.FromMinutes(4), trackNumber: 2, albumId: albumAId);
+
+        var existingMap = new Dictionary<(string, string), AlbumId>
+        {
+            [AlbumGroupingResolver.CreateGroupKey("Album A", "Artist A")] = albumAId,
+        };
+
+        var movedTrack = renameFirstTrack ? track1 : track2;
+        var stayedTrack = renameFirstTrack ? track2 : track1;
+        movedTrack.Album = "Album B";
+
+        // Act
+        AlbumGroupingResolver.ResolveAndApply([track1, track2], existingMap);
+
+        // Assert: 残った作品 A の ID が維持され、移動した曲は旧作品 A の ID を奪わず新規 ID を持つ
+        Assert.Equal(albumAId, stayedTrack.AlbumId);
+        Assert.NotEqual(albumAId, movedTrack.AlbumId);
+    }
 }

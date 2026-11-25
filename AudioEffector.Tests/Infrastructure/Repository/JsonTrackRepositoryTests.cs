@@ -481,6 +481,49 @@ public sealed class JsonTrackRepositoryTests : IDisposable
     }
 
     /// <summary>
+    /// AlbumIdを含まない旧形式tracks.jsonを独立した2つのJsonTrackRepositoryで順に開いた際、
+    /// 初回読込で補完されたAlbumIdがディスクへ原子的に永続化され、2つ目のインスタンスからも同一のAlbumIdで取得できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task 後方互換移行_AlbumId未記載の旧形式JSONを別インスタンスで順次読込_初回補完IDが永続化され両インスタンスで同一AlbumIdとなること()
+    {
+        // Arrange
+        var trackId = Guid.NewGuid();
+        string legacyJson = $$"""
+            [
+              {
+                "Id": "{{trackId}}",
+                "FilePath": "C:\\Music\\Legacy\\01.flac",
+                "Title": "Legacy Song",
+                "Artist": "Legacy Artist",
+                "Album": "Legacy Album",
+                "TrackNumber": 1,
+                "DurationTicks": 1800000000
+              }
+            ]
+            """;
+        await File.WriteAllTextAsync(_testFilePath, legacyJson);
+
+        // Act: 1つ目のインスタンスで読み込み（補完＋原子的永続化）
+        AlbumId firstAlbumId;
+        using (var firstRepo = CreateSut())
+        {
+            var firstTrack = Assert.Single(await firstRepo.GetAllAsync());
+            firstAlbumId = firstTrack.AlbumId;
+            Assert.NotEqual(Guid.Empty, firstAlbumId.Value);
+        }
+
+        // Act: 再スキャンや別保存を挟まず、独立した2つ目のインスタンスで同じファイルを開く
+        using var secondRepo = CreateSut();
+        var secondTrack = Assert.Single(await secondRepo.GetAllAsync());
+
+        // Assert
+        Assert.Equal(firstAlbumId, secondTrack.AlbumId);
+        string persistedJson = await File.ReadAllTextAsync(_testFilePath);
+        Assert.Contains(firstAlbumId.ToString(), persistedJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// track引数にnullを指定した場合、ArgumentNullExceptionがスローされるかを検証します。
     /// </summary>
     [Fact]
