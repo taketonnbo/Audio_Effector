@@ -182,7 +182,8 @@ classDiagram
 | `IAppLauncher` / `WpfAppLauncher` | `Gateways/IAppLauncher.cs`, `Gateways/WpfAppLauncher.cs` | WPF 本体の実行ファイルパス解決・多重起動防止確認・起動中プロセス追跡・IPC 待受準備完了待機を担う起動ゲートウェイ。 |
 | `IAppLaunchCoordinator` / `SessionFileAppLaunchCoordinator` | `Gateways/IAppLaunchCoordinator.cs`, `Gateways/SessionFileAppLaunchCoordinator.cs` | Windows セッション単位の OS ファイルロックと共有状態ファイルにより、複数の独立 MCP プロセス間の WPF 起動を調停するコーディネータ。 |
 | `IIpcReadinessProbe` / `NamedPipeIpcReadinessProbe` | `Gateways/IIpcReadinessProbe.cs`, `Gateways/NamedPipeIpcReadinessProbe.cs` | Named Pipe IPC（`AudioEffector.Ipc.v1.<CurrentUserSidHash>.s<SessionId>`）へ `ping` を送信し、WPF 本体の待受準備完了を確認するプローブ。 |
-| `IPlaybackControlGateway` | `Gateways/IPlaybackControlGateway.cs` | 再生制御の抽象化ゲートウェイ（Phase 2 で Named Pipe IPC 実装を接続）。 |
+| `PlaybackTools` / `PlaybackDtos` | `Tools/PlaybackTools.cs`, `Dtos/PlaybackDtos.cs` | Phase 2 の楽曲再生ツール（`play_track`）および応答 DTO（`PlayTrackResponse`, `PlayedTrackDto`）。 |
+| `IPlaybackControlGateway` / `IpcPlaybackControlGateway` | `Gateways/IPlaybackControlGateway.cs`, `Gateways/IpcPlaybackControlGateway.cs` | Named Pipe IPC 経由で起動中 WPF 本体へ再生制御コマンドを送信する抽象化ゲートウェイおよび実装。 |
 
 ### 3.3 CLI オプション・設定モデル（将来互換インターフェース）
 
@@ -523,7 +524,67 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - プロセス起動失敗・待機前終了（`InvalidOperationException`）→ `INTERNAL_ERROR`
   - キャンセル要求（`OperationCanceledException`）→ `OPERATION_CANCELLED`
 
-### 5.7 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
+### 5.7 楽曲再生ツール仕様（Phase 2 #306 実装）
+
+`PlaybackTools`（`AudioEffector.McpServer/Tools/PlaybackTools.cs`）に、起動中の Audio Effector（WPF 本体）で指定楽曲の再生を開始する **`play_track`** ツールを実装します。IPC 通信は `IPlaybackControlGateway` / `IpcPlaybackControlGateway`（`AudioEffector.McpServer/Gateways/`）へ委譲し、WPF 側の `AppIpcServer` / `PlaybackIpcCommandHandler`（`AudioEffector.Infrastructure/Ipc/`）が `IUiDispatcher` 経由で UI スレッド上の `IAudioService.PlayTrack` を呼び出します。
+
+#### 入力パラメータ
+
+| パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
+| :--- | :--- | :---: | :---: | :--- |
+| `trackId` | `string?` | 条件付き必須 | `null` | 再生対象トラックの `TrackId`（有効な非空 GUID 文字列）。`filePath` 未指定時は必須。両方指定時は `trackId` を優先する。 |
+| `filePath` | `string?` | 条件付き必須 | `null` | 再生対象音声ファイルの絶対パス（前後空白トリム）。`trackId` 未指定時に使用する。 |
+
+#### 出力（`data`）JSON スキーマ
+
+```json
+{
+  "playbackState": "playing",
+  "track": {
+    "id": "11111111-2222-3333-4444-555555555555",
+    "title": "Blue Note Morning",
+    "artist": "Miles Trio",
+    "album": "Midnight Sessions",
+    "durationSeconds": 225.5,
+    "durationString": "03:45",
+    "filePath": "C:\\Music\\Jazz\\BlueNote.flac"
+  }
+}
+```
+
+#### Named Pipe IPC プロトコル詳細および WPF 画面同期
+
+- **パイプ名・トランスポート**: 既存 `AppIpcServer` と同一のユーザー／セッション限定 Named Pipe（`AudioEffector.Ipc.v1.<CurrentUserSidHash>.s<SessionId>`、`PipeOptions.CurrentUserOnly`）上で改行区切り UTF-8 JSON（NDJSON）を送受信します。
+- **リクエスト JSON**:
+  ```json
+  {"command":"play_track","trackId":"11111111-2222-3333-4444-555555555555"}
+  ```
+- **レスポンス JSON（成功時）**:
+  ```json
+  {"ok":true,"playbackState":"playing","track":{"id":"...","title":"...","artist":"...","album":"...","durationSeconds":225.5,"durationString":"03:45","filePath":"..."}}
+  ```
+- **レスポンス JSON（失敗時）**:
+  ```json
+  {"ok":false,"errorCode":"NOT_FOUND","error":"..."}
+  ```
+- **タイムアウト分離**:
+  - `IpcPlaybackControlGateway` はパイプ接続確立（既定 `500ms`）とコマンド送受信（既定 `3000ms`）を分離して監視します。接続確立前のタイムアウト・未存在は **`WPF_APP_NOT_RUNNING`**（`launch_app` 案内付き）、接続後の応答タイムアウト・切断・不正応答は **`IPC_CONNECTION_FAILED`** へ分類します。
+- **WPF 側トラック解決・画面同期**:
+  - `AudioEffector/App.xaml.cs` は `ITrackRepository`・`LibraryApplicationService`・`IAudioService`・`IUiDispatcher` を注入した `PlaybackIpcCommandHandler` を `AppIpcServer` へ登録して待受開始します。
+  - `trackId` 指定時は `ITrackRepository.GetByIdAsync` で取得し、`filePath` 指定時はファイル存在確認後に `LibraryApplicationService.GetTrackByPathAsync`（リポジトリ優先＋メタデータ抽出フォールバック）でトラックを解決します。
+  - 再生要求は必ず `IUiDispatcher.Invoke(() => _audioService.PlayTrack(track))` で UI スレッドへディスパッチされ、`IAudioService` の `TrackChanged` / `PlaylistChanged` / `PlaybackStateChanged` イベント経由で `MainViewModel`・`PlayerControlViewModel`・再生キュー・ミニプレイヤー・スペクトラムアナライザが完全リアルタイム同期されます。ウィンドウ状態（通常メイン画面／ミニプレイヤー）は変更せずそのまま維持します。
+
+#### エラーケース
+
+- `trackId`・`filePath` 両方未指定、または `trackId` が無効・空 GUID → `INVALID_PARAMETER`
+- WPF 本体未起動（パイプ接続不可）→ `WPF_APP_NOT_RUNNING`（`launch_app` ツールでの事前起動案内メッセージ付き）
+- 指定 `trackId` に一致するトラック未存在 → `NOT_FOUND`
+- 対象音声ファイルがディスク上に未存在 → `FILE_NOT_FOUND`
+- IPC 応答タイムアウト・切断・不正応答 → `IPC_CONNECTION_FAILED`
+- キャンセル要求（`OperationCanceledException`）→ `OPERATION_CANCELLED`
+- その他の未捕捉例外 → `INTERNAL_ERROR`（内部診断・ファイルパス非露出、詳細は `ILogger` へ記録）
+
+### 5.8 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
 
 個別ツールの詳細スキーマ・バリデーション・実装仕様は Phase 2 親 Issue（#301）配下の各子 Issue にて順次策定し、実装に合わせて本設計書および機能仕様書へ追記します。
 
