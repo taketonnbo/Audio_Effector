@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     private HwndSource? _hwndSource;
     private MiniPlayerWindow? _miniPlayer;
     private bool _isRestoringFromMiniPlayer;
+    private bool _startedInMiniPlayerMode;
     private bool _isClosed;
 
     /// <summary>
@@ -63,7 +64,7 @@ public partial class MainWindow : Window
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         var appSettings = _settingsService.LoadSettings();
-        if (appSettings.StartMinimized)
+        if (appSettings.StartMinimized && !_startedInMiniPlayerMode)
         {
             this.WindowState = WindowState.Minimized;
         }
@@ -199,6 +200,34 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// メインウィンドウを通常表示せず非表示のまま初期化し、直ちにミニプレイヤー状態で起動します
+    /// </summary>
+    public void StartInMiniPlayerMode()
+    {
+        if (_isClosed)
+        {
+            return;
+        }
+
+        _startedInMiniPlayerMode = true;
+        this.Visibility = Visibility.Hidden;
+        ShowMiniPlayer();
+    }
+
+    private void ShowMiniPlayer()
+    {
+        if (_miniPlayer == null)
+        {
+            _miniPlayer = new MiniPlayerWindow();
+            _miniPlayer.DataContext = this.DataContext;
+            _miniPlayer.Closed += (_, _) => _miniPlayer = null;
+        }
+
+        _miniPlayer.Show();
+        _miniPlayer.Activate();
+    }
+
+    /// <summary>
     /// ミニプレイヤー表示状態からメインウィンドウを正常に復帰させ、ミニプレイヤーを閉じます
     /// </summary>
     public void RestoreFromMiniPlayer()
@@ -291,14 +320,7 @@ public partial class MainWindow : Window
             }
 
             this.Hide();
-            if (_miniPlayer == null)
-            {
-                _miniPlayer = new MiniPlayerWindow();
-                _miniPlayer.DataContext = this.DataContext;
-                _miniPlayer.Closed += (s, args) => _miniPlayer = null;
-            }
-            _miniPlayer.Show();
-            _miniPlayer.Activate();
+            ShowMiniPlayer();
         }
         else if (_miniPlayer != null)
         {
