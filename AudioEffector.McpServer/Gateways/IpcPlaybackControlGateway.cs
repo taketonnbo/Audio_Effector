@@ -1,6 +1,9 @@
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using AudioEffector.Application.Common;
+using AudioEffector.Domain.Entities;
+using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Ipc;
 using AudioEffector.McpServer.Dtos;
@@ -51,15 +54,30 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
     private readonly string _pipeName;
     private readonly TimeSpan _commandTimeout;
     private readonly TimeSpan _connectTimeout;
+    private readonly IDataDirectoryProvider? _dataDirectoryProvider;
+    private readonly ITrackRepository? _trackRepository;
     private readonly ILogger<IpcPlaybackControlGateway> _logger;
 
     /// <summary>
     /// 既定のユーザー専用パイプ名およびタイムアウト（3000ms）で <see cref="IpcPlaybackControlGateway"/> を初期化します。
     /// </summary>
+    /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ（カスタム <c>--data-dir</c> 判定用）。</param>
+    /// <param name="trackRepository">MCP 側トラックリポジトリ（カスタム <c>--data-dir</c> 使用時の ID 解決用）。</param>
     /// <param name="logger">診断ロガー。</param>
-    public IpcPlaybackControlGateway(ILogger<IpcPlaybackControlGateway> logger)
-        : this(IpcPipeNameResolver.GetDefaultPipeName(), DefaultTimeout, DefaultConnectTimeout, logger)
+    public IpcPlaybackControlGateway(
+        IDataDirectoryProvider dataDirectoryProvider,
+        ITrackRepository trackRepository,
+        ILogger<IpcPlaybackControlGateway> logger)
+        : this(
+            IpcPipeNameResolver.GetDefaultPipeName(),
+            DefaultTimeout,
+            DefaultConnectTimeout,
+            logger,
+            dataDirectoryProvider,
+            trackRepository)
     {
+        ArgumentNullException.ThrowIfNull(dataDirectoryProvider);
+        ArgumentNullException.ThrowIfNull(trackRepository);
     }
 
     /// <summary>
@@ -69,11 +87,15 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
     /// <param name="commandTimeout">コマンド送受信全体のタイムアウト時間（既定 3000ms）。</param>
     /// <param name="connectTimeout">パイプ接続確立のタイムアウト時間（既定 500ms）。</param>
     /// <param name="logger">診断ロガー。</param>
+    /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ（任意）。</param>
+    /// <param name="trackRepository">MCP 側トラックリポジトリ（任意）。</param>
     internal IpcPlaybackControlGateway(
         string pipeName,
         TimeSpan? commandTimeout,
         TimeSpan? connectTimeout,
-        ILogger<IpcPlaybackControlGateway> logger)
+        ILogger<IpcPlaybackControlGateway> logger,
+        IDataDirectoryProvider? dataDirectoryProvider = null,
+        ITrackRepository? trackRepository = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pipeName);
         ArgumentNullException.ThrowIfNull(logger);
@@ -82,6 +104,8 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
         _commandTimeout = commandTimeout ?? DefaultTimeout;
         TimeSpan requestedConnectTimeout = connectTimeout ?? DefaultConnectTimeout;
         _connectTimeout = requestedConnectTimeout <= _commandTimeout ? requestedConnectTimeout : _commandTimeout;
+        _dataDirectoryProvider = dataDirectoryProvider;
+        _trackRepository = trackRepository;
         _logger = logger;
     }
 
@@ -93,10 +117,34 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var request = new AppIpcRequest(
-            Command: AppIpcServer.COMMAND_PLAY_TRACK,
-            TrackId: trackId?.Value.ToString("D"),
-            FilePath: string.IsNullOrWhiteSpace(filePath) ? null : filePath.Trim());
+        string? requestTrackId = trackId?.Value.ToString("D");
+        string? requestFilePath = string.IsNullOrWhiteSpace(filePath) ? null : filePath.Trim();
+
+        // --data-dir によるカスタムディレクトリ使用時は MCP 側ライブラリと WPF 側既定ライブラリが異なるため、
+        // MCP 側リポジトリで trackId から filePath を解決してから WPF 側へ送信する
+        if (trackId.HasValue && _dataDirectoryProvider is { IsCustomDirectory: true } && _trackRepository is not null)
+        {
+            Track? localTrack = await _trackRepository
+                .GetByIdAsync(trackId.Value, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (localTrack is null)
+            {
+                return PlaybackControlResult<PlayTrackResponse>.Failure(
+                    McpErrorCodes.NOT_FOUND,
+                    McpErrorMapper.GetPublicMessage(McpErrorCodes.NOT_FOUND));
+            }
+
+            if (string.IsNullOrWhiteSpace(localTrack.FilePath))
+            {
+                return PlaybackControlResult<PlayTrackResponse>.Failure(
+                    McpErrorCodes.FILE_NOT_FOUND,
+                    McpErrorMapper.GetPublicMessage(McpErrorCodes.FILE_NOT_FOUND));
+            }
+
+            requestTrackId = null;
+            requestFilePath = localTrack.FilePath;
+        }
 
         await using var client = new NamedPipeClientStream(
             ".",
@@ -130,7 +178,14 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
                 McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
         }
 
-        // 2. コマンド送信および応答受信（既定 3000ms タイムアウト）
+        // 2. コマンド送信および応答受信（クライアント側有効期限を WPF 側へ伝播する）
+        DateTimeOffset deadlineUtc = DateTimeOffset.UtcNow + _commandTimeout;
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_PLAY_TRACK,
+            TrackId: requestTrackId,
+            FilePath: requestFilePath,
+            DeadlineUtc: deadlineUtc);
+
         AppIpcResponse? response;
         try
         {
@@ -174,14 +229,18 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
                 McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
         }
 
-        if (response.Ok && response.Track is not null)
+        if (response.Ok)
         {
-            string playbackState = string.IsNullOrWhiteSpace(response.PlaybackState)
-                ? PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING
-                : response.PlaybackState;
+            if (string.IsNullOrWhiteSpace(response.PlaybackState) || response.Track is null)
+            {
+                LogIpcCommunicationFailedDelegate(_logger, _pipeName, null);
+                return PlaybackControlResult<PlayTrackResponse>.Failure(
+                    McpErrorCodes.IPC_CONNECTION_FAILED,
+                    McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
+            }
 
             var dto = new PlayTrackResponse(
-                PlaybackState: playbackState,
+                PlaybackState: response.PlaybackState,
                 Track: PlayedTrackDto.FromIpcTrackInfo(response.Track));
 
             return PlaybackControlResult<PlayTrackResponse>.Success(dto);

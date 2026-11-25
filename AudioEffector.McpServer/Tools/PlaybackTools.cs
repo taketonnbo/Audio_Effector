@@ -76,6 +76,13 @@ public sealed class PlaybackTools
         }
 
         string? normalizedFilePath = hasFilePath ? filePath!.Trim() : null;
+        if (!hasTrackId && normalizedFilePath is not null && !Path.IsPathFullyQualified(normalizedFilePath))
+        {
+            return McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                "filePath には絶対パスを指定してください。",
+                new { parameter = "filePath" });
+        }
 
         try
         {
