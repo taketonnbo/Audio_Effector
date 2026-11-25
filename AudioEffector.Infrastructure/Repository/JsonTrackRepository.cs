@@ -86,10 +86,18 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             string json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
             var dtos = JsonSerializer.Deserialize<List<TrackDto>>(json) ?? throw new JsonException();
             var tracks = new List<Track>(dtos.Count);
+            var parsedAlbumIds = new List<AlbumId?>(dtos.Count);
             var validAlbumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>();
+            bool needsMigrationPersist = false;
             foreach (var dto in dtos)
             {
                 var parsedAlbumId = TrackDto.TryParseAlbumId(dto.AlbumId);
+                parsedAlbumIds.Add(parsedAlbumId);
+                if (!parsedAlbumId.HasValue)
+                {
+                    needsMigrationPersist = true;
+                }
+
                 var track = dto.ToEntity(parsedAlbumId);
                 tracks.Add(track);
 
@@ -101,6 +109,38 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             }
 
             AlbumGroupingResolver.ResolveAndApply(tracks, validAlbumIdsByKey);
+
+            if (!needsMigrationPersist)
+            {
+                for (int i = 0; i < tracks.Count; i++)
+                {
+                    if (!parsedAlbumIds[i].HasValue || tracks[i].AlbumId != parsedAlbumIds[i]!.Value)
+                    {
+                        needsMigrationPersist = true;
+                        break;
+                    }
+                }
+            }
+
+            if (needsMigrationPersist && tracks.Count > 0)
+            {
+                try
+                {
+                    var migratedDtos = tracks.Select(TrackDto.FromEntity).ToList();
+                    string migratedJson = JsonSerializer.Serialize(migratedDtos, _jsonOptions);
+                    await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, migratedJson, cancellationToken).ConfigureAwait(false);
+                    currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // 読み取り専用環境等で書き戻せない場合でもメモリ上の復元結果は維持する
+                }
+            }
+
             _tracks.Clear();
             foreach (var track in tracks)
             {
