@@ -10,6 +10,7 @@ namespace AudioEffector.Domain.Entities;
 /// </summary>
 public class Track : INotifyPropertyChanged, IEquatable<Track>
 {
+    private AlbumId _albumId;
     private string _filePath = string.Empty;
     private string _title = string.Empty;
     private string _artist = string.Empty;
@@ -32,6 +33,22 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// 一意のトラックID
     /// </summary>
     public TrackId Id { get; }
+
+    /// <summary>
+    /// 所属アルバムを一意に識別するID
+    /// </summary>
+    public AlbumId AlbumId
+    {
+        get => _albumId;
+        private set
+        {
+            if (_albumId != value)
+            {
+                _albumId = value;
+                OnPropertyChanged();
+            }
+        }
+    }
 
     /// <summary>
     /// 音声ファイルのパス
@@ -77,6 +94,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
             {
                 _artist = value;
                 OnPropertyChanged();
+                AlbumId = AlbumId.FromAlbumKey(_album, _artist);
             }
         }
     }
@@ -93,6 +111,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
             {
                 _album = value;
                 OnPropertyChanged();
+                AlbumId = AlbumId.FromAlbumKey(_album, _artist);
             }
         }
     }
@@ -349,6 +368,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public Track()
     {
         Id = TrackId.New();
+        _albumId = AlbumId.FromAlbumKey(_album, _artist);
     }
 
     /// <summary>
@@ -370,6 +390,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// <param name="isFavorite">お気に入り状態</param>
     /// <param name="isLossless">可逆圧縮かどうか</param>
     /// <param name="isHiRes">ハイレゾ音源かどうか</param>
+    /// <param name="albumId">所属アルバムID（未指定時はアルバム名とアーティスト名から決定論的に算出）</param>
     public Track(
         TrackId id,
         AudioPath filePath,
@@ -386,13 +407,15 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
         string genre = "",
         bool isFavorite = false,
         bool isLossless = false,
-        bool isHiRes = false)
+        bool isHiRes = false,
+        AlbumId? albumId = null)
     {
         Id = id;
         _filePath = filePath.Value;
         _title = string.IsNullOrWhiteSpace(title) ? filePath.FileName : title.Trim();
         _artist = string.IsNullOrWhiteSpace(artist) ? "Unknown Artist" : artist.Trim();
         _album = string.IsNullOrWhiteSpace(album) ? "Unknown Album" : album.Trim();
+        _albumId = albumId ?? AlbumId.FromAlbumKey(_album, _artist);
         _duration = duration < TimeSpan.Zero ? TimeSpan.Zero : duration;
         _year = year;
         _trackNumber = trackNumber;
