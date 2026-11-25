@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using AudioEffector.Domain.ValueObjects;
 
 namespace AudioEffector.Domain.Entities;
 
@@ -18,6 +19,11 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     private bool _isOnDevice;
     private bool _isTracksExpanded;
     private List<Track> _tracks = new();
+
+    /// <summary>
+    /// アルバムを一意に識別するID
+    /// </summary>
+    public AlbumId Id { get; }
 
     /// <summary>
     /// アルバム名（Titleプロパティの別名）
@@ -182,6 +188,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     /// </summary>
     public Album()
     {
+        Id = AlbumId.New();
     }
 
     /// <summary>
@@ -191,8 +198,10 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     /// <param name="artist">アーティスト名</param>
     /// <param name="year">リリース年</param>
     /// <param name="tracks">トラックコレクション</param>
-    public Album(string name, string artist, uint year = 0, IEnumerable<Track>? tracks = null)
+    /// <param name="id">アルバムID（未指定時は新規GUIDを採番）</param>
+    public Album(string name, string artist, uint year = 0, IEnumerable<Track>? tracks = null, AlbumId? id = null)
     {
+        Id = id ?? AlbumId.New();
         _title = string.IsNullOrWhiteSpace(name) ? "Unknown Album" : name.Trim();
         _artist = string.IsNullOrWhiteSpace(artist) ? "Unknown Artist" : artist.Trim();
         _year = year;
@@ -260,8 +269,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     {
         if (other is null) return false;
         if (ReferenceEquals(this, other)) return true;
-        return string.Equals(Name, other.Name, StringComparison.OrdinalIgnoreCase) &&
-               string.Equals(Artist, other.Artist, StringComparison.OrdinalIgnoreCase);
+        return Id.Equals(other.Id);
     }
 
     /// <summary>
@@ -275,9 +283,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     /// アルバムのハッシュコードを取得します
     /// </summary>
     /// <returns>ハッシュコード</returns>
-    public override int GetHashCode() => HashCode.Combine(
-        StringComparer.OrdinalIgnoreCase.GetHashCode(Name),
-        StringComparer.OrdinalIgnoreCase.GetHashCode(Artist));
+    public override int GetHashCode() => Id.GetHashCode();
 
     /// <summary>
     /// アルバムの文字列表現を取得します

@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
+using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
 
 namespace AudioEffector.Infrastructure.Repository;
@@ -83,7 +85,62 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
         {
             string json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
             var dtos = JsonSerializer.Deserialize<List<TrackDto>>(json) ?? throw new JsonException();
-            var tracks = dtos.Select(dto => dto.ToEntity()).ToList();
+            var tracks = new List<Track>(dtos.Count);
+            var parsedAlbumIds = new List<AlbumId?>(dtos.Count);
+            var validAlbumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>();
+            bool needsMigrationPersist = false;
+            foreach (var dto in dtos)
+            {
+                var parsedAlbumId = TrackDto.TryParseAlbumId(dto.AlbumId);
+                parsedAlbumIds.Add(parsedAlbumId);
+                if (!parsedAlbumId.HasValue)
+                {
+                    needsMigrationPersist = true;
+                }
+
+                var track = dto.ToEntity(parsedAlbumId);
+                tracks.Add(track);
+
+                if (parsedAlbumId.HasValue)
+                {
+                    string artistKey = !string.IsNullOrWhiteSpace(track.AlbumArtist) ? track.AlbumArtist : track.Artist;
+                    validAlbumIdsByKey.TryAdd(AlbumGroupingResolver.CreateGroupKey(track.Album, artistKey), parsedAlbumId.Value);
+                }
+            }
+
+            AlbumGroupingResolver.ResolveAndApply(tracks, validAlbumIdsByKey);
+
+            if (!needsMigrationPersist)
+            {
+                for (int i = 0; i < tracks.Count; i++)
+                {
+                    if (!parsedAlbumIds[i].HasValue || tracks[i].AlbumId != parsedAlbumIds[i]!.Value)
+                    {
+                        needsMigrationPersist = true;
+                        break;
+                    }
+                }
+            }
+
+            if (needsMigrationPersist && tracks.Count > 0)
+            {
+                try
+                {
+                    var migratedDtos = tracks.Select(TrackDto.FromEntity).ToList();
+                    string migratedJson = JsonSerializer.Serialize(migratedDtos, _jsonOptions);
+                    await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, migratedJson, cancellationToken).ConfigureAwait(false);
+                    currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // 読み取り専用環境等で書き戻せない場合でもメモリ上の復元結果は維持する
+                }
+            }
+
             _tracks.Clear();
             foreach (var track in tracks)
             {
@@ -113,7 +170,9 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
         Dictionary<TrackId, Track> candidateTracks,
         CancellationToken cancellationToken)
     {
-        var dtos = candidateTracks.Values.Select(TrackDto.FromEntity).ToList();
+        var candidateList = candidateTracks.Values.ToList();
+        AlbumGroupingResolver.ResolveAndApply(candidateList);
+        var dtos = candidateList.Select(TrackDto.FromEntity).ToList();
         string json = JsonSerializer.Serialize(dtos, _jsonOptions);
 
         await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
@@ -394,9 +453,12 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     private sealed class TrackDto
     {
         public Guid Id { get; set; }
+        [JsonConverter(typeof(LenientAlbumIdJsonConverter))]
+        public string? AlbumId { get; set; }
         public string FilePath { get; set; } = string.Empty;
         public string Title { get; set; } = string.Empty;
         public string Artist { get; set; } = string.Empty;
+        public string? AlbumArtist { get; set; }
         public string Album { get; set; } = string.Empty;
         public long DurationTicks { get; set; }
         public uint Year { get; set; }
@@ -413,9 +475,11 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
         public static TrackDto FromEntity(Track track) => new()
         {
             Id = track.Id.Value,
+            AlbumId = track.AlbumId.ToString(),
             FilePath = track.FilePath,
             Title = track.Title,
             Artist = track.Artist,
+            AlbumArtist = track.AlbumArtist,
             Album = track.Album,
             DurationTicks = track.Duration.Ticks,
             Year = track.Year,
@@ -430,7 +494,7 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             IsHiRes = track.IsHiRes
         };
 
-        public Track ToEntity() => new(
+        public Track ToEntity(AlbumId? parsedAlbumId = null) => new(
             id: TrackId.From(Id),
             filePath: AudioPath.Create(FilePath),
             title: Title,
@@ -446,6 +510,49 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             genre: Genre,
             isFavorite: IsFavorite,
             isLossless: IsLossless,
-            isHiRes: IsHiRes);
+            isHiRes: IsHiRes,
+            albumId: parsedAlbumId ?? TryParseAlbumId(AlbumId),
+            albumArtist: AlbumArtist ?? string.Empty);
+
+        public static AlbumId? TryParseAlbumId(string? value)
+        {
+            if (Guid.TryParse(value, out var guid) && guid != Guid.Empty)
+            {
+                return Domain.ValueObjects.AlbumId.From(guid);
+            }
+
+            return null;
+        }
+    }
+
+    private sealed class LenientAlbumIdJsonConverter : JsonConverter<string?>
+    {
+        public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.String)
+            {
+                return reader.GetString();
+            }
+
+            if (reader.TokenType == JsonTokenType.Null)
+            {
+                return null;
+            }
+
+            // 数値・真偽値・オブジェクト・配列などの不正型はその項目のみ読み飛ばして自動補完へフォールバックする
+            reader.Skip();
+            return null;
+        }
+
+        public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
+        {
+            if (value is null)
+            {
+                writer.WriteNullValue();
+                return;
+            }
+
+            writer.WriteStringValue(value);
+        }
     }
 }

@@ -22,6 +22,7 @@
 
 | プロパティ名 | 型 | 説明 | コレクション表示 | 展開・詳細表示 | 実装プロパティ ([Album.cs](../../AudioEffector.Domain/Entities/Album.cs)) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
+| **Id** | `AlbumId` | アルバムを一意に識別する強型付けID（`AlbumId.New()` で採番し所属トラックおよび `tracks.json` へ永続化） | - | - | `Album.Id` |
 | **Title / Name** | `string` | アルバムタイトル名 | ○ | ○ | `Album.Title`, `Album.Name` |
 | **Artist** | `string` | アルバムアーティスト名 | ○ | ○ | `Album.Artist` |
 | **Year** | `uint` | リリース年 | - | ○ | `Album.Year` |
@@ -49,5 +50,6 @@
 | **詳細情報画面の表示** | Show Details | グリッド右下情報ボタン、または右クリック「アルバム詳細情報を表示」 | 中央ワークスペースに `AlbumDetailView`（`ViewType.AlbumDetail`）を表示し、詳細メタデータと全収録曲を操作可能にする | 仕様策定済み (#188 / #289) | `ShowAlbumInfoCommand` ([LibraryViewModel.cs](../../AudioEffector/Presentation/ViewModels/LibraryViewModel.cs)) / `AlbumDetailViewModel` |
 
 ## 5. 関連仕様・設計指針
+- **一意の `AlbumId` と同一性ルール（Issue #332）**: `Album` は `TrackId` / `PlaylistId` と同じ純粋な強型付け GUID（`AlbumId.New()`）を識別子として持ち、`Album.Equals` / `GetHashCode` は `Id` 基準で判定する。作品単位の集約（`AlbumGroupingResolver`：`Track.AlbumArtist` 優先、未設定コンピレーションは `"Various Artists"` フォールバック）により同一作品の全トラックへ共通の `AlbumId` を割り当てて `tracks.json` へ永続化することで、WPF 本体・MCP サーバ・再起動を跨いで一貫した ID 指定操作（`LibraryApplicationService.GetAlbumByIdAsync` 等）が可能となる。
 - **アルバム詳細シングルビュー（Issue #188 / #289）**: インライン展開に加え、選択アルバムの大判高精細アート・メタ情報・音質バッジ・クイックアクション・UI仮想化収録曲リストを中央ワークスペースで閲覧・操作できる詳細ビュー（[アルバム情報UI仕様書](../画面設計/アルバム情報/アルバム情報UI仕様書.md)）を提供する。
 - **リスト表示の展開トラック情報拡充（Issue #264）**: リスト表示で展開したトラック行への再生時間・アーティスト・お気に入り・トラック番号・音質バッジの表示拡充。
