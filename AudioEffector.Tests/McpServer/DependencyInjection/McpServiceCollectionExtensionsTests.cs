@@ -6,6 +6,7 @@ using AudioEffector.Domain.Repositories;
 using AudioEffector.McpServer;
 using AudioEffector.McpServer.Configuration;
 using AudioEffector.McpServer.DependencyInjection;
+using AudioEffector.McpServer.Gateways;
 using AudioEffector.McpServer.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -62,6 +63,9 @@ public sealed class McpServiceCollectionExtensionsTests : IDisposable
         var playlistService = provider.GetRequiredService<PlaylistApplicationService>();
         var equalizerService = provider.GetRequiredService<EqualizerApplicationService>();
         var settingsService = provider.GetRequiredService<ISettingsService>();
+        var ipcReadinessProbe = provider.GetRequiredService<IIpcReadinessProbe>();
+        var launchCoordinator = provider.GetRequiredService<IAppLaunchCoordinator>();
+        var appLauncher = provider.GetRequiredService<IAppLauncher>();
 
         // Assert
         Assert.True(dataDirectoryProvider.IsCustomDirectory);
@@ -76,6 +80,9 @@ public sealed class McpServiceCollectionExtensionsTests : IDisposable
         Assert.NotNull(playlistService);
         Assert.NotNull(equalizerService);
         Assert.NotNull(settingsService);
+        Assert.IsType<NamedPipeIpcReadinessProbe>(ipcReadinessProbe);
+        Assert.IsType<SessionFileAppLaunchCoordinator>(launchCoordinator);
+        Assert.IsType<WpfAppLauncher>(appLauncher);
     }
 
     /// <summary>

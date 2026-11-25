@@ -1,7 +1,10 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 using System.Windows;
 using AudioEffector.Application;
 using AudioEffector.Infrastructure;
+using AudioEffector.Infrastructure.Ipc;
 using AudioEffector.Presentation;
 using AudioEffector.Presentation.Views;
 using AudioEffector.Application.ApplicationServices;
@@ -13,9 +16,19 @@ namespace AudioEffector;
 /// <summary>
 /// App.xaml の相互作用ロジック
 /// </summary>
+[SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "OnExit で単一インスタンス用 Mutex を明示的に解放・破棄するため")]
 public partial class App : System.Windows.Application
 {
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+
+    /// <summary>
+    /// 同一ユーザーセッション内での多重起動防止に使用する名前付き Mutex 名。
+    /// </summary>
+    internal const string SINGLE_INSTANCE_MUTEX_NAME = @"Local\AudioEffector.SingleInstance";
+
+    private Mutex? _singleInstanceMutex;
+    private bool _ownsSingleInstanceMutex;
+    private AppIpcServer? _ipcServer;
 
     /// <summary>
     /// DIサービスプロバイダー
@@ -43,6 +56,19 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
 
+        _singleInstanceMutex = new Mutex(initiallyOwned: true, SINGLE_INSTANCE_MUTEX_NAME, out bool createdNew);
+        if (!createdNew)
+        {
+            Logger.Info("Audio Effector はすでに起動しているため、新規インスタンスを終了します。");
+            _singleInstanceMutex.Dispose();
+            _singleInstanceMutex = null;
+            Shutdown(0);
+            return;
+        }
+
+        _ownsSingleInstanceMutex = true;
+        var startupOptions = AppStartupOptions.Parse(e.Args);
+
 #if DEBUG
         _bindingErrorListener = AudioEffector.Presentation.Diagnostics.BindingErrorDebugListener.StartListening();
 #endif
@@ -61,10 +87,27 @@ public partial class App : System.Windows.Application
         var settings = settingsService.LoadSettings();
         AudioEffector.Presentation.Themes.ThemeManager.ApplyTheme(settings.Theme);
 
-        // メインウィンドウの表示（DIコンテナ経由で解決）
+        // メインウィンドウの初期化と表示（DIコンテナ経由で解決）
         var mainWindow = ServiceProvider.GetRequiredService<MainWindow>();
         this.MainWindow = mainWindow;
-        mainWindow.Show();
+        if (startupOptions.StartInMiniPlayer)
+        {
+            Logger.Info("ミニプレイヤーモード（--mini-player）で起動します。");
+            mainWindow.StartInMiniPlayerMode();
+        }
+        else if (startupOptions.ForceNormalWindow)
+        {
+            Logger.Info("通常ウィンドウモード（--normal）で起動します。");
+            mainWindow.StartInNormalMode();
+        }
+        else
+        {
+            mainWindow.Show();
+        }
+
+        // MCP サーバとの Named Pipe IPC 待受を開始
+        _ipcServer = new AppIpcServer();
+        _ipcServer.Start();
     }
 
     /// <summary>
@@ -74,12 +117,40 @@ public partial class App : System.Windows.Application
     protected override void OnExit(ExitEventArgs e)
     {
         Logger.Info("アプリケーションを終了します。");
+        _ipcServer?.Dispose();
+        _ipcServer = null;
+        ReleaseSingleInstanceMutex();
         LogManager.Shutdown();
 #if DEBUG
         _bindingErrorListener?.Dispose();
         _bindingErrorListener = null;
 #endif
         base.OnExit(e);
+    }
+
+    private void ReleaseSingleInstanceMutex()
+    {
+        if (_singleInstanceMutex == null)
+        {
+            return;
+        }
+
+        if (_ownsSingleInstanceMutex)
+        {
+            try
+            {
+                _singleInstanceMutex.ReleaseMutex();
+            }
+            catch (ApplicationException)
+            {
+                // 終了時のスレッド差分等による例外は安全に無視する
+            }
+
+            _ownsSingleInstanceMutex = false;
+        }
+
+        _singleInstanceMutex.Dispose();
+        _singleInstanceMutex = null;
     }
 
     /// <summary>

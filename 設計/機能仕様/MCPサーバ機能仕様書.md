@@ -49,19 +49,33 @@ AI エージェントが Audio Effector の楽曲ライブラリから目的の�
     - 「タイトルやアーティストに `Jazz` を含むお気に入りの曲を 10 件探して」
     - 「アルバム名に `Best` を含むロックジャンルの楽曲一覧を取得して」
 
-### 2.4 段階的に拡張される連携機能カテゴリ（Phase 2 以降）
+### 2.4 アプリ起動機能（Phase 2 #316 提供）
+
+再生制御系ツール（#306 等）を利用する前提として、AI エージェントが Audio Effector デスクトップアプリ本体を柔軟な起動モードで立ち上げるための起動ツールを提供します。
+
+- **アプリの起動（`launch_app`）**:
+  - 起動モード（`mode`）として **`mini_player`（既定値・ミニプレイヤー起動）** または **`normal`（通常ウィンドウ起動、`StartMinimized` 設定が有効でも初回は通常画面で表示）** を指定して Audio Effector 本体を起動できます。
+  - 起動後、WPF 本体の Named Pipe IPC 待受が準備完了になるまで待機するかどうかを `waitForReady`（既定値: `true`）で制御できます。
+  - Audio Effector 本体がすでに起動済みの場合は、多重起動を行わず、**現在のウィンドウ状態（メイン画面／ミニプレイヤー）をそのまま維持したうえで** `alreadyRunning: true` として正常応答を返します。
+  - MCP クライアントや MCP サーバが終了した後も、起動された Audio Effector 本体（およびミニプレイヤー）は独立プロセスとして動作を継続します。
+  - **利用例**:
+    - 「Audio Effector をミニプレイヤーで起動して」
+    - 「Audio Effector を通常画面で起動して」
+
+### 2.5 段階的に拡張される連携機能カテゴリ（Phase 2 以降）
 
 Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリを MCP ツール／リソースとして順次拡充していきます（個別ツールの詳細は各機能 Issue の実装時に本仕様書へ随時追記します）。
 
 | 機能カテゴリ | ユーザーに提供される体験・ユースケース例 | 主な関連 Issue |
 | :--- | :--- | :--- |
+| **アプリ起動・ライフサイクル** | Audio Effector 本体を通常起動またはミニプレイヤー起動し、起動済み時は既存状態を維持する（`launch_app` 実装済み） | #316（アプリの起動） |
 | **楽曲ライブラリ参照・検索** | 曲名・アーティスト・アルバム・ジャンル・お気に入り条件でライブラリを検索し、条件に合う楽曲一覧を取得する（`search_tracks` 実装済み） | #305（曲の検索） |
 | **プレイリスト管理** | 既存プレイリストの一覧・内容を確認し、AI が選んだ楽曲で新しいプレイリストを作成・編集する | Phase 2 順次追加 |
 | **イコライザー・プリセット** | 現在のイコライザー設定や登録済みプリセットを確認し、聴くジャンルに合わせてプリセットを切り替える | Phase 2 順次追加 |
 | **アプリケーション設定** | 監視フォルダや表示設定などの現在値を確認・調整する | Phase 2 順次追加 |
 | **再生制御・再生キュー連携** | 検索した楽曲を即座に再生したり、再生中トラック・キューの確認や再生／一時停止／スキップを行う | #306（曲の再生） |
 
-### 2.5 Audio Effector デスクトップアプリ本体との共存動作
+### 2.6 Audio Effector デスクトップアプリ本体との共存動作
 
 - **最新ライブラリ・設定の共有**:
   - Audio Effector デスクトップアプリ本体と MCP サーバは、同じユーザーデータ領域（`%APPDATA%\AudioEffector\`）を参照します。
@@ -72,7 +86,7 @@ Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリ
   - 再生開始や一時停止などのリアルタイム再生操作は、起動中の Audio Effector デスクトップアプリ本体と連携して実行されるため、アプリ画面上の再生バー・ミニプレイヤー・スペクトラムアナライザ・再生キューと完全に同期します。
   - デスクトップアプリ本体が起動していない状態で再生操作を実行した場合は、意図しないバックグラウンド再生を防ぐため、「Audio Effector 本体を起動してから再試行してください」といった分かりやすい案内メッセージを返します。
 
-### 2.6 分かりやすいエラー通知と安全なログ出力
+### 2.7 分かりやすいエラー通知と安全なログ出力
 
 - **一貫したエラー案内**:
   - 指定したパラメータに誤りがある場合、対象の楽曲やファイルが見つからない場合、あるいはデスクトップアプリ本体が未起動の場合などに、原因と対処法が分かる構造化エラーメッセージを返却します。
@@ -116,4 +130,4 @@ Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリ
   - 親 Epic: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294)（C# による MCP サーバ機能の追加）
   - Phase 0（設計）: [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303)
   - Phase 1（基盤実装）: [#296](https://github.com/taketonnbo/Audio_Effector/issues/296)
-  - Phase 2（機能拡張）: [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306)
+  - Phase 2（機能拡張）: [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316)

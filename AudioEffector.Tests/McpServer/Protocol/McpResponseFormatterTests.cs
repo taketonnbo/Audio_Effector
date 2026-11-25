@@ -307,6 +307,12 @@ public sealed class McpResponseFormatterTests
         };
         yield return new object[]
         {
+            new TimeoutException("SECRET_IPC_TIMEOUT"),
+            McpErrorCodes.IPC_CONNECTION_FAILED,
+            "SECRET_IPC_TIMEOUT",
+        };
+        yield return new object[]
+        {
             new OperationCanceledException("INTERNAL_CANCEL_REASON"),
             McpErrorCodes.OPERATION_CANCELLED,
             "INTERNAL_CANCEL_REASON",

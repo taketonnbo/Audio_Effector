@@ -2,7 +2,9 @@ using System.Reflection;
 using AudioEffector.Application;
 using AudioEffector.Infrastructure;
 using AudioEffector.McpServer.Configuration;
+using AudioEffector.McpServer.Gateways;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace AudioEffector.McpServer.DependencyInjection;
 
@@ -28,7 +30,11 @@ public static class McpServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(options);
 
+        services.AddLogging();
         services.AddSingleton(options);
+        services.AddSingleton<IIpcReadinessProbe, NamedPipeIpcReadinessProbe>();
+        services.AddSingleton<IAppLaunchCoordinator, SessionFileAppLaunchCoordinator>();
+        services.AddSingleton<IAppLauncher, WpfAppLauncher>();
 
         // IUiDispatcher は AddInfrastructureServices 内の TryAddSingleton により既定の ImmediateUiDispatcher が登録される
         services.AddInfrastructureServices(options.DataDirectory);

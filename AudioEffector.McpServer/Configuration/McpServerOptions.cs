@@ -49,6 +49,11 @@ public sealed class McpServerOptions
     public const string ENV_MIN_LOG_LEVEL = "AUDIOEFFECTOR_MCP__MINLOGLEVEL";
 
     /// <summary>
+    /// 環境変数名（Audio Effector WPF 本体実行ファイルパス指定）。
+    /// </summary>
+    public const string ENV_WPF_APP_PATH = "AUDIOEFFECTOR_MCP__WPFAPPPATH";
+
+    /// <summary>
     /// 既定の HTTP バインドアドレス。
     /// </summary>
     public const string DEFAULT_HOST = "127.0.0.1";
@@ -89,6 +94,11 @@ public sealed class McpServerOptions
     public bool AllowHeadlessPlayback { get; init; }
 
     /// <summary>
+    /// Audio Effector（WPF 本体）実行ファイルの明示パスを取得または設定します（未指定時は <see langword="null"/>）。
+    /// </summary>
+    public string? WpfAppPath { get; init; }
+
+    /// <summary>
     /// CLI 引数と環境変数から <see cref="McpServerOptions"/> を解析します。
     /// CLI 引数が環境変数より優先されます。
     /// </summary>
@@ -113,6 +123,7 @@ public sealed class McpServerOptions
         string? portRaw = envGetter(ENV_PORT);
         string? dataDirectoryRaw = envGetter(ENV_DATA_DIRECTORY);
         string? minLogLevelRaw = envGetter(ENV_MIN_LOG_LEVEL);
+        string? wpfAppPathRaw = envGetter(ENV_WPF_APP_PATH);
 
         if (args is { Length: > 0 })
         {
@@ -167,6 +178,9 @@ public sealed class McpServerOptions
                         break;
                     case "--log-level":
                         minLogLevelRaw = value;
+                        break;
+                    case "--wpf-app-path":
+                        wpfAppPathRaw = value;
                         break;
                     default:
                         errorMessage = $"不明なオプションが指定されました: {key}";
@@ -223,6 +237,9 @@ public sealed class McpServerOptions
             }
         }
 
+        // WpfAppPath の解析
+        string? wpfAppPath = string.IsNullOrWhiteSpace(wpfAppPathRaw) ? null : wpfAppPathRaw.Trim();
+
         options = new McpServerOptions
         {
             Transport = transport,
@@ -230,6 +247,7 @@ public sealed class McpServerOptions
             Port = port,
             DataDirectory = dataDirectory,
             MinLogLevel = minLogLevel,
+            WpfAppPath = wpfAppPath,
         };
 
         return true;
@@ -237,7 +255,7 @@ public sealed class McpServerOptions
 
     private static bool IsKnownOption(string key)
     {
-        return key.ToLowerInvariant() is "--transport" or "--host" or "--port" or "--data-dir" or "--log-level";
+        return key.ToLowerInvariant() is "--transport" or "--host" or "--port" or "--data-dir" or "--log-level" or "--wpf-app-path";
     }
 
     private static bool IsKnownOptionToken(string token)
