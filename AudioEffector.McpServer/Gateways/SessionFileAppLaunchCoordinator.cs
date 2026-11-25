@@ -23,15 +23,30 @@ public sealed class SessionFileAppLaunchCoordinator : IAppLaunchCoordinator
     private readonly TimeSpan _lockTimeout;
 
     /// <summary>
-    /// 現在のユーザーおよび Windows セッションに対応する既定パスで <see cref="SessionFileAppLaunchCoordinator"/> を初期化します。
+    /// 現在のユーザーおよび Windows セッションに対応する既定パス（<c>LocalApplicationData\AudioEffector\ipc</c>）で <see cref="SessionFileAppLaunchCoordinator"/> を初期化します。
     /// </summary>
     public SessionFileAppLaunchCoordinator()
         : this(
-            Path.GetTempPath(),
+            GetDefaultCoordinatorDirectory(),
             IpcPipeNameResolver.GetDefaultPipeName(),
             IsSystemProcessAlive,
             DefaultLockTimeout)
     {
+    }
+
+    /// <summary>
+    /// クライアント固有の <c>TMP</c>/<c>TEMP</c> 環境変数に依存しない、ユーザー共通の起動調停ファイル配置ディレクトリを返します。
+    /// </summary>
+    /// <returns>既定の調停ファイル配置ディレクトリパス。</returns>
+    internal static string GetDefaultCoordinatorDirectory()
+    {
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrWhiteSpace(localAppData))
+        {
+            return Path.Combine(localAppData, "AudioEffector", "ipc");
+        }
+
+        return Path.Combine(Path.GetTempPath(), "AudioEffector", "ipc");
     }
 
     /// <summary>
@@ -159,6 +174,8 @@ public sealed class SessionFileAppLaunchCoordinator : IAppLaunchCoordinator
         LaunchedProcessIdentity? expectedProcess = null,
         CancellationToken cancellationToken = default)
     {
+        using IDisposable sessionLock = await AcquireLaunchLockAsync(cancellationToken).ConfigureAwait(false);
+
         if (!File.Exists(_stateFilePath))
         {
             return;
