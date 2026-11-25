@@ -394,6 +394,7 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
     private sealed class TrackDto
     {
         public Guid Id { get; set; }
+        public string? AlbumId { get; set; }
         public string FilePath { get; set; } = string.Empty;
         public string Title { get; set; } = string.Empty;
         public string Artist { get; set; } = string.Empty;
@@ -413,6 +414,7 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
         public static TrackDto FromEntity(Track track) => new()
         {
             Id = track.Id.Value,
+            AlbumId = track.AlbumId.ToString(),
             FilePath = track.FilePath,
             Title = track.Title,
             Artist = track.Artist,
@@ -446,6 +448,17 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             genre: Genre,
             isFavorite: IsFavorite,
             isLossless: IsLossless,
-            isHiRes: IsHiRes);
+            isHiRes: IsHiRes,
+            albumId: TryParseAlbumId(AlbumId));
+
+        private static AlbumId? TryParseAlbumId(string? value)
+        {
+            if (Guid.TryParse(value, out var guid) && guid != Guid.Empty)
+            {
+                return Domain.ValueObjects.AlbumId.From(guid);
+            }
+
+            return null;
+        }
     }
 }

@@ -440,15 +440,49 @@ public class LibraryApplicationService
         await ReconcileFavoritesAsync(tracks, cancellationToken).ConfigureAwait(false);
 
         var grouped = tracks
-            .GroupBy(t => (t.Album, t.Artist))
-            .Select(g => new Album(
-                name: g.Key.Album,
-                artist: g.Key.Artist,
-                year: 0,
-                tracks: g.OrderBy(t => t.TrackNumber).ToList()))
+            .GroupBy(t => t.AlbumId)
+            .Select(g =>
+            {
+                var orderedTracks = g.OrderBy(t => t.TrackNumber).ToList();
+                var representative = orderedTracks[0];
+                return new Album(
+                    name: representative.Album,
+                    artist: representative.Artist,
+                    year: 0,
+                    tracks: orderedTracks,
+                    id: g.Key);
+            })
             .ToList();
 
         return grouped;
+    }
+
+    /// <summary>
+    /// 指定されたアルバムIDに一致するアルバムを取得します
+    /// </summary>
+    /// <param name="albumId">アルバムID</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>一致したアルバム（存在しない場合はnull）</returns>
+    public async Task<Album?> GetAlbumByIdAsync(AlbumId albumId, CancellationToken cancellationToken = default)
+    {
+        var tracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var matchingTracks = tracks
+            .Where(t => t.AlbumId == albumId)
+            .OrderBy(t => t.TrackNumber)
+            .ToList();
+
+        if (matchingTracks.Count == 0)
+        {
+            return null;
+        }
+
+        var representative = matchingTracks[0];
+        return new Album(
+            name: representative.Album,
+            artist: representative.Artist,
+            year: 0,
+            tracks: matchingTracks,
+            id: albumId);
     }
 
     /// <summary>
