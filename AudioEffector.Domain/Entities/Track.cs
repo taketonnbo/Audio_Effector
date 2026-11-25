@@ -93,8 +93,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
             if (_artist != value)
             {
                 _artist = value;
+                var updatedAlbumId = AlbumId.FromAlbumKey(_album, _artist);
+                bool albumIdChanged = _albumId != updatedAlbumId;
+                _albumId = updatedAlbumId;
                 OnPropertyChanged();
-                AlbumId = AlbumId.FromAlbumKey(_album, _artist);
+                if (albumIdChanged)
+                {
+                    OnPropertyChanged(nameof(AlbumId));
+                }
             }
         }
     }
@@ -110,8 +116,14 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
             if (_album != value)
             {
                 _album = value;
+                var updatedAlbumId = AlbumId.FromAlbumKey(_album, _artist);
+                bool albumIdChanged = _albumId != updatedAlbumId;
+                _albumId = updatedAlbumId;
                 OnPropertyChanged();
-                AlbumId = AlbumId.FromAlbumKey(_album, _artist);
+                if (albumIdChanged)
+                {
+                    OnPropertyChanged(nameof(AlbumId));
+                }
             }
         }
     }

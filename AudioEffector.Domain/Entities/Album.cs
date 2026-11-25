@@ -57,9 +57,15 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             if (_title != value)
             {
                 _title = value;
+                var updatedId = AlbumId.FromAlbumKey(_title, _artist);
+                bool idChanged = _id != updatedId;
+                _id = updatedId;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(Name));
-                Id = AlbumId.FromAlbumKey(_title, _artist);
+                if (idChanged)
+                {
+                    OnPropertyChanged(nameof(Id));
+                }
             }
         }
     }
@@ -75,8 +81,14 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             if (_artist != value)
             {
                 _artist = value;
+                var updatedId = AlbumId.FromAlbumKey(_title, _artist);
+                bool idChanged = _id != updatedId;
+                _id = updatedId;
                 OnPropertyChanged();
-                Id = AlbumId.FromAlbumKey(_title, _artist);
+                if (idChanged)
+                {
+                    OnPropertyChanged(nameof(Id));
+                }
             }
         }
     }
@@ -283,8 +295,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     {
         if (other is null) return false;
         if (ReferenceEquals(this, other)) return true;
-        return string.Equals(Name, other.Name, StringComparison.OrdinalIgnoreCase) &&
-               string.Equals(Artist, other.Artist, StringComparison.OrdinalIgnoreCase);
+        return Id.Equals(other.Id);
     }
 
     /// <summary>
@@ -298,9 +309,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     /// アルバムのハッシュコードを取得します
     /// </summary>
     /// <returns>ハッシュコード</returns>
-    public override int GetHashCode() => HashCode.Combine(
-        StringComparer.OrdinalIgnoreCase.GetHashCode(Name),
-        StringComparer.OrdinalIgnoreCase.GetHashCode(Artist));
+    public override int GetHashCode() => Id.GetHashCode();
 
     /// <summary>
     /// アルバムの文字列表現を取得します
