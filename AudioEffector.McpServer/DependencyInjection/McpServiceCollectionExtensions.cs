@@ -33,6 +33,7 @@ public static class McpServiceCollectionExtensions
         services.AddLogging();
         services.AddSingleton(options);
         services.AddSingleton<IIpcReadinessProbe, NamedPipeIpcReadinessProbe>();
+        services.AddSingleton<IAppLaunchCoordinator, SessionFileAppLaunchCoordinator>();
         services.AddSingleton<IAppLauncher, WpfAppLauncher>();
 
         // IUiDispatcher は AddInfrastructureServices 内の TryAddSingleton により既定の ImmediateUiDispatcher が登録される
