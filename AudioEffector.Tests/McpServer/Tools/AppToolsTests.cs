@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using AudioEffector.McpServer.Configuration;
 using AudioEffector.McpServer.Gateways;
 using AudioEffector.McpServer.Protocol;
 using AudioEffector.McpServer.Tools;
@@ -262,6 +263,53 @@ public sealed class AppToolsTests
         Assert.True(result.IsError);
         using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
         Assert.Equal(McpErrorCodes.OPERATION_CANCELLED, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    /// <summary>
+    /// 実 WpfAppLauncher を経由し、Mutex が確立された後も IPC が応答しない状態で waitForReady=true を指定した場合、IPC_CONNECTION_FAILED エラーを返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LaunchAppAsync_実ランチャーでMutex確立後もIPC未応答の場合_IPC_CONNECTION_FAILEDを返す()
+    {
+        // Arrange
+        bool mutexCreated = false;
+        using var launcher = new WpfAppLauncher(
+            new McpServerOptions(),
+            new Mock<ILogger<WpfAppLauncher>>().Object,
+            @"C:\Apps\AudioEffector",
+            _ => true,
+            () => mutexCreated,
+            _ =>
+            {
+                mutexCreated = true;
+                return new DummyLaunchedProcess();
+            },
+            _ => Task.FromResult(false),
+            readyTimeout: TimeSpan.FromMilliseconds(60),
+            pollInterval: TimeSpan.FromMilliseconds(10));
+
+        var sut = new AppTools(launcher, new Mock<ILogger<AppTools>>().Object);
+
+        // Act
+        CallToolResult result = await sut.LaunchAppAsync(mode: "mini_player", waitForReady: true);
+
+        // Assert
+        Assert.True(mutexCreated);
+        Assert.True(result.IsError);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    private sealed class DummyLaunchedProcess : WpfAppLauncher.ILaunchedProcess
+    {
+        public bool HasExited => false;
+
+        public int ExitCode => 0;
+
+        public void Dispose()
+        {
+        }
     }
 
     private static string GetSingleText(CallToolResult result)
