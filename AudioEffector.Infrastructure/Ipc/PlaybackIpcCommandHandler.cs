@@ -178,10 +178,9 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
         }
 
         bool started = await playTask.ConfigureAwait(false);
-        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
-
         if (!started)
         {
+            ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
             return AppIpcResponse.Failure(
                 AppIpcErrorCodes.INTERNAL_ERROR,
                 "音声ファイルの再生開始に失敗しました。");

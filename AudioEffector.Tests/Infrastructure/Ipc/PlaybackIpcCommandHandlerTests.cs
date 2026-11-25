@@ -416,6 +416,54 @@ public sealed class PlaybackIpcCommandHandlerTests
     }
 
     /// <summary>
+    /// 再生開始が確定した直後に有効期限が経過した場合でも、開始済み再生と整合させるため成功応答を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_再生開始確定直後に期限超過時_成功応答を返す()
+    {
+        // Arrange
+        var trackId = TrackId.New();
+        var track = CreateTrack(trackId, @"C:\Music\JustInTime.flac", "Just In Time", "Artist", "Album");
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetByIdAsync(trackId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(track);
+
+        DateTimeOffset now = new(2026, 11, 25, 12, 0, 0, TimeSpan.Zero);
+        DateTimeOffset deadline = now.AddSeconds(3);
+
+        var audioService = new Mock<IAudioService>();
+        audioService
+            .Setup(a => a.PlayTrackAsync(track, It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                now = deadline.AddMilliseconds(5);
+                return Task.FromResult(true);
+            });
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true,
+            utcNow: () => now);
+
+        var request = new AppIpcRequest(
+            AppIpcServer.COMMAND_PLAY_TRACK,
+            TrackId: trackId.Value.ToString("D"),
+            DeadlineUtc: deadline);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, response.PlaybackState);
+    }
+
+    /// <summary>
     /// filePath に相対パスを指定した場合に INVALID_PARAMETER を返し再生を実行しないことを検証します。
     /// </summary>
     [Theory]

@@ -693,7 +693,8 @@ public class AudioService : IAudioService
                     }
 
                     _outputDevice.Play();
-                    return _outputDevice.PlaybackState == NAudio.Wave.PlaybackState.Playing;
+                    return _currentPlaybackId == thisPlaybackId
+                        && _outputDevice.PlaybackState == NAudio.Wave.PlaybackState.Playing;
                 }
             }
             catch
@@ -710,20 +711,33 @@ public class AudioService : IAudioService
             }
         }).ConfigureAwait(false);
 
-        if (cancellationToken.IsCancellationRequested)
+        bool isCurrentPlayback;
+        bool isCurrentAndPlaying;
+        lock (_lock)
         {
-            PlaybackStateChanged?.Invoke(IsPlaying);
+            isCurrentPlayback = _currentPlaybackId == thisPlaybackId;
+            isCurrentAndPlaying = started
+                && isCurrentPlayback
+                && _outputDevice?.PlaybackState == NAudio.Wave.PlaybackState.Playing;
+        }
+
+        if (isCurrentAndPlaying)
+        {
+            PlaybackStateChanged?.Invoke(true);
+            return true;
+        }
+
+        if (isCurrentPlayback)
+        {
+            PlaybackStateChanged?.Invoke(false);
+        }
+
+        if (!started && cancellationToken.IsCancellationRequested)
+        {
             cancellationToken.ThrowIfCancellationRequested();
         }
 
-        if (started)
-        {
-            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
-        }
-
-        bool isPlayingNow = IsPlaying;
-        PlaybackStateChanged?.Invoke(isPlayingNow);
-        return started && isPlayingNow;
+        return false;
     }
 
 
