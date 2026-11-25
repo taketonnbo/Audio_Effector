@@ -585,6 +585,104 @@ public sealed class WpfAppLauncherTests
         }
     }
 
+    /// <summary>
+    /// 子プロセス生成直後に 1 回目の要求がキャンセルされても、セッション共有の起動記録が確定され、後続の別ランチャーが二重起動しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LaunchAsync_子プロセス生成直後にキャンセルされた場合_起動記録が確定され別ランチャーが二重起動しない()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorLaunchCancel_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            int startCount = 0;
+            var activePids = new HashSet<int>();
+            object syncRoot = new();
+            string scopeKey = $"test-{Guid.NewGuid():N}";
+            using var ctsA = new CancellationTokenSource();
+
+            IAppLaunchCoordinator CreateCoordinator() => new SessionFileAppLaunchCoordinator(
+                tempDir,
+                scopeKey,
+                identity =>
+                {
+                    lock (syncRoot)
+                    {
+                        return activePids.Contains(identity.ProcessId);
+                    }
+                });
+
+            WpfAppLauncher.ILaunchedProcess StartAndCancel(ProcessStartInfo startInfo)
+            {
+                _ = startInfo;
+                int pid = 30000 + Interlocked.Increment(ref startCount);
+                lock (syncRoot)
+                {
+                    activePids.Add(pid);
+                }
+
+                // 子プロセス生成直後に呼び出し元トークンがキャンセルされるケースを再現
+                ctsA.Cancel();
+                return new FakeLaunchedProcess(pid);
+            }
+
+            using var launcherA = CreateSut(
+                new McpServerOptions(),
+                isAlreadyRunning: () => false,
+                processStarter: StartAndCancel,
+                ipcReadinessProbe: _ => Task.FromResult(false),
+                launchCoordinator: CreateCoordinator());
+            using var launcherB = CreateSut(
+                new McpServerOptions(),
+                isAlreadyRunning: () => false,
+                processStarter: _ =>
+                {
+                    int pid = 30000 + Interlocked.Increment(ref startCount);
+                    return new FakeLaunchedProcess(pid);
+                },
+                ipcReadinessProbe: _ => Task.FromResult(false),
+                launchCoordinator: CreateCoordinator());
+
+            // Act
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => launcherA.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: true, cancellationToken: ctsA.Token));
+            AppLaunchResult second = await launcherB.LaunchAsync(AppLaunchMode.Normal, waitForReady: false);
+
+            // Assert
+            Assert.Equal(1, startCount);
+            Assert.False(second.Launched);
+            Assert.True(second.AlreadyRunning);
+            Assert.Equal(WpfAppLauncher.MODE_EXISTING, second.Mode);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// SessionFileAppLaunchCoordinator の既定保存先ディレクトリが TMP/TEMP ではなく LocalApplicationData 配下の共通ディレクトリとなることを検証します。
+    /// </summary>
+    [Fact]
+    public void GetDefaultCoordinatorDirectory_既定保存先_LocalApplicationData配下の共通ディレクトリを返す()
+    {
+        // Arrange
+        string expected = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AudioEffector",
+            "ipc");
+
+        // Act
+        string actual = SessionFileAppLaunchCoordinator.GetDefaultCoordinatorDirectory();
+
+        // Assert
+        Assert.Equal(expected, actual);
+    }
+
     private static WpfAppLauncher CreateSut(
         McpServerOptions options,
         string baseDirectory = @"C:\Apps\AudioEffector",
