@@ -180,7 +180,8 @@ classDiagram
 | `LibraryTools` / `LibraryDtos` | `Tools/LibraryTools.cs`, `Dtos/LibraryDtos.cs` | Phase 2 の楽曲ライブラリ検索ツール（`search_tracks`）および応答 DTO（`SearchTracksResponse`, `TrackSummaryDto`）。 |
 | `AppTools` / `AppDtos` | `Tools/AppTools.cs`, `Dtos/AppDtos.cs` | Phase 2 のアプリ起動ツール（`launch_app`）および応答 DTO（`LaunchAppResponse`）。 |
 | `IAppLauncher` / `WpfAppLauncher` | `Gateways/IAppLauncher.cs`, `Gateways/WpfAppLauncher.cs` | WPF 本体の実行ファイルパス解決・多重起動防止確認・起動中プロセス追跡・IPC 待受準備完了待機を担う起動ゲートウェイ。 |
-| `IIpcReadinessProbe` / `NamedPipeIpcReadinessProbe` | `Gateways/IIpcReadinessProbe.cs`, `Gateways/NamedPipeIpcReadinessProbe.cs` | Named Pipe IPC（`AudioEffector.Ipc.v1.<CurrentUserSidHash>`）へ `ping` を送信し、WPF 本体の待受準備完了を確認するプローブ。 |
+| `IAppLaunchCoordinator` / `SessionFileAppLaunchCoordinator` | `Gateways/IAppLaunchCoordinator.cs`, `Gateways/SessionFileAppLaunchCoordinator.cs` | Windows セッション単位の OS ファイルロックと共有状態ファイルにより、複数の独立 MCP プロセス間の WPF 起動を調停するコーディネータ。 |
+| `IIpcReadinessProbe` / `NamedPipeIpcReadinessProbe` | `Gateways/IIpcReadinessProbe.cs`, `Gateways/NamedPipeIpcReadinessProbe.cs` | Named Pipe IPC（`AudioEffector.Ipc.v1.<CurrentUserSidHash>.s<SessionId>`）へ `ping` を送信し、WPF 本体の待受準備完了を確認するプローブ。 |
 | `IPlaybackControlGateway` | `Gateways/IPlaybackControlGateway.cs` | 再生制御の抽象化ゲートウェイ（Phase 2 で Named Pipe IPC 実装を接続）。 |
 
 ### 3.3 CLI オプション・設定モデル（将来互換インターフェース）
@@ -271,7 +272,7 @@ WPF 本体と `AudioEffector.McpServer` の 2 プロセスが同時起動する�
 
 #### Named Pipe IPC ブリッジ設計方針（Phase 2 再生系ツール導入時に実装）
 
-- **パイプ名規約**: `AudioEffector.Ipc.v1.<CurrentUserSidHash>`（同一ログオンユーザーセッション内に限定し、他ユーザーからのアクセスを OS レベルで遮断）。
+- **パイプ名規約**: `AudioEffector.Ipc.v1.<CurrentUserSidHash>.s<SessionId>`（同一ログオンユーザーかつ同一 Windows セッション内に限定し、他ユーザーおよび同一アカウントの別セッションからの干渉を OS レベル＋セッション ID で遮断）。
 - **プロトコル**: 改行区切り JSON（NDJSON）または長さプレフィックス付き UTF-8 JSON の軽量リクエスト／レスポンス（タイムアウト既定 `3000ms`）。
 - **WPF 側ホスト**: `AudioEffector`（WPF 起動時）がバックグラウンドで `PlaybackIpcServer` を起動し、受信コマンドを `IUiDispatcher` 経由で `IAudioService` / `AudioApplicationService` へディスパッチする。これにより、ミニプレイヤー・再生バー・再生キュースライドパネル・スペクトラムアナライザが完全リアルタイムに連動する。
 - **WPF 未起動時の挙動**: `IpcPlaybackControlGateway` が名前付きパイプ接続タイムアウト（`TimeoutException` / `FileNotFoundException`）を検知した場合、既定では **`WPF_APP_NOT_RUNNING`** エラーを返却し、意図しないバックグラウンド再生を防止する。将来的に CLI オプション `--allow-headless-playback` によるヘッドレス再生へ拡張できるよう、MCP ツール側は必ず `IPlaybackControlGateway` インターフェースのみに依存する。
@@ -507,9 +508,9 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 #### 実装詳細・WPF 側連携・エラーケース
 
 - **実行ファイルパス解決**: `McpServerOptions.WpfAppPath`（CLI `--wpf-app-path` / 環境変数 `AUDIOEFFECTOR_MCP__WPFAPPPATH`）が指定されていればそのパスを使用し、未指定時は `AppContext.BaseDirectory` 配下の `AudioEffector.exe` を既定パスとして解決します。
-- **起動排他・起動中プロセス追跡およびライフサイクル**: `WpfAppLauncher` は `SemaphoreSlim` による排他制御と起動中プロセスの追跡（`_trackedProcess`）を併用し、`waitForReady == false` の連続呼び出しなど Mutex 確立前の後続要求であっても同一起動へ合流させて多重起動を防止します。起動された `AudioEffector.exe` は独立プロセスとして動作し、MCP サーバ終了後も継続動作します。
+- **起動排他・独立 MCP プロセス間起動調停およびライフサイクル**: `WpfAppLauncher` はプロセス内の `SemaphoreSlim`・起動中プロセス追跡に加え、Windows セッション単位の `IAppLaunchCoordinator`（`SessionFileAppLaunchCoordinator` による OS ファイルロック＋共有状態ファイル）を併用します。同一 MCP プロセスからの連続呼び出しだけでなく、複数の独立した stdio MCP サーバプロセスから Mutex 確立前に同時呼び出しされた場合も先行起動へ合流させ、多重起動・二重 `launched: true`・後発終了による誤エラーを防止します。起動された `AudioEffector.exe` は独立プロセスとして動作し、MCP サーバ終了後も継続動作します。
 - **IPC 待受準備完了確認**:
-  - WPF 本体（`AudioEffector/App.xaml.cs`）は起動時に `AudioEffector.Infrastructure.Ipc.AppIpcServer`（パイプ名 `AudioEffector.Ipc.v1.<CurrentUserSidHash>`、`PipeOptions.CurrentUserOnly`）のバックグラウンド待受を開始し、`OnExit` で安全に解放します。
+  - WPF 本体（`AudioEffector/App.xaml.cs`）は起動時に `AudioEffector.Infrastructure.Ipc.AppIpcServer`（パイプ名 `AudioEffector.Ipc.v1.<CurrentUserSidHash>.s<SessionId>`、`PipeOptions.CurrentUserOnly`）のバックグラウンド待受を開始し、`OnExit` で安全に解放します。
   - MCP サーバ側は DI 登録された `IIpcReadinessProbe`（`NamedPipeIpcReadinessProbe`）で Named Pipe へ `{"command":"ping"}` を送信して `{"ok":true}` 応答を確認します。`waitForReady == true` の場合は新規起動・既起動を問わず IPC 接続成功またはタイムアウト（既定 10 秒、`IPC_CONNECTION_FAILED`）まで待機します。
 - **WPF 側起動オプション（`--mini-player` / `--normal`）および単一インスタンス制御**:
   - `AudioEffector/AppStartupOptions.cs` にて CLI 引数 `--mini-player` / `--normal` を解析します。
