@@ -146,6 +146,30 @@ public sealed class PlaybackToolsTests
     }
 
     /// <summary>
+    /// filePath に相対パスを指定した場合に送信前で INVALID_PARAMETER エラーを返しゲートウェイを呼び出さないことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("song.wav")]
+    [InlineData(@".\music\song.flac")]
+    [InlineData(@"..\song.mp3")]
+    public async Task PlayTrackAsync_filePathに相対パス指定時_INVALID_PARAMETERを返す(string relativeFilePath)
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.PlayTrackAsync(filePath: relativeFilePath);
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        gateway.Verify(g => g.PlayTrackAsync(It.IsAny<TrackId?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
     /// WPF 本体が未起動の場合に WPF_APP_NOT_RUNNING エラーおよび launch_app 案内メッセージが返ることを検証します。
     /// </summary>
     [Fact]
