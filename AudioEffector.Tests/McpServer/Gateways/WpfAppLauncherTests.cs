@@ -47,10 +47,10 @@ public sealed class WpfAppLauncherTests
     }
 
     /// <summary>
-    /// MiniPlayer モード指定時に --mini-player 引数付きでプロセスを起動し launched=true を返すことを検証します。
+    /// MiniPlayer モード指定時に --mini-player 引数付きでプロセスを起動し IPC 準備完了後に launched=true, ipcReady=true を返すことを検証します。
     /// </summary>
     [Fact]
-    public async Task LaunchAsync_MiniPlayerモード指定時_MiniPlayer引数付きで起動しlaunchedTrueを返す()
+    public async Task LaunchAsync_MiniPlayerモード指定時_MiniPlayer引数付きで起動しlaunchedTrueとipcReadyTrueを返す()
     {
         // Arrange
         bool isRunning = false;
@@ -64,7 +64,8 @@ public sealed class WpfAppLauncherTests
                 capturedStartInfo = startInfo;
                 isRunning = true;
                 return new FakeLaunchedProcess();
-            });
+            },
+            ipcReadinessProbe: _ => Task.FromResult(isRunning));
 
         // Act
         AppLaunchResult result = await sut.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: true);
@@ -76,14 +77,14 @@ public sealed class WpfAppLauncherTests
         Assert.True(result.Launched);
         Assert.False(result.AlreadyRunning);
         Assert.Equal(WpfAppLauncher.MODE_MINI_PLAYER, result.Mode);
-        Assert.False(result.IpcReady);
+        Assert.True(result.IpcReady);
     }
 
     /// <summary>
-    /// Normal モード指定時に --mini-player 引数なしでプロセスを起動し launched=true を返すことを検証します。
+    /// Normal モード指定時に --normal 引数付きでプロセスを起動し launched=true, ipcReady=true を返すことを検証します。
     /// </summary>
     [Fact]
-    public async Task LaunchAsync_Normalモード指定時_引数なしで通常起動しlaunchedTrueを返す()
+    public async Task LaunchAsync_Normalモード指定時_Normal引数付きで通常起動しlaunchedTrueとipcReadyTrueを返す()
     {
         // Arrange
         bool isRunning = false;
@@ -97,28 +98,30 @@ public sealed class WpfAppLauncherTests
                 capturedStartInfo = startInfo;
                 isRunning = true;
                 return new FakeLaunchedProcess();
-            });
+            },
+            ipcReadinessProbe: _ => Task.FromResult(isRunning));
 
         // Act
         AppLaunchResult result = await sut.LaunchAsync(AppLaunchMode.Normal, waitForReady: true);
 
         // Assert
         Assert.NotNull(capturedStartInfo);
-        Assert.Empty(capturedStartInfo.ArgumentList);
+        Assert.Single(capturedStartInfo.ArgumentList, WpfAppLauncher.NORMAL_ARGUMENT);
         Assert.True(result.Launched);
         Assert.False(result.AlreadyRunning);
         Assert.Equal(WpfAppLauncher.MODE_NORMAL, result.Mode);
-        Assert.False(result.IpcReady);
+        Assert.True(result.IpcReady);
     }
 
     /// <summary>
-    /// すでに起動済みの場合に新規プロセスを起動せず alreadyRunning=true・mode="existing" を返すことを検証します。
+    /// すでに起動済みの場合に新規プロセスを起動せず、waitForReady=true では IPC 接続可能になるまで待機して alreadyRunning=true, ipcReady=true を返すことを検証します。
     /// </summary>
     [Fact]
-    public async Task LaunchAsync_すでに起動済みの場合_新規起動せずalreadyRunningTrueを返す()
+    public async Task LaunchAsync_すでに起動済みかつwaitForReadyTrueの場合_IPC準備完了まで待機しalreadyRunningTrueを返す()
     {
         // Arrange
         int startCount = 0;
+        int probeCount = 0;
         using var sut = CreateSut(
             new McpServerOptions(),
             fileExists: _ => true,
@@ -128,13 +131,16 @@ public sealed class WpfAppLauncherTests
                 startCount++;
                 return new FakeLaunchedProcess();
             },
-            ipcReadinessProbe: _ => Task.FromResult(true));
+            ipcReadinessProbe: _ => Task.FromResult(++probeCount >= 3),
+            readyTimeout: TimeSpan.FromSeconds(2),
+            pollInterval: TimeSpan.FromMilliseconds(10));
 
         // Act
         AppLaunchResult result = await sut.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: true);
 
         // Assert
         Assert.Equal(0, startCount);
+        Assert.True(probeCount >= 3);
         Assert.False(result.Launched);
         Assert.True(result.AlreadyRunning);
         Assert.Equal(WpfAppLauncher.MODE_EXISTING, result.Mode);
@@ -142,7 +148,52 @@ public sealed class WpfAppLauncherTests
     }
 
     /// <summary>
-    /// waitForReady=true かつ IPC プローブが構成されている場合、プローブ成功までリトライ待機し ipcReady=true を返すことを検証します。
+    /// すでに起動済みかつ waitForReady=true で IPC が応答しない場合、タイムアウトして TimeoutException をスローすることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LaunchAsync_すでに起動済みかつIPC未応答でwaitForReadyTrueの場合_TimeoutExceptionをスローする()
+    {
+        // Arrange
+        using var sut = CreateSut(
+            new McpServerOptions(),
+            fileExists: _ => true,
+            isAlreadyRunning: () => true,
+            processStarter: _ => new FakeLaunchedProcess(),
+            ipcReadinessProbe: _ => Task.FromResult(false),
+            readyTimeout: TimeSpan.FromMilliseconds(60),
+            pollInterval: TimeSpan.FromMilliseconds(10));
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TimeoutException>(() => sut.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: true));
+    }
+
+    /// <summary>
+    /// 新規起動後に Mutex が確立されても IPC が応答しない場合、タイムアウトして TimeoutException をスローすることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LaunchAsync_Mutex確立後もIPCが応答しない場合_TimeoutExceptionをスローする()
+    {
+        // Arrange
+        bool mutexCreated = false;
+        using var sut = CreateSut(
+            new McpServerOptions(),
+            fileExists: _ => true,
+            isAlreadyRunning: () => mutexCreated,
+            processStarter: _ =>
+            {
+                mutexCreated = true;
+                return new FakeLaunchedProcess();
+            },
+            ipcReadinessProbe: _ => Task.FromResult(false),
+            readyTimeout: TimeSpan.FromMilliseconds(60),
+            pollInterval: TimeSpan.FromMilliseconds(10));
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TimeoutException>(() => sut.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: true));
+    }
+
+    /// <summary>
+    /// waitForReady=true で IPC プローブが遅延成功する場合、プローブ成功までリトライ待機し ipcReady=true を返すことを検証します。
     /// </summary>
     [Fact]
     public async Task LaunchAsync_IPCプローブが遅延成功する場合_待機後にipcReadyTrueを返す()
@@ -180,6 +231,7 @@ public sealed class WpfAppLauncherTests
             fileExists: _ => true,
             isAlreadyRunning: () => false,
             processStarter: _ => new FakeLaunchedProcess(),
+            ipcReadinessProbe: _ => Task.FromResult(false),
             readyTimeout: TimeSpan.FromMilliseconds(50),
             pollInterval: TimeSpan.FromMilliseconds(10));
 
@@ -194,6 +246,104 @@ public sealed class WpfAppLauncherTests
     }
 
     /// <summary>
+    /// Mutex の確立が遅れている状態で waitForReady=false を 2 回連続で呼び出しても、起動中プロセス追跡により起動回数が 1 回に抑止されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LaunchAsync_Mutex未確立のままwaitForReadyFalseで2回呼び出した場合_起動回数が1回になり2回目はalreadyRunningTrueを返す()
+    {
+        // Arrange
+        int startCount = 0;
+        using var sut = CreateSut(
+            new McpServerOptions(),
+            fileExists: _ => true,
+            isAlreadyRunning: () => false,
+            processStarter: _ =>
+            {
+                startCount++;
+                return new FakeLaunchedProcess();
+            },
+            ipcReadinessProbe: _ => Task.FromResult(false));
+
+        // Act
+        AppLaunchResult first = await sut.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: false);
+        AppLaunchResult second = await sut.LaunchAsync(AppLaunchMode.Normal, waitForReady: false);
+
+        // Assert
+        Assert.Equal(1, startCount);
+        Assert.True(first.Launched);
+        Assert.False(first.AlreadyRunning);
+        Assert.Equal(WpfAppLauncher.MODE_MINI_PLAYER, first.Mode);
+        Assert.False(second.Launched);
+        Assert.True(second.AlreadyRunning);
+        Assert.Equal(WpfAppLauncher.MODE_EXISTING, second.Mode);
+    }
+
+    /// <summary>
+    /// 1 回目が waitForReady=false で起動直後の Mutex 未確立状態に 2 回目が waitForReady=true で呼ばれた場合、同じ起動に合流して IPC 準備完了まで待機することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LaunchAsync_waitForReadyFalse直後にMutex未確立でwaitForReadyTrueを呼んだ場合_既存起動へ合流しIPC準備完了まで待機する()
+    {
+        // Arrange
+        int startCount = 0;
+        int probeCount = 0;
+        using var sut = CreateSut(
+            new McpServerOptions(),
+            fileExists: _ => true,
+            isAlreadyRunning: () => false,
+            processStarter: _ =>
+            {
+                startCount++;
+                return new FakeLaunchedProcess();
+            },
+            ipcReadinessProbe: _ => Task.FromResult(++probeCount >= 3),
+            readyTimeout: TimeSpan.FromSeconds(2),
+            pollInterval: TimeSpan.FromMilliseconds(10));
+
+        // Act
+        AppLaunchResult first = await sut.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: false);
+        AppLaunchResult second = await sut.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: true);
+
+        // Assert
+        Assert.Equal(1, startCount);
+        Assert.True(first.Launched);
+        Assert.False(first.IpcReady);
+        Assert.False(second.Launched);
+        Assert.True(second.AlreadyRunning);
+        Assert.Equal(WpfAppLauncher.MODE_EXISTING, second.Mode);
+        Assert.True(second.IpcReady);
+    }
+
+    /// <summary>
+    /// 追跡中の起動プロセスが終了した後は、次回呼び出しで再度新規起動できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LaunchAsync_追跡中プロセス終了後に再呼び出しした場合_新規プロセスを起動する()
+    {
+        // Arrange
+        int startCount = 0;
+        using var firstProcess = new FakeLaunchedProcess();
+        using var sut = CreateSut(
+            new McpServerOptions(),
+            fileExists: _ => true,
+            isAlreadyRunning: () => false,
+            processStarter: _ => ++startCount == 1 ? firstProcess : new FakeLaunchedProcess(),
+            ipcReadinessProbe: _ => Task.FromResult(false));
+
+        // Act
+        AppLaunchResult first = await sut.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: false);
+        firstProcess.HasExited = true;
+        AppLaunchResult second = await sut.LaunchAsync(AppLaunchMode.Normal, waitForReady: false);
+
+        // Assert
+        Assert.Equal(2, startCount);
+        Assert.True(first.Launched);
+        Assert.True(second.Launched);
+        Assert.False(second.AlreadyRunning);
+        Assert.Equal(WpfAppLauncher.MODE_NORMAL, second.Mode);
+    }
+
+    /// <summary>
     /// 実行ファイルが存在しない場合に FileNotFoundException をスローすることを検証します。
     /// </summary>
     [Fact]
@@ -204,29 +354,11 @@ public sealed class WpfAppLauncherTests
             new McpServerOptions(),
             fileExists: _ => false,
             isAlreadyRunning: () => false,
-            processStarter: _ => new FakeLaunchedProcess());
+            processStarter: _ => new FakeLaunchedProcess(),
+            ipcReadinessProbe: _ => Task.FromResult(false));
 
         // Act & Assert
         await Assert.ThrowsAsync<FileNotFoundException>(() => sut.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: true));
-    }
-
-    /// <summary>
-    /// 起動後に準備完了状態へ遷移しない場合、タイムアウト経過後に TimeoutException をスローすることを検証します。
-    /// </summary>
-    [Fact]
-    public async Task LaunchAsync_起動待機がタイムアウトした場合_TimeoutExceptionをスローする()
-    {
-        // Arrange
-        using var sut = CreateSut(
-            new McpServerOptions(),
-            fileExists: _ => true,
-            isAlreadyRunning: () => false,
-            processStarter: _ => new FakeLaunchedProcess(),
-            readyTimeout: TimeSpan.FromMilliseconds(60),
-            pollInterval: TimeSpan.FromMilliseconds(10));
-
-        // Act & Assert
-        await Assert.ThrowsAsync<TimeoutException>(() => sut.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: true));
     }
 
     /// <summary>
@@ -241,6 +373,7 @@ public sealed class WpfAppLauncherTests
             fileExists: _ => true,
             isAlreadyRunning: () => false,
             processStarter: _ => new FakeLaunchedProcess { HasExited = true, ExitCode = 1 },
+            ipcReadinessProbe: _ => Task.FromResult(false),
             readyTimeout: TimeSpan.FromSeconds(1),
             pollInterval: TimeSpan.FromMilliseconds(10));
 
@@ -289,9 +422,11 @@ public sealed class WpfAppLauncherTests
         Assert.Equal(1, startCount);
         Assert.True(results[0].Launched);
         Assert.False(results[0].AlreadyRunning);
+        Assert.True(results[0].IpcReady);
         Assert.False(results[1].Launched);
         Assert.True(results[1].AlreadyRunning);
         Assert.Equal(WpfAppLauncher.MODE_EXISTING, results[1].Mode);
+        Assert.True(results[1].IpcReady);
     }
 
     private static WpfAppLauncher CreateSut(
@@ -312,14 +447,14 @@ public sealed class WpfAppLauncherTests
             fileExists ?? (_ => true),
             isAlreadyRunning ?? (() => false),
             processStarter ?? (_ => new FakeLaunchedProcess()),
-            ipcReadinessProbe,
+            ipcReadinessProbe ?? (_ => Task.FromResult(true)),
             readyTimeout ?? TimeSpan.FromSeconds(1),
             pollInterval ?? TimeSpan.FromMilliseconds(10));
     }
 
     private sealed class FakeLaunchedProcess : WpfAppLauncher.ILaunchedProcess
     {
-        public bool HasExited { get; init; }
+        public bool HasExited { get; set; }
 
         public int ExitCode { get; init; }
 

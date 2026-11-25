@@ -63,6 +63,7 @@ public sealed class McpServiceCollectionExtensionsTests : IDisposable
         var playlistService = provider.GetRequiredService<PlaylistApplicationService>();
         var equalizerService = provider.GetRequiredService<EqualizerApplicationService>();
         var settingsService = provider.GetRequiredService<ISettingsService>();
+        var ipcReadinessProbe = provider.GetRequiredService<IIpcReadinessProbe>();
         var appLauncher = provider.GetRequiredService<IAppLauncher>();
 
         // Assert
@@ -78,6 +79,7 @@ public sealed class McpServiceCollectionExtensionsTests : IDisposable
         Assert.NotNull(playlistService);
         Assert.NotNull(equalizerService);
         Assert.NotNull(settingsService);
+        Assert.IsType<NamedPipeIpcReadinessProbe>(ipcReadinessProbe);
         Assert.IsType<WpfAppLauncher>(appLauncher);
     }
 
