@@ -9,6 +9,7 @@ using System.Windows.Input;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
+using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Library;
 
 namespace AudioEffector.Presentation.ViewModels;
@@ -799,19 +800,19 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     private void SyncAlbumsFromTracks()
     {
         var grouped = Tracks
-            .GroupBy(t => string.IsNullOrWhiteSpace(t.Album) ? "Unknown Album" : t.Album, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(t => t.AlbumId)
             .ToList();
 
-        var existingAlbumsByTitle = new Dictionary<string, Album>(Albums.Count, StringComparer.OrdinalIgnoreCase);
+        var existingAlbumsById = new Dictionary<AlbumId, Album>(Albums.Count);
         foreach (var album in Albums)
         {
-            existingAlbumsByTitle.TryAdd(album.Title, album);
+            existingAlbumsById.TryAdd(album.Id, album);
         }
 
-        var activeAlbumTitles = new HashSet<string>(grouped.Select(g => g.Key), StringComparer.OrdinalIgnoreCase);
+        var activeAlbumIds = new HashSet<AlbumId>(grouped.Select(g => g.Key));
 
         // 収録曲がゼロになったアルバムを除去
-        var albumsToRemove = Albums.Where(a => !activeAlbumTitles.Contains(a.Title)).ToList();
+        var albumsToRemove = Albums.Where(a => !activeAlbumIds.Contains(a.Id)).ToList();
         foreach (var emptyAlbum in albumsToRemove)
         {
             if (ReferenceEquals(ExpandedAlbum, emptyAlbum))
@@ -839,11 +840,12 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 .GroupBy(y => y)
                 .OrderByDescending(z => z.Count())
                 .FirstOrDefault()?.Key ?? 0;
-            string representativeArtist = orderedTracks[0].Artist;
+            string albumTitle = string.IsNullOrWhiteSpace(orderedTracks[0].Album) ? "Unknown Album" : orderedTracks[0].Album.Trim();
+            string representativeArtist = string.IsNullOrWhiteSpace(orderedTracks[0].Artist) ? "Unknown Artist" : orderedTracks[0].Artist.Trim();
 
-            if (existingAlbumsByTitle.TryGetValue(group.Key, out var existingAlbum))
+            if (existingAlbumsById.TryGetValue(group.Key, out var existingAlbum))
             {
-                existingAlbum.Title = group.Key;
+                existingAlbum.Title = albumTitle;
                 existingAlbum.Artist = representativeArtist;
                 existingAlbum.Year = albumYear;
                 if (!AreTrackListsIdentical(existingAlbum.Tracks, orderedTracks))
@@ -853,13 +855,12 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             }
             else
             {
-                Albums.Add(new Album
-                {
-                    Title = group.Key,
-                    Artist = representativeArtist,
-                    Tracks = orderedTracks,
-                    Year = albumYear
-                });
+                Albums.Add(new Album(
+                    name: albumTitle,
+                    artist: representativeArtist,
+                    year: albumYear,
+                    tracks: orderedTracks,
+                    id: group.Key));
             }
         }
 
