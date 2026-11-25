@@ -431,6 +431,55 @@ public sealed class JsonTrackRepositoryTests : IDisposable
     }
 
     /// <summary>
+    /// 旧方式（Album, Artist）で別々のAlbumIdが保存されたコンピレーションJSONを読み込んだ際、作品単位の共通AlbumIdへ自動更新されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task 後方互換読込_旧AlbumIdで保存されたコンピレーションJSON_読込時に作品単位の共通AlbumIdへ更新されること()
+    {
+        // Arrange: 旧方式では演奏者ごとに異なる AlbumId が保存されていた
+        var id1 = Guid.NewGuid();
+        var id2 = Guid.NewGuid();
+        var legacyAlbumId1 = AlbumId.FromAlbumKey("Blue Note X Blue Giant", "Clifford Brown");
+        var legacyAlbumId2 = AlbumId.FromAlbumKey("Blue Note X Blue Giant", "Herbie Hancock");
+        string legacyCompilationJson = $$"""
+            [
+              {
+                "Id": "{{id1}}",
+                "AlbumId": "{{legacyAlbumId1}}",
+                "FilePath": "C:\\Music\\BlueNote\\01.flac",
+                "Title": "Track 1",
+                "Artist": "Clifford Brown",
+                "Album": "Blue Note X Blue Giant",
+                "TrackNumber": 1,
+                "DurationTicks": 1800000000
+              },
+              {
+                "Id": "{{id2}}",
+                "AlbumId": "{{legacyAlbumId2}}",
+                "FilePath": "C:\\Music\\BlueNote\\02.flac",
+                "Title": "Track 2",
+                "Artist": "Herbie Hancock",
+                "Album": "Blue Note X Blue Giant",
+                "TrackNumber": 2,
+                "DurationTicks": 2000000000
+              }
+            ]
+            """;
+        await File.WriteAllTextAsync(_testFilePath, legacyCompilationJson);
+        using var sut = CreateSut();
+
+        // Act
+        var loaded = await sut.GetAllAsync();
+
+        // Assert
+        Assert.Equal(2, loaded.Count);
+        var expectedUnifiedId = AlbumId.FromAlbumKey("Blue Note X Blue Giant", AudioEffector.Domain.Services.AlbumGroupingResolver.VariousArtistsName);
+        Assert.All(loaded, t => Assert.Equal(expectedUnifiedId, t.AlbumId));
+        Assert.Contains(loaded, t => t.Artist == "Clifford Brown");
+        Assert.Contains(loaded, t => t.Artist == "Herbie Hancock");
+    }
+
+    /// <summary>
     /// track引数にnullを指定した場合、ArgumentNullExceptionがスローされるかを検証します。
     /// </summary>
     [Fact]

@@ -1190,4 +1190,111 @@ public sealed class LibraryViewModelTests : IDisposable
         Assert.Empty(playlistVm.PlaylistTracks);
         Assert.Empty(playbackListTracks);
     }
+
+    /// <summary>
+    /// 共通作品に属する異なる演奏者の2曲（AlbumArtist共通およびAlbumArtist未設定コンピレーション）が一覧で1枚にまとまり、
+    /// そのAlbumIdで両曲を取得・再生できる一方、別作品の同名アルバムは別カードに残ることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_コンピレーションおよび客演曲と別作品同名アルバム混在時_共通作品は1枚で両曲取得再生でき別作品は別カードに残ること()
+    {
+        // Arrange
+        string rootDir = Path.Combine(_tempDirectory.FullName, "music_compilation_and_distinct");
+        string blueNoteDir = Path.Combine(rootDir, "BlueNote");
+        string compNoTagDir = Path.Combine(rootDir, "CompilationNoTag");
+        string otherArtistDir = Path.Combine(rootDir, "OtherArtist");
+        string dataDir = Path.Combine(_tempDirectory.FullName, "data_compilation_and_distinct");
+        Directory.CreateDirectory(blueNoteDir);
+        Directory.CreateDirectory(compNoTagDir);
+        Directory.CreateDirectory(otherArtistDir);
+        Directory.CreateDirectory(dataDir);
+
+        string bn1 = Path.Combine(blueNoteDir, "01_clifford.flac");
+        string bn2 = Path.Combine(blueNoteDir, "02_herbie.flac");
+        string noTag1 = Path.Combine(compNoTagDir, "01_a.flac");
+        string noTag2 = Path.Combine(compNoTagDir, "02_b.flac");
+        string distinctSameName = Path.Combine(otherArtistDir, "01_other.flac");
+        await File.WriteAllTextAsync(bn1, "bn1");
+        await File.WriteAllTextAsync(bn2, "bn2");
+        await File.WriteAllTextAsync(noTag1, "nt1");
+        await File.WriteAllTextAsync(noTag2, "nt2");
+        await File.WriteAllTextAsync(distinctSameName, "other");
+
+        string tracksJsonPath = Path.Combine(dataDir, "tracks.json");
+        using var realTrackRepo = new JsonTrackRepository(tracksJsonPath);
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        var appService = new LibraryApplicationService(realTrackRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+
+        List<Track>? queuedTracks = null;
+        _audioServiceMock
+            .Setup(a => a.SetPlaylist(It.IsAny<List<Track>>(), It.IsAny<Track?>()))
+            .Callback<List<Track>, Track?>((tracks, _) => queuedTracks = tracks);
+
+        using var sut = new LibraryViewModel(
+            appService,
+            _audioServiceMock.Object,
+            _settingsServiceMock.Object,
+            playlistViewModel: null,
+            trackMetadataLoader: file =>
+            {
+                if (string.Equals(file, bn1, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Track { FilePath = file, Title = "Moanin'", Artist = "Clifford Brown", AlbumArtist = "Blue Note", Album = "Blue Note X Blue Giant", TrackNumber = 1 };
+                }
+
+                if (string.Equals(file, bn2, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Track { FilePath = file, Title = "Maiden Voyage", Artist = "Herbie Hancock", AlbumArtist = "Blue Note", Album = "Blue Note X Blue Giant", TrackNumber = 2 };
+                }
+
+                if (string.Equals(file, noTag1, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Track { FilePath = file, Title = "Autumn Leaves", Artist = "Bill Evans", Album = "Jazz Essentials", TrackNumber = 1 };
+                }
+
+                if (string.Equals(file, noTag2, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Track { FilePath = file, Title = "So What", Artist = "Miles Davis", Album = "Jazz Essentials", TrackNumber = 2 };
+                }
+
+                return new Track { FilePath = file, Title = "Different Work", Artist = "Solo Artist", Album = "Blue Note X Blue Giant", TrackNumber = 1 };
+            });
+
+        // Act
+        await sut.LoadLibraryAsync(rootDir);
+
+        // Assert: 3 枚（Blue Note 共通作品 / AlbumArtist未設定コンピレーション / 別作品の同名アルバム）
+        Assert.Equal(3, sut.Albums.Count);
+
+        var blueNoteAlbum = Assert.Single(sut.Albums, a => a.Title == "Blue Note X Blue Giant" && a.Artist == "Blue Note");
+        Assert.Equal(2, blueNoteAlbum.Tracks.Count);
+        Assert.Equal(["Clifford Brown", "Herbie Hancock"], blueNoteAlbum.Tracks.Select(t => t.Artist).ToArray());
+
+        var noTagCompAlbum = Assert.Single(sut.Albums, a => a.Title == "Jazz Essentials");
+        Assert.Equal("Various Artists", noTagCompAlbum.Artist);
+        Assert.Equal(2, noTagCompAlbum.Tracks.Count);
+        Assert.Equal(["Bill Evans", "Miles Davis"], noTagCompAlbum.Tracks.Select(t => t.Artist).ToArray());
+
+        var distinctAlbum = Assert.Single(sut.Albums, a => a.Title == "Blue Note X Blue Giant" && a.Artist == "Solo Artist");
+        Assert.Single(distinctAlbum.Tracks);
+        Assert.NotEqual(blueNoteAlbum.Id, distinctAlbum.Id);
+
+        // Assert: GetAlbumByIdAsync でも共通作品の ID で両曲を取得できる
+        var fetchedBlueNote = await appService.GetAlbumByIdAsync(blueNoteAlbum.Id);
+        Assert.NotNull(fetchedBlueNote);
+        Assert.Equal(2, fetchedBlueNote.Tracks.Count);
+        Assert.Equal(blueNoteAlbum.Tracks.Select(t => t.Id), fetchedBlueNote.Tracks.Select(t => t.Id));
+
+        var fetchedNoTagComp = await appService.GetAlbumByIdAsync(noTagCompAlbum.Id);
+        Assert.NotNull(fetchedNoTagComp);
+        Assert.Equal(2, fetchedNoTagComp.Tracks.Count);
+        Assert.Equal(noTagCompAlbum.Tracks.Select(t => t.Id), fetchedNoTagComp.Tracks.Select(t => t.Id));
+
+        // Assert: PlayAlbumCommand で両曲が再生キューへ渡される
+        sut.PlayAlbumCommand.Execute(blueNoteAlbum);
+        Assert.NotNull(queuedTracks);
+        Assert.Equal(2, queuedTracks.Count);
+        Assert.Equal(blueNoteAlbum.Tracks.Select(t => t.Id), queuedTracks.Select(t => t.Id));
+    }
 }
