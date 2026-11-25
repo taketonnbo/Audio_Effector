@@ -303,6 +303,8 @@ public sealed class AppToolsTests
 
     private sealed class DummyLaunchedProcess : WpfAppLauncher.ILaunchedProcess
     {
+        public LaunchedProcessIdentity Identity { get; } = new(99999, 1000L);
+
         public bool HasExited => false;
 
         public int ExitCode => 0;

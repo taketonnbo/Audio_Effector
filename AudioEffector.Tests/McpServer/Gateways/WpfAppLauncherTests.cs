@@ -429,6 +429,162 @@ public sealed class WpfAppLauncherTests
         Assert.True(results[1].IpcReady);
     }
 
+    /// <summary>
+    /// 独立した 2 つのランチャー（別 MCP サーバプロセス相当）から Mutex 未確立のまま waitForReady=false で同時呼び出しした場合、セッション調停により起動回数が 1 回となり 1 つだけ launched=true・もう 1 つは alreadyRunning=true を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LaunchAsync_独立した2つのランチャーからMutex未確立でwaitForReadyFalse同時呼び出し時_起動回数が1回になり結果が一致する()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorLaunchCoord_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            int startCount = 0;
+            var activePids = new HashSet<int>();
+            object syncRoot = new();
+            string scopeKey = $"test-{Guid.NewGuid():N}";
+
+            IAppLaunchCoordinator CreateCoordinator() => new SessionFileAppLaunchCoordinator(
+                tempDir,
+                scopeKey,
+                identity =>
+                {
+                    lock (syncRoot)
+                    {
+                        return activePids.Contains(identity.ProcessId);
+                    }
+                });
+
+            WpfAppLauncher.ILaunchedProcess StartFakeProcess(ProcessStartInfo _)
+            {
+                int pid = 10000 + Interlocked.Increment(ref startCount);
+                lock (syncRoot)
+                {
+                    activePids.Add(pid);
+                }
+
+                return new FakeLaunchedProcess(pid);
+            }
+
+            using var launcherA = CreateSut(
+                new McpServerOptions(),
+                isAlreadyRunning: () => false,
+                processStarter: StartFakeProcess,
+                ipcReadinessProbe: _ => Task.FromResult(false),
+                launchCoordinator: CreateCoordinator());
+            using var launcherB = CreateSut(
+                new McpServerOptions(),
+                isAlreadyRunning: () => false,
+                processStarter: StartFakeProcess,
+                ipcReadinessProbe: _ => Task.FromResult(false),
+                launchCoordinator: CreateCoordinator());
+
+            // Act
+            AppLaunchResult[] results = await Task.WhenAll(
+                launcherA.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: false),
+                launcherB.LaunchAsync(AppLaunchMode.Normal, waitForReady: false));
+
+            // Assert
+            Assert.Equal(1, startCount);
+            Assert.Single(results, r => r.Launched && !r.AlreadyRunning);
+            AppLaunchResult joined = Assert.Single(results, r => !r.Launched && r.AlreadyRunning);
+            Assert.Equal(WpfAppLauncher.MODE_EXISTING, joined.Mode);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 独立した 2 つのランチャーから Mutex 未確立のまま waitForReady=true で同時呼び出しした場合、起動回数が 1 回に調停され、両者ともエラーにならず ipcReady=true で完了することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LaunchAsync_独立した2つのランチャーからMutex未確立でwaitForReadyTrue同時呼び出し時_先行起動へ合流し両者ともipcReadyTrueで完了する()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorLaunchCoordWait_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            int startCount = 0;
+            int ipcReadyFlag = 0;
+            var activePids = new HashSet<int>();
+            object syncRoot = new();
+            string scopeKey = $"test-{Guid.NewGuid():N}";
+
+            IAppLaunchCoordinator CreateCoordinator() => new SessionFileAppLaunchCoordinator(
+                tempDir,
+                scopeKey,
+                identity =>
+                {
+                    lock (syncRoot)
+                    {
+                        return activePids.Contains(identity.ProcessId);
+                    }
+                });
+
+            WpfAppLauncher.ILaunchedProcess StartFakeProcess(ProcessStartInfo startInfo)
+            {
+                _ = startInfo;
+                int pid = 20000 + Interlocked.Increment(ref startCount);
+                lock (syncRoot)
+                {
+                    activePids.Add(pid);
+                }
+
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(50);
+                    Volatile.Write(ref ipcReadyFlag, 1);
+                });
+
+                return new FakeLaunchedProcess(pid);
+            }
+
+            using var launcherA = CreateSut(
+                new McpServerOptions(),
+                isAlreadyRunning: () => false,
+                processStarter: StartFakeProcess,
+                ipcReadinessProbe: _ => Task.FromResult(Volatile.Read(ref ipcReadyFlag) == 1),
+                launchCoordinator: CreateCoordinator(),
+                readyTimeout: TimeSpan.FromSeconds(2),
+                pollInterval: TimeSpan.FromMilliseconds(10));
+            using var launcherB = CreateSut(
+                new McpServerOptions(),
+                isAlreadyRunning: () => false,
+                processStarter: StartFakeProcess,
+                ipcReadinessProbe: _ => Task.FromResult(Volatile.Read(ref ipcReadyFlag) == 1),
+                launchCoordinator: CreateCoordinator(),
+                readyTimeout: TimeSpan.FromSeconds(2),
+                pollInterval: TimeSpan.FromMilliseconds(10));
+
+            // Act
+            AppLaunchResult[] results = await Task.WhenAll(
+                launcherA.LaunchAsync(AppLaunchMode.MiniPlayer, waitForReady: true),
+                launcherB.LaunchAsync(AppLaunchMode.Normal, waitForReady: true));
+
+            // Assert
+            Assert.Equal(1, startCount);
+            AppLaunchResult launched = Assert.Single(results, r => r.Launched && !r.AlreadyRunning);
+            AppLaunchResult joined = Assert.Single(results, r => !r.Launched && r.AlreadyRunning);
+            Assert.True(launched.IpcReady);
+            Assert.True(joined.IpcReady);
+            Assert.Equal(WpfAppLauncher.MODE_EXISTING, joined.Mode);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static WpfAppLauncher CreateSut(
         McpServerOptions options,
         string baseDirectory = @"C:\Apps\AudioEffector",
@@ -436,6 +592,7 @@ public sealed class WpfAppLauncherTests
         Func<bool>? isAlreadyRunning = null,
         Func<ProcessStartInfo, WpfAppLauncher.ILaunchedProcess?>? processStarter = null,
         Func<CancellationToken, Task<bool>>? ipcReadinessProbe = null,
+        IAppLaunchCoordinator? launchCoordinator = null,
         TimeSpan? readyTimeout = null,
         TimeSpan? pollInterval = null)
     {
@@ -448,12 +605,15 @@ public sealed class WpfAppLauncherTests
             isAlreadyRunning ?? (() => false),
             processStarter ?? (_ => new FakeLaunchedProcess()),
             ipcReadinessProbe ?? (_ => Task.FromResult(true)),
+            launchCoordinator,
             readyTimeout ?? TimeSpan.FromSeconds(1),
             pollInterval ?? TimeSpan.FromMilliseconds(10));
     }
 
-    private sealed class FakeLaunchedProcess : WpfAppLauncher.ILaunchedProcess
+    private sealed class FakeLaunchedProcess(int processId = 12345) : WpfAppLauncher.ILaunchedProcess
     {
+        public LaunchedProcessIdentity Identity { get; } = new(processId, 1000L);
+
         public bool HasExited { get; set; }
 
         public int ExitCode { get; init; }

@@ -6,24 +6,43 @@ namespace AudioEffector.Tests.Infrastructure.Ipc;
 public sealed class AppIpcServerTests
 {
     /// <summary>
-    /// IpcPipeNameResolver が同一ユーザー識別子から決定的なバージョン付きパイプ名を生成することを検証します。
+    /// IpcPipeNameResolver が同一ユーザー識別子・同一セッション ID から決定的なバージョン付きパイプ名を生成することを検証します。
     /// </summary>
     [Fact]
-    public void CreatePipeNameFromUserIdentifier_同一識別子指定時_決定的なパイプ名を返す()
+    public void CreatePipeName_同一識別子と同一セッションID指定時_決定的なパイプ名を返す()
     {
         // Arrange
         const string sid = "S-1-5-21-1234567890-1234567890-1234567890-1001";
 
         // Act
-        string name1 = IpcPipeNameResolver.CreatePipeNameFromUserIdentifier(sid);
-        string name2 = IpcPipeNameResolver.CreatePipeNameFromUserIdentifier(sid);
-        string other = IpcPipeNameResolver.CreatePipeNameFromUserIdentifier("S-1-5-21-999999999-1002");
+        string name1 = IpcPipeNameResolver.CreatePipeName(sid, sessionId: 1);
+        string name2 = IpcPipeNameResolver.CreatePipeName(sid, sessionId: 1);
+        string otherUser = IpcPipeNameResolver.CreatePipeName("S-1-5-21-999999999-1002", sessionId: 1);
 
         // Assert
         Assert.StartsWith(IpcPipeNameResolver.PIPE_NAME_PREFIX, name1, StringComparison.Ordinal);
-        Assert.Equal(IpcPipeNameResolver.PIPE_NAME_PREFIX.Length + 16, name1.Length);
+        Assert.EndsWith(".s1", name1, StringComparison.Ordinal);
         Assert.Equal(name1, name2);
-        Assert.NotEqual(name1, other);
+        Assert.NotEqual(name1, otherUser);
+    }
+
+    /// <summary>
+    /// 同じユーザー SID であっても Windows セッション ID が異なる場合、別のパイプ名が生成されることを検証します。
+    /// </summary>
+    [Fact]
+    public void CreatePipeName_同一SIDで別セッションID指定時_異なるパイプ名を返す()
+    {
+        // Arrange
+        const string sid = "S-1-5-21-1234567890-1234567890-1234567890-1001";
+
+        // Act
+        string session1Pipe = IpcPipeNameResolver.CreatePipeName(sid, sessionId: 1);
+        string session2Pipe = IpcPipeNameResolver.CreatePipeName(sid, sessionId: 2);
+
+        // Assert
+        Assert.NotEqual(session1Pipe, session2Pipe);
+        Assert.EndsWith(".s1", session1Pipe, StringComparison.Ordinal);
+        Assert.EndsWith(".s2", session2Pipe, StringComparison.Ordinal);
     }
 
     /// <summary>

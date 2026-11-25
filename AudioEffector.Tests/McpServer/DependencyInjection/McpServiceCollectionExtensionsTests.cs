@@ -64,6 +64,7 @@ public sealed class McpServiceCollectionExtensionsTests : IDisposable
         var equalizerService = provider.GetRequiredService<EqualizerApplicationService>();
         var settingsService = provider.GetRequiredService<ISettingsService>();
         var ipcReadinessProbe = provider.GetRequiredService<IIpcReadinessProbe>();
+        var launchCoordinator = provider.GetRequiredService<IAppLaunchCoordinator>();
         var appLauncher = provider.GetRequiredService<IAppLauncher>();
 
         // Assert
@@ -80,6 +81,7 @@ public sealed class McpServiceCollectionExtensionsTests : IDisposable
         Assert.NotNull(equalizerService);
         Assert.NotNull(settingsService);
         Assert.IsType<NamedPipeIpcReadinessProbe>(ipcReadinessProbe);
+        Assert.IsType<SessionFileAppLaunchCoordinator>(launchCoordinator);
         Assert.IsType<WpfAppLauncher>(appLauncher);
     }
 
