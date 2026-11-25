@@ -179,7 +179,8 @@ classDiagram
 | `SystemTools` / `SystemDtos` | `Tools/SystemTools.cs`, `Dtos/SystemDtos.cs` | Phase 1 の疎通確認用リファレンス実装（`ping`, `get_server_info`）および応答 DTO。 |
 | `LibraryTools` / `LibraryDtos` | `Tools/LibraryTools.cs`, `Dtos/LibraryDtos.cs` | Phase 2 の楽曲ライブラリ検索ツール（`search_tracks`）および応答 DTO（`SearchTracksResponse`, `TrackSummaryDto`）。 |
 | `AppTools` / `AppDtos` | `Tools/AppTools.cs`, `Dtos/AppDtos.cs` | Phase 2 のアプリ起動ツール（`launch_app`）および応答 DTO（`LaunchAppResponse`）。 |
-| `IAppLauncher` / `WpfAppLauncher` | `Gateways/IAppLauncher.cs`, `Gateways/WpfAppLauncher.cs` | WPF 本体の実行ファイルパス解決・多重起動防止確認・起動および準備完了待機を担う起動ゲートウェイ。 |
+| `IAppLauncher` / `WpfAppLauncher` | `Gateways/IAppLauncher.cs`, `Gateways/WpfAppLauncher.cs` | WPF 本体の実行ファイルパス解決・多重起動防止確認・起動中プロセス追跡・IPC 待受準備完了待機を担う起動ゲートウェイ。 |
+| `IIpcReadinessProbe` / `NamedPipeIpcReadinessProbe` | `Gateways/IIpcReadinessProbe.cs`, `Gateways/NamedPipeIpcReadinessProbe.cs` | Named Pipe IPC（`AudioEffector.Ipc.v1.<CurrentUserSidHash>`）へ `ping` を送信し、WPF 本体の待受準備完了を確認するプローブ。 |
 | `IPlaybackControlGateway` | `Gateways/IPlaybackControlGateway.cs` | 再生制御の抽象化ゲートウェイ（Phase 2 で Named Pipe IPC 実装を接続）。 |
 
 ### 3.3 CLI オプション・設定モデル（将来互換インターフェース）
@@ -488,7 +489,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 | パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
 | :--- | :--- | :---: | :---: | :--- |
 | `mode` | `string` | 任意 | `"mini_player"` | 起動モード（`"mini_player"` または `"normal"`、大文字・小文字区別なし・前後空白トリム）。不正値は `INVALID_PARAMETER` エラー。 |
-| `waitForReady` | `bool` | 任意 | `true` | 起動後、WPF 本体の準備完了（単一インスタンス Mutex 確立、IPC プローブ構成時は IPC 接続可能状態）まで待機するかどうか。 |
+| `waitForReady` | `bool` | 任意 | `true` | 起動後（既起動時を含む）、WPF 本体の Named Pipe IPC 待受へ接続・疎通確認できるまで待機するかどうか。 |
 
 #### 出力（`data`）JSON スキーマ
 
@@ -497,20 +498,23 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   "launched": true,
   "alreadyRunning": false,
   "mode": "mini_player",
-  "ipcReady": false
+  "ipcReady": true
 }
 ```
 
-- `alreadyRunning == true`（起動済み）の場合：`launched: false`, `alreadyRunning: true`, `mode: "existing"` を返し、新規起動を行わず既存ウィンドウ状態をそのまま維持します。
+- `alreadyRunning == true`（起動済み）の場合：`launched: false`, `alreadyRunning: true`, `mode: "existing"` を返し、新規起動を行わず既存ウィンドウ状態をそのまま維持します（`waitForReady == true` の場合は IPC 接続可能になるまで待機して `ipcReady: true` を返却し、タイムアウト時は `IPC_CONNECTION_FAILED` エラー）。
 
 #### 実装詳細・WPF 側連携・エラーケース
 
 - **実行ファイルパス解決**: `McpServerOptions.WpfAppPath`（CLI `--wpf-app-path` / 環境変数 `AUDIOEFFECTOR_MCP__WPFAPPPATH`）が指定されていればそのパスを使用し、未指定時は `AppContext.BaseDirectory` 配下の `AudioEffector.exe` を既定パスとして解決します。
-- **起動排他およびライフサイクル**: `WpfAppLauncher` は `SemaphoreSlim` により連続呼び出し時の多重起動を防止します。起動された `AudioEffector.exe` は独立プロセスとして動作し、MCP サーバ終了後も継続動作します。
-- **WPF 側 `--mini-player` オプションおよび単一インスタンス制御**:
-  - `AudioEffector/AppStartupOptions.cs` にて CLI 引数 `--mini-player` を解析します。
+- **起動排他・起動中プロセス追跡およびライフサイクル**: `WpfAppLauncher` は `SemaphoreSlim` による排他制御と起動中プロセスの追跡（`_trackedProcess`）を併用し、`waitForReady == false` の連続呼び出しなど Mutex 確立前の後続要求であっても同一起動へ合流させて多重起動を防止します。起動された `AudioEffector.exe` は独立プロセスとして動作し、MCP サーバ終了後も継続動作します。
+- **IPC 待受準備完了確認**:
+  - WPF 本体（`AudioEffector/App.xaml.cs`）は起動時に `AudioEffector.Infrastructure.Ipc.AppIpcServer`（パイプ名 `AudioEffector.Ipc.v1.<CurrentUserSidHash>`、`PipeOptions.CurrentUserOnly`）のバックグラウンド待受を開始し、`OnExit` で安全に解放します。
+  - MCP サーバ側は DI 登録された `IIpcReadinessProbe`（`NamedPipeIpcReadinessProbe`）で Named Pipe へ `{"command":"ping"}` を送信して `{"ok":true}` 応答を確認します。`waitForReady == true` の場合は新規起動・既起動を問わず IPC 接続成功またはタイムアウト（既定 10 秒、`IPC_CONNECTION_FAILED`）まで待機します。
+- **WPF 側起動オプション（`--mini-player` / `--normal`）および単一インスタンス制御**:
+  - `AudioEffector/AppStartupOptions.cs` にて CLI 引数 `--mini-player` / `--normal` を解析します。
   - `AudioEffector/App.xaml.cs` の `OnStartup` 最初期で同一ユーザーセッション内スコープの名前付き Mutex（`Local\AudioEffector.SingleInstance`）を取得し、すでに起動中の場合は既存インスタンスのウィンドウ状態を変更せず安全に `Shutdown(0)` します（`OnExit` で確実に解放・破棄）。
-  - `--mini-player` 指定時は `MainWindow.StartInMiniPlayerMode()` によりメインウィンドウを表示せず直ちに `MiniPlayerWindow` を表示します。ミニプレイヤーからメイン画面へ初回復帰する際は `AppSettings.StartMinimized` による再最小化を抑止します。
+  - `--mini-player` 指定時は `MainWindow.StartInMiniPlayerMode()` によりメインウィンドウを表示せず直ちに `MiniPlayerWindow` を表示します。`--normal` 指定時は `MainWindow.StartInNormalMode()` により `AppSettings.StartMinimized` を抑止して通常ウィンドウで初回表示します（引数なしの直接起動時は従来どおり `StartMinimized` 設定を適用）。
 - **エラーケース**:
   - 不正な `mode` 指定 → `INVALID_PARAMETER`（`details: { parameter: "mode", allowedValues: ["mini_player", "normal"] }`）
   - `AudioEffector.exe` 未存在（`FileNotFoundException`）→ `FILE_NOT_FOUND`（パス非露出）
