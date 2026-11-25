@@ -458,7 +458,8 @@ public class LibraryApplicationService
     }
 
     /// <summary>
-    /// 指定されたアルバムIDに一致するアルバムを取得します
+    /// 指定されたアルバムIDに一致するアルバムを取得します。
+    /// お気に入りリポジトリとの最新照合（読み取り専用）を行い、収録トラックの <see cref="Track.IsFavorite"/> を反映します。
     /// </summary>
     /// <param name="albumId">アルバムID</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
@@ -466,6 +467,15 @@ public class LibraryApplicationService
     public async Task<Album?> GetAlbumByIdAsync(AlbumId albumId, CancellationToken cancellationToken = default)
     {
         var tracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        if (tracks.Count == 0)
+        {
+            return null;
+        }
+
+        // お気に入り永続化データ（favorites.json）を正本として全曲で読み取り専用照合を行い、最新の IsFavorite を反映する
+        var favoriteEntries = await GetFavoriteEntriesAsync(cancellationToken).ConfigureAwait(false);
+        FavoriteTrackMatcher.Reconcile(favoriteEntries, tracks);
+
         var matchingTracks = tracks
             .Where(t => t.AlbumId == albumId)
             .OrderBy(t => t.TrackNumber)
