@@ -8,9 +8,8 @@ using AudioEffector.Domain.ValueObjects;
 namespace AudioEffector.Domain.Services;
 
 /// <summary>
-/// 楽曲群から作品単位のアルバム識別情報（AlbumIdおよびアルバムアーティスト）を決定論的に解決するドメインサービス。
-/// 共通のAlbumArtistタグを最優先し、未設定のコンピレーション／客演アルバムに対しても
-/// 同一ディレクトリ・トラック番号構成・フォルダ名に基づくフォールバック集約を提供します。
+/// 楽曲群を作品単位のアルバムグループへ集約し、各グループに一意の <see cref="AlbumId"/> を割り当てるドメインサービス。
+/// 既存の <see cref="AlbumId"/> がある場合はそれを引き継ぎ、未採番の新規グループには <see cref="AlbumId.New"/> を採番します。
 /// </summary>
 public static class AlbumGroupingResolver
 {
@@ -23,20 +22,23 @@ public static class AlbumGroupingResolver
     private const string UnknownArtistName = "Unknown Artist";
 
     /// <summary>
-    /// 指定された楽曲コレクション全体の作品単位アルバム識別情報を解決し、各トラックの <see cref="Track.AlbumId"/> へ反映します。
+    /// 楽曲コレクションを作品単位でグループ化し、既存アルバムIDを引き継ぎつつ各トラックへ共通の <see cref="Track.AlbumId"/> を割り当てます。
     /// </summary>
     /// <param name="tracks">対象のトラック一覧</param>
+    /// <param name="existingAlbumIdsByKey">既存の作品キー（正規化済みアルバム名, 正規化済み作品アーティスト名）と既存AlbumIdの対応マップ（任意）</param>
     /// <returns>トラックIDをキーとする解決済みアルバム識別情報マップ</returns>
-    public static IReadOnlyDictionary<TrackId, ResolvedAlbumIdentity> ResolveAndApply(IReadOnlyList<Track> tracks)
+    public static IReadOnlyDictionary<TrackId, ResolvedAlbumIdentity> ResolveAndApply(
+        IReadOnlyList<Track> tracks,
+        IReadOnlyDictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>? existingAlbumIdsByKey = null)
     {
         ArgumentNullException.ThrowIfNull(tracks);
 
-        var resolved = Resolve(tracks);
+        var resolved = Resolve(tracks, existingAlbumIdsByKey);
         foreach (var track in tracks)
         {
             if (track != null && resolved.TryGetValue(track.Id, out var identity))
             {
-                track.SetResolvedAlbumId(identity.AlbumId);
+                track.AlbumId = identity.AlbumId;
             }
         }
 
@@ -44,11 +46,23 @@ public static class AlbumGroupingResolver
     }
 
     /// <summary>
+    /// アルバム名とアーティスト名から、既存アルバムID引き継ぎ用の正規化作品キーを生成します。
+    /// </summary>
+    /// <param name="albumName">アルバム名</param>
+    /// <param name="artistName">アルバムアーティスト名</param>
+    /// <returns>小文字化・トリム済みの作品キー</returns>
+    public static (string NormalizedAlbum, string NormalizedArtist) CreateGroupKey(string? albumName, string? artistName)
+        => (NormalizeAlbumName(albumName).ToLowerInvariant(), NormalizeArtistName(artistName).ToLowerInvariant());
+
+    /// <summary>
     /// 指定された楽曲コレクション全体の作品単位アルバム識別情報を解決します。
     /// </summary>
     /// <param name="tracks">対象のトラック一覧</param>
+    /// <param name="existingAlbumIdsByKey">既存の作品キーと既存AlbumIdの対応マップ（任意）</param>
     /// <returns>トラックIDをキーとする解決済みアルバム識別情報マップ</returns>
-    public static IReadOnlyDictionary<TrackId, ResolvedAlbumIdentity> Resolve(IReadOnlyList<Track> tracks)
+    public static IReadOnlyDictionary<TrackId, ResolvedAlbumIdentity> Resolve(
+        IReadOnlyList<Track> tracks,
+        IReadOnlyDictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>? existingAlbumIdsByKey = null)
     {
         ArgumentNullException.ThrowIfNull(tracks);
 
@@ -58,7 +72,76 @@ public static class AlbumGroupingResolver
             return result;
         }
 
-        // 同一ディレクトリ＋同一アルバム名ごとにコンピレーション／共通AlbumArtist補完を評価
+        var folderAlbumArtistOverride = BuildFolderAlbumArtistOverrides(tracks);
+
+        // 作品キーごとにトラックを束ねる
+        var groupsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), (string DisplayArtist, List<Track> GroupTracks)>();
+        foreach (var track in tracks)
+        {
+            if (track == null)
+            {
+                continue;
+            }
+
+            string albumName = NormalizeAlbumName(track.Album);
+            string resolvedAlbumArtist = ResolveAlbumArtistForTrack(track, albumName, folderAlbumArtistOverride);
+            var groupKey = CreateGroupKey(albumName, resolvedAlbumArtist);
+
+            if (!groupsByKey.TryGetValue(groupKey, out var entry))
+            {
+                entry = (resolvedAlbumArtist, new List<Track>());
+                groupsByKey[groupKey] = entry;
+            }
+
+            entry.GroupTracks.Add(track);
+        }
+
+        // 各作品グループへ単一の AlbumId を決定（既存引き継ぎ優先 → グループ内トラックの既存ID → 新規採番）
+        var usedAlbumIds = new HashSet<AlbumId>();
+        foreach (var kvp in groupsByKey)
+        {
+            var groupKey = kvp.Key;
+            var (displayArtist, groupTracks) = kvp.Value;
+
+            AlbumId resolvedId;
+            if (existingAlbumIdsByKey != null &&
+                existingAlbumIdsByKey.TryGetValue(groupKey, out var existingId) &&
+                usedAlbumIds.Add(existingId))
+            {
+                resolvedId = existingId;
+            }
+            else
+            {
+                // グループ内トラックが持つ既存の AlbumId のうち未使用のものを優先して引き継ぐ（最頻出優先）
+                AlbumId? candidateFromTracks = groupTracks
+                    .GroupBy(t => t.AlbumId)
+                    .OrderByDescending(g => g.Count())
+                    .Select(g => (AlbumId?)g.Key)
+                    .FirstOrDefault(id => id.HasValue && !usedAlbumIds.Contains(id.Value));
+
+                if (candidateFromTracks.HasValue)
+                {
+                    resolvedId = candidateFromTracks.Value;
+                    usedAlbumIds.Add(resolvedId);
+                }
+                else
+                {
+                    resolvedId = AlbumId.New();
+                    usedAlbumIds.Add(resolvedId);
+                }
+            }
+
+            foreach (var track in groupTracks)
+            {
+                result[track.Id] = new ResolvedAlbumIdentity(resolvedId, displayArtist);
+            }
+        }
+
+        return result;
+    }
+
+    private static Dictionary<(string Directory, string NormalizedAlbum), string> BuildFolderAlbumArtistOverrides(IReadOnlyList<Track> tracks)
+    {
         var byDirectoryAndAlbum = new Dictionary<(string Directory, string NormalizedAlbum), List<Track>>();
         foreach (var track in tracks)
         {
@@ -83,7 +166,7 @@ public static class AlbumGroupingResolver
             }
         }
 
-        var folderAlbumArtistOverride = new Dictionary<(string Directory, string NormalizedAlbum), string>();
+        var overrides = new Dictionary<(string Directory, string NormalizedAlbum), string>();
         foreach (var kvp in byDirectoryAndAlbum)
         {
             var groupTracks = kvp.Value;
@@ -101,13 +184,12 @@ public static class AlbumGroupingResolver
 
             if (explicitAlbumArtists.Count == 1)
             {
-                folderAlbumArtistOverride[kvp.Key] = explicitAlbumArtists[0]!;
+                overrides[kvp.Key] = explicitAlbumArtists[0]!;
                 continue;
             }
 
             if (explicitAlbumArtists.Count > 1)
             {
-                // 複数の異なる明示的AlbumArtistが混在する場合は別作品として扱う
                 continue;
             }
 
@@ -124,49 +206,36 @@ public static class AlbumGroupingResolver
 
             if (IsCompilationFolderGroup(kvp.Key.Directory, kvp.Key.NormalizedAlbum, groupTracks))
             {
-                folderAlbumArtistOverride[kvp.Key] = VariousArtistsName;
+                overrides[kvp.Key] = VariousArtistsName;
             }
         }
 
-        foreach (var track in tracks)
+        return overrides;
+    }
+
+    private static string ResolveAlbumArtistForTrack(
+        Track track,
+        string albumName,
+        Dictionary<(string Directory, string NormalizedAlbum), string> folderAlbumArtistOverride)
+    {
+        if (!string.IsNullOrWhiteSpace(track.AlbumArtist))
         {
-            if (track == null)
-            {
-                continue;
-            }
-
-            string albumName = NormalizeAlbumName(track.Album);
-            string resolvedAlbumArtist;
-
-            if (!string.IsNullOrWhiteSpace(track.AlbumArtist))
-            {
-                resolvedAlbumArtist = track.AlbumArtist.Trim();
-            }
-            else
-            {
-                string directory = GetNormalizedDirectory(track.FilePath);
-                var folderKey = (directory, albumName.ToLowerInvariant());
-                if (!string.IsNullOrEmpty(directory) &&
-                    folderAlbumArtistOverride.TryGetValue(folderKey, out string? overrideArtist))
-                {
-                    resolvedAlbumArtist = overrideArtist;
-                }
-                else
-                {
-                    resolvedAlbumArtist = NormalizeArtistName(track.Artist);
-                }
-            }
-
-            var albumId = AlbumId.FromAlbumKey(albumName, resolvedAlbumArtist);
-            result[track.Id] = new ResolvedAlbumIdentity(albumId, resolvedAlbumArtist);
+            return track.AlbumArtist.Trim();
         }
 
-        return result;
+        string directory = GetNormalizedDirectory(track.FilePath);
+        var folderKey = (directory, albumName.ToLowerInvariant());
+        if (!string.IsNullOrEmpty(directory) &&
+            folderAlbumArtistOverride.TryGetValue(folderKey, out string? overrideArtist))
+        {
+            return overrideArtist;
+        }
+
+        return NormalizeArtistName(track.Artist);
     }
 
     private static bool IsCompilationFolderGroup(string directory, string normalizedAlbum, List<Track> groupTracks)
     {
-        // 条件A: 親フォルダ名にアルバム名が含まれている（アルバム専用ディレクトリ）
         string folderName = Path.GetFileName(directory);
         if (!string.IsNullOrWhiteSpace(folderName) &&
             folderName.Contains(normalizedAlbum, StringComparison.OrdinalIgnoreCase))
@@ -174,19 +243,16 @@ public static class AlbumGroupingResolver
             return true;
         }
 
-        // 条件B: 全曲に正のトラック番号が振られており重複がない（1枚のディスク／作品の連番構成）
         var seenTrackNumbers = new HashSet<uint>();
-        bool allHaveUniquePositiveTrackNumbers = true;
         foreach (var track in groupTracks)
         {
             if (track.TrackNumber == 0 || !seenTrackNumbers.Add(track.TrackNumber))
             {
-                allHaveUniquePositiveTrackNumbers = false;
-                break;
+                return false;
             }
         }
 
-        return allHaveUniquePositiveTrackNumbers;
+        return true;
     }
 
     private static string NormalizeAlbumName(string? album)
@@ -219,6 +285,6 @@ public static class AlbumGroupingResolver
 /// <summary>
 /// 解決されたアルバム識別情報（作品単位のAlbumIdおよび表示用アルバムアーティスト名）
 /// </summary>
-/// <param name="AlbumId">作品単位の決定論的アルバムID</param>
-/// <param name="AlbumArtist">アルバム表示および識別に使用するアーティスト名</param>
+/// <param name="AlbumId">作品単位の一意なアルバムID</param>
+/// <param name="AlbumArtist">アルバム表示に使用するアーティスト名</param>
 public readonly record struct ResolvedAlbumIdentity(AlbumId AlbumId, string AlbumArtist);

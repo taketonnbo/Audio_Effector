@@ -41,7 +41,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public AlbumId AlbumId
     {
         get => _albumId;
-        private set
+        set
         {
             if (_albumId != value)
             {
@@ -94,14 +94,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
             if (_artist != value)
             {
                 _artist = value;
-                var updatedAlbumId = AlbumId.FromAlbumKey(_album, EffectiveAlbumArtist);
-                bool albumIdChanged = _albumId != updatedAlbumId;
-                _albumId = updatedAlbumId;
                 OnPropertyChanged();
-                if (albumIdChanged)
-                {
-                    OnPropertyChanged(nameof(AlbumId));
-                }
             }
         }
     }
@@ -118,14 +111,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
             if (_albumArtist != normalized)
             {
                 _albumArtist = normalized;
-                var updatedAlbumId = AlbumId.FromAlbumKey(_album, EffectiveAlbumArtist);
-                bool albumIdChanged = _albumId != updatedAlbumId;
-                _albumId = updatedAlbumId;
                 OnPropertyChanged();
-                if (albumIdChanged)
-                {
-                    OnPropertyChanged(nameof(AlbumId));
-                }
             }
         }
     }
@@ -141,22 +127,10 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
             if (_album != value)
             {
                 _album = value;
-                var updatedAlbumId = AlbumId.FromAlbumKey(_album, EffectiveAlbumArtist);
-                bool albumIdChanged = _albumId != updatedAlbumId;
-                _albumId = updatedAlbumId;
                 OnPropertyChanged();
-                if (albumIdChanged)
-                {
-                    OnPropertyChanged(nameof(AlbumId));
-                }
             }
         }
     }
-
-    /// <summary>
-    /// アルバム識別に用いる実効アルバムアーティスト名（AlbumArtist優先、未設定時はArtistへフォールバック）
-    /// </summary>
-    internal string EffectiveAlbumArtist => !string.IsNullOrWhiteSpace(_albumArtist) ? _albumArtist : _artist;
 
     /// <summary>
     /// 再生時間
@@ -410,7 +384,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     public Track()
     {
         Id = TrackId.New();
-        _albumId = AlbumId.FromAlbumKey(_album, _artist);
+        _albumId = AlbumId.New();
     }
 
     /// <summary>
@@ -432,7 +406,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     /// <param name="isFavorite">お気に入り状態</param>
     /// <param name="isLossless">可逆圧縮かどうか</param>
     /// <param name="isHiRes">ハイレゾ音源かどうか</param>
-    /// <param name="albumId">所属アルバムID（未指定時はアルバム名と実効アルバムアーティスト名から決定論的に算出）</param>
+    /// <param name="albumId">所属アルバムID（未指定時は新規GUIDを採番）</param>
     /// <param name="albumArtist">アルバムアーティスト名（未設定時は空文字）</param>
     public Track(
         TrackId id,
@@ -460,7 +434,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
         _artist = string.IsNullOrWhiteSpace(artist) ? "Unknown Artist" : artist.Trim();
         _albumArtist = albumArtist?.Trim() ?? string.Empty;
         _album = string.IsNullOrWhiteSpace(album) ? "Unknown Album" : album.Trim();
-        _albumId = albumId ?? AlbumId.FromAlbumKey(_album, EffectiveAlbumArtist);
+        _albumId = albumId ?? AlbumId.New();
         _duration = duration < TimeSpan.Zero ? TimeSpan.Zero : duration;
         _year = year;
         _trackNumber = trackNumber;
@@ -472,15 +446,6 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
         _isFavorite = isFavorite;
         _isLossless = isLossless;
         _isHiRes = isHiRes;
-    }
-
-    /// <summary>
-    /// コンピレーション解決など作品単位の集約ルールに基づき算出されたAlbumIdを反映します
-    /// </summary>
-    /// <param name="albumId">解決済みのアルバムID</param>
-    internal void SetResolvedAlbumId(AlbumId albumId)
-    {
-        AlbumId = albumId;
     }
 
     /// <summary>

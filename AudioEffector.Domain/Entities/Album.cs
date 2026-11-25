@@ -12,7 +12,6 @@ namespace AudioEffector.Domain.Entities;
 /// </summary>
 public class Album : INotifyPropertyChanged, IEquatable<Album>
 {
-    private AlbumId _id;
     private string _title = string.Empty;
     private string _artist = string.Empty;
     private uint _year;
@@ -22,20 +21,9 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     private List<Track> _tracks = new();
 
     /// <summary>
-    /// アルバムを一意に識別する決定論的ID
+    /// アルバムを一意に識別するID
     /// </summary>
-    public AlbumId Id
-    {
-        get => _id;
-        private set
-        {
-            if (_id != value)
-            {
-                _id = value;
-                OnPropertyChanged();
-            }
-        }
-    }
+    public AlbumId Id { get; }
 
     /// <summary>
     /// アルバム名（Titleプロパティの別名）
@@ -57,15 +45,8 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             if (_title != value)
             {
                 _title = value;
-                var updatedId = AlbumId.FromAlbumKey(_title, _artist);
-                bool idChanged = _id != updatedId;
-                _id = updatedId;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(Name));
-                if (idChanged)
-                {
-                    OnPropertyChanged(nameof(Id));
-                }
             }
         }
     }
@@ -81,14 +62,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             if (_artist != value)
             {
                 _artist = value;
-                var updatedId = AlbumId.FromAlbumKey(_title, _artist);
-                bool idChanged = _id != updatedId;
-                _id = updatedId;
                 OnPropertyChanged();
-                if (idChanged)
-                {
-                    OnPropertyChanged(nameof(Id));
-                }
             }
         }
     }
@@ -214,7 +188,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     /// </summary>
     public Album()
     {
-        _id = AlbumId.FromAlbumKey(_title, _artist);
+        Id = AlbumId.New();
     }
 
     /// <summary>
@@ -224,14 +198,14 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     /// <param name="artist">アーティスト名</param>
     /// <param name="year">リリース年</param>
     /// <param name="tracks">トラックコレクション</param>
-    /// <param name="id">アルバムID（未指定時はアルバム名とアーティスト名から決定論的に生成）</param>
+    /// <param name="id">アルバムID（未指定時は新規GUIDを採番）</param>
     public Album(string name, string artist, uint year = 0, IEnumerable<Track>? tracks = null, AlbumId? id = null)
     {
+        Id = id ?? AlbumId.New();
         _title = string.IsNullOrWhiteSpace(name) ? "Unknown Album" : name.Trim();
         _artist = string.IsNullOrWhiteSpace(artist) ? "Unknown Artist" : artist.Trim();
         _year = year;
         _tracks = tracks != null ? new List<Track>(tracks) : new List<Track>();
-        _id = id ?? AlbumId.FromAlbumKey(_title, _artist);
     }
 
     /// <summary>
