@@ -81,7 +81,7 @@ public static class McpErrorMapper
             McpErrorCodes.INVALID_PARAMETER => "指定されたパラメータが不正です。",
             McpErrorCodes.NOT_FOUND => "指定された対象が見つかりません。",
             McpErrorCodes.FILE_NOT_FOUND => "指定されたファイルまたはディレクトリが見つかりません。",
-            McpErrorCodes.WPF_APP_NOT_RUNNING => "Audio Effector 本体が起動していないため、操作を実行できません。本体を起動してから再試行してください。",
+            McpErrorCodes.WPF_APP_NOT_RUNNING => "Audio Effector 本体が起動していないため、操作を実行できません。先に launch_app ツール（例: mode: \"mini_player\"）で本体を起動してから再試行してください。",
             McpErrorCodes.IPC_CONNECTION_FAILED => "Audio Effector 本体との通信に失敗しました。しばらく待ってから再試行してください。",
             McpErrorCodes.CONFLICT_LOCK_TIMEOUT => "データファイルのロック取得がタイムアウトしました。しばらく待ってから再試行してください。",
             McpErrorCodes.OPERATION_CANCELLED => "処理がキャンセルされました。",

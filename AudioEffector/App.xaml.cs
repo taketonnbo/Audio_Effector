@@ -3,11 +3,13 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Windows;
 using AudioEffector.Application;
+using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.Common;
+using AudioEffector.Domain.Repositories;
 using AudioEffector.Infrastructure;
 using AudioEffector.Infrastructure.Ipc;
 using AudioEffector.Presentation;
 using AudioEffector.Presentation.Views;
-using AudioEffector.Application.ApplicationServices;
 using Microsoft.Extensions.DependencyInjection;
 using NLog;
 
@@ -106,7 +108,12 @@ public partial class App : System.Windows.Application
         }
 
         // MCP サーバとの Named Pipe IPC 待受を開始
-        _ipcServer = new AppIpcServer();
+        var ipcCommandHandler = new PlaybackIpcCommandHandler(
+            ServiceProvider.GetRequiredService<ITrackRepository>(),
+            ServiceProvider.GetRequiredService<LibraryApplicationService>(),
+            ServiceProvider.GetRequiredService<IAudioService>(),
+            ServiceProvider.GetRequiredService<IUiDispatcher>());
+        _ipcServer = new AppIpcServer(ipcCommandHandler);
         _ipcServer.Start();
     }
 

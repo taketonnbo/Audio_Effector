@@ -791,6 +791,7 @@ public sealed class ArtistsViewModelTests
         public void RemoveTrack(Track track) { }
         public void PlayTrack(Track track) { LastStartTrack = track; PlayCalled = true; }
         public void PlayTrack(Track track, bool insertAtBeginning) { LastStartTrack = track; PlayCalled = true; }
+        public Task<bool> PlayTrackAsync(Track track, CancellationToken cancellationToken = default) { PlayTrack(track); return Task.FromResult(true); }
         public void TogglePlayPause() => PlayCalled = !PlayCalled;
         public void Next() { }
         public void Previous() { }

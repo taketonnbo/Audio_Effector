@@ -66,6 +66,7 @@ public sealed class McpServiceCollectionExtensionsTests : IDisposable
         var ipcReadinessProbe = provider.GetRequiredService<IIpcReadinessProbe>();
         var launchCoordinator = provider.GetRequiredService<IAppLaunchCoordinator>();
         var appLauncher = provider.GetRequiredService<IAppLauncher>();
+        var playbackGateway = provider.GetRequiredService<IPlaybackControlGateway>();
 
         // Assert
         Assert.True(dataDirectoryProvider.IsCustomDirectory);
@@ -83,6 +84,7 @@ public sealed class McpServiceCollectionExtensionsTests : IDisposable
         Assert.IsType<NamedPipeIpcReadinessProbe>(ipcReadinessProbe);
         Assert.IsType<SessionFileAppLaunchCoordinator>(launchCoordinator);
         Assert.IsType<WpfAppLauncher>(appLauncher);
+        Assert.IsType<IpcPlaybackControlGateway>(playbackGateway);
     }
 
     /// <summary>

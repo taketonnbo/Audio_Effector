@@ -97,6 +97,7 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Contains("get_server_info", toolNames);
                 Assert.Contains("search_tracks", toolNames);
                 Assert.Contains("launch_app", toolNames);
+                Assert.Contains("play_track", toolNames);
             }
 
             // Act & Assert 3: tools/call (ping)
@@ -174,6 +175,24 @@ public sealed class StdioMcpIntegrationTests : IDisposable
             using (JsonDocument launchErrDoc = JsonDocument.Parse(launchErrLine))
             {
                 JsonElement result = launchErrDoc.RootElement.GetProperty("result");
+                Assert.True(result.GetProperty("isError").GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.False(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                Assert.Equal("INVALID_PARAMETER", payloadDoc.RootElement.GetProperty("error").GetProperty("code").GetString());
+            }
+
+            // Act & Assert 4d: tools/call (play_track 引数未指定パラメータ検証)
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"play_track","arguments":{}}}""",
+                timeoutCts.Token);
+
+            string playErrLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument playErrDoc = JsonDocument.Parse(playErrLine))
+            {
+                JsonElement result = playErrDoc.RootElement.GetProperty("result");
                 Assert.True(result.GetProperty("isError").GetBoolean());
                 string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
 

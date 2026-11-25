@@ -2,13 +2,15 @@ using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using NLog;
 
 namespace AudioEffector.Infrastructure.Ipc;
 
 /// <summary>
-/// Audio Effector（WPF 本体）側で MCP サーバからの Named Pipe IPC 接続および疎通確認を受け付ける軽量サーバです。
+/// Audio Effector（WPF 本体）側で MCP サーバからの Named Pipe IPC 接続および制御コマンドを受け付ける軽量サーバです。
 /// </summary>
 public sealed class AppIpcServer : IDisposable
 {
@@ -17,11 +19,25 @@ public sealed class AppIpcServer : IDisposable
     /// </summary>
     public const string COMMAND_PING = "ping";
 
+    /// <summary>
+    /// 楽曲再生開始（play_track）コマンド名。
+    /// </summary>
+    public const string COMMAND_PLAY_TRACK = "play_track";
+
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
-    private static readonly TimeSpan ClientReadTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ClientRequestTimeout = TimeSpan.FromSeconds(5);
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = false,
+    };
 
     private readonly string _pipeName;
+    private readonly IAppIpcCommandHandler? _commandHandler;
     private readonly CancellationTokenSource _cts = new();
     private Task? _listenTask;
     private bool _started;
@@ -30,8 +46,9 @@ public sealed class AppIpcServer : IDisposable
     /// <summary>
     /// 既定のユーザー専用パイプ名で <see cref="AppIpcServer"/> の新しいインスタンスを初期化します。
     /// </summary>
-    public AppIpcServer()
-        : this(IpcPipeNameResolver.GetDefaultPipeName())
+    /// <param name="commandHandler">疎通確認以外の IPC コマンドを処理するハンドラ（任意）。</param>
+    public AppIpcServer(IAppIpcCommandHandler? commandHandler = null)
+        : this(IpcPipeNameResolver.GetDefaultPipeName(), commandHandler)
     {
     }
 
@@ -39,10 +56,12 @@ public sealed class AppIpcServer : IDisposable
     /// 指定されたパイプ名で <see cref="AppIpcServer"/> の新しいインスタンスを初期化します。
     /// </summary>
     /// <param name="pipeName">待受に使用する Named Pipe 名。</param>
-    public AppIpcServer(string pipeName)
+    /// <param name="commandHandler">疎通確認以外の IPC コマンドを処理するハンドラ（任意）。</param>
+    public AppIpcServer(string pipeName, IAppIpcCommandHandler? commandHandler = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pipeName);
         _pipeName = pipeName;
+        _commandHandler = commandHandler;
     }
 
     /// <summary>
@@ -139,26 +158,26 @@ public sealed class AppIpcServer : IDisposable
         }
     }
 
-    private static async Task HandleClientAsync(NamedPipeServerStream stream, CancellationToken cancellationToken)
+    private async Task HandleClientAsync(NamedPipeServerStream stream, CancellationToken cancellationToken)
     {
         await using (stream.ConfigureAwait(false))
         {
             try
             {
-                using var readTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                readTimeoutCts.CancelAfter(ClientReadTimeout);
+                using var requestTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                requestTimeoutCts.CancelAfter(ClientRequestTimeout);
 
                 using var reader = new StreamReader(stream, Utf8NoBom, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
                 using var writer = new StreamWriter(stream, Utf8NoBom, bufferSize: 1024, leaveOpen: true) { AutoFlush = true };
 
-                string? requestLine = await reader.ReadLineAsync(readTimeoutCts.Token).ConfigureAwait(false);
+                string? requestLine = await reader.ReadLineAsync(requestTimeoutCts.Token).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(requestLine))
                 {
                     return;
                 }
 
-                string responseJson = ProcessRequestLine(requestLine);
-                await writer.WriteLineAsync(responseJson.AsMemory(), readTimeoutCts.Token).ConfigureAwait(false);
+                string responseJson = await ProcessRequestLineAsync(requestLine, requestTimeoutCts.Token).ConfigureAwait(false);
+                await writer.WriteLineAsync(responseJson.AsMemory(), requestTimeoutCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -175,23 +194,70 @@ public sealed class AppIpcServer : IDisposable
         }
     }
 
-    private static string ProcessRequestLine(string requestLine)
+    private async Task<string> ProcessRequestLineAsync(string requestLine, CancellationToken cancellationToken)
     {
+        AppIpcRequest? request;
         try
         {
-            using JsonDocument doc = JsonDocument.Parse(requestLine);
-            if (doc.RootElement.ValueKind == JsonValueKind.Object
-                && doc.RootElement.TryGetProperty("command", out JsonElement commandElement)
-                && string.Equals(commandElement.GetString(), COMMAND_PING, StringComparison.OrdinalIgnoreCase))
-            {
-                return """{"ok":true}""";
-            }
-
-            return """{"ok":false,"error":"unsupported_command"}""";
+            request = JsonSerializer.Deserialize<AppIpcRequest>(requestLine, JsonOptions);
         }
         catch (JsonException)
         {
-            return """{"ok":false,"error":"invalid_json"}""";
+            return SerializeResponse(AppIpcResponse.Failure(AppIpcErrorCodes.INVALID_JSON, "invalid_json"));
         }
+
+        if (request is null || string.IsNullOrWhiteSpace(request.Command))
+        {
+            return SerializeResponse(AppIpcResponse.Failure(AppIpcErrorCodes.UNSUPPORTED_COMMAND, "unsupported_command"));
+        }
+
+        if (string.Equals(request.Command, COMMAND_PING, StringComparison.OrdinalIgnoreCase))
+        {
+            return SerializeResponse(AppIpcResponse.SuccessPing());
+        }
+
+        if (_commandHandler is null)
+        {
+            return SerializeResponse(AppIpcResponse.Failure(AppIpcErrorCodes.UNSUPPORTED_COMMAND, "unsupported_command"));
+        }
+
+        CancellationTokenSource? deadlineCts = null;
+        CancellationToken effectiveToken = cancellationToken;
+        if (request.DeadlineUtc.HasValue)
+        {
+            TimeSpan remaining = request.DeadlineUtc.Value - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new OperationCanceledException("IPC リクエストの有効期限を超過しているため処理を中止します。");
+            }
+
+            deadlineCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadlineCts.CancelAfter(remaining);
+            effectiveToken = deadlineCts.Token;
+        }
+
+        try
+        {
+            AppIpcResponse response = await _commandHandler.HandleAsync(request, effectiveToken).ConfigureAwait(false);
+            return SerializeResponse(response);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Named Pipe IPC コマンド処理中に予期しないエラーが発生しました（Command: {0}）。", request.Command);
+            return SerializeResponse(AppIpcResponse.Failure(AppIpcErrorCodes.INTERNAL_ERROR, "internal_error"));
+        }
+        finally
+        {
+            deadlineCts?.Dispose();
+        }
+    }
+
+    private static string SerializeResponse(AppIpcResponse response)
+    {
+        return JsonSerializer.Serialize(response, JsonOptions);
     }
 }

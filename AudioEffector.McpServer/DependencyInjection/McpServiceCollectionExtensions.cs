@@ -35,6 +35,7 @@ public static class McpServiceCollectionExtensions
         services.AddSingleton<IIpcReadinessProbe, NamedPipeIpcReadinessProbe>();
         services.AddSingleton<IAppLaunchCoordinator, SessionFileAppLaunchCoordinator>();
         services.AddSingleton<IAppLauncher, WpfAppLauncher>();
+        services.AddSingleton<IPlaybackControlGateway, IpcPlaybackControlGateway>();
 
         // IUiDispatcher は AddInfrastructureServices 内の TryAddSingleton により既定の ImmediateUiDispatcher が登録される
         services.AddInfrastructureServices(options.DataDirectory);

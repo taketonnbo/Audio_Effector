@@ -502,6 +502,11 @@ public sealed class RecentViewModelTests
             LastStartTrack = track;
             PlayCalled = true;
         }
+        public Task<bool> PlayTrackAsync(Track track, CancellationToken cancellationToken = default)
+        {
+            PlayTrack(track);
+            return Task.FromResult(true);
+        }
         public void TogglePlayPause() => PlayCalled = !PlayCalled;
         public void Next() { }
         public void Previous() { }
