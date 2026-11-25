@@ -1,9 +1,11 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
 
 namespace AudioEffector.Infrastructure.Library;
@@ -47,6 +49,62 @@ public class TagLibMetadataExtractor : IMetadataExtractor
     }
 
     /// <summary>
+    /// TagLibのタグ情報から作品単位のアルバムアーティスト名を抽出します。
+    /// 明示的なAlbumArtistタグを優先し、未設定でもコンピレーションフラグが有効な場合は "Various Artists" を返します。
+    /// </summary>
+    /// <param name="tag">TagLibのタグオブジェクト</param>
+    /// <returns>抽出されたアルバムアーティスト名（未設定時は空文字）</returns>
+    public static string ExtractAlbumArtist(TagLib.Tag? tag)
+    {
+        if (!string.IsNullOrWhiteSpace(tag?.FirstAlbumArtist))
+        {
+            return tag.FirstAlbumArtist.Trim();
+        }
+
+        if (IsCompilationTag(tag))
+        {
+            return AlbumGroupingResolver.VariousArtistsName;
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsCompilationTag(TagLib.Tag? tag)
+    {
+        if (tag == null)
+        {
+            return false;
+        }
+
+        if (tag is TagLib.CombinedTag combinedTag)
+        {
+            return combinedTag.Tags.Any(IsCompilationTag);
+        }
+
+        if (tag is TagLib.Id3v2.Tag id3v2Tag && id3v2Tag.IsCompilation)
+        {
+            return true;
+        }
+
+        if (tag is TagLib.Mpeg4.AppleTag appleTag && appleTag.IsCompilation)
+        {
+            return true;
+        }
+
+        if (tag is TagLib.Ogg.XiphComment xiphComment)
+        {
+            string[] values = xiphComment.GetField("COMPILATION");
+            if (values.Any(v => string.Equals(v?.Trim(), "1", StringComparison.Ordinal) ||
+                                string.Equals(v?.Trim(), "true", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// 音声ファイルからメタデータを非同期で抽出し、Trackエンティティを生成します
     /// </summary>
     /// <param name="filePath">音声ファイルパス</param>
@@ -66,6 +124,7 @@ public class TagLibMetadataExtractor : IMetadataExtractor
                 using var tagFile = TagLib.File.Create(filePath.Value);
 
                 var (title, artist, album, genre) = ExtractDisplayTags(tagFile.Tag, filePath.Value);
+                string albumArtist = ExtractAlbumArtist(tagFile.Tag);
 
                 TimeSpan duration = tagFile.Properties.Duration;
                 uint year = tagFile.Tag.Year;
@@ -98,7 +157,8 @@ public class TagLibMetadataExtractor : IMetadataExtractor
                     genre: genre,
                     isFavorite: false,
                     isLossless: isLossless,
-                    isHiRes: isHiRes);
+                    isHiRes: isHiRes,
+                    albumArtist: albumArtist);
 
                 return track;
             }

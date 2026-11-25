@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
+using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
 
 namespace AudioEffector.Infrastructure.Repository;
@@ -85,6 +86,7 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             string json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
             var dtos = JsonSerializer.Deserialize<List<TrackDto>>(json) ?? throw new JsonException();
             var tracks = dtos.Select(dto => dto.ToEntity()).ToList();
+            AlbumGroupingResolver.ResolveAndApply(tracks);
             _tracks.Clear();
             foreach (var track in tracks)
             {
@@ -114,7 +116,9 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
         Dictionary<TrackId, Track> candidateTracks,
         CancellationToken cancellationToken)
     {
-        var dtos = candidateTracks.Values.Select(TrackDto.FromEntity).ToList();
+        var candidateList = candidateTracks.Values.ToList();
+        AlbumGroupingResolver.ResolveAndApply(candidateList);
+        var dtos = candidateList.Select(TrackDto.FromEntity).ToList();
         string json = JsonSerializer.Serialize(dtos, _jsonOptions);
 
         await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
@@ -400,6 +404,7 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
         public string FilePath { get; set; } = string.Empty;
         public string Title { get; set; } = string.Empty;
         public string Artist { get; set; } = string.Empty;
+        public string? AlbumArtist { get; set; }
         public string Album { get; set; } = string.Empty;
         public long DurationTicks { get; set; }
         public uint Year { get; set; }
@@ -420,6 +425,7 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             FilePath = track.FilePath,
             Title = track.Title,
             Artist = track.Artist,
+            AlbumArtist = track.AlbumArtist,
             Album = track.Album,
             DurationTicks = track.Duration.Ticks,
             Year = track.Year,
@@ -451,7 +457,8 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             isFavorite: IsFavorite,
             isLossless: IsLossless,
             isHiRes: IsHiRes,
-            albumId: TryParseAlbumId(AlbumId));
+            albumId: TryParseAlbumId(AlbumId),
+            albumArtist: AlbumArtist ?? string.Empty);
 
         private static AlbumId? TryParseAlbumId(string? value)
         {
