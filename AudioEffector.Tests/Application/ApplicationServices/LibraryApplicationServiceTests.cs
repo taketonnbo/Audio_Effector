@@ -542,4 +542,90 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         Assert.Contains(replacedTracks, t => t.Id == addedTrack.Id && t.Title == "Added");
         Assert.DoesNotContain(replacedTracks, t => t.FilePath == @"C:\Music\removed.mp3");
     }
+
+    /// <summary>
+    /// GetAllAlbumsAsyncが同名アルバム・別アーティストの楽曲を別個のAlbumとして集約し、それぞれに決定論的かつ一意なAlbumIdを付与することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetAllAlbumsAsync_同名アルバム別アーティスト混在時_それぞれ異なる一意のAlbumIdが付与されること()
+    {
+        // Arrange
+        var t1 = CreateSampleTrack("Song 1", "Artist A", "Greatest Hits", trackNumber: 1, filePath: @"C:\Music\a1.mp3");
+        var t2 = CreateSampleTrack("Song 2", "Artist A", "greatest hits", trackNumber: 2, filePath: @"C:\Music\a2.mp3");
+        var t3 = CreateSampleTrack("Song 1", "Artist B", "Greatest Hits", trackNumber: 1, filePath: @"C:\Music\b1.mp3");
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([t2, t3, t1]);
+
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+
+        // Act
+        var albums = await sut.GetAllAlbumsAsync();
+
+        // Assert
+        Assert.Equal(2, albums.Count);
+        var albumA = Assert.Single(albums, a => a.Artist == "Artist A");
+        var albumB = Assert.Single(albums, a => a.Artist == "Artist B");
+        Assert.Equal(AlbumId.FromAlbumKey("Greatest Hits", "Artist A"), albumA.Id);
+        Assert.Equal(AlbumId.FromAlbumKey("Greatest Hits", "Artist B"), albumB.Id);
+        Assert.NotEqual(albumA.Id, albumB.Id);
+        Assert.Equal(2, albumA.Tracks.Count);
+        Assert.Equal([t1.Id, t2.Id], albumA.Tracks.Select(t => t.Id).ToArray());
+    }
+
+    /// <summary>
+    /// GetAlbumByIdAsyncが存在するAlbumIdを指定された場合、該当アルバムとトラック番号順の収録曲を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetAlbumByIdAsync_存在するAlbumId指定_該当アルバムとトラック番号順の収録曲を返すこと()
+    {
+        // Arrange
+        var t1 = CreateSampleTrack("Track 1", "Artist A", "Same Title", trackNumber: 1, filePath: @"C:\Music\a1.flac");
+        var t2 = CreateSampleTrack("Track 2", "Artist A", "Same Title", trackNumber: 2, filePath: @"C:\Music\a2.flac");
+        var other = CreateSampleTrack("Track 1", "Artist B", "Same Title", trackNumber: 1, filePath: @"C:\Music\b1.flac");
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([t2, other, t1]);
+
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+        var targetAlbumId = AlbumId.FromAlbumKey("Same Title", "Artist A");
+
+        // Act
+        var actual = await sut.GetAlbumByIdAsync(targetAlbumId);
+
+        // Assert
+        Assert.NotNull(actual);
+        Assert.Equal(targetAlbumId, actual.Id);
+        Assert.Equal("Same Title", actual.Name);
+        Assert.Equal("Artist A", actual.Artist);
+        Assert.Equal([t1.Id, t2.Id], actual.Tracks.Select(t => t.Id).ToArray());
+    }
+
+    /// <summary>
+    /// GetAlbumByIdAsyncが存在しないAlbumIdを指定された場合、nullを返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetAlbumByIdAsync_存在しないAlbumId指定_nullを返すこと()
+    {
+        // Arrange
+        var track = CreateSampleTrack("Track 1", "Artist A", "Album A");
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track]);
+
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+        var unknownAlbumId = AlbumId.FromAlbumKey("Unknown", "Nobody");
+
+        // Act
+        var actual = await sut.GetAlbumByIdAsync(unknownAlbumId);
+
+        // Assert
+        Assert.Null(actual);
+    }
 }

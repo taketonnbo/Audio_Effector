@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.ValueObjects;
 using Xunit;
@@ -157,6 +158,77 @@ public class TrackTests
         Assert.Equal("mystery_track.mp3", sut.Title);
         Assert.Equal("Unknown Artist", sut.Artist);
         Assert.Equal("Unknown Album", sut.Album);
+        Assert.Equal(AlbumId.FromAlbumKey("Unknown Album", "Unknown Artist"), sut.AlbumId);
         Assert.Equal(TimeSpan.Zero, sut.Duration);
+    }
+
+    /// <summary>
+    /// コンストラクタでAlbumIdを省略した場合、アルバム名とアーティスト名から決定論的にAlbumIdが算出されることを検証します。
+    /// </summary>
+    [Fact]
+    public void コンストラクタ_AlbumId未指定時_決定論的AlbumIdが算出されること()
+    {
+        // Arrange
+        var audioPath = AudioPath.Create(@"C:\Music\track1.flac");
+
+        // Act
+        var sut = new Track(
+            TrackId.New(),
+            audioPath,
+            title: "One More Time",
+            artist: "Daft Punk",
+            album: "Discovery",
+            duration: TimeSpan.FromMinutes(5));
+
+        // Assert
+        Assert.Equal(AlbumId.FromAlbumKey("Discovery", "Daft Punk"), sut.AlbumId);
+    }
+
+    /// <summary>
+    /// コンストラクタで明示的にAlbumIdを指定した場合、指定値がそのまま保持されることを検証します。
+    /// </summary>
+    [Fact]
+    public void コンストラクタ_AlbumId明示指定時_指定されたAlbumIdが保持されること()
+    {
+        // Arrange
+        var audioPath = AudioPath.Create(@"C:\Music\track1.flac");
+        var explicitAlbumId = AlbumId.FromAlbumKey("Persisted Album", "Persisted Artist");
+
+        // Act
+        var sut = new Track(
+            TrackId.New(),
+            audioPath,
+            title: "Song",
+            artist: "Artist",
+            album: "Album",
+            duration: TimeSpan.FromMinutes(3),
+            albumId: explicitAlbumId);
+
+        // Assert
+        Assert.Equal(explicitAlbumId, sut.AlbumId);
+    }
+
+    /// <summary>
+    /// AlbumまたはArtistプロパティを変更した際、AlbumIdが同期更新されPropertyChangedが通知されることを検証します。
+    /// </summary>
+    [Fact]
+    public void AlbumまたはArtist変更時_AlbumIdが同期更新されPropertyChangedが通知されること()
+    {
+        // Arrange
+        var sut = new Track
+        {
+            Album = "Initial Album",
+            Artist = "Initial Artist"
+        };
+        var notified = new List<string?>();
+        sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        // Act
+        sut.Album = "Updated Album";
+        sut.Artist = "Updated Artist";
+
+        // Assert
+        Assert.Equal(AlbumId.FromAlbumKey("Updated Album", "Updated Artist"), sut.AlbumId);
+        Assert.Contains(nameof(Track.AlbumId), notified);
     }
 }

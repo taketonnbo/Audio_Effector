@@ -282,11 +282,94 @@ public sealed class JsonTrackRepositoryTests : IDisposable
         // Assert
         Assert.NotNull(actual);
         Assert.Equal(track.Id, actual.Id);
+        Assert.Equal(track.AlbumId, actual.AlbumId);
         Assert.Equal(track.FilePath, actual.FilePath);
         Assert.Equal(track.Title, actual.Title);
         Assert.Equal(track.Artist, actual.Artist);
         Assert.Equal(track.Album, actual.Album);
         Assert.Equal(track.Duration, actual.Duration);
+    }
+
+    /// <summary>
+    /// AlbumIdを含むトラックを保存した際、JSONファイルへAlbumIdが書き出され別インスタンスから同一AlbumIdで復元されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task 永続化検証_AlbumIdの保存と再読込_JSONへAlbumIdが永続化され同一IDで復元されること()
+    {
+        // Arrange
+        var track = CreateSampleTrack("Around The World", "Daft Punk", "Homework");
+        var expectedAlbumId = AlbumId.FromAlbumKey("Homework", "Daft Punk");
+        using (var initialSut = CreateSut())
+        {
+            await initialSut.SaveAsync(track);
+        }
+
+        // Act
+        string rawJson = await File.ReadAllTextAsync(_testFilePath);
+        using var reloadedSut = CreateSut();
+        var actual = await reloadedSut.GetByIdAsync(track.Id);
+
+        // Assert
+        Assert.Contains(expectedAlbumId.ToString(), rawJson, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(actual);
+        Assert.Equal(expectedAlbumId, actual.AlbumId);
+    }
+
+    /// <summary>
+    /// AlbumIdフィールドが未記載・空文字・不正文字列・空GUIDの旧形式JSONを読み込んだ場合でも例外とならず、決定論的AlbumIdが自動補完されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task 後方互換読込_AlbumId未記載や不正値の旧形式JSON_例外にならず決定論的AlbumIdで自動補完されること()
+    {
+        // Arrange
+        var track1Id = Guid.NewGuid();
+        var track2Id = Guid.NewGuid();
+        var track3Id = Guid.NewGuid();
+        string legacyJson = $$"""
+            [
+              {
+                "Id": "{{track1Id}}",
+                "FilePath": "C:\\Music\\legacy1.mp3",
+                "Title": "Legacy Song 1",
+                "Artist": "Artist A",
+                "Album": "Shared Album",
+                "DurationTicks": 1800000000
+              },
+              {
+                "Id": "{{track2Id}}",
+                "AlbumId": "not-a-valid-guid",
+                "FilePath": "C:\\Music\\legacy2.mp3",
+                "Title": "Legacy Song 2",
+                "Artist": "Artist B",
+                "Album": "Shared Album",
+                "DurationTicks": 2000000000
+              },
+              {
+                "Id": "{{track3Id}}",
+                "AlbumId": "00000000-0000-0000-0000-000000000000",
+                "FilePath": "C:\\Music\\legacy3.mp3",
+                "Title": "Legacy Song 3",
+                "Artist": "Artist C",
+                "Album": "Another Album",
+                "DurationTicks": 2100000000
+              }
+            ]
+            """;
+        await File.WriteAllTextAsync(_testFilePath, legacyJson);
+        using var sut = CreateSut();
+
+        // Act
+        var tracks = await sut.GetAllAsync();
+
+        // Assert
+        Assert.Equal(3, tracks.Count);
+        var loaded1 = Assert.Single(tracks, t => t.Id == TrackId.From(track1Id));
+        var loaded2 = Assert.Single(tracks, t => t.Id == TrackId.From(track2Id));
+        var loaded3 = Assert.Single(tracks, t => t.Id == TrackId.From(track3Id));
+        Assert.Equal(AlbumId.FromAlbumKey("Shared Album", "Artist A"), loaded1.AlbumId);
+        Assert.Equal(AlbumId.FromAlbumKey("Shared Album", "Artist B"), loaded2.AlbumId);
+        Assert.Equal(AlbumId.FromAlbumKey("Another Album", "Artist C"), loaded3.AlbumId);
+        Assert.NotEqual(loaded1.AlbumId, loaded2.AlbumId);
     }
 
     /// <summary>
