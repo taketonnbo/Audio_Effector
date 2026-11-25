@@ -24,7 +24,7 @@
 | プロパティ名 | 型 | 説明 | コレクション表示 | シングル表示 | 実装プロパティ ([Track.cs](../../AudioEffector.Domain/Entities/Track.cs)) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **Id** | `TrackId` | 楽曲の一意識別子 | - | - | `Track.Id` |
-| **AlbumId** | `AlbumId` | 所属アルバムの決定論的一意識別子（`AlbumArtist` 優先・未設定時は `Artist` またはコンピレーション解決結果から算出、`Album` / `AlbumArtist` / `Artist` 変更時は同期更新） | - | - | `Track.AlbumId` |
+| **AlbumId** | `AlbumId` | 所属アルバムの一意識別子（`AlbumId.New()` ベースで作品単位に割り当て・`tracks.json` へ永続化） | - | - | `Track.AlbumId` |
 | **Title** | `string` | 楽曲タイトル（曲名） | ○ | ○ | `Track.Title` |
 | **Artist** | `string` | アーティスト名（各曲の演奏者） | ○ | ○ | `Track.Artist` |
 | **AlbumArtist** | `string` | アルバムアーティスト名（作品単位の代表アーティスト、コンピレーション・客演曲のアルバム識別に利用） | - | - | `Track.AlbumArtist` |
