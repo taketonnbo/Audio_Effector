@@ -797,12 +797,19 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             isFavorite: source.IsFavorite,
             isLossless: source.IsLossless,
             isHiRes: source.IsHiRes,
+            albumId: source.AlbumId,
             albumArtist: source.AlbumArtist);
     }
 
     private void SyncAlbumsFromTracks()
     {
-        var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(Tracks);
+        var existingAlbumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>(Albums.Count);
+        foreach (var album in Albums)
+        {
+            existingAlbumIdsByKey.TryAdd(AlbumGroupingResolver.CreateGroupKey(album.Title, album.Artist), album.Id);
+        }
+
+        var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(Tracks, existingAlbumIdsByKey);
         var grouped = Tracks
             .GroupBy(t => t.AlbumId)
             .ToList();

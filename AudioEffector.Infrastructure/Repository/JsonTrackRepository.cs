@@ -85,8 +85,22 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
         {
             string json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
             var dtos = JsonSerializer.Deserialize<List<TrackDto>>(json) ?? throw new JsonException();
-            var tracks = dtos.Select(dto => dto.ToEntity()).ToList();
-            AlbumGroupingResolver.ResolveAndApply(tracks);
+            var tracks = new List<Track>(dtos.Count);
+            var validAlbumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>();
+            foreach (var dto in dtos)
+            {
+                var parsedAlbumId = TrackDto.TryParseAlbumId(dto.AlbumId);
+                var track = dto.ToEntity(parsedAlbumId);
+                tracks.Add(track);
+
+                if (parsedAlbumId.HasValue)
+                {
+                    string artistKey = !string.IsNullOrWhiteSpace(track.AlbumArtist) ? track.AlbumArtist : track.Artist;
+                    validAlbumIdsByKey.TryAdd(AlbumGroupingResolver.CreateGroupKey(track.Album, artistKey), parsedAlbumId.Value);
+                }
+            }
+
+            AlbumGroupingResolver.ResolveAndApply(tracks, validAlbumIdsByKey);
             _tracks.Clear();
             foreach (var track in tracks)
             {
@@ -440,7 +454,7 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             IsHiRes = track.IsHiRes
         };
 
-        public Track ToEntity() => new(
+        public Track ToEntity(AlbumId? parsedAlbumId = null) => new(
             id: TrackId.From(Id),
             filePath: AudioPath.Create(FilePath),
             title: Title,
@@ -457,10 +471,10 @@ public class JsonTrackRepository : ITrackRepository, IDisposable
             isFavorite: IsFavorite,
             isLossless: IsLossless,
             isHiRes: IsHiRes,
-            albumId: TryParseAlbumId(AlbumId),
+            albumId: parsedAlbumId ?? TryParseAlbumId(AlbumId),
             albumArtist: AlbumArtist ?? string.Empty);
 
-        private static AlbumId? TryParseAlbumId(string? value)
+        public static AlbumId? TryParseAlbumId(string? value)
         {
             if (Guid.TryParse(value, out var guid) && guid != Guid.Empty)
             {

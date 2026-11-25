@@ -249,7 +249,26 @@ public class LibraryApplicationService
     {
         ArgumentNullException.ThrowIfNull(tracks);
 
-        var existingIdsByPath = await GetTrackIdsByPathAsync(cancellationToken).ConfigureAwait(false);
+        var existingTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)
+            ?? Array.Empty<Track>();
+        var existingIdsByPath = new Dictionary<string, TrackId>(existingTracks.Count, StringComparer.OrdinalIgnoreCase);
+        var existingAlbumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>();
+        var existingResolved = AlbumGroupingResolver.Resolve(existingTracks);
+        foreach (var existingTrack in existingTracks)
+        {
+            if (!string.IsNullOrWhiteSpace(existingTrack.FilePath))
+            {
+                existingIdsByPath.TryAdd(existingTrack.FilePath, existingTrack.Id);
+            }
+
+            if (existingResolved.TryGetValue(existingTrack.Id, out var identity))
+            {
+                existingAlbumIdsByKey.TryAdd(
+                    AlbumGroupingResolver.CreateGroupKey(existingTrack.Album, identity.AlbumArtist),
+                    existingTrack.AlbumId);
+            }
+        }
+
         var normalizedTracks = new List<Track>(tracks.Count);
 
         foreach (var track in tracks)
@@ -278,6 +297,7 @@ public class LibraryApplicationService
                     isFavorite: track.IsFavorite,
                     isLossless: track.IsLossless,
                     isHiRes: track.IsHiRes,
+                    albumId: track.AlbumId,
                     albumArtist: track.AlbumArtist));
             }
             else
@@ -286,7 +306,7 @@ public class LibraryApplicationService
             }
         }
 
-        AlbumGroupingResolver.ResolveAndApply(normalizedTracks);
+        AlbumGroupingResolver.ResolveAndApply(normalizedTracks, existingAlbumIdsByKey);
         await _trackRepository.ReplaceAllAsync(normalizedTracks, cancellationToken).ConfigureAwait(false);
     }
 
