@@ -33,7 +33,7 @@ public partial class MainWindow : Window
     private HwndSource? _hwndSource;
     private MiniPlayerWindow? _miniPlayer;
     private bool _isRestoringFromMiniPlayer;
-    private bool _startedInMiniPlayerMode;
+    private bool _suppressStartMinimized;
     private bool _isClosed;
 
     /// <summary>
@@ -64,7 +64,7 @@ public partial class MainWindow : Window
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         var appSettings = _settingsService.LoadSettings();
-        if (appSettings.StartMinimized && !_startedInMiniPlayerMode)
+        if (appSettings.StartMinimized && !_suppressStartMinimized)
         {
             this.WindowState = WindowState.Minimized;
         }
@@ -209,9 +209,23 @@ public partial class MainWindow : Window
             return;
         }
 
-        _startedInMiniPlayerMode = true;
+        _suppressStartMinimized = true;
         this.Visibility = Visibility.Hidden;
         ShowMiniPlayer();
+    }
+
+    /// <summary>
+    /// 「起動時に最小化」設定を抑止し、通常のメインウィンドウとして初回表示します
+    /// </summary>
+    public void StartInNormalMode()
+    {
+        if (_isClosed)
+        {
+            return;
+        }
+
+        _suppressStartMinimized = true;
+        this.Show();
     }
 
     private void ShowMiniPlayer()

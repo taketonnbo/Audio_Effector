@@ -4,6 +4,7 @@ using System.Threading;
 using System.Windows;
 using AudioEffector.Application;
 using AudioEffector.Infrastructure;
+using AudioEffector.Infrastructure.Ipc;
 using AudioEffector.Presentation;
 using AudioEffector.Presentation.Views;
 using AudioEffector.Application.ApplicationServices;
@@ -27,6 +28,7 @@ public partial class App : System.Windows.Application
 
     private Mutex? _singleInstanceMutex;
     private bool _ownsSingleInstanceMutex;
+    private AppIpcServer? _ipcServer;
 
     /// <summary>
     /// DIサービスプロバイダー
@@ -93,10 +95,19 @@ public partial class App : System.Windows.Application
             Logger.Info("ミニプレイヤーモード（--mini-player）で起動します。");
             mainWindow.StartInMiniPlayerMode();
         }
+        else if (startupOptions.ForceNormalWindow)
+        {
+            Logger.Info("通常ウィンドウモード（--normal）で起動します。");
+            mainWindow.StartInNormalMode();
+        }
         else
         {
             mainWindow.Show();
         }
+
+        // MCP サーバとの Named Pipe IPC 待受を開始
+        _ipcServer = new AppIpcServer();
+        _ipcServer.Start();
     }
 
     /// <summary>
@@ -106,6 +117,8 @@ public partial class App : System.Windows.Application
     protected override void OnExit(ExitEventArgs e)
     {
         Logger.Info("アプリケーションを終了します。");
+        _ipcServer?.Dispose();
+        _ipcServer = null;
         ReleaseSingleInstanceMutex();
         LogManager.Shutdown();
 #if DEBUG
