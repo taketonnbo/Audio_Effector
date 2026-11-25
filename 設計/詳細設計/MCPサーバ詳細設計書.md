@@ -178,6 +178,8 @@ classDiagram
 | `McpResponseFormatter` / `McpErrorMapper` | `Protocol/McpResponseFormatter.cs`, `Protocol/McpErrorMapper.cs` | 正常応答 JSON のシリアライズ、`Result` / `Result<T>` 失敗および例外の統一エラーコード変換・機密詳細の非露出とログ記録を担当。 |
 | `SystemTools` / `SystemDtos` | `Tools/SystemTools.cs`, `Dtos/SystemDtos.cs` | Phase 1 の疎通確認用リファレンス実装（`ping`, `get_server_info`）および応答 DTO。 |
 | `LibraryTools` / `LibraryDtos` | `Tools/LibraryTools.cs`, `Dtos/LibraryDtos.cs` | Phase 2 の楽曲ライブラリ検索ツール（`search_tracks`）および応答 DTO（`SearchTracksResponse`, `TrackSummaryDto`）。 |
+| `AppTools` / `AppDtos` | `Tools/AppTools.cs`, `Dtos/AppDtos.cs` | Phase 2 のアプリ起動ツール（`launch_app`）および応答 DTO（`LaunchAppResponse`）。 |
+| `IAppLauncher` / `WpfAppLauncher` | `Gateways/IAppLauncher.cs`, `Gateways/WpfAppLauncher.cs` | WPF 本体の実行ファイルパス解決・多重起動防止確認・起動および準備完了待機を担う起動ゲートウェイ。 |
 | `IPlaybackControlGateway` | `Gateways/IPlaybackControlGateway.cs` | 再生制御の抽象化ゲートウェイ（Phase 2 で Named Pipe IPC 実装を接続）。 |
 
 ### 3.3 CLI オプション・設定モデル（将来互換インターフェース）
@@ -191,6 +193,7 @@ Phase 1 時点から Phase 3（HTTP）互換の CLI オプションおよび環�
 | `--port` | `AUDIOEFFECTOR_MCP__PORT` | `int` (`51890`) | HTTP モード時の待受ポート番号（Phase 3 用）。 |
 | `--data-dir` | `AUDIOEFFECTOR_MCP__DATADIRECTORY` | `string?` (`null`) | JSON データディレクトリの明示指定（未指定時は `%APPDATA%\AudioEffector`）。テストや隔離検証で利用。 |
 | `--log-level` | `AUDIOEFFECTOR_MCP__MINLOGLEVEL` | `LogLevel` (`Information`) | `stderr` へ出力する最小ログレベル。 |
+| `--wpf-app-path` | `AUDIOEFFECTOR_MCP__WPFAPPPATH` | `string?` (`null`) | `AudioEffector.exe` の明示パス（未指定時は `AudioEffector.McpServer.exe` と同一ディレクトリ配下の `AudioEffector.exe` を既定解決）。 |
 
 - **データディレクトリ指定の DI 連携方針（Phase 1 実装事項）**:
   - 環境変数名は `Microsoft.Extensions.Configuration` の自動バインド規約に合わせ、`McpServerOptions` のプロパティ名（`DataDirectory`, `MinLogLevel` 等）と完全一致させます。
@@ -476,12 +479,52 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - `OperationCanceledException` → `OPERATION_CANCELLED`
   - その他の未捕捉例外 → `INTERNAL_ERROR`（内部詳細・ファイルパスを非露出とし `ILogger` へ記録）
 
-### 5.6 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
+### 5.6 アプリ起動ツール仕様（Phase 2 #316 実装）
+
+`AppTools`（`AudioEffector.McpServer/Tools/AppTools.cs`）に、Audio Effector（WPF 本体）を通常起動またはミニプレイヤー起動する **`launch_app`** ツールを実装します。プロセス起動・実行ファイルパス解決・起動排他・準備完了待機は `IAppLauncher` / `WpfAppLauncher`（`AudioEffector.McpServer/Gateways/`）へ委譲し、ツール層は入力バリデーション・DTO 変換・共通エラー変換のみを担当します。
+
+#### 入力パラメータ
+
+| パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
+| :--- | :--- | :---: | :---: | :--- |
+| `mode` | `string` | 任意 | `"mini_player"` | 起動モード（`"mini_player"` または `"normal"`、大文字・小文字区別なし・前後空白トリム）。不正値は `INVALID_PARAMETER` エラー。 |
+| `waitForReady` | `bool` | 任意 | `true` | 起動後、WPF 本体の準備完了（単一インスタンス Mutex 確立、IPC プローブ構成時は IPC 接続可能状態）まで待機するかどうか。 |
+
+#### 出力（`data`）JSON スキーマ
+
+```json
+{
+  "launched": true,
+  "alreadyRunning": false,
+  "mode": "mini_player",
+  "ipcReady": false
+}
+```
+
+- `alreadyRunning == true`（起動済み）の場合：`launched: false`, `alreadyRunning: true`, `mode: "existing"` を返し、新規起動を行わず既存ウィンドウ状態をそのまま維持します。
+
+#### 実装詳細・WPF 側連携・エラーケース
+
+- **実行ファイルパス解決**: `McpServerOptions.WpfAppPath`（CLI `--wpf-app-path` / 環境変数 `AUDIOEFFECTOR_MCP__WPFAPPPATH`）が指定されていればそのパスを使用し、未指定時は `AppContext.BaseDirectory` 配下の `AudioEffector.exe` を既定パスとして解決します。
+- **起動排他およびライフサイクル**: `WpfAppLauncher` は `SemaphoreSlim` により連続呼び出し時の多重起動を防止します。起動された `AudioEffector.exe` は独立プロセスとして動作し、MCP サーバ終了後も継続動作します。
+- **WPF 側 `--mini-player` オプションおよび単一インスタンス制御**:
+  - `AudioEffector/AppStartupOptions.cs` にて CLI 引数 `--mini-player` を解析します。
+  - `AudioEffector/App.xaml.cs` の `OnStartup` 最初期で同一ユーザーセッション内スコープの名前付き Mutex（`Local\AudioEffector.SingleInstance`）を取得し、すでに起動中の場合は既存インスタンスのウィンドウ状態を変更せず安全に `Shutdown(0)` します（`OnExit` で確実に解放・破棄）。
+  - `--mini-player` 指定時は `MainWindow.StartInMiniPlayerMode()` によりメインウィンドウを表示せず直ちに `MiniPlayerWindow` を表示します。ミニプレイヤーからメイン画面へ初回復帰する際は `AppSettings.StartMinimized` による再最小化を抑止します。
+- **エラーケース**:
+  - 不正な `mode` 指定 → `INVALID_PARAMETER`（`details: { parameter: "mode", allowedValues: ["mini_player", "normal"] }`）
+  - `AudioEffector.exe` 未存在（`FileNotFoundException`）→ `FILE_NOT_FOUND`（パス非露出）
+  - 起動待機タイムアウト（`TimeoutException`、既定 10 秒）→ `IPC_CONNECTION_FAILED`
+  - プロセス起動失敗・待機前終了（`InvalidOperationException`）→ `INTERNAL_ERROR`
+  - キャンセル要求（`OperationCanceledException`）→ `OPERATION_CANCELLED`
+
+### 5.7 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
 
 個別ツールの詳細スキーマ・バリデーション・実装仕様は Phase 2 親 Issue（#301）配下の各子 Issue にて順次策定し、実装に合わせて本設計書および機能仕様書へ追記します。
 
 | カテゴリ | 想定ツール / リソース例 | 主な接続先 | 関連子 Issue |
 | :--- | :--- | :--- | :--- |
+| **アプリ起動・ライフサイクル** | `launch_app` | `IAppLauncher` → WPF `AudioEffector.exe` | #316（アプリの起動） |
 | **楽曲ライブラリ参照・検索** | `search_tracks`, `get_track`, `list_albums`, `list_artists`, `list_favorites`, `list_recent_tracks` | `LibraryApplicationService` | #305（曲の検索）ほか |
 | **プレイリスト管理** | `list_playlists`, `get_playlist`, `create_playlist`, `add_tracks_to_playlist`, `remove_track_from_playlist` | `PlaylistApplicationService` | 順次起票 |
 | **イコライザー・プリセット** | `list_equalizer_presets`, `get_equalizer_settings`, `apply_equalizer_preset` | `EqualizerApplicationService` | 順次起票 |
@@ -515,4 +558,4 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - [インフラストラクチャ層詳細設計書](アーキテクチャ/インフラストラクチャ層詳細設計書.md)
   - [プレゼンテーション層詳細設計書](アーキテクチャ/プレゼンテーション層詳細設計書.md)
   - [テスト方針書](テスト仕様/テスト方針書.md)
-- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311)
+- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316)
