@@ -119,6 +119,7 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
 
         string? requestTrackId = trackId?.Value.ToString("D");
         string? requestFilePath = string.IsNullOrWhiteSpace(filePath) ? null : filePath.Trim();
+        Guid? resolvedLocalTrackId = null;
 
         // --data-dir によるカスタムディレクトリ使用時は MCP 側ライブラリと WPF 側既定ライブラリが異なるため、
         // MCP 側リポジトリで trackId から filePath を解決してから WPF 側へ送信する
@@ -142,6 +143,7 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
                     McpErrorMapper.GetPublicMessage(McpErrorCodes.FILE_NOT_FOUND));
             }
 
+            resolvedLocalTrackId = trackId.Value.Value;
             requestTrackId = null;
             requestFilePath = localTrack.FilePath;
         }
@@ -239,9 +241,15 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
                     McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
             }
 
+            PlayedTrackDto trackDto = PlayedTrackDto.FromIpcTrackInfo(response.Track);
+            if (resolvedLocalTrackId.HasValue)
+            {
+                trackDto = trackDto with { Id = resolvedLocalTrackId.Value };
+            }
+
             var dto = new PlayTrackResponse(
                 PlaybackState: response.PlaybackState,
-                Track: PlayedTrackDto.FromIpcTrackInfo(response.Track));
+                Track: trackDto);
 
             return PlaybackControlResult<PlayTrackResponse>.Success(dto);
         }

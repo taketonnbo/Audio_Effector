@@ -242,6 +242,7 @@ public sealed class IpcPlaybackControlGatewayTests
         var dataDirProvider = new Mock<IDataDirectoryProvider>();
         dataDirProvider.SetupGet(p => p.IsCustomDirectory).Returns(true);
 
+        var wpfGeneratedId = Guid.NewGuid();
         AppIpcRequest? capturedRequest = null;
         var handler = new Mock<IAppIpcCommandHandler>();
         handler
@@ -249,7 +250,7 @@ public sealed class IpcPlaybackControlGatewayTests
             .Callback<AppIpcRequest, CancellationToken>((req, _) => capturedRequest = req)
             .ReturnsAsync(AppIpcResponse.SuccessPlayback(
                 PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING,
-                new AppIpcTrackInfo(trackId.Value, "Custom Track", "Custom Artist", "Custom Album", 120, "02:00", expectedPath)));
+                new AppIpcTrackInfo(wpfGeneratedId, "Custom Track", "Custom Artist", "Custom Album", 120, "02:00", expectedPath)));
 
         using var server = new AppIpcServer(pipeName, handler.Object);
         server.Start();
@@ -267,6 +268,9 @@ public sealed class IpcPlaybackControlGatewayTests
 
         // Assert
         Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value);
+        Assert.Equal(trackId.Value, result.Value.Track.Id);
+        Assert.NotEqual(wpfGeneratedId, result.Value.Track.Id);
         Assert.NotNull(capturedRequest);
         Assert.Null(capturedRequest.TrackId);
         Assert.Equal(expectedPath, capturedRequest.FilePath);
