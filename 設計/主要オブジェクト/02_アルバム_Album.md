@@ -22,6 +22,7 @@
 
 | プロパティ名 | 型 | 説明 | コレクション表示 | 展開・詳細表示 | 実装プロパティ ([Album.cs](../../AudioEffector.Domain/Entities/Album.cs)) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
+| **Id** | `AlbumId` | `(Title, Artist)` の正規化キーから決定論的に生成されるアルバムの一意識別子（`Title` / `Artist` 変更時は再計算） | - | - | `Album.Id` |
 | **Title / Name** | `string` | アルバムタイトル名 | ○ | ○ | `Album.Title`, `Album.Name` |
 | **Artist** | `string` | アルバムアーティスト名 | ○ | ○ | `Album.Artist` |
 | **Year** | `uint` | リリース年 | - | ○ | `Album.Year` |
@@ -49,5 +50,6 @@
 | **詳細情報画面の表示** | Show Details | グリッド右下情報ボタン、または右クリック「アルバム詳細情報を表示」 | 中央ワークスペースに `AlbumDetailView`（`ViewType.AlbumDetail`）を表示し、詳細メタデータと全収録曲を操作可能にする | 仕様策定済み (#188 / #289) | `ShowAlbumInfoCommand` ([LibraryViewModel.cs](../../AudioEffector/Presentation/ViewModels/LibraryViewModel.cs)) / `AlbumDetailViewModel` |
 
 ## 5. 関連仕様・設計指針
+- **決定論的 `AlbumId` と同一性ルール（Issue #332）**: `Album` は `(Title, Artist)` の前後空白除去・Invariant 小文字化キーと固定名前空間 GUID の SHA-256 ハッシュ（RFC 4122 UUID v5 相当）により決定論的な `AlbumId` を生成する。これにより同名アルバムでもアーティストが異なれば別の `AlbumId` となり、WPF 本体・MCP サーバ・再起動を跨いで一貫した ID 指定操作（`LibraryApplicationService.GetAlbumByIdAsync` 等）が可能となる。
 - **アルバム詳細シングルビュー（Issue #188 / #289）**: インライン展開に加え、選択アルバムの大判高精細アート・メタ情報・音質バッジ・クイックアクション・UI仮想化収録曲リストを中央ワークスペースで閲覧・操作できる詳細ビュー（[アルバム情報UI仕様書](../画面設計/アルバム情報/アルバム情報UI仕様書.md)）を提供する。
 - **リスト表示の展開トラック情報拡充（Issue #264）**: リスト表示で展開したトラック行への再生時間・アーティスト・お気に入り・トラック番号・音質バッジの表示拡充。
