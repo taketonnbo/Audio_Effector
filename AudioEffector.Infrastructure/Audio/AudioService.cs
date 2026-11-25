@@ -45,6 +45,7 @@ public class AudioService : IAudioService
     private bool _isShuffleEnabled;
     private bool _wasPlayingBeforeSeek;
     private Guid _currentPlaybackId;
+    private Guid _pendingPlaybackRequestId;
 
     private int _sampleRate = 44100;
     private int _bufferSizeMs = 100;
@@ -572,6 +573,7 @@ public class AudioService : IAudioService
         Track? endedTrack = null;
         lock (_lock)
         {
+            _pendingPlaybackRequestId = thisPlaybackId;
             _currentPlaybackId = thisPlaybackId;
             if (_currentlyPlayingTrack != null && !string.Equals(_currentlyPlayingTrack.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase))
             {
@@ -746,13 +748,12 @@ public class AudioService : IAudioService
         Guid thisPlaybackId = Guid.NewGuid();
         int targetSampleRate;
         int targetBufferSizeMs;
-        float targetVolume;
         lock (_lock)
         {
-            _currentPlaybackId = thisPlaybackId;
+            // 準備中の最新要求 ID のみを更新し、実際に再生中の _currentPlaybackId は切り替え確定まで維持する
+            _pendingPlaybackRequestId = thisPlaybackId;
             targetSampleRate = _sampleRate;
             targetBufferSizeMs = _bufferSizeMs;
-            targetVolume = _volume;
         }
 
         Track? endedTrack = null;
@@ -762,6 +763,7 @@ public class AudioService : IAudioService
         {
             AudioFileReader? preparedAudioFile = null;
             WaveOutEvent? preparedOutputDevice = null;
+            bool ownershipTransferred = false;
             try
             {
                 if (IsPlaybackSupersededOrCancelled(thisPlaybackId, cancellationToken))
@@ -826,10 +828,7 @@ public class AudioService : IAudioService
                 var aggregator = new SampleAggregator(preparedEqualizer);
                 aggregator.ComplexFftCalculated += (s, e) => FftCalculated?.Invoke(this, e);
 
-                var preparedVolumeProvider = new VolumeSampleProvider(aggregator)
-                {
-                    Volume = targetVolume
-                };
+                var preparedVolumeProvider = new VolumeSampleProvider(aggregator);
 
                 var endDetector = new EndOfStreamProvider(preparedVolumeProvider);
                 endDetector.EndOfStream += () =>
@@ -839,10 +838,13 @@ public class AudioService : IAudioService
 
                 lock (_lock)
                 {
-                    if (_currentPlaybackId != thisPlaybackId || cancellationToken.IsCancellationRequested)
+                    if (_pendingPlaybackRequestId != thisPlaybackId || cancellationToken.IsCancellationRequested)
                     {
                         return false;
                     }
+
+                    // 準備中に変更された最新の音量を切り替え確定ロック内で反映する
+                    preparedVolumeProvider.Volume = _volume;
 
                     preparedOutputDevice = new WaveOutEvent
                     {
@@ -852,12 +854,12 @@ public class AudioService : IAudioService
                     preparedOutputDevice.Init(endDetector);
                     preparedOutputDevice.PlaybackStopped += OnPlaybackStopped;
 
-                    if (_currentPlaybackId != thisPlaybackId || cancellationToken.IsCancellationRequested)
+                    if (_pendingPlaybackRequestId != thisPlaybackId || cancellationToken.IsCancellationRequested)
                     {
                         return false;
                     }
 
-                    // 既存再生を停止して新規デバイスへ切り替え、再生開始が成功した場合のみ現在曲・キューを確定する
+                    // 既存再生を停止して新規デバイスへ切り替え、再生開始が成功した場合のみ現在曲・キュー・再生IDを確定する
                     StopInternal();
                     _audioFile = preparedAudioFile;
                     preparedAudioFile = null;
@@ -866,13 +868,16 @@ public class AudioService : IAudioService
                     _masterVolumeProvider = preparedVolumeProvider;
                     _outputDevice = preparedOutputDevice;
                     preparedOutputDevice = null;
+                    ownershipTransferred = true;
 
                     _outputDevice.Play();
-                    if (_currentPlaybackId != thisPlaybackId || _outputDevice.PlaybackState != NAudio.Wave.PlaybackState.Playing)
+                    if (_pendingPlaybackRequestId != thisPlaybackId || _outputDevice.PlaybackState != NAudio.Wave.PlaybackState.Playing)
                     {
                         StopInternal();
                         return false;
                     }
+
+                    _currentPlaybackId = thisPlaybackId;
 
                     if (_currentlyPlayingTrack != null && !string.Equals(_currentlyPlayingTrack.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase))
                     {
@@ -892,11 +897,14 @@ public class AudioService : IAudioService
             }
             catch
             {
-                lock (_lock)
+                if (ownershipTransferred)
                 {
-                    if (_currentPlaybackId == thisPlaybackId && preparedAudioFile == null && preparedOutputDevice == null)
+                    lock (_lock)
                     {
-                        StopInternal();
+                        if (_pendingPlaybackRequestId == thisPlaybackId)
+                        {
+                            StopInternal();
+                        }
                     }
                 }
 
@@ -927,18 +935,29 @@ public class AudioService : IAudioService
 
         if (committed)
         {
-            if (endedTrack != null)
+            _uiDispatcher.Invoke(() =>
             {
-                TrackPlaybackEnded?.Invoke(endedTrack);
-            }
+                lock (_lock)
+                {
+                    if (_currentPlaybackId != thisPlaybackId)
+                    {
+                        return;
+                    }
+                }
 
-            if (changedPlaylist != null)
-            {
-                PlaylistChanged?.Invoke(changedPlaylist);
-            }
+                if (endedTrack != null)
+                {
+                    TrackPlaybackEnded?.Invoke(endedTrack);
+                }
 
-            TrackChanged?.Invoke(trackToPlay);
-            PlaybackStateChanged?.Invoke(true);
+                if (changedPlaylist != null)
+                {
+                    PlaylistChanged?.Invoke(changedPlaylist);
+                }
+
+                TrackChanged?.Invoke(trackToPlay);
+                PlaybackStateChanged?.Invoke(true);
+            });
             return true;
         }
 
@@ -959,7 +978,7 @@ public class AudioService : IAudioService
 
         lock (_lock)
         {
-            return _currentPlaybackId != playbackId;
+            return _pendingPlaybackRequestId != playbackId;
         }
     }
 
@@ -1190,6 +1209,10 @@ public class AudioService : IAudioService
         lock (_lock)
         {
             if (internalStop) _stopRequested = true;
+
+            // 準備中の非同期再生要求および現在の再生 ID を無効化する
+            _pendingPlaybackRequestId = Guid.NewGuid();
+            _currentPlaybackId = Guid.Empty;
 
             endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
 
