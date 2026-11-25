@@ -231,4 +231,34 @@ public class TrackTests
         Assert.Equal(AlbumId.FromAlbumKey("Updated Album", "Updated Artist"), sut.AlbumId);
         Assert.Contains(nameof(Track.AlbumId), notified);
     }
+
+    /// <summary>
+    /// AlbumおよびArtist変更時のPropertyChangedハンドラー内で、すでに最新のAlbumIdが参照できることを検証します。
+    /// </summary>
+    [Fact]
+    public void PropertyChanged_AlbumおよびArtist変更時_通知ハンドラー内で既に最新のAlbumIdが参照できること()
+    {
+        // Arrange
+        var sut = new Track
+        {
+            Album = "Old Album",
+            Artist = "Old Artist"
+        };
+        var observedConsistency = new List<(string? PropertyName, bool IsConsistent)>();
+        sut.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(Track.Album) or nameof(Track.Artist))
+            {
+                observedConsistency.Add((e.PropertyName, sut.AlbumId == AlbumId.FromAlbumKey(sut.Album, sut.Artist)));
+            }
+        };
+
+        // Act
+        sut.Album = "New Album";
+        sut.Artist = "New Artist";
+
+        // Assert
+        Assert.Equal(2, observedConsistency.Count);
+        Assert.All(observedConsistency, entry => Assert.True(entry.IsConsistent, $"{entry.PropertyName} 通知時に Track.AlbumId が未更新です。"));
+    }
 }

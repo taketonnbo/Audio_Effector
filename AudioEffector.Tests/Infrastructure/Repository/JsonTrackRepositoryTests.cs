@@ -373,6 +373,64 @@ public sealed class JsonTrackRepositoryTests : IDisposable
     }
 
     /// <summary>
+    /// 複数曲を含むJSONのうち一部に数値・オブジェクト・配列など文字列以外の型でAlbumIdが記載されていても、全体が0曲にならずその曲のみ決定論的AlbumIdで自動補完され正常な他曲も復元されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task 後方互換読込_AlbumIdが数値やオブジェクトなど不正型を含む複数曲JSON_不正曲のみ自動補完され全曲が復元されること()
+    {
+        // Arrange
+        var malformedTrackId = Guid.NewGuid();
+        var validTrackId = Guid.NewGuid();
+        var objectAlbumIdTrackId = Guid.NewGuid();
+        var validAlbumId = AlbumId.FromAlbumKey("Valid Album", "Valid Artist");
+        string mixedJson = $$"""
+            [
+              {
+                "Id": "{{malformedTrackId}}",
+                "AlbumId": 123,
+                "FilePath": "C:\\Music\\malformed.mp3",
+                "Title": "Malformed Song",
+                "Artist": "Artist Malformed",
+                "Album": "Recovered Album",
+                "DurationTicks": 1800000000
+              },
+              {
+                "Id": "{{validTrackId}}",
+                "AlbumId": "{{validAlbumId}}",
+                "FilePath": "C:\\Music\\valid.mp3",
+                "Title": "Valid Song",
+                "Artist": "Valid Artist",
+                "Album": "Valid Album",
+                "DurationTicks": 2000000000
+              },
+              {
+                "Id": "{{objectAlbumIdTrackId}}",
+                "AlbumId": { "unexpected": true },
+                "FilePath": "C:\\Music\\object_id.mp3",
+                "Title": "Object Id Song",
+                "Artist": "Artist Object",
+                "Album": "Object Album",
+                "DurationTicks": 2100000000
+              }
+            ]
+            """;
+        await File.WriteAllTextAsync(_testFilePath, mixedJson);
+        using var sut = CreateSut();
+
+        // Act
+        var tracks = await sut.GetAllAsync();
+
+        // Assert
+        Assert.Equal(3, tracks.Count);
+        var malformed = Assert.Single(tracks, t => t.Id == TrackId.From(malformedTrackId));
+        var valid = Assert.Single(tracks, t => t.Id == TrackId.From(validTrackId));
+        var objectId = Assert.Single(tracks, t => t.Id == TrackId.From(objectAlbumIdTrackId));
+        Assert.Equal(AlbumId.FromAlbumKey("Recovered Album", "Artist Malformed"), malformed.AlbumId);
+        Assert.Equal(validAlbumId, valid.AlbumId);
+        Assert.Equal(AlbumId.FromAlbumKey("Object Album", "Artist Object"), objectId.AlbumId);
+    }
+
+    /// <summary>
     /// track引数にnullを指定した場合、ArgumentNullExceptionがスローされるかを検証します。
     /// </summary>
     [Fact]

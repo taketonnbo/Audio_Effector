@@ -110,4 +110,58 @@ public sealed class AlbumTests
         Assert.NotEqual(sut1.Id, sut2.Id);
         Assert.False(sut1.Equals(sut2));
     }
+
+    /// <summary>
+    /// 前後空白を含むタイトルやUnicode境界文字（Σとς）において、EqualsおよびGetHashCodeがAlbum.Idの同一性と完全に一致することを検証します。
+    /// </summary>
+    [Fact]
+    public void EqualsおよびGetHashCode_前後空白やUnicode境界文字_Idの同一性と完全に一致すること()
+    {
+        // Arrange
+        var trimmed = new Album("Title", "Artist");
+        var padded = new Album { Title = " Title ", Artist = "Artist" };
+        var upperSigma = new Album("\u03A3", "Artist");
+        var finalSigma = new Album("\u03C2", "Artist");
+
+        // Act
+        var set = new HashSet<Album> { trimmed, padded, upperSigma, finalSigma };
+
+        // Assert: 前後空白違いは Id・Equals・GetHashCode すべて一致
+        Assert.Equal(trimmed.Id, padded.Id);
+        Assert.True(trimmed.Equals(padded));
+        Assert.Equal(trimmed.GetHashCode(), padded.GetHashCode());
+
+        // Assert: Σ と ς のように Id が異なる場合は Equals も false
+        Assert.NotEqual(upperSigma.Id, finalSigma.Id);
+        Assert.False(upperSigma.Equals(finalSigma));
+
+        // Assert: HashSet<Album> の要素数が一意な Id 数と一致
+        Assert.Equal(3, set.Count);
+    }
+
+    /// <summary>
+    /// TitleおよびArtist変更時のPropertyChangedハンドラー内で、すでに最新のAlbum.Idが参照できることを検証します。
+    /// </summary>
+    [Fact]
+    public void PropertyChanged_TitleおよびArtist変更時_通知ハンドラー内で既に最新のIdが参照できること()
+    {
+        // Arrange
+        var sut = new Album("Old Title", "Old Artist");
+        var observedConsistency = new List<(string? PropertyName, bool IsConsistent)>();
+        sut.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(Album.Title) or nameof(Album.Name) or nameof(Album.Artist))
+            {
+                observedConsistency.Add((e.PropertyName, sut.Id == AlbumId.FromAlbumKey(sut.Title, sut.Artist)));
+            }
+        };
+
+        // Act
+        sut.Title = "New Title";
+        sut.Artist = "New Artist";
+
+        // Assert
+        Assert.Equal(3, observedConsistency.Count);
+        Assert.All(observedConsistency, entry => Assert.True(entry.IsConsistent, $"{entry.PropertyName} 通知時に Album.Id が未更新です。"));
+    }
 }

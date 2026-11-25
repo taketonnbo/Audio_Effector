@@ -1018,4 +1018,74 @@ public sealed class LibraryViewModelTests : IDisposable
         using var verifyRepo = new JsonTrackRepository(tracksJsonPath);
         Assert.Empty(await verifyRepo.GetAllAsync());
     }
+
+    /// <summary>
+    /// 同名アルバム・別アーティストの楽曲を読み込んだ際、LibraryViewModelのアルバム集約とLibraryApplicationService.GetAlbumByIdAsyncの収録曲が完全に一致し、片方削除時も他方が維持されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_同名アルバム別アーティスト混在時_WPF表示とGetAlbumByIdAsyncの収録曲が一致し片方削除時も他方が維持されること()
+    {
+        // Arrange
+        string musicDir = Path.Combine(_tempDirectory.FullName, "music_same_album_title");
+        string dataDir = Path.Combine(_tempDirectory.FullName, "data_same_album_title");
+        Directory.CreateDirectory(musicDir);
+        Directory.CreateDirectory(dataDir);
+        string songA = Path.Combine(musicDir, "artist_a.mp3");
+        string songB = Path.Combine(musicDir, "artist_b.mp3");
+        await File.WriteAllTextAsync(songA, "dummy audio a");
+        await File.WriteAllTextAsync(songB, "dummy audio b");
+
+        string tracksJsonPath = Path.Combine(dataDir, "tracks.json");
+        using var realTrackRepo = new JsonTrackRepository(tracksJsonPath);
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        var appService = new LibraryApplicationService(realTrackRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+
+        using var sut = new LibraryViewModel(
+            appService,
+            _audioServiceMock.Object,
+            _settingsServiceMock.Object,
+            playlistViewModel: null,
+            trackMetadataLoader: file =>
+            {
+                bool isArtistA = string.Equals(file, songA, StringComparison.OrdinalIgnoreCase);
+                return new Track
+                {
+                    FilePath = file,
+                    Title = isArtistA ? "Track A" : "Track B",
+                    Artist = isArtistA ? "Artist A" : "Artist B",
+                    Album = "Best Of",
+                    TrackNumber = 1,
+                };
+            });
+
+        // Act
+        await sut.LoadLibraryAsync(musicDir);
+
+        // Assert: WPF 側も 2 枚に分離され、各 Album.Id で GetAlbumByIdAsync を呼ぶと収録曲が一致する
+        Assert.Equal(2, sut.Albums.Count);
+        var wpfAlbumA = Assert.Single(sut.Albums, a => a.Artist == "Artist A");
+        var wpfAlbumB = Assert.Single(sut.Albums, a => a.Artist == "Artist B");
+        Assert.NotEqual(wpfAlbumA.Id, wpfAlbumB.Id);
+
+        var serviceAlbumA = await appService.GetAlbumByIdAsync(wpfAlbumA.Id);
+        var serviceAlbumB = await appService.GetAlbumByIdAsync(wpfAlbumB.Id);
+        Assert.NotNull(serviceAlbumA);
+        Assert.NotNull(serviceAlbumB);
+        Assert.Equal(wpfAlbumA.Tracks.Select(t => t.Id), serviceAlbumA.Tracks.Select(t => t.Id));
+        Assert.Equal(wpfAlbumB.Tracks.Select(t => t.Id), serviceAlbumB.Tracks.Select(t => t.Id));
+
+        // Act 2: Artist A の曲を削除して再スキャンした場合、Artist B の同名アルバムは維持される
+        File.Delete(songA);
+        await sut.LoadLibraryAsync(musicDir);
+
+        // Assert 2
+        var remainingAlbum = Assert.Single(sut.Albums);
+        Assert.Equal(wpfAlbumB.Id, remainingAlbum.Id);
+        Assert.Equal("Artist B", remainingAlbum.Artist);
+        Assert.Null(await appService.GetAlbumByIdAsync(wpfAlbumA.Id));
+        var remainingServiceAlbum = await appService.GetAlbumByIdAsync(wpfAlbumB.Id);
+        Assert.NotNull(remainingServiceAlbum);
+        Assert.Equal(remainingAlbum.Tracks.Select(t => t.Id), remainingServiceAlbum.Tracks.Select(t => t.Id));
+    }
 }

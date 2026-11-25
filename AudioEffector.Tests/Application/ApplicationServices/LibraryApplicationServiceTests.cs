@@ -628,4 +628,39 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         // Assert
         Assert.Null(actual);
     }
+
+    /// <summary>
+    /// GetAlbumByIdAsyncがfavorites.jsonのお気に入り正本と読み取り専用照合を行い、tracks.json側がfalseでも最新のお気に入り状態を反映することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetAlbumByIdAsync_お気に入り登録済みかつトラック側falseの場合_最新のお気に入り状態が反映され書き込み副作用がないこと()
+    {
+        // Arrange
+        var t1 = CreateSampleTrack("Track 1", "Artist A", "Album Fav", isFavorite: false, trackNumber: 1, filePath: @"C:\Music\fav1.flac");
+        var t2 = CreateSampleTrack("Track 2", "Artist A", "Album Fav", isFavorite: false, trackNumber: 2, filePath: @"C:\Music\fav2.flac");
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([t1, t2]);
+
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new FavoriteTrackEntry("Track 1", "Artist A", "Album Fav", 1, 180.0, @"D:\OldPath\fav1.mp3", DateTime.UtcNow)
+            ]);
+
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+        var targetAlbumId = AlbumId.FromAlbumKey("Album Fav", "Artist A");
+
+        // Act
+        var actual = await sut.GetAlbumByIdAsync(targetAlbumId);
+
+        // Assert
+        Assert.NotNull(actual);
+        Assert.True(Assert.Single(actual.Tracks, t => t.Id == t1.Id).IsFavorite);
+        Assert.False(Assert.Single(actual.Tracks, t => t.Id == t2.Id).IsFavorite);
+        mockFavRepo.Verify(
+            r => r.UpdateMetadataAsync(It.IsAny<IReadOnlyList<FavoriteMetadataChange>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
 }
