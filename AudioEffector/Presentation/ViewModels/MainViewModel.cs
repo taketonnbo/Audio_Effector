@@ -692,11 +692,7 @@ namespace AudioEffector.Presentation.ViewModels
                 };
                 Library.AlbumRemoved += album =>
                 {
-                    foreach (var track in album.Tracks)
-                    {
-                        Playlist?.RemoveDisplayedTrack(track);
-                        PlaybackListTracks.Remove(track);
-                    }
+                    RemoveTracksNotInLibrary(album, Library?.Tracks, Playlist, PlaybackListTracks);
                 };
                 Library.PropertyChanged += (s, e) =>
                 {
@@ -2480,6 +2476,7 @@ namespace AudioEffector.Presentation.ViewModels
                 {
                     Title = title,
                     Artist = artist,
+                    AlbumArtist = Infrastructure.Library.TagLibMetadataExtractor.ExtractAlbumArtist(tagFile.Tag),
                     Album = album,
                     Genre = genre,
                     Year = tagFile.Tag.Year,
@@ -2665,6 +2662,38 @@ namespace AudioEffector.Presentation.ViewModels
                     (_audioService as IDisposable)?.Dispose();
                 }
                 _disposed = true;
+            }
+        }
+
+        /// <summary>
+        /// アルバム除去通知を受け取った際、ライブラリから実際に削除された曲のみを表示中プレイリストおよび再生一覧から除去します。
+        /// アーティスト名やアルバム名の変更により旧アルバムが外れた場合でも、同一 TrackId の曲がライブラリに残存していれば表示を維持します。
+        /// </summary>
+        /// <param name="removedAlbum">一覧から外れたアルバム</param>
+        /// <param name="remainingLibraryTracks">現在ライブラリに残存している全トラック</param>
+        /// <param name="playlist">表示中プレイリストViewModel</param>
+        /// <param name="playbackListTracks">再生トラック一覧</param>
+        internal static void RemoveTracksNotInLibrary(
+            Album removedAlbum,
+            IEnumerable<Track>? remainingLibraryTracks,
+            Presentation.ViewModels.PlaylistViewModel? playlist,
+            ObservableCollection<Track> playbackListTracks)
+        {
+            if (removedAlbum == null)
+            {
+                return;
+            }
+
+            var remainingTrackIds = remainingLibraryTracks?.Select(t => t.Id).ToHashSet();
+            foreach (var track in removedAlbum.Tracks)
+            {
+                if (remainingTrackIds != null && remainingTrackIds.Contains(track.Id))
+                {
+                    continue;
+                }
+
+                playlist?.RemoveDisplayedTrack(track);
+                playbackListTracks.Remove(track);
             }
         }
     }

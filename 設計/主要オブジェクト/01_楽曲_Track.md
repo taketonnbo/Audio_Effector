@@ -24,8 +24,10 @@
 | プロパティ名 | 型 | 説明 | コレクション表示 | シングル表示 | 実装プロパティ ([Track.cs](../../AudioEffector.Domain/Entities/Track.cs)) |
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **Id** | `TrackId` | 楽曲の一意識別子 | - | - | `Track.Id` |
+| **AlbumId** | `AlbumId` | 所属アルバムの一意識別子（`AlbumId.New()` ベースで作品単位に割り当て・`tracks.json` へ永続化） | - | - | `Track.AlbumId` |
 | **Title** | `string` | 楽曲タイトル（曲名） | ○ | ○ | `Track.Title` |
-| **Artist** | `string` | アーティスト名 | ○ | ○ | `Track.Artist` |
+| **Artist** | `string` | アーティスト名（各曲の演奏者） | ○ | ○ | `Track.Artist` |
+| **AlbumArtist** | `string` | アルバムアーティスト名（作品単位の代表アーティスト、コンピレーション・客演曲のアルバム識別に利用） | - | - | `Track.AlbumArtist` |
 | **Album** | `string` | 所属アルバム名 | ○ (全曲/アーティスト/最近再生) | ○ | `Track.Album` |
 | **Duration** | `TimeSpan` | 再生時間（分:秒） | ○ | ○ | `Track.Duration`, `Track.DurationString` |
 | **TrackNumber** | `uint` | アルバム内トラック番号 | ○ (アルバム展開/アーティスト) | ○ | `Track.TrackNumber` |

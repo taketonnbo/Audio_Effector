@@ -9,6 +9,7 @@ using System.Windows.Input;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
+using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Library;
 
 namespace AudioEffector.Presentation.ViewModels;
@@ -406,7 +407,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrWhiteSpace(rootFolder))
         {
             var settings = _settingsService.LoadSettings();
-            rootFolder = !string.IsNullOrWhiteSpace( settings?.LastLibraryPath)
+            rootFolder = !string.IsNullOrWhiteSpace(settings?.LastLibraryPath)
                 ? settings.LastLibraryPath
                 : CurrentLibraryPath;
         }
@@ -456,10 +457,13 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             {
                 if (token.IsCancellationRequested) return;
 
-                IReadOnlyDictionary<string, Domain.ValueObjects.TrackId> persistedIdsByPath;
+                IReadOnlyDictionary<string, (TrackId TrackId, AlbumId AlbumId)> persistedIdentitiesByPath;
+                IReadOnlyDictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId> persistedAlbumIdsByKey;
                 try
                 {
-                    persistedIdsByPath = await _libraryService.GetTrackIdsByPathAsync(token).ConfigureAwait(false);
+                    (persistedIdentitiesByPath, persistedAlbumIdsByKey) = await _libraryService
+                        .GetPersistedIdentitiesAsync(token)
+                        .ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -467,7 +471,8 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 }
                 catch
                 {
-                    persistedIdsByPath = new Dictionary<string, Domain.ValueObjects.TrackId>(StringComparer.OrdinalIgnoreCase);
+                    persistedIdentitiesByPath = new Dictionary<string, (TrackId TrackId, AlbumId AlbumId)>(StringComparer.OrdinalIgnoreCase);
+                    persistedAlbumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>();
                 }
 
                 if (token.IsCancellationRequested) return;
@@ -577,10 +582,10 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 {
                     if (parsedTracksByPath.TryGetValue(path, out var addedTrack))
                     {
-                        if (persistedIdsByPath.TryGetValue(addedTrack.FilePath, out var existingId) &&
-                            !addedTrack.Id.Equals(existingId))
+                        if (persistedIdentitiesByPath.TryGetValue(addedTrack.FilePath, out var existingIdentity) &&
+                            (!addedTrack.Id.Equals(existingIdentity.TrackId) || !addedTrack.AlbumId.Equals(existingIdentity.AlbumId)))
                         {
-                            addedTrack = CloneTrackWithId(addedTrack, existingId);
+                            addedTrack = CloneTrackWithIds(addedTrack, existingIdentity.TrackId, existingIdentity.AlbumId);
                         }
 
                         addedTracks.Add(addedTrack);
@@ -647,7 +652,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                     bool hasTrackDiff = removedTracks.Count > 0 || addedTracks.Count > 0 || updatedCount > 0 || (Tracks.Count > 0 && Albums.Count == 0);
                     if (hasTrackDiff)
                     {
-                        SyncAlbumsFromTracks();
+                        SyncAlbumsFromTracks(persistedAlbumIdsByKey);
                     }
 
                     // 6. お気に入り状態の再照合（フォルダ移動・パス変更時もメタデータ一致でパスを自動更新）
@@ -723,6 +728,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             var (title, artist, album, genre) = TagLibMetadataExtractor.ExtractDisplayTags(tfile.Tag, file);
             track.Title = title;
             track.Artist = artist;
+            track.AlbumArtist = TagLibMetadataExtractor.ExtractAlbumArtist(tfile.Tag);
             track.Album = album;
             track.Duration = tfile.Properties.Duration;
             track.Year = tfile.Tag.Year;
@@ -762,6 +768,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     {
         destination.Title = source.Title;
         destination.Artist = source.Artist;
+        destination.AlbumArtist = source.AlbumArtist;
         destination.Album = source.Album;
         destination.Duration = source.Duration;
         destination.Year = source.Year;
@@ -775,7 +782,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         destination.IsHiRes = source.IsHiRes;
     }
 
-    private static Track CloneTrackWithId(Track source, Domain.ValueObjects.TrackId id)
+    private static Track CloneTrackWithIds(Track source, TrackId id, AlbumId albumId)
     {
         return new Track(
             id: id,
@@ -793,25 +800,43 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             genre: source.Genre,
             isFavorite: source.IsFavorite,
             isLossless: source.IsLossless,
-            isHiRes: source.IsHiRes);
+            isHiRes: source.IsHiRes,
+            albumId: albumId,
+            albumArtist: source.AlbumArtist);
     }
 
-    private void SyncAlbumsFromTracks()
+    private void SyncAlbumsFromTracks(
+        IReadOnlyDictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>? persistedAlbumIdsByKey = null)
     {
-        var grouped = Tracks
-            .GroupBy(t => string.IsNullOrWhiteSpace(t.Album) ? "Unknown Album" : t.Album, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var existingAlbumsByTitle = new Dictionary<string, Album>(Albums.Count, StringComparer.OrdinalIgnoreCase);
+        var existingAlbumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>(Albums.Count);
         foreach (var album in Albums)
         {
-            existingAlbumsByTitle.TryAdd(album.Title, album);
+            existingAlbumIdsByKey.TryAdd(AlbumGroupingResolver.CreateGroupKey(album.Title, album.Artist), album.Id);
         }
 
-        var activeAlbumTitles = new HashSet<string>(grouped.Select(g => g.Key), StringComparer.OrdinalIgnoreCase);
+        if (persistedAlbumIdsByKey != null)
+        {
+            foreach (var kvp in persistedAlbumIdsByKey)
+            {
+                existingAlbumIdsByKey.TryAdd(kvp.Key, kvp.Value);
+            }
+        }
+
+        var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(Tracks, existingAlbumIdsByKey);
+        var grouped = Tracks
+            .GroupBy(t => t.AlbumId)
+            .ToList();
+
+        var existingAlbumsById = new Dictionary<AlbumId, Album>(Albums.Count);
+        foreach (var album in Albums)
+        {
+            existingAlbumsById.TryAdd(album.Id, album);
+        }
+
+        var activeAlbumIds = new HashSet<AlbumId>(grouped.Select(g => g.Key));
 
         // 収録曲がゼロになったアルバムを除去
-        var albumsToRemove = Albums.Where(a => !activeAlbumTitles.Contains(a.Title)).ToList();
+        var albumsToRemove = Albums.Where(a => !activeAlbumIds.Contains(a.Id)).ToList();
         foreach (var emptyAlbum in albumsToRemove)
         {
             if (ReferenceEquals(ExpandedAlbum, emptyAlbum))
@@ -839,11 +864,14 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 .GroupBy(y => y)
                 .OrderByDescending(z => z.Count())
                 .FirstOrDefault()?.Key ?? 0;
-            string representativeArtist = orderedTracks[0].Artist;
+            string albumTitle = string.IsNullOrWhiteSpace(orderedTracks[0].Album) ? "Unknown Album" : orderedTracks[0].Album.Trim();
+            string representativeArtist = resolvedIdentities.TryGetValue(orderedTracks[0].Id, out var identity)
+                ? identity.AlbumArtist
+                : (string.IsNullOrWhiteSpace(orderedTracks[0].Artist) ? "Unknown Artist" : orderedTracks[0].Artist.Trim());
 
-            if (existingAlbumsByTitle.TryGetValue(group.Key, out var existingAlbum))
+            if (existingAlbumsById.TryGetValue(group.Key, out var existingAlbum))
             {
-                existingAlbum.Title = group.Key;
+                existingAlbum.Title = albumTitle;
                 existingAlbum.Artist = representativeArtist;
                 existingAlbum.Year = albumYear;
                 if (!AreTrackListsIdentical(existingAlbum.Tracks, orderedTracks))
@@ -853,13 +881,12 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             }
             else
             {
-                Albums.Add(new Album
-                {
-                    Title = group.Key,
-                    Artist = representativeArtist,
-                    Tracks = orderedTracks,
-                    Year = albumYear
-                });
+                Albums.Add(new Album(
+                    name: albumTitle,
+                    artist: representativeArtist,
+                    year: albumYear,
+                    tracks: orderedTracks,
+                    id: group.Key));
             }
         }
 

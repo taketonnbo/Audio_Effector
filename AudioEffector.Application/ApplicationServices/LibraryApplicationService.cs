@@ -239,6 +239,41 @@ public class LibraryApplicationService
     }
 
     /// <summary>
+    /// リポジトリに永続化されている既存トラックのパス別（TrackId, AlbumId）および作品キー別 AlbumId マップを取得します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>ファイルパス別の ID マップと作品キー別の AlbumId マップ。</returns>
+    public async Task<(
+        IReadOnlyDictionary<string, (TrackId TrackId, AlbumId AlbumId)> TrackIdentitiesByPath,
+        IReadOnlyDictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId> AlbumIdsByKey)> GetPersistedIdentitiesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var existingTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)
+            ?? Array.Empty<Track>();
+
+        var trackIdentitiesByPath = new Dictionary<string, (TrackId TrackId, AlbumId AlbumId)>(existingTracks.Count, StringComparer.OrdinalIgnoreCase);
+        var albumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>();
+        var existingResolved = AlbumGroupingResolver.Resolve(existingTracks);
+
+        foreach (var track in existingTracks)
+        {
+            if (!string.IsNullOrWhiteSpace(track.FilePath))
+            {
+                trackIdentitiesByPath.TryAdd(track.FilePath, (track.Id, track.AlbumId));
+            }
+
+            if (existingResolved.TryGetValue(track.Id, out var identity))
+            {
+                albumIdsByKey.TryAdd(
+                    AlbumGroupingResolver.CreateGroupKey(track.Album, identity.AlbumArtist),
+                    track.AlbumId);
+            }
+        }
+
+        return (trackIdentitiesByPath, albumIdsByKey);
+    }
+
+    /// <summary>
     /// 現在のライブラリ楽曲一覧（追加・タグ更新・削除・フォルダ切替後）をリポジトリへ完全同期します。
     /// 同一ファイルパスの既存トラックが存在する場合は、既存の <see cref="TrackId"/> を維持したうえで最新メタデータを保存します。
     /// </summary>
@@ -249,7 +284,26 @@ public class LibraryApplicationService
     {
         ArgumentNullException.ThrowIfNull(tracks);
 
-        var existingIdsByPath = await GetTrackIdsByPathAsync(cancellationToken).ConfigureAwait(false);
+        var existingTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)
+            ?? Array.Empty<Track>();
+        var existingIdsByPath = new Dictionary<string, TrackId>(existingTracks.Count, StringComparer.OrdinalIgnoreCase);
+        var existingAlbumIdsByKey = new Dictionary<(string NormalizedAlbum, string NormalizedArtist), AlbumId>();
+        var existingResolved = AlbumGroupingResolver.Resolve(existingTracks);
+        foreach (var existingTrack in existingTracks)
+        {
+            if (!string.IsNullOrWhiteSpace(existingTrack.FilePath))
+            {
+                existingIdsByPath.TryAdd(existingTrack.FilePath, existingTrack.Id);
+            }
+
+            if (existingResolved.TryGetValue(existingTrack.Id, out var identity))
+            {
+                existingAlbumIdsByKey.TryAdd(
+                    AlbumGroupingResolver.CreateGroupKey(existingTrack.Album, identity.AlbumArtist),
+                    existingTrack.AlbumId);
+            }
+        }
+
         var normalizedTracks = new List<Track>(tracks.Count);
 
         foreach (var track in tracks)
@@ -277,7 +331,9 @@ public class LibraryApplicationService
                     genre: track.Genre,
                     isFavorite: track.IsFavorite,
                     isLossless: track.IsLossless,
-                    isHiRes: track.IsHiRes));
+                    isHiRes: track.IsHiRes,
+                    albumId: track.AlbumId,
+                    albumArtist: track.AlbumArtist));
             }
             else
             {
@@ -285,6 +341,7 @@ public class LibraryApplicationService
             }
         }
 
+        AlbumGroupingResolver.ResolveAndApply(normalizedTracks, existingAlbumIdsByKey);
         await _trackRepository.ReplaceAllAsync(normalizedTracks, cancellationToken).ConfigureAwait(false);
     }
 
@@ -438,17 +495,69 @@ public class LibraryApplicationService
     {
         var tracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
         await ReconcileFavoritesAsync(tracks, cancellationToken).ConfigureAwait(false);
+        var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(tracks);
 
         var grouped = tracks
-            .GroupBy(t => (t.Album, t.Artist))
-            .Select(g => new Album(
-                name: g.Key.Album,
-                artist: g.Key.Artist,
-                year: 0,
-                tracks: g.OrderBy(t => t.TrackNumber).ToList()))
+            .GroupBy(t => t.AlbumId)
+            .Select(g =>
+            {
+                var orderedTracks = g.OrderBy(t => t.TrackNumber).ToList();
+                var representative = orderedTracks[0];
+                string albumArtist = resolvedIdentities.TryGetValue(representative.Id, out var identity)
+                    ? identity.AlbumArtist
+                    : representative.Artist;
+                return new Album(
+                    name: representative.Album,
+                    artist: albumArtist,
+                    year: 0,
+                    tracks: orderedTracks,
+                    id: g.Key);
+            })
             .ToList();
 
         return grouped;
+    }
+
+    /// <summary>
+    /// 指定されたアルバムIDに一致するアルバムを取得します。
+    /// お気に入りリポジトリとの最新照合（読み取り専用）を行い、収録トラックの <see cref="Track.IsFavorite"/> を反映します。
+    /// </summary>
+    /// <param name="albumId">アルバムID</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>一致したアルバム（存在しない場合はnull）</returns>
+    public async Task<Album?> GetAlbumByIdAsync(AlbumId albumId, CancellationToken cancellationToken = default)
+    {
+        var tracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        if (tracks.Count == 0)
+        {
+            return null;
+        }
+
+        // お気に入り永続化データ（favorites.json）を正本として全曲で読み取り専用照合を行い、最新の IsFavorite を反映する
+        var favoriteEntries = await GetFavoriteEntriesAsync(cancellationToken).ConfigureAwait(false);
+        FavoriteTrackMatcher.Reconcile(favoriteEntries, tracks);
+        var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(tracks);
+
+        var matchingTracks = tracks
+            .Where(t => t.AlbumId == albumId)
+            .OrderBy(t => t.TrackNumber)
+            .ToList();
+
+        if (matchingTracks.Count == 0)
+        {
+            return null;
+        }
+
+        var representative = matchingTracks[0];
+        string albumArtist = resolvedIdentities.TryGetValue(representative.Id, out var identity)
+            ? identity.AlbumArtist
+            : representative.Artist;
+        return new Album(
+            name: representative.Album,
+            artist: albumArtist,
+            year: 0,
+            tracks: matchingTracks,
+            id: albumId);
     }
 
     /// <summary>

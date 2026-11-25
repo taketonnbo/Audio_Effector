@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -1017,5 +1018,354 @@ public sealed class LibraryViewModelTests : IDisposable
         Assert.Empty(sut.Tracks);
         using var verifyRepo = new JsonTrackRepository(tracksJsonPath);
         Assert.Empty(await verifyRepo.GetAllAsync());
+    }
+
+    /// <summary>
+    /// 同名アルバム・別アーティストの楽曲を読み込んだ際、LibraryViewModelのアルバム集約とLibraryApplicationService.GetAlbumByIdAsyncの収録曲が完全に一致し、片方削除時も他方が維持されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_同名アルバム別アーティスト混在時_WPF表示とGetAlbumByIdAsyncの収録曲が一致し片方削除時も他方が維持されること()
+    {
+        // Arrange
+        string musicDir = Path.Combine(_tempDirectory.FullName, "music_same_album_title");
+        string dataDir = Path.Combine(_tempDirectory.FullName, "data_same_album_title");
+        Directory.CreateDirectory(musicDir);
+        Directory.CreateDirectory(dataDir);
+        string songA = Path.Combine(musicDir, "artist_a.mp3");
+        string songB = Path.Combine(musicDir, "artist_b.mp3");
+        await File.WriteAllTextAsync(songA, "dummy audio a");
+        await File.WriteAllTextAsync(songB, "dummy audio b");
+
+        string tracksJsonPath = Path.Combine(dataDir, "tracks.json");
+        using var realTrackRepo = new JsonTrackRepository(tracksJsonPath);
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        var appService = new LibraryApplicationService(realTrackRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+
+        using var sut = new LibraryViewModel(
+            appService,
+            _audioServiceMock.Object,
+            _settingsServiceMock.Object,
+            playlistViewModel: null,
+            trackMetadataLoader: file =>
+            {
+                bool isArtistA = string.Equals(file, songA, StringComparison.OrdinalIgnoreCase);
+                return new Track
+                {
+                    FilePath = file,
+                    Title = isArtistA ? "Track A" : "Track B",
+                    Artist = isArtistA ? "Artist A" : "Artist B",
+                    Album = "Best Of",
+                    TrackNumber = 1,
+                };
+            });
+
+        // Act
+        await sut.LoadLibraryAsync(musicDir);
+
+        // Assert: WPF 側も 2 枚に分離され、各 Album.Id で GetAlbumByIdAsync を呼ぶと収録曲が一致する
+        Assert.Equal(2, sut.Albums.Count);
+        var wpfAlbumA = Assert.Single(sut.Albums, a => a.Artist == "Artist A");
+        var wpfAlbumB = Assert.Single(sut.Albums, a => a.Artist == "Artist B");
+        Assert.NotEqual(wpfAlbumA.Id, wpfAlbumB.Id);
+
+        var serviceAlbumA = await appService.GetAlbumByIdAsync(wpfAlbumA.Id);
+        var serviceAlbumB = await appService.GetAlbumByIdAsync(wpfAlbumB.Id);
+        Assert.NotNull(serviceAlbumA);
+        Assert.NotNull(serviceAlbumB);
+        Assert.Equal(wpfAlbumA.Tracks.Select(t => t.Id), serviceAlbumA.Tracks.Select(t => t.Id));
+        Assert.Equal(wpfAlbumB.Tracks.Select(t => t.Id), serviceAlbumB.Tracks.Select(t => t.Id));
+
+        // Act 2: Artist A の曲を削除して再スキャンした場合、Artist B の同名アルバムは維持される
+        File.Delete(songA);
+        await sut.LoadLibraryAsync(musicDir);
+
+        // Assert 2
+        var remainingAlbum = Assert.Single(sut.Albums);
+        Assert.Equal(wpfAlbumB.Id, remainingAlbum.Id);
+        Assert.Equal("Artist B", remainingAlbum.Artist);
+        Assert.Null(await appService.GetAlbumByIdAsync(wpfAlbumA.Id));
+        var remainingServiceAlbum = await appService.GetAlbumByIdAsync(wpfAlbumB.Id);
+        Assert.NotNull(remainingServiceAlbum);
+        Assert.Equal(remainingAlbum.Tracks.Select(t => t.Id), remainingServiceAlbum.Tracks.Select(t => t.Id));
+    }
+
+    /// <summary>
+    /// DetectMetadataChangesOnRescan有効時に1曲アルバムのアーティスト名のみをAからBへ変更して再スキャンした場合、
+    /// 旧アルバムに対するAlbumRemovedは発火しつつも、同一TrackIdでライブラリに残存する曲は表示中プレイリストおよび再生トラック一覧から削除されないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_1曲アルバムのアーティスト名変更再スキャン時_旧アルバムは除去されつつ残存曲は表示から削除されないこと()
+    {
+        // Arrange
+        string musicDir = Path.Combine(_tempDirectory.FullName, "music_artist_rename");
+        string dataDir = Path.Combine(_tempDirectory.FullName, "data_artist_rename");
+        Directory.CreateDirectory(musicDir);
+        Directory.CreateDirectory(dataDir);
+        string songPath = Path.Combine(musicDir, "solo.mp3");
+        await File.WriteAllTextAsync(songPath, "v1");
+        File.SetLastWriteTimeUtc(songPath, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        _settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings
+        {
+            DetectMetadataChangesOnRescan = true,
+        });
+
+        string tracksJsonPath = Path.Combine(dataDir, "tracks.json");
+        using var realTrackRepo = new JsonTrackRepository(tracksJsonPath);
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        var appService = new LibraryApplicationService(realTrackRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+        var playlistService = new PlaylistApplicationService(new Mock<IPlaylistRepository>().Object, realTrackRepo, _eventBus);
+        using var playlistVm = new PlaylistViewModel(playlistService, appService, _audioServiceMock.Object, _eventBus);
+        var playbackListTracks = new ObservableCollection<Track>();
+
+        string currentArtist = "Artist A";
+        using var sut = new LibraryViewModel(
+            appService,
+            _audioServiceMock.Object,
+            _settingsServiceMock.Object,
+            playlistViewModel: playlistVm,
+            trackMetadataLoader: file => new Track
+            {
+                FilePath = file,
+                Title = "Solo Track",
+                Artist = currentArtist,
+                Album = "Solo Album",
+                TrackNumber = 1,
+            });
+
+        var removedTracks = new List<Track>();
+        var removedAlbums = new List<Album>();
+        sut.TrackRemoved += track =>
+        {
+            removedTracks.Add(track);
+            playlistVm.RemoveDisplayedTrack(track);
+            playbackListTracks.Remove(track);
+        };
+        sut.AlbumRemoved += album =>
+        {
+            removedAlbums.Add(album);
+            MainViewModel.RemoveTracksNotInLibrary(album, sut.Tracks, playlistVm, playbackListTracks);
+        };
+
+        await sut.LoadLibraryAsync(musicDir);
+        Track initialTrack = Assert.Single(sut.Tracks);
+        TrackId originalTrackId = initialTrack.Id;
+        AlbumId originalAlbumId = Assert.Single(sut.Albums).Id;
+        playlistVm.PlaylistTracks.Add(initialTrack);
+        playbackListTracks.Add(initialTrack);
+
+        // Act: アーティスト名を A → B へ変更し更新日時を進めて再スキャン
+        currentArtist = "Artist B";
+        File.SetLastWriteTimeUtc(songPath, new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc));
+        await sut.LoadLibraryAsync(musicDir);
+
+        // Assert: アーティスト変更で旧アルバムのIDが引き継がれ、表示中プレイリストおよび再生一覧に同じ TrackId の曲が維持される
+        Assert.Empty(removedTracks);
+
+        Track remainingLibraryTrack = Assert.Single(sut.Tracks);
+        Assert.Equal(originalTrackId, remainingLibraryTrack.Id);
+        Assert.Equal("Artist B", remainingLibraryTrack.Artist);
+
+        Album updatedAlbum = Assert.Single(sut.Albums);
+        Assert.Equal("Artist B", updatedAlbum.Artist);
+        Assert.Equal(originalAlbumId, updatedAlbum.Id);
+        Assert.Equal(remainingLibraryTrack.AlbumId, updatedAlbum.Id);
+
+        Track displayedPlaylistTrack = Assert.Single(playlistVm.PlaylistTracks);
+        Assert.Equal(originalTrackId, displayedPlaylistTrack.Id);
+        Track displayedPlaybackTrack = Assert.Single(playbackListTracks);
+        Assert.Equal(originalTrackId, displayedPlaybackTrack.Id);
+
+        // Act 2: 実ファイル削除による再スキャン時は表示中プレイリスト・再生一覧から正しく除去される
+        File.Delete(songPath);
+        await sut.LoadLibraryAsync(musicDir);
+
+        // Assert 2
+        Assert.Single(removedTracks);
+        Assert.Empty(sut.Tracks);
+        Assert.Empty(sut.Albums);
+        Assert.Empty(playlistVm.PlaylistTracks);
+        Assert.Empty(playbackListTracks);
+    }
+
+    /// <summary>
+    /// 共通作品に属する異なる演奏者の2曲（AlbumArtist共通およびAlbumArtist未設定コンピレーション）が一覧で1枚にまとまり、
+    /// そのAlbumIdで両曲を取得・再生できる一方、別作品の同名アルバムは別カードに残ることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_コンピレーションおよび客演曲と別作品同名アルバム混在時_共通作品は1枚で両曲取得再生でき別作品は別カードに残ること()
+    {
+        // Arrange
+        string rootDir = Path.Combine(_tempDirectory.FullName, "music_compilation_and_distinct");
+        string blueNoteDir = Path.Combine(rootDir, "BlueNote");
+        string compNoTagDir = Path.Combine(rootDir, "CompilationNoTag");
+        string otherArtistDir = Path.Combine(rootDir, "OtherArtist");
+        string dataDir = Path.Combine(_tempDirectory.FullName, "data_compilation_and_distinct");
+        Directory.CreateDirectory(blueNoteDir);
+        Directory.CreateDirectory(compNoTagDir);
+        Directory.CreateDirectory(otherArtistDir);
+        Directory.CreateDirectory(dataDir);
+
+        string bn1 = Path.Combine(blueNoteDir, "01_clifford.flac");
+        string bn2 = Path.Combine(blueNoteDir, "02_herbie.flac");
+        string noTag1 = Path.Combine(compNoTagDir, "01_a.flac");
+        string noTag2 = Path.Combine(compNoTagDir, "02_b.flac");
+        string distinctSameName = Path.Combine(otherArtistDir, "01_other.flac");
+        await File.WriteAllTextAsync(bn1, "bn1");
+        await File.WriteAllTextAsync(bn2, "bn2");
+        await File.WriteAllTextAsync(noTag1, "nt1");
+        await File.WriteAllTextAsync(noTag2, "nt2");
+        await File.WriteAllTextAsync(distinctSameName, "other");
+
+        string tracksJsonPath = Path.Combine(dataDir, "tracks.json");
+        using var realTrackRepo = new JsonTrackRepository(tracksJsonPath);
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        var appService = new LibraryApplicationService(realTrackRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+
+        List<Track>? queuedTracks = null;
+        _audioServiceMock
+            .Setup(a => a.SetPlaylist(It.IsAny<List<Track>>(), It.IsAny<Track?>()))
+            .Callback<List<Track>, Track?>((tracks, _) => queuedTracks = tracks);
+
+        using var sut = new LibraryViewModel(
+            appService,
+            _audioServiceMock.Object,
+            _settingsServiceMock.Object,
+            playlistViewModel: null,
+            trackMetadataLoader: file =>
+            {
+                if (string.Equals(file, bn1, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Track { FilePath = file, Title = "Moanin'", Artist = "Clifford Brown", AlbumArtist = "Blue Note", Album = "Blue Note X Blue Giant", TrackNumber = 1 };
+                }
+
+                if (string.Equals(file, bn2, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Track { FilePath = file, Title = "Maiden Voyage", Artist = "Herbie Hancock", AlbumArtist = "Blue Note", Album = "Blue Note X Blue Giant", TrackNumber = 2 };
+                }
+
+                if (string.Equals(file, noTag1, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Track { FilePath = file, Title = "Autumn Leaves", Artist = "Bill Evans", Album = "Jazz Essentials", TrackNumber = 1 };
+                }
+
+                if (string.Equals(file, noTag2, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new Track { FilePath = file, Title = "So What", Artist = "Miles Davis", Album = "Jazz Essentials", TrackNumber = 2 };
+                }
+
+                return new Track { FilePath = file, Title = "Different Work", Artist = "Solo Artist", Album = "Blue Note X Blue Giant", TrackNumber = 1 };
+            });
+
+        // Act
+        await sut.LoadLibraryAsync(rootDir);
+
+        // Assert: 3 枚（Blue Note 共通作品 / AlbumArtist未設定コンピレーション / 別作品の同名アルバム）
+        Assert.Equal(3, sut.Albums.Count);
+
+        var blueNoteAlbum = Assert.Single(sut.Albums, a => a.Title == "Blue Note X Blue Giant" && a.Artist == "Blue Note");
+        Assert.Equal(2, blueNoteAlbum.Tracks.Count);
+        Assert.Equal(["Clifford Brown", "Herbie Hancock"], blueNoteAlbum.Tracks.Select(t => t.Artist).ToArray());
+
+        var noTagCompAlbum = Assert.Single(sut.Albums, a => a.Title == "Jazz Essentials");
+        Assert.Equal("Various Artists", noTagCompAlbum.Artist);
+        Assert.Equal(2, noTagCompAlbum.Tracks.Count);
+        Assert.Equal(["Bill Evans", "Miles Davis"], noTagCompAlbum.Tracks.Select(t => t.Artist).ToArray());
+
+        var distinctAlbum = Assert.Single(sut.Albums, a => a.Title == "Blue Note X Blue Giant" && a.Artist == "Solo Artist");
+        Assert.Single(distinctAlbum.Tracks);
+        Assert.NotEqual(blueNoteAlbum.Id, distinctAlbum.Id);
+
+        // Assert: GetAlbumByIdAsync でも共通作品の ID で両曲を取得できる
+        var fetchedBlueNote = await appService.GetAlbumByIdAsync(blueNoteAlbum.Id);
+        Assert.NotNull(fetchedBlueNote);
+        Assert.Equal(2, fetchedBlueNote.Tracks.Count);
+        Assert.Equal(blueNoteAlbum.Tracks.Select(t => t.Id), fetchedBlueNote.Tracks.Select(t => t.Id));
+
+        var fetchedNoTagComp = await appService.GetAlbumByIdAsync(noTagCompAlbum.Id);
+        Assert.NotNull(fetchedNoTagComp);
+        Assert.Equal(2, fetchedNoTagComp.Tracks.Count);
+        Assert.Equal(noTagCompAlbum.Tracks.Select(t => t.Id), fetchedNoTagComp.Tracks.Select(t => t.Id));
+
+        // Assert: PlayAlbumCommand で両曲が再生キューへ渡される
+        sut.PlayAlbumCommand.Execute(blueNoteAlbum);
+        Assert.NotNull(queuedTracks);
+        Assert.Equal(2, queuedTracks.Count);
+        Assert.Equal(blueNoteAlbum.Tracks.Select(t => t.Id), queuedTracks.Select(t => t.Id));
+    }
+
+    /// <summary>
+    /// 1曲を登録・永続化した後、新しいLibraryViewModelインスタンスを作り直して同一フォルダーを再読み込みした場合、
+    /// アルバムカードのId・収録トラックのAlbumId・GetAlbumByIdAsyncの結果がいずれも初回保存済みのAlbumIdと一致することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadLibraryAsync_再起動後に新しいLibraryViewModelで再読込_アルバムカードのIdと保存済みAlbumIdおよびGetAlbumByIdAsyncが完全一致すること()
+    {
+        // Arrange
+        string musicDir = Path.Combine(_tempDirectory.FullName, "music_restart_album_id");
+        string dataDir = Path.Combine(_tempDirectory.FullName, "data_restart_album_id");
+        Directory.CreateDirectory(musicDir);
+        Directory.CreateDirectory(dataDir);
+        string songPath = Path.Combine(musicDir, "track1.flac");
+        await File.WriteAllTextAsync(songPath, "dummy audio");
+
+        string tracksJsonPath = Path.Combine(dataDir, "tracks.json");
+        _favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+
+        AlbumId initialAlbumId;
+        using (var initialRepo = new JsonTrackRepository(tracksJsonPath))
+        {
+            var initialService = new LibraryApplicationService(initialRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+            using var initialVm = new LibraryViewModel(
+                initialService,
+                _audioServiceMock.Object,
+                _settingsServiceMock.Object,
+                playlistViewModel: null,
+                trackMetadataLoader: file => new Track
+                {
+                    FilePath = file,
+                    Title = "Restart Track",
+                    Artist = "Restart Artist",
+                    Album = "Restart Album",
+                    TrackNumber = 1,
+                });
+
+            await initialVm.LoadLibraryAsync(musicDir);
+            initialAlbumId = Assert.Single(initialVm.Albums).Id;
+        }
+
+        // Act: アプリ再起動相当（新しい JsonTrackRepository と新しい LibraryViewModel で同じフォルダーを読み込む）
+        using var restartedRepo = new JsonTrackRepository(tracksJsonPath);
+        var restartedService = new LibraryApplicationService(restartedRepo, _favoriteRepoMock.Object, _metadataExtractor, _eventBus);
+        using var restartedVm = new LibraryViewModel(
+            restartedService,
+            _audioServiceMock.Object,
+            _settingsServiceMock.Object,
+            playlistViewModel: null,
+            trackMetadataLoader: file => new Track
+            {
+                FilePath = file,
+                Title = "Restart Track",
+                Artist = "Restart Artist",
+                Album = "Restart Album",
+                TrackNumber = 1,
+            });
+
+        await restartedVm.LoadLibraryAsync(musicDir);
+
+        // Assert
+        Album restartedAlbum = Assert.Single(restartedVm.Albums);
+        Track restartedTrack = Assert.Single(restartedAlbum.Tracks);
+        Assert.Equal(initialAlbumId, restartedAlbum.Id);
+        Assert.Equal(restartedAlbum.Id, restartedTrack.AlbumId);
+
+        Album? fetched = await restartedService.GetAlbumByIdAsync(restartedAlbum.Id);
+        Assert.NotNull(fetched);
+        Assert.Equal(restartedAlbum.Id, fetched.Id);
+        Assert.Equal(restartedTrack.Id, Assert.Single(fetched.Tracks).Id);
     }
 }

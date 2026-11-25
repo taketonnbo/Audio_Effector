@@ -70,7 +70,7 @@
 
 ## 5. 構成要素と共通コントロール
 
-- 一覧は `Albums`、各アルバムの収録曲は `Tracks`。アルバムタイトル・アーティスト名およびグリッド展開トレイ内のトラックタイトルには `MarqueeTextBlock`（ホバー連動シームレスループ）を適用する。
+- 一覧は `Albums`（作品単位に割り当てられた `Track.AlbumId` 単位で集約され、コンピレーション・客演曲は 1 枚に統合、別作品の同名アルバムは別カード／別行として表示）、各アルバムの収録曲は `Tracks`。アルバムタイトル・アーティスト名およびグリッド展開トレイ内のトラックタイトルには `MarqueeTextBlock`（ホバー連動シームレスループ）を適用する。
 - グリッド表示の収録曲トレイはカード配置を押し広げずにカード直下へオーバーレイ展開され、**単一排他展開制御**（別アルバム展開時、トレイ外クリック時、ソート変更時、グリッド/リスト表示切替時に自動で閉じる）を行う。
 - リスト表示の展開領域は、`AllSongsView` と統一したコンパクトな列ヘッダー行（`#`、`★`、`タイトル`、`アーティスト`、`形式`、`時間`）と各楽曲行で構成する。
   - 各楽曲行は `Border` コンテナ（ホバー時 `ControlBackgroundHighlightBrush`）上に、左端3px再生中アクセントバー、選択 `CheckBox`（転送選択モード時のみ表示）、トラック番号（`TrackNumber`、`0` は `-`、再生中は `▶` + `NeonCyanBrush`）、お気に入りトグルボタン（`★`/`☆`、`ToggleFavoriteCommand`）、曲名（`Title`、省略＋`ToolTip`、再生中 `NeonCyanBrush` ハイライト）、アーティスト（`Artist`、省略＋`ToolTip`）、フォーマット/音質バッジ（`Format` + `QualityLabel`、`ToolTip` に `QualityInfo`）、再生時間（`DurationString`、右揃え）、プレイリスト追加 `+` ボタン（`Playlist.ShowAddToPlaylistDialogCommand`）を配置する。
