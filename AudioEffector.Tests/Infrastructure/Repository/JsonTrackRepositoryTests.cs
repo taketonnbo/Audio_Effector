@@ -298,7 +298,7 @@ public sealed class JsonTrackRepositoryTests : IDisposable
     {
         // Arrange
         var track = CreateSampleTrack("Around The World", "Daft Punk", "Homework");
-        var expectedAlbumId = AlbumId.FromAlbumKey("Homework", "Daft Punk");
+        var expectedAlbumId = track.AlbumId;
         using (var initialSut = CreateSut())
         {
             await initialSut.SaveAsync(track);
@@ -316,10 +316,10 @@ public sealed class JsonTrackRepositoryTests : IDisposable
     }
 
     /// <summary>
-    /// AlbumIdフィールドが未記載・空文字・不正文字列・空GUIDの旧形式JSONを読み込んだ場合でも例外とならず、決定論的AlbumIdが自動補完されることを検証します。
+    /// AlbumIdフィールドが未記載・空文字・不正文字列・空GUIDの旧形式JSONを読み込んだ場合でも例外とならず、作品ごとに一意なAlbumIdが自動補完されることを検証します。
     /// </summary>
     [Fact]
-    public async Task 後方互換読込_AlbumId未記載や不正値の旧形式JSON_例外にならず決定論的AlbumIdで自動補完されること()
+    public async Task 後方互換読込_AlbumId未記載や不正値の旧形式JSON_例外にならず作品ごとにAlbumIdが自動補完されること()
     {
         // Arrange
         var track1Id = Guid.NewGuid();
@@ -329,7 +329,7 @@ public sealed class JsonTrackRepositoryTests : IDisposable
             [
               {
                 "Id": "{{track1Id}}",
-                "FilePath": "C:\\Music\\legacy1.mp3",
+                "FilePath": "C:\\Music\\ArtistA\\legacy1.mp3",
                 "Title": "Legacy Song 1",
                 "Artist": "Artist A",
                 "Album": "Shared Album",
@@ -338,7 +338,7 @@ public sealed class JsonTrackRepositoryTests : IDisposable
               {
                 "Id": "{{track2Id}}",
                 "AlbumId": "not-a-valid-guid",
-                "FilePath": "C:\\Music\\legacy2.mp3",
+                "FilePath": "C:\\Music\\ArtistB\\legacy2.mp3",
                 "Title": "Legacy Song 2",
                 "Artist": "Artist B",
                 "Album": "Shared Album",
@@ -347,7 +347,7 @@ public sealed class JsonTrackRepositoryTests : IDisposable
               {
                 "Id": "{{track3Id}}",
                 "AlbumId": "00000000-0000-0000-0000-000000000000",
-                "FilePath": "C:\\Music\\legacy3.mp3",
+                "FilePath": "C:\\Music\\ArtistC\\legacy3.mp3",
                 "Title": "Legacy Song 3",
                 "Artist": "Artist C",
                 "Album": "Another Album",
@@ -366,14 +366,15 @@ public sealed class JsonTrackRepositoryTests : IDisposable
         var loaded1 = Assert.Single(tracks, t => t.Id == TrackId.From(track1Id));
         var loaded2 = Assert.Single(tracks, t => t.Id == TrackId.From(track2Id));
         var loaded3 = Assert.Single(tracks, t => t.Id == TrackId.From(track3Id));
-        Assert.Equal(AlbumId.FromAlbumKey("Shared Album", "Artist A"), loaded1.AlbumId);
-        Assert.Equal(AlbumId.FromAlbumKey("Shared Album", "Artist B"), loaded2.AlbumId);
-        Assert.Equal(AlbumId.FromAlbumKey("Another Album", "Artist C"), loaded3.AlbumId);
+        Assert.NotEqual(Guid.Empty, loaded1.AlbumId.Value);
+        Assert.NotEqual(Guid.Empty, loaded2.AlbumId.Value);
+        Assert.NotEqual(Guid.Empty, loaded3.AlbumId.Value);
         Assert.NotEqual(loaded1.AlbumId, loaded2.AlbumId);
+        Assert.NotEqual(loaded1.AlbumId, loaded3.AlbumId);
     }
 
     /// <summary>
-    /// 複数曲を含むJSONのうち一部に数値・オブジェクト・配列など文字列以外の型でAlbumIdが記載されていても、全体が0曲にならずその曲のみ決定論的AlbumIdで自動補完され正常な他曲も復元されることを検証します。
+    /// 複数曲を含むJSONのうち一部に数値・オブジェクトなど文字列以外の型でAlbumIdが記載されていても、全体が0曲にならずその曲のみ新規AlbumIdで自動補完され正常な他曲も復元されることを検証します。
     /// </summary>
     [Fact]
     public async Task 後方互換読込_AlbumIdが数値やオブジェクトなど不正型を含む複数曲JSON_不正曲のみ自動補完され全曲が復元されること()
@@ -382,7 +383,7 @@ public sealed class JsonTrackRepositoryTests : IDisposable
         var malformedTrackId = Guid.NewGuid();
         var validTrackId = Guid.NewGuid();
         var objectAlbumIdTrackId = Guid.NewGuid();
-        var validAlbumId = AlbumId.FromAlbumKey("Valid Album", "Valid Artist");
+        var validAlbumId = AlbumId.New();
         string mixedJson = $$"""
             [
               {
@@ -425,22 +426,23 @@ public sealed class JsonTrackRepositoryTests : IDisposable
         var malformed = Assert.Single(tracks, t => t.Id == TrackId.From(malformedTrackId));
         var valid = Assert.Single(tracks, t => t.Id == TrackId.From(validTrackId));
         var objectId = Assert.Single(tracks, t => t.Id == TrackId.From(objectAlbumIdTrackId));
-        Assert.Equal(AlbumId.FromAlbumKey("Recovered Album", "Artist Malformed"), malformed.AlbumId);
+        Assert.NotEqual(Guid.Empty, malformed.AlbumId.Value);
         Assert.Equal(validAlbumId, valid.AlbumId);
-        Assert.Equal(AlbumId.FromAlbumKey("Object Album", "Artist Object"), objectId.AlbumId);
+        Assert.NotEqual(Guid.Empty, objectId.AlbumId.Value);
+        Assert.NotEqual(malformed.AlbumId, valid.AlbumId);
     }
 
     /// <summary>
-    /// 旧方式（Album, Artist）で別々のAlbumIdが保存されたコンピレーションJSONを読み込んだ際、作品単位の共通AlbumIdへ自動更新されることを検証します。
+    /// 演奏者ごとに別々のAlbumIdが保存されたコンピレーションJSONを読み込んだ際、作品単位の共通AlbumIdへ統一されることを検証します。
     /// </summary>
     [Fact]
-    public async Task 後方互換読込_旧AlbumIdで保存されたコンピレーションJSON_読込時に作品単位の共通AlbumIdへ更新されること()
+    public async Task 後方互換読込_旧AlbumIdで保存されたコンピレーションJSON_読込時に作品単位の共通AlbumIdへ統一されること()
     {
-        // Arrange: 旧方式では演奏者ごとに異なる AlbumId が保存されていた
+        // Arrange
         var id1 = Guid.NewGuid();
         var id2 = Guid.NewGuid();
-        var legacyAlbumId1 = AlbumId.FromAlbumKey("Blue Note X Blue Giant", "Clifford Brown");
-        var legacyAlbumId2 = AlbumId.FromAlbumKey("Blue Note X Blue Giant", "Herbie Hancock");
+        var legacyAlbumId1 = AlbumId.New();
+        var legacyAlbumId2 = AlbumId.New();
         string legacyCompilationJson = $$"""
             [
               {
@@ -473,8 +475,7 @@ public sealed class JsonTrackRepositoryTests : IDisposable
 
         // Assert
         Assert.Equal(2, loaded.Count);
-        var expectedUnifiedId = AlbumId.FromAlbumKey("Blue Note X Blue Giant", AudioEffector.Domain.Services.AlbumGroupingResolver.VariousArtistsName);
-        Assert.All(loaded, t => Assert.Equal(expectedUnifiedId, t.AlbumId));
+        Assert.Equal(loaded[0].AlbumId, loaded[1].AlbumId);
         Assert.Contains(loaded, t => t.Artist == "Clifford Brown");
         Assert.Contains(loaded, t => t.Artist == "Herbie Hancock");
     }

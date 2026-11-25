@@ -544,15 +544,15 @@ public sealed class LibraryApplicationServiceTests : IDisposable
     }
 
     /// <summary>
-    /// GetAllAlbumsAsyncが同名アルバム・別アーティストの楽曲を別個のAlbumとして集約し、それぞれに決定論的かつ一意なAlbumIdを付与することを検証します。
+    /// GetAllAlbumsAsyncが同名アルバム・別アーティストの楽曲を別個のAlbumとして集約し、それぞれに一意なAlbumIdを付与することを検証します。
     /// </summary>
     [Fact]
     public async Task GetAllAlbumsAsync_同名アルバム別アーティスト混在時_それぞれ異なる一意のAlbumIdが付与されること()
     {
         // Arrange
-        var t1 = CreateSampleTrack("Song 1", "Artist A", "Greatest Hits", trackNumber: 1, filePath: @"C:\Music\a1.mp3");
-        var t2 = CreateSampleTrack("Song 2", "Artist A", "greatest hits", trackNumber: 2, filePath: @"C:\Music\a2.mp3");
-        var t3 = CreateSampleTrack("Song 1", "Artist B", "Greatest Hits", trackNumber: 1, filePath: @"C:\Music\b1.mp3");
+        var t1 = CreateSampleTrack("Song 1", "Artist A", "Greatest Hits", trackNumber: 1, filePath: @"C:\Music\ArtistA\a1.mp3");
+        var t2 = CreateSampleTrack("Song 2", "Artist A", "greatest hits", trackNumber: 2, filePath: @"C:\Music\ArtistA\a2.mp3");
+        var t3 = CreateSampleTrack("Song 1", "Artist B", "Greatest Hits", trackNumber: 1, filePath: @"C:\Music\ArtistB\b1.mp3");
 
         var mockTrackRepo = new Mock<ITrackRepository>();
         mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
@@ -571,8 +571,6 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         Assert.Equal(2, albums.Count);
         var albumA = Assert.Single(albums, a => a.Artist == "Artist A");
         var albumB = Assert.Single(albums, a => a.Artist == "Artist B");
-        Assert.Equal(AlbumId.FromAlbumKey("Greatest Hits", "Artist A"), albumA.Id);
-        Assert.Equal(AlbumId.FromAlbumKey("Greatest Hits", "Artist B"), albumB.Id);
         Assert.NotEqual(albumA.Id, albumB.Id);
         Assert.Equal(2, albumA.Tracks.Count);
         Assert.Equal([t1.Id, t2.Id], albumA.Tracks.Select(t => t.Id).ToArray());
@@ -585,16 +583,18 @@ public sealed class LibraryApplicationServiceTests : IDisposable
     public async Task GetAlbumByIdAsync_存在するAlbumId指定_該当アルバムとトラック番号順の収録曲を返すこと()
     {
         // Arrange
-        var t1 = CreateSampleTrack("Track 1", "Artist A", "Same Title", trackNumber: 1, filePath: @"C:\Music\a1.flac");
-        var t2 = CreateSampleTrack("Track 2", "Artist A", "Same Title", trackNumber: 2, filePath: @"C:\Music\a2.flac");
-        var other = CreateSampleTrack("Track 1", "Artist B", "Same Title", trackNumber: 1, filePath: @"C:\Music\b1.flac");
+        var targetAlbumId = AlbumId.New();
+        var t1 = CreateSampleTrack("Track 1", "Artist A", "Same Title", trackNumber: 1, filePath: @"C:\Music\ArtistA\a1.flac");
+        var t2 = CreateSampleTrack("Track 2", "Artist A", "Same Title", trackNumber: 2, filePath: @"C:\Music\ArtistA\a2.flac");
+        t1.AlbumId = targetAlbumId;
+        t2.AlbumId = targetAlbumId;
+        var other = CreateSampleTrack("Track 1", "Artist B", "Same Title", trackNumber: 1, filePath: @"C:\Music\ArtistB\b1.flac");
 
         var mockTrackRepo = new Mock<ITrackRepository>();
         mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([t2, other, t1]);
 
         var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
-        var targetAlbumId = AlbumId.FromAlbumKey("Same Title", "Artist A");
 
         // Act
         var actual = await sut.GetAlbumByIdAsync(targetAlbumId);
@@ -620,7 +620,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             .ReturnsAsync([track]);
 
         var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
-        var unknownAlbumId = AlbumId.FromAlbumKey("Unknown", "Nobody");
+        var unknownAlbumId = AlbumId.New();
 
         // Act
         var actual = await sut.GetAlbumByIdAsync(unknownAlbumId);
@@ -636,8 +636,11 @@ public sealed class LibraryApplicationServiceTests : IDisposable
     public async Task GetAlbumByIdAsync_お気に入り登録済みかつトラック側falseの場合_最新のお気に入り状態が反映され書き込み副作用がないこと()
     {
         // Arrange
+        var targetAlbumId = AlbumId.New();
         var t1 = CreateSampleTrack("Track 1", "Artist A", "Album Fav", isFavorite: false, trackNumber: 1, filePath: @"C:\Music\fav1.flac");
         var t2 = CreateSampleTrack("Track 2", "Artist A", "Album Fav", isFavorite: false, trackNumber: 2, filePath: @"C:\Music\fav2.flac");
+        t1.AlbumId = targetAlbumId;
+        t2.AlbumId = targetAlbumId;
 
         var mockTrackRepo = new Mock<ITrackRepository>();
         mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
@@ -650,7 +653,6 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             ]);
 
         var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
-        var targetAlbumId = AlbumId.FromAlbumKey("Album Fav", "Artist A");
 
         // Act
         var actual = await sut.GetAlbumByIdAsync(targetAlbumId);

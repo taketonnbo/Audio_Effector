@@ -1161,18 +1161,17 @@ public sealed class LibraryViewModelTests : IDisposable
         File.SetLastWriteTimeUtc(songPath, new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc));
         await sut.LoadLibraryAsync(musicDir);
 
-        // Assert: 旧アルバムは AlbumRemoved 通知され新アルバムへ切り替わるが、残存曲は同じ TrackId のまま表示に維持される
+        // Assert: アーティスト変更で旧アルバムのIDが引き継がれ、表示中プレイリストおよび再生一覧に同じ TrackId の曲が維持される
         Assert.Empty(removedTracks);
-        Album removedOldAlbum = Assert.Single(removedAlbums);
-        Assert.Equal(originalAlbumId, removedOldAlbum.Id);
 
         Track remainingLibraryTrack = Assert.Single(sut.Tracks);
         Assert.Equal(originalTrackId, remainingLibraryTrack.Id);
         Assert.Equal("Artist B", remainingLibraryTrack.Artist);
 
         Album updatedAlbum = Assert.Single(sut.Albums);
-        Assert.Equal(AlbumId.FromAlbumKey("Solo Album", "Artist B"), updatedAlbum.Id);
-        Assert.NotEqual(originalAlbumId, updatedAlbum.Id);
+        Assert.Equal("Artist B", updatedAlbum.Artist);
+        Assert.Equal(originalAlbumId, updatedAlbum.Id);
+        Assert.Equal(remainingLibraryTrack.AlbumId, updatedAlbum.Id);
 
         Track displayedPlaylistTrack = Assert.Single(playlistVm.PlaylistTracks);
         Assert.Equal(originalTrackId, displayedPlaylistTrack.Id);

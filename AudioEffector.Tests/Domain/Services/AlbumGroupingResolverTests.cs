@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
@@ -7,7 +8,7 @@ using Xunit;
 namespace AudioEffector.Tests.Domain.Services;
 
 /// <summary>
-/// AlbumGroupingResolverの作品単位AlbumId解決およびコンピレーションフォールバックを検証するテストクラス
+/// AlbumGroupingResolverの作品単位AlbumId割り当て・既存ID引き継ぎ・コンピレーションフォールバックを検証するテストクラス
 /// </summary>
 public sealed class AlbumGroupingResolverTests
 {
@@ -41,12 +42,33 @@ public sealed class AlbumGroupingResolverTests
         var resolved = AlbumGroupingResolver.ResolveAndApply([track1, track2]);
 
         // Assert
-        var expectedAlbumId = AlbumId.FromAlbumKey("Blue Note X Blue Giant", "Blue Note");
-        Assert.Equal(expectedAlbumId, track1.AlbumId);
-        Assert.Equal(expectedAlbumId, track2.AlbumId);
+        Assert.Equal(track1.AlbumId, track2.AlbumId);
         Assert.Equal("Blue Note", resolved[track1.Id].AlbumArtist);
         Assert.Equal("Clifford Brown", track1.Artist);
         Assert.Equal("Herbie Hancock", track2.Artist);
+    }
+
+    /// <summary>
+    /// 既存のAlbumIdマップが渡された場合、新規採番せず既存のAlbumIdが引き継がれることを検証します。
+    /// </summary>
+    [Fact]
+    public void ResolveAndApply_既存AlbumIdマップ指定時_既存のAlbumIdが引き継がれること()
+    {
+        // Arrange
+        var existingAlbumId = AlbumId.New();
+        var existingMap = new Dictionary<(string, string), AlbumId>
+        {
+            [AlbumGroupingResolver.CreateGroupKey("Blue Note X Blue Giant", "Blue Note")] = existingAlbumId,
+        };
+        var track1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\BlueNote\01.flac"), "T1", "Clifford Brown", "Blue Note X Blue Giant", TimeSpan.FromMinutes(4), trackNumber: 1, albumArtist: "Blue Note");
+        var track2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\BlueNote\02.flac"), "T2", "Herbie Hancock", "Blue Note X Blue Giant", TimeSpan.FromMinutes(5), trackNumber: 2, albumArtist: "Blue Note");
+
+        // Act
+        AlbumGroupingResolver.ResolveAndApply([track1, track2], existingMap);
+
+        // Assert
+        Assert.Equal(existingAlbumId, track1.AlbumId);
+        Assert.Equal(existingAlbumId, track2.AlbumId);
     }
 
     /// <summary>
@@ -77,9 +99,7 @@ public sealed class AlbumGroupingResolverTests
         var resolved = AlbumGroupingResolver.ResolveAndApply([track1, track2]);
 
         // Assert
-        var expectedAlbumId = AlbumId.FromAlbumKey("Blue Note X Blue Giant", AlbumGroupingResolver.VariousArtistsName);
-        Assert.Equal(expectedAlbumId, track1.AlbumId);
-        Assert.Equal(expectedAlbumId, track2.AlbumId);
+        Assert.Equal(track1.AlbumId, track2.AlbumId);
         Assert.Equal(AlbumGroupingResolver.VariousArtistsName, resolved[track1.Id].AlbumArtist);
         Assert.Equal("Clifford Brown", track1.Artist);
         Assert.Equal("John Coltrane", track2.Artist);
@@ -113,8 +133,6 @@ public sealed class AlbumGroupingResolverTests
         AlbumGroupingResolver.ResolveAndApply([trackA, trackB]);
 
         // Assert
-        Assert.Equal(AlbumId.FromAlbumKey("Best Of", "Artist A"), trackA.AlbumId);
-        Assert.Equal(AlbumId.FromAlbumKey("Best Of", "Artist B"), trackB.AlbumId);
         Assert.NotEqual(trackA.AlbumId, trackB.AlbumId);
     }
 
@@ -148,8 +166,6 @@ public sealed class AlbumGroupingResolverTests
         AlbumGroupingResolver.ResolveAndApply([trackA, trackB]);
 
         // Assert
-        Assert.Equal(AlbumId.FromAlbumKey("Greatest Hits", "Artist A"), trackA.AlbumId);
-        Assert.Equal(AlbumId.FromAlbumKey("Greatest Hits", "Artist B"), trackB.AlbumId);
         Assert.NotEqual(trackA.AlbumId, trackB.AlbumId);
     }
 }

@@ -158,15 +158,15 @@ public class TrackTests
         Assert.Equal("mystery_track.mp3", sut.Title);
         Assert.Equal("Unknown Artist", sut.Artist);
         Assert.Equal("Unknown Album", sut.Album);
-        Assert.Equal(AlbumId.FromAlbumKey("Unknown Album", "Unknown Artist"), sut.AlbumId);
+        Assert.NotEqual(Guid.Empty, sut.AlbumId.Value);
         Assert.Equal(TimeSpan.Zero, sut.Duration);
     }
 
     /// <summary>
-    /// コンストラクタでAlbumIdを省略した場合、アルバム名とアーティスト名から決定論的にAlbumIdが算出されることを検証します。
+    /// コンストラクタでAlbumIdを省略した場合、空でない一意のAlbumIdが採番されることを検証します。
     /// </summary>
     [Fact]
-    public void コンストラクタ_AlbumId未指定時_決定論的AlbumIdが算出されること()
+    public void コンストラクタ_AlbumId未指定時_空でないAlbumIdが採番されること()
     {
         // Arrange
         var audioPath = AudioPath.Create(@"C:\Music\track1.flac");
@@ -181,7 +181,7 @@ public class TrackTests
             duration: TimeSpan.FromMinutes(5));
 
         // Assert
-        Assert.Equal(AlbumId.FromAlbumKey("Discovery", "Daft Punk"), sut.AlbumId);
+        Assert.NotEqual(Guid.Empty, sut.AlbumId.Value);
     }
 
     /// <summary>
@@ -192,7 +192,7 @@ public class TrackTests
     {
         // Arrange
         var audioPath = AudioPath.Create(@"C:\Music\track1.flac");
-        var explicitAlbumId = AlbumId.FromAlbumKey("Persisted Album", "Persisted Artist");
+        var explicitAlbumId = AlbumId.New();
 
         // Act
         var sut = new Track(
@@ -209,56 +209,22 @@ public class TrackTests
     }
 
     /// <summary>
-    /// AlbumまたはArtistプロパティを変更した際、AlbumIdが同期更新されPropertyChangedが通知されることを検証します。
+    /// AlbumIdを変更した際、PropertyChangedが通知され値が更新されることを検証します。
     /// </summary>
     [Fact]
-    public void AlbumまたはArtist変更時_AlbumIdが同期更新されPropertyChangedが通知されること()
+    public void AlbumId変更時_値が更新されPropertyChangedが通知されること()
     {
         // Arrange
-        var sut = new Track
-        {
-            Album = "Initial Album",
-            Artist = "Initial Artist"
-        };
+        var sut = new Track();
+        var newAlbumId = AlbumId.New();
         var notified = new List<string?>();
         sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
 
         // Act
-        sut.Album = "Updated Album";
-        sut.Artist = "Updated Artist";
+        sut.AlbumId = newAlbumId;
 
         // Assert
-        Assert.Equal(AlbumId.FromAlbumKey("Updated Album", "Updated Artist"), sut.AlbumId);
+        Assert.Equal(newAlbumId, sut.AlbumId);
         Assert.Contains(nameof(Track.AlbumId), notified);
-    }
-
-    /// <summary>
-    /// AlbumおよびArtist変更時のPropertyChangedハンドラー内で、すでに最新のAlbumIdが参照できることを検証します。
-    /// </summary>
-    [Fact]
-    public void PropertyChanged_AlbumおよびArtist変更時_通知ハンドラー内で既に最新のAlbumIdが参照できること()
-    {
-        // Arrange
-        var sut = new Track
-        {
-            Album = "Old Album",
-            Artist = "Old Artist"
-        };
-        var observedConsistency = new List<(string? PropertyName, bool IsConsistent)>();
-        sut.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName is nameof(Track.Album) or nameof(Track.Artist))
-            {
-                observedConsistency.Add((e.PropertyName, sut.AlbumId == AlbumId.FromAlbumKey(sut.Album, sut.Artist)));
-            }
-        };
-
-        // Act
-        sut.Album = "New Album";
-        sut.Artist = "New Artist";
-
-        // Assert
-        Assert.Equal(2, observedConsistency.Count);
-        Assert.All(observedConsistency, entry => Assert.True(entry.IsConsistent, $"{entry.PropertyName} 通知時に Track.AlbumId が未更新です。"));
     }
 }
