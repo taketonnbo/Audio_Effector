@@ -57,6 +57,12 @@ public static class McpErrorMapper
             new EventId(1008, "McpFailureResultError"),
             "MCP ツール処理で内部エラー結果が発生しました（Code: {ErrorCode}, Detail: {DiagnosticMessage}）。");
 
+    private static readonly Action<ILogger, Exception?> LogIpcTimeoutDelegate =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(1009, "McpIpcTimeout"),
+            "MCP ツールで Audio Effector 本体との通信または起動待機がタイムアウトしました。");
+
     private static readonly Action<ILogger, Exception?> LogInternalErrorDelegate =
         LoggerMessage.Define(
             LogLevel.Error,
@@ -158,6 +164,16 @@ public static class McpErrorMapper
                 return new McpErrorInfo(
                     McpErrorCodes.CONFLICT_LOCK_TIMEOUT,
                     GetPublicMessage(McpErrorCodes.CONFLICT_LOCK_TIMEOUT));
+
+            case TimeoutException timeoutEx:
+                if (logger is not null)
+                {
+                    LogIpcTimeoutDelegate(logger, timeoutEx);
+                }
+
+                return new McpErrorInfo(
+                    McpErrorCodes.IPC_CONNECTION_FAILED,
+                    GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
 
             default:
                 if (logger is not null)
