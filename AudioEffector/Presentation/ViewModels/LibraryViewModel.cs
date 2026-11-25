@@ -407,7 +407,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrWhiteSpace(rootFolder))
         {
             var settings = _settingsService.LoadSettings();
-            rootFolder = !string.IsNullOrWhiteSpace( settings?.LastLibraryPath)
+            rootFolder = !string.IsNullOrWhiteSpace(settings?.LastLibraryPath)
                 ? settings.LastLibraryPath
                 : CurrentLibraryPath;
         }
@@ -724,6 +724,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             var (title, artist, album, genre) = TagLibMetadataExtractor.ExtractDisplayTags(tfile.Tag, file);
             track.Title = title;
             track.Artist = artist;
+            track.AlbumArtist = TagLibMetadataExtractor.ExtractAlbumArtist(tfile.Tag);
             track.Album = album;
             track.Duration = tfile.Properties.Duration;
             track.Year = tfile.Tag.Year;
@@ -763,6 +764,7 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     {
         destination.Title = source.Title;
         destination.Artist = source.Artist;
+        destination.AlbumArtist = source.AlbumArtist;
         destination.Album = source.Album;
         destination.Duration = source.Duration;
         destination.Year = source.Year;
@@ -794,11 +796,13 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
             genre: source.Genre,
             isFavorite: source.IsFavorite,
             isLossless: source.IsLossless,
-            isHiRes: source.IsHiRes);
+            isHiRes: source.IsHiRes,
+            albumArtist: source.AlbumArtist);
     }
 
     private void SyncAlbumsFromTracks()
     {
+        var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(Tracks);
         var grouped = Tracks
             .GroupBy(t => t.AlbumId)
             .ToList();
@@ -841,7 +845,9 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
                 .OrderByDescending(z => z.Count())
                 .FirstOrDefault()?.Key ?? 0;
             string albumTitle = string.IsNullOrWhiteSpace(orderedTracks[0].Album) ? "Unknown Album" : orderedTracks[0].Album.Trim();
-            string representativeArtist = string.IsNullOrWhiteSpace(orderedTracks[0].Artist) ? "Unknown Artist" : orderedTracks[0].Artist.Trim();
+            string representativeArtist = resolvedIdentities.TryGetValue(orderedTracks[0].Id, out var identity)
+                ? identity.AlbumArtist
+                : (string.IsNullOrWhiteSpace(orderedTracks[0].Artist) ? "Unknown Artist" : orderedTracks[0].Artist.Trim());
 
             if (existingAlbumsById.TryGetValue(group.Key, out var existingAlbum))
             {

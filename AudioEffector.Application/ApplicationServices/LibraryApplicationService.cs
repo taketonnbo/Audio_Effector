@@ -277,7 +277,8 @@ public class LibraryApplicationService
                     genre: track.Genre,
                     isFavorite: track.IsFavorite,
                     isLossless: track.IsLossless,
-                    isHiRes: track.IsHiRes));
+                    isHiRes: track.IsHiRes,
+                    albumArtist: track.AlbumArtist));
             }
             else
             {
@@ -285,6 +286,7 @@ public class LibraryApplicationService
             }
         }
 
+        AlbumGroupingResolver.ResolveAndApply(normalizedTracks);
         await _trackRepository.ReplaceAllAsync(normalizedTracks, cancellationToken).ConfigureAwait(false);
     }
 
@@ -438,6 +440,7 @@ public class LibraryApplicationService
     {
         var tracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
         await ReconcileFavoritesAsync(tracks, cancellationToken).ConfigureAwait(false);
+        var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(tracks);
 
         var grouped = tracks
             .GroupBy(t => t.AlbumId)
@@ -445,9 +448,12 @@ public class LibraryApplicationService
             {
                 var orderedTracks = g.OrderBy(t => t.TrackNumber).ToList();
                 var representative = orderedTracks[0];
+                string albumArtist = resolvedIdentities.TryGetValue(representative.Id, out var identity)
+                    ? identity.AlbumArtist
+                    : representative.Artist;
                 return new Album(
                     name: representative.Album,
-                    artist: representative.Artist,
+                    artist: albumArtist,
                     year: 0,
                     tracks: orderedTracks,
                     id: g.Key);
@@ -475,6 +481,7 @@ public class LibraryApplicationService
         // お気に入り永続化データ（favorites.json）を正本として全曲で読み取り専用照合を行い、最新の IsFavorite を反映する
         var favoriteEntries = await GetFavoriteEntriesAsync(cancellationToken).ConfigureAwait(false);
         FavoriteTrackMatcher.Reconcile(favoriteEntries, tracks);
+        var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(tracks);
 
         var matchingTracks = tracks
             .Where(t => t.AlbumId == albumId)
@@ -487,9 +494,12 @@ public class LibraryApplicationService
         }
 
         var representative = matchingTracks[0];
+        string albumArtist = resolvedIdentities.TryGetValue(representative.Id, out var identity)
+            ? identity.AlbumArtist
+            : representative.Artist;
         return new Album(
             name: representative.Album,
-            artist: representative.Artist,
+            artist: albumArtist,
             year: 0,
             tracks: matchingTracks,
             id: albumId);

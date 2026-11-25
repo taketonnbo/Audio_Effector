@@ -2476,6 +2476,7 @@ namespace AudioEffector.Presentation.ViewModels
                 {
                     Title = title,
                     Artist = artist,
+                    AlbumArtist = Infrastructure.Library.TagLibMetadataExtractor.ExtractAlbumArtist(tagFile.Tag),
                     Album = album,
                     Genre = genre,
                     Year = tagFile.Tag.Year,
