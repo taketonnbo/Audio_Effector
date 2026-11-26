@@ -517,8 +517,10 @@ public sealed class PlaybackIpcCommandHandlerTests
                 null,
                 true,
                 true,
+                "Midnight Sessions",
+                null,
                 It.IsAny<CancellationToken>()))
-            .Callback<IReadOnlyList<Track>, Track?, bool?, bool?, CancellationToken>((tracks, _, _, _, _) => capturedTracks = tracks)
+            .Callback<IReadOnlyList<Track>, Track?, bool?, bool?, string?, int?, CancellationToken>((tracks, _, _, _, _, _, _) => capturedTracks = tracks)
             .ReturnsAsync(track1);
         audioService.SetupGet(a => a.IsShuffleEnabled).Returns(true);
         audioService.SetupGet(a => a.IsRepeatEnabled).Returns(true);
@@ -589,6 +591,7 @@ public sealed class PlaybackIpcCommandHandlerTests
         // Assert
         Assert.False(response.Ok);
         Assert.Equal(AppIpcErrorCodes.INVALID_PARAMETER, response.ErrorCode);
+        Assert.Equal(AppIpcErrorReasons.AMBIGUOUS_ALBUM, response.ErrorReason);
         Assert.Contains("artist", response.Error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -617,6 +620,8 @@ public sealed class PlaybackIpcCommandHandlerTests
                 trackB2,
                 null,
                 null,
+                "Greatest Hits",
+                1,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(trackB2);
 
@@ -675,8 +680,10 @@ public sealed class PlaybackIpcCommandHandlerTests
                 null,
                 false,
                 true,
+                "Drive Mix",
+                null,
                 It.IsAny<CancellationToken>()))
-            .Callback<IReadOnlyList<Track>, Track?, bool?, bool?, CancellationToken>((tracks, _, _, _, _) => capturedTracks = tracks)
+            .Callback<IReadOnlyList<Track>, Track?, bool?, bool?, string?, int?, CancellationToken>((tracks, _, _, _, _, _, _) => capturedTracks = tracks)
             .ReturnsAsync(track2);
         audioService.SetupGet(a => a.IsShuffleEnabled).Returns(false);
         audioService.SetupGet(a => a.IsRepeatEnabled).Returns(true);
@@ -801,6 +808,8 @@ public sealed class PlaybackIpcCommandHandlerTests
                 It.IsAny<Track?>(),
                 It.IsAny<bool?>(),
                 It.IsAny<bool?>(),
+                It.IsAny<string?>(),
+                It.IsAny<int?>(),
                 It.IsAny<CancellationToken>()),
             Times.Never);
     }
