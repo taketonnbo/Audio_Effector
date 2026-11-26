@@ -692,10 +692,10 @@ public sealed class AudioServicePlayTrackAsyncTests : IDisposable
     }
 
     /// <summary>
-    /// NextAsync で予約キューに次曲がある場合は次曲の再生を開始して true を返し、次曲がない場合は停止して false を返すことを検証します。
+    /// NextAsync で予約キューに次曲がある場合は次曲の再生を開始して Started を返し、次曲がない場合は停止して StoppedAtEnd を返すことを検証します。
     /// </summary>
     [Fact]
-    public async Task NextAsync_次曲ありと次曲なし_次曲再生開始後に末尾で停止しfalseを返す()
+    public async Task NextAsync_次曲ありと次曲なし_次曲再生開始後に末尾で停止しStoppedAtEndを返す()
     {
         // Arrange
         string wavPath1 = CreateSilentWavFile(durationSeconds: 1.0);
@@ -709,20 +709,82 @@ public sealed class AudioServicePlayTrackAsyncTests : IDisposable
         Assert.Equal(track1.FilePath, sut.CurrentTrack?.FilePath);
 
         // Act 1: 次曲あり
-        bool movedToSecond = await sut.NextAsync();
+        NextTrackResult movedToSecond = await sut.NextAsync();
 
         // Assert 1: 2 曲目へ遷移して再生中
-        Assert.True(movedToSecond);
+        Assert.Equal(NextTrackResult.Started, movedToSecond);
         Assert.True(sut.IsPlaying);
         Assert.Equal(track2.FilePath, sut.CurrentTrack?.FilePath);
 
         // Act 2: 次曲なし（末尾）
-        bool movedPastEnd = await sut.NextAsync();
+        NextTrackResult movedPastEnd = await sut.NextAsync();
 
         // Assert 2: 停止して CurrentTrack が null
-        Assert.False(movedPastEnd);
+        Assert.Equal(NextTrackResult.StoppedAtEnd, movedPastEnd);
         Assert.False(sut.IsPlaying);
         Assert.Null(sut.CurrentTrack);
+    }
+
+    /// <summary>
+    /// NextAsync でキュー末尾に到達した際、PlaylistEnded ハンドラ内で次アルバム再生が開始された場合は DelegatedToPlaylistEnded を返し新トラックを保持することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task NextAsync_PlaylistEndedハンドラで次アルバム再生開始時_DelegatedToPlaylistEndedを返し新トラックを保持する()
+    {
+        // Arrange
+        string wavPath1 = CreateSilentWavFile(durationSeconds: 1.0);
+        string wavPathNextAlbum = CreateSilentWavFile(durationSeconds: 1.0);
+        var track1 = CreateTrack(wavPath1, "Album1 Last Track");
+        var nextAlbumTrack = CreateTrack(wavPathNextAlbum, "Album2 First Track");
+        using var sut = new AudioService(ImmediateUiDispatcher.Instance);
+
+        Track? started = await sut.PlayPlaylistAsync([track1], shuffle: false, repeat: false);
+        Assert.NotNull(started);
+
+        sut.PlaylistEnded += (_, _) =>
+        {
+            sut.SetPlaylist([nextAlbumTrack], nextAlbumTrack);
+            sut.PlayTrack(nextAlbumTrack);
+        };
+
+        // Act
+        NextTrackResult result = await sut.NextAsync();
+
+        // Assert
+        Assert.Equal(NextTrackResult.DelegatedToPlaylistEnded, result);
+        Assert.NotNull(sut.CurrentTrack);
+        Assert.Equal(nextAlbumTrack.FilePath, sut.CurrentTrack.FilePath);
+
+        sut.Stop();
+    }
+
+    /// <summary>
+    /// NextAsync で次曲の音声ファイルが破損しているなど再生開始に失敗した場合、StoppedAtEnd ではなく Failed を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task NextAsync_次曲の再生開始失敗時_Failedを返す()
+    {
+        // Arrange
+        string wavPath1 = CreateSilentWavFile(durationSeconds: 1.0);
+        string corruptPath = Path.Combine(Path.GetTempPath(), $"AudioEffectorCorruptNext_{Guid.NewGuid():N}.wav");
+        await File.WriteAllBytesAsync(corruptPath, [0x01, 0x02, 0x03, 0x04]);
+        _tempFiles.Add(corruptPath);
+
+        var track1 = CreateTrack(wavPath1, "Track 1");
+        var corruptTrack = CreateTrack(corruptPath, "Corrupt Next Track");
+        using var sut = new AudioService(ImmediateUiDispatcher.Instance);
+
+        Track? started = await sut.PlayPlaylistAsync([track1, corruptTrack], shuffle: false, repeat: false);
+        Assert.NotNull(started);
+
+        // Act
+        NextTrackResult result = await sut.NextAsync();
+
+        // Assert
+        Assert.Equal(NextTrackResult.Failed, result);
+        Assert.False(sut.IsPlaying);
+
+        sut.Stop();
     }
 
     /// <summary>

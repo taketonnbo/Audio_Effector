@@ -1234,18 +1234,20 @@ public sealed class PlaybackIpcCommandHandlerTests
     /// next_track で次曲へ遷移成功した場合は playing と新トラック情報を返し、次曲がない場合は stopped と track null を返すことを検証します。
     /// </summary>
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task HandleAsync_next_track_次曲ありとなしで期待される状態とトラック情報を返す(bool hasNextTrack)
+    [InlineData(NextTrackResult.Started)]
+    [InlineData(NextTrackResult.DelegatedToPlaylistEnded)]
+    [InlineData(NextTrackResult.StoppedAtEnd)]
+    public async Task HandleAsync_next_track_次曲ありや自動遷移や次曲なしで期待される状態とトラック情報を返す(NextTrackResult nextResult)
     {
         // Arrange
+        bool hasTrack = nextResult != NextTrackResult.StoppedAtEnd;
         var nextTrack = CreateTrack(TrackId.New(), @"C:\Music\Jazz\NextSong.flac", "Next Song", "Miles Trio", "Midnight");
         var trackRepo = new Mock<ITrackRepository>();
         var audioService = new Mock<IAudioService>();
-        audioService.Setup(a => a.NextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(hasNextTrack);
-        audioService.SetupGet(a => a.IsPlaying).Returns(hasNextTrack);
+        audioService.Setup(a => a.NextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(nextResult);
+        audioService.SetupGet(a => a.IsPlaying).Returns(nextResult == NextTrackResult.Started);
         audioService.SetupGet(a => a.IsPaused).Returns(false);
-        audioService.SetupGet(a => a.CurrentTrack).Returns(hasNextTrack ? nextTrack : null);
+        audioService.SetupGet(a => a.CurrentTrack).Returns(hasTrack ? nextTrack : null);
 
         var sut = new PlaybackIpcCommandHandler(
             trackRepo.Object,
@@ -1259,7 +1261,7 @@ public sealed class PlaybackIpcCommandHandlerTests
 
         // Assert
         Assert.True(response.Ok);
-        if (hasNextTrack)
+        if (hasTrack)
         {
             Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, response.PlaybackState);
             Assert.NotNull(response.Track);
@@ -1270,6 +1272,32 @@ public sealed class PlaybackIpcCommandHandlerTests
             Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_STOPPED, response.PlaybackState);
             Assert.Null(response.Track);
         }
+    }
+
+    /// <summary>
+    /// next_track で次曲の再生開始に失敗（NextTrackResult.Failed）した場合、stopped として握り潰さず INTERNAL_ERROR を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_next_track次曲再生開始失敗時_INTERNAL_ERRORを返す()
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.Setup(a => a.NextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(NextTrackResult.Failed);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_NEXT_TRACK));
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.INTERNAL_ERROR, response.ErrorCode);
     }
 
     /// <summary>

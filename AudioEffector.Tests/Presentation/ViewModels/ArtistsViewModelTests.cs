@@ -810,7 +810,7 @@ public sealed class ArtistsViewModelTests
         public bool Pause() { PlayCalled = false; return true; }
         public Task<bool> ResumeAsync(CancellationToken cancellationToken = default) { PlayCalled = true; return Task.FromResult(true); }
         public void Next() { }
-        public Task<bool> NextAsync(CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<NextTrackResult> NextAsync(CancellationToken cancellationToken = default) => Task.FromResult(NextTrackResult.StoppedAtEnd);
         public void Previous() { }
         public Task<bool> PreviousAsync(CancellationToken cancellationToken = default) => Task.FromResult(false);
         public void Stop(bool internalStop = false) => PlayCalled = false;
