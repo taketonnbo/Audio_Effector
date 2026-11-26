@@ -1,7 +1,7 @@
 using AudioEffector.McpServer.Configuration;
 using Microsoft.Extensions.Logging;
 
-namespace AudioEffector.Tests.McpServer.Configuration;
+namespace AudioEffector.McpServer.Tests.Configuration;
 
 public sealed class McpServerOptionsTests
 {

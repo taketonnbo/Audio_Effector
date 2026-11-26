@@ -8,7 +8,7 @@ using ModelContextProtocol.Protocol;
 using Moq;
 using AppResult = AudioEffector.Application.Common.Result;
 
-namespace AudioEffector.Tests.McpServer.Protocol;
+namespace AudioEffector.McpServer.Tests.Protocol;
 
 public sealed class McpResponseFormatterTests
 {
