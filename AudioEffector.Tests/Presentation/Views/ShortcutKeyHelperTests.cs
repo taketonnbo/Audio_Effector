@@ -200,6 +200,44 @@ public sealed class ShortcutKeyHelperTests
     }
 
     /// <summary>
+    /// ShortcutModifiers の全ビット値が WPF の ModifierKeys と 1:1 で一致することを検証します。
+    /// </summary>
+    [Fact]
+    public void ShortcutModifiers_全フラグ値_WPFModifierKeysとビット値が一致すること()
+    {
+        // Arrange & Act & Assert
+        Assert.Equal((int)ModifierKeys.None, (int)ShortcutModifiers.None);
+        Assert.Equal((int)ModifierKeys.Alt, (int)ShortcutModifiers.Alt);
+        Assert.Equal((int)ModifierKeys.Control, (int)ShortcutModifiers.Control);
+        Assert.Equal((int)ModifierKeys.Shift, (int)ShortcutModifiers.Shift);
+        Assert.Equal((int)ModifierKeys.Windows, (int)ShortcutModifiers.Windows);
+    }
+
+    /// <summary>
+    /// 旧形式 settings.json から復元した AppSettings のキー・修飾キーが WPF の Key / ModifierKeys へ正しく変換されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ToWpfKeyとToWpfModifiers_旧形式settingsJsonのAppSettingsを渡した場合_WPF型へ正しく変換されること()
+    {
+        // Arrange
+        int expectedSpaceKey = (int)Key.Space;
+        int expectedCtrlShift = (int)(ModifierKeys.Control | ModifierKeys.Shift);
+        string legacyJson = $$"""
+        {
+          "PlayPauseShortcut": { "Key": {{expectedSpaceKey}}, "Modifiers": {{expectedCtrlShift}} }
+        }
+        """;
+
+        // Act
+        AppSettings? settings = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(legacyJson);
+
+        // Assert
+        Assert.NotNull(settings);
+        Assert.Equal(Key.Space, ShortcutKeyHelper.ToWpfKey(settings.PlayPauseShortcut.Key));
+        Assert.Equal(ModifierKeys.Control | ModifierKeys.Shift, ShortcutKeyHelper.ToWpfModifiers(settings.PlayPauseShortcut.Modifiers));
+    }
+
+    /// <summary>
     /// ToWpfModifiers に定義外ビットを含む値が渡された場合、有効フラグのビットマスクで安全に正規化されることを検証します。
     /// </summary>
     [Theory]
