@@ -1,14 +1,15 @@
-﻿<#
+<#
 .SYNOPSIS
     Audio Effector ループエンジニアリング用 統合検証ハーネス (Verifier)
 
 .DESCRIPTION
     AI エージェントが自律開発ループの各イテレーション完了判定として単一コマンドで実行できる品質ゲートスクリプトです。
-    以下の 4 ゲートを順次実行し、全ゲート合格時に終了コード 0、いずれか失敗時に終了コード 1 を返します。
+    以下の 5 ゲートを順次実行し、全ゲート合格時に終了コード 0、いずれか失敗時に終了コード 1 を返します。
       1. 隔離ビルド検証 (build_rules.md 準拠、警告 0 必須、終了時 .agent_build 自動削除)
       2. 単体テスト検証 (ソリューション単位 dotnet test、フィルタおよびタイムアウト保護対応)
       3. 仕様書同期検証 (check_spec_sync.py --strict、最終ゲート必須、途中反復時のみ -SkipSpecSync 許可)
       4. XAML バインディング・インデクサ等価性検証 (XAML 変更時または -Full 指定時に check_equivalence.py を実行)
+      5. Python ツール単体テスト検証 (tools/ 変更時または -Full 指定時に tools/tests の unittest を実行)
 
 .PARAMETER BaseBranch
     仕様書同期チェックおよび XAML 変更検出の比較ベースブランチ (既定: develop)
@@ -590,7 +591,7 @@ try {
     # ==========================================================================
     # Gate 1: 隔離ビルド検証 (build_rules.md 準拠)
     # ==========================================================================
-    Write-GateHeader -Title "Gate 1/4: 隔離ビルド検証 (dotnet build)"
+    Write-GateHeader -Title "Gate 1/5: 隔離ビルド検証 (dotnet build)"
 
     $buildArgs = @("build", $solutionPath, "-p:OutDir=$agentBuildOutDir", "--nologo")
     $buildExec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $buildArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
@@ -658,7 +659,7 @@ try {
     # ==========================================================================
     # Gate 2: 単体テスト検証 (ソリューション単位 dotnet test)
     # ==========================================================================
-    Write-GateHeader -Title "Gate 2/4: 単体テスト検証 (dotnet test)"
+    Write-GateHeader -Title "Gate 2/5: 単体テスト検証 (dotnet test)"
 
     $buildPassed = ($gateResults[0].status -eq "PASSED")
     if (-not $buildPassed) {
@@ -734,7 +735,7 @@ try {
     # ==========================================================================
     # Gate 3: 仕様書同期検証 (check_spec_sync.py)
     # ==========================================================================
-    Write-GateHeader -Title "Gate 3/4: 仕様書同期検証 (check_spec_sync.py)"
+    Write-GateHeader -Title "Gate 3/5: 仕様書同期検証 (check_spec_sync.py)"
 
     if ($SkipSpecSync -and -not $Full) {
         $msg = "-SkipSpecSync 指定によりスキップしました (最終ゲート・PR 作成前はスキップ禁止)。"
@@ -808,7 +809,7 @@ try {
     # ==========================================================================
     # Gate 4: XAML バインディング・インデクサ等価性検証 (check_equivalence.py)
     # ==========================================================================
-    Write-GateHeader -Title "Gate 4/4: XAML バインディング等価性検証 (check_equivalence.py)"
+    Write-GateHeader -Title "Gate 4/5: XAML バインディング等価性検証 (check_equivalence.py)"
 
     $changedFilesRes = Get-ChangedFiles -BaseCommit $resolvedBaseCommit
     if (-not $changedFilesRes.Success) {
@@ -942,6 +943,72 @@ try {
             }
         }
     }
+    }
+
+    # ==========================================================================
+    # Gate 5: Python ツール単体テスト検証 (tools/tests)
+    # ==========================================================================
+    Write-GateHeader -Title "Gate 5/5: Python ツール単体テスト検証 (unittest)"
+
+    $pyTestsDir = Join-Path $repoRoot "tools\tests"
+    if (-not (Test-Path -LiteralPath $pyTestsDir)) {
+        $msg = "tools/tests ディレクトリが存在しないためスキップしました。"
+        Write-Host "  [SKIP] $msg" -ForegroundColor Yellow
+        $gateResults.Add((New-GateResult -Name "python_tools_test" -Status "SKIPPED" -DurationSeconds 0 -Summary $msg))
+    }
+    elseif (-not $changedFilesRes.Success) {
+        $overallPassed = $false
+        $msg = "変更ファイルの取得に失敗したため Python ツールテスト対象を判定できません: $($changedFilesRes.Error)"
+        Write-Host "  [FAIL] $msg" -ForegroundColor Red
+        $gateResults.Add((New-GateResult -Name "python_tools_test" -Status "FAILED" -DurationSeconds 0 -ErrorCount 1 -Summary $msg))
+    }
+    else {
+        $changedToolsFiles = @(@($changedFilesRes.Files) | Where-Object { $_ -match '^tools/' })
+        if (-not $Full -and $changedToolsFiles.Count -eq 0) {
+            $msg = "tools/ 配下の変更がないためスキップしました (-Full 指定で強制実行可能)。"
+            Write-Host "  [SKIP] $msg" -ForegroundColor Yellow
+            $gateResults.Add((New-GateResult -Name "python_tools_test" -Status "SKIPPED" -DurationSeconds 0 -Summary $msg))
+        }
+        else {
+            $pyArgs = @("-B", "-m", "unittest", "discover", "-s", "tools/tests", "-v")
+            $pyExec = Invoke-ExternalCommand -FilePath "python" -ArgumentList $pyArgs -WorkingDirectory $repoRoot -TimeoutSeconds 60
+
+            if ($pyExec.StartFailed) {
+                $overallPassed = $false
+                $msg = "コマンド '$($pyExec.FilePath)' の起動に失敗しました: $($pyExec.StartError)"
+                Write-Host "  [FAIL] $msg" -ForegroundColor Red
+                $gateResults.Add((New-GateResult -Name "python_tools_test" -Status "FAILED" -DurationSeconds $pyExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details @($pyExec.Command, $pyExec.StartError)))
+            }
+            elseif ($pyExec.TimedOut) {
+                $overallPassed = $false
+                $msg = "Python ツール単体テストがタイムアウトしました (60秒)。"
+                Write-Host "  [FAIL] $msg" -ForegroundColor Red
+                $gateResults.Add((New-GateResult -Name "python_tools_test" -Status "FAILED" -DurationSeconds $pyExec.DurationSeconds -ErrorCount 1 -Summary $msg))
+            }
+            else {
+                $combinedPyOut = ($pyExec.StdOut + "`n" + $pyExec.StdErr)
+                $ranCount = 0
+                if ($combinedPyOut -match 'Ran\s+(\d+)\s+tests?') {
+                    $ranCount = [int]$Matches[1]
+                }
+
+                if ($pyExec.ExitCode -ne 0) {
+                    $overallPassed = $false
+                    $msg = "Python ツール単体テストに失敗しました (ExitCode=$($pyExec.ExitCode), 実行: ${ranCount}件, 所要: $($pyExec.DurationSeconds)秒)。"
+                    Write-Host "  [FAIL] $msg" -ForegroundColor Red
+                    $detailLines = @($combinedPyOut -split "`r?`n" | Where-Object { $_.Trim() -ne "" } | Select-Object -Last 20)
+                    foreach ($line in $detailLines) {
+                        Write-Host "    $line" -ForegroundColor Red
+                    }
+                    $gateResults.Add((New-GateResult -Name "python_tools_test" -Status "FAILED" -DurationSeconds $pyExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details $detailLines))
+                }
+                else {
+                    $msg = "Python ツール単体テスト合格 (実行: ${ranCount}件, 所要: $($pyExec.DurationSeconds)秒)。"
+                    Write-Host "  [PASS] $msg" -ForegroundColor Green
+                    $gateResults.Add((New-GateResult -Name "python_tools_test" -Status "PASSED" -DurationSeconds $pyExec.DurationSeconds -WarningCount 0 -ErrorCount 0 -Summary $msg))
+                }
+            }
+        }
     }
     }
 }
