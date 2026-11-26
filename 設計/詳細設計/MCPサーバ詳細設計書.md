@@ -885,14 +885,14 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 - **`IAudioService` 拡張（`AudioEffector.Application` / `AudioEffector.Infrastructure`）**:
   - `bool Pause()`: 再生中なら一時停止して `PlaybackStateChanged(false)` を発火し `true`、すでに一時停止中なら冪等に `true`、停止中は `false` を返す。
   - `Task<bool> ResumeAsync(CancellationToken)`: すでに再生中なら冪等に `true`、一時停止中なら再開して `PlaybackStateChanged(true)` を発火し `true`、停止中でも `CurrentTrack` またはキューに曲があればトランザクショナルに再生開始完了まで待機して成否を返し、対象がなければ `false` を返す。
-  - `Task<bool> NextAsync(CancellationToken)`: 次曲（`UserQueue` 優先 → `AlbumQueue` → リピート時は `_originalAlbumTracks` 先頭）へ遷移し再生開始完了まで待機して `true` を返す。次曲が存在せず末尾で停止した場合は `false` を返す。
+  - `Task<NextTrackResult> NextAsync(CancellationToken)`: 次曲（`UserQueue` 優先 → `AlbumQueue` → リピート時は `_originalAlbumTracks` 先頭）へ遷移し再生開始完了まで待機して `Started` を返す。キュー末尾で `PlaylistEnded` ハンドラ（次アルバム自動遷移等）により新しい再生へ移行した場合は `DelegatedToPlaylistEnded`、次曲が存在せず末尾で停止した場合は `StoppedAtEnd`、次曲の再生開始に失敗した場合は `Failed` を返す。
   - `Task<bool> PreviousAsync(CancellationToken)`: 再生位置が 3 秒超なら先頭へシークして `true`、3 秒以内で先頭曲かつリピート有効なら末尾曲へ循環して再生完了待機、その他現在曲ありなら現在曲を先頭から再再生、トラック未選択時は `false` を返す。
 - **状態遷移とエッジケース（`PlaybackIpcCommandHandler`）**:
   - すべてのコマンドは `IUiDispatcher.Invoke` 上で実行し、起動済み WPF 本体のウィンドウ状態（通常メイン画面／ミニプレイヤー）を変更しない。`DeadlineUtc` および `CancellationToken` の超過・キャンセルチェックを適用する。
   - `pause_playback`: 再生中 → `paused`、一時停止中 → 冪等に `paused`、停止中（トラック未ロード）→ `NOT_FOUND`（`reason: NO_ACTIVE_TRACK`）。
   - `resume_playback`: 一時停止中 → `playing`、再生中 → 冪等に `playing`、停止中かつ待機曲／キューあり → `playing`、対象トラック・キューなし → `NOT_FOUND`（`reason: NO_ACTIVE_TRACK`、`play_track` 等での開始案内付き）。
   - `stop_playback`: 再生中／一時停止中 → `Stop()` 実行して `stopped` (`track: null`)、すでに停止中 → 冪等に `stopped` (`track: null`)。
-  - `next_track`: 次曲へ遷移成功 → `playing` + 新トラック、次曲なし停止 → `stopped` (`track: null`)。
+  - `next_track`: 次曲へ遷移成功（`Started`）または `PlaylistEnded` ハンドラによる次アルバム自動遷移（`DelegatedToPlaylistEnded`）→ `playing` + 新トラック、次曲なし停止（`StoppedAtEnd`）→ `stopped` (`track: null`)、次曲の再生開始失敗（`Failed`）→ `INTERNAL_ERROR`。
   - `previous_track`: 現在曲あり → 3 秒超先頭シーク（現在状態維持）または再再生／末尾循環、トラック未選択 → `NOT_FOUND`（`reason: NO_ACTIVE_TRACK`）。
 - **エラーケース**:
   - WPF 本体未起動（パイプ接続不可）→ `WPF_APP_NOT_RUNNING`（`launch_app` ツールでの事前起動案内付き）
