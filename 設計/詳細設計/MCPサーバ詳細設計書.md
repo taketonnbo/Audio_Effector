@@ -761,12 +761,13 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 #### 5.9.4 Named Pipe IPC プロトコル拡張および WPF 画面同期
 
 - **IPC コマンド**: `AppIpcServer.COMMAND_PLAY_ALBUM`（`"play_album"`）および `AppIpcServer.COMMAND_PLAY_PLAYLIST`（`"play_playlist"`）を追加。`AppIpcRequest` / `AppIpcResponse` はすべて任意（nullable）フィールド＋`WhenWritingNull` で拡張し、既存コマンド（`ping` / `play_track`）との後方互換性を維持します。
-- **コレクション解決ロジック（`PlaybackIpcCommandHandler`）**:
-  - `play_album`: `albumId` 指定時は `LibraryApplicationService.GetAlbumByIdAsync` で一意特定。`albumName` 指定時は `GetAllAlbumsAsync` から大文字・小文字区別なしで検索し、`artist` で絞り込む。同名アルバムが複数候補に残る場合は `INVALID_PARAMETER`（`albumId` または `artist` 指定案内）を返却。再生可能な実在ファイルをトラック番号順に並べて再生対象とします。
-  - `play_playlist`: `PlaylistApplicationService` を DI 注入し、`playlistId`（優先）または `playlistName` で `UserPlaylist` を特定（同名複数時は `INVALID_PARAMETER`）。`ResolvePlaylistTracksAsync` により `TrackIds`（および旧互換 `TrackPaths`）から順序通りに解決し、欠損ファイルをスキップして再生対象とします。
+- **コレクション解決ロジック（`PlaybackIpcCommandHandler` / `IpcPlaybackControlGateway`）**:
+  - `play_album`: `albumId` 指定時は `LibraryApplicationService.GetAlbumByIdAsync` で一意特定。`albumName` 指定時は `GetAllAlbumsAsync` から大文字・小文字区別なしで検索し、`artist` で絞り込む。同名アルバムが複数候補に残る場合は `INVALID_PARAMETER` と構造化理由コード `AMBIGUOUS_ALBUM` を返し、クライアントへ `albumId` または `artist` の指定案内を返却。再生可能な実在ファイルをトラック番号順に並べて再生対象とします。
+  - `play_playlist`: `PlaylistApplicationService` を DI 注入し、`playlistId`（優先）または `playlistName` で `UserPlaylist` を特定（同名複数時は `INVALID_PARAMETER` + `AMBIGUOUS_PLAYLIST` で `playlistId` 指定案内を返却）。`ResolvePlaylistTracksAsync` により `TrackIds`（および旧互換 `TrackPaths`）から順序通りに解決し、欠損ファイルをスキップして再生対象とします。
+  - `--data-dir` によるカスタムデータディレクトリ使用時は、`IpcPlaybackControlGateway` が MCP 側の `LibraryApplicationService` / `PlaylistApplicationService` で対象コレクション・曲順・開始位置を事前解決し、`trackFilePaths`・`sourceId`・`sourceName`・`startTrackIndex` として WPF 側へ送信することで、検索と再生のライブラリ参照先を一致させます。
 - **トランザクショナル再生と UI 同期**:
-  - `IAudioService.PlayPlaylistAsync` は、開始曲（`startTrack` 指定時はその曲、未指定かつシャッフル有効時はランダム選出、通常時は先頭曲）のデコード・出力デバイス開始が確定したタイミングで、キュー（`AlbumQueue` / `UserQueue`）と `IsShuffleEnabled` / `IsRepeatEnabled` を一括コミットします。
-  - `IAudioService` に `ShuffleChanged` / `RepeatChanged` イベントを追加し、`PlayerControlViewModel` が購読して `MainViewModel`・ミニプレイヤーのシャッフル／リピートボタン表示をリアルタイム同期します。起動済み WPF 本体のウィンドウ状態（通常メイン画面／ミニプレイヤー）は維持します。
+  - `IAudioService.PlayPlaylistAsync` は、開始曲（`startTrackIndex` 指定時は同一トラック重複を含め出現位置を保持、未指定かつシャッフル有効時はランダム選出、通常時は先頭曲）のデコード・出力デバイス開始が確定したタイミングで、キュー（`AlbumQueue` / `UserQueue`）と `IsShuffleEnabled` / `IsRepeatEnabled` を一括コミットします。
+  - `IAudioService` に `ShuffleChanged` / `RepeatChanged` / `QueueSourceNameChanged` イベントを追加し、`PlayerControlViewModel` が購読して `MainViewModel`・ミニプレイヤーのシャッフル／リピートボタン表示およびキュー見出し（`AlbumQueueSourceName` / `AlbumQueueTitle`）をリアルタイム同期します（通知直前に `Stop()` が割り込んだ場合も最新のシャッフル／リピート状態は同期維持）。起動済み WPF 本体のウィンドウ状態（通常メイン画面／ミニプレイヤー）は維持します。
 - **エラーケース**:
   - 必須識別子未指定、不正・空 GUID、負数／範囲外 `startTrackIndex`、同名アルバム／プレイリストの曖昧一致 → `INVALID_PARAMETER`
   - 対象アルバム・プレイリスト・指定 `startTrackId` 未存在、空プレイリスト → `NOT_FOUND`
