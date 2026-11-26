@@ -4,41 +4,54 @@ description: 本プロジェクトにおける単体テストコード作成ル�
 
 # テストコード作成ルール
 
-本プロジェクトにおいてテストコード（`AudioEffector.Tests`）を記述・追加・保守する際は、以下のルールを厳守すること。
+本プロジェクトにおいてテストコード（プロダクションと 1 対 1 対称の 5 テストプロジェクト）を記述・追加・保守する際は、以下のルールを厳守すること。
 
 ---
 
-## 1. テストプロジェクトの構造と名前空間（4層アーキテクチャ対称配置）
+## 1. テストプロジェクトの構造と名前空間（プロダクションとの 1 対 1 対称配置）
 
-### 1.1 ディレクトリ配置の原則
-テストコードの配置は、プロダクションコード（`AudioEffector`）のディレクトリ構造と**完全に対称**とします。
-プロダクションの各層（`Domain/`, `Application/`, `Infrastructure/`, `Presentation/`）およびそのサブディレクトリに対応する同一のフォルダを `AudioEffector.Tests` 配下に作成し、対応するテストクラスを配置します。
+### 1.1 プロジェクト・ディレクトリ配置の原則
+テストコードは、プロダクションの 5 プロジェクトと **1 対 1 で対称なテストプロジェクト** に配置し、各プロジェクト内のディレクトリ構造もプロダクション側と完全に対称とします。
 
+| テストプロジェクト | 対象本番プロジェクト | TFM / WPF | 並列実行 |
+| :--- | :--- | :--- | :--- |
+| `AudioEffector.Domain.Tests` | `AudioEffector.Domain` | `net8.0` / なし | 有効（xUnit 既定） |
+| `AudioEffector.Application.Tests` | `AudioEffector.Application` | `net8.0` / なし | 有効（xUnit 既定） |
+| `AudioEffector.Infrastructure.Tests` | `AudioEffector.Infrastructure` | `net8.0-windows` / なし | 有効（xUnit 既定） |
+| `AudioEffector.McpServer.Tests` | `AudioEffector.McpServer` | `net8.0-windows` / なし | 有効（xUnit 既定） |
+| `AudioEffector.Tests` | `AudioEffector` (Presentation / 起動) | `net8.0-windows` / **WPF** | 無効（STA 競合防止） |
+
+- **共通テスト設定**: xUnit / Moq / coverlet / `Microsoft.NET.Test.Sdk` / `<Using Include="Xunit" />` / 共通 `NoWarn` / 対称 `<InternalsVisibleTo Include="$(MSBuildProjectName).Tests" />` はソリューションルートの `Directory.Build.props` で一元管理されます。各テストプロジェクトの `.csproj` には固有設定と参照先プロジェクトのみを記述します。
+- **層境界の厳守**: 各テストプロジェクトは対応する本番プロジェクトおよびその下位層のみを参照し、上位層や WPF への越境参照を行わないこと。
 - **ファイル命名規則**: `テスト対象クラス名Tests.cs`
 
 #### 例:
 | プロダクションコードのパス | テストコードのパス |
 | :--- | :--- |
-| `AudioEffector\Domain\Entities\Track.cs` | `AudioEffector.Tests\Domain\Entities\TrackTests.cs` |
-| `AudioEffector\Domain\Services\SequentialPlaybackStrategy.cs` | `AudioEffector.Tests\Domain\Services\SequentialPlaybackStrategyTests.cs` |
-| `AudioEffector\Application\ApplicationServices\PlaylistApplicationService.cs` | `AudioEffector.Tests\Application\ApplicationServices\PlaylistApplicationServiceTests.cs` |
-| `AudioEffector\Infrastructure\Audio\AudioService.cs` | `AudioEffector.Tests\Infrastructure\Audio\AudioServiceTests.cs` |
+| `AudioEffector.Domain\Entities\Track.cs` | `AudioEffector.Domain.Tests\Entities\TrackTests.cs` |
+| `AudioEffector.Domain\Services\SequentialPlaybackStrategy.cs` | `AudioEffector.Domain.Tests\Services\SequentialPlaybackStrategyTests.cs` |
+| `AudioEffector.Application\ApplicationServices\PlaylistApplicationService.cs` | `AudioEffector.Application.Tests\ApplicationServices\PlaylistApplicationServiceTests.cs` |
+| `AudioEffector.Infrastructure\Audio\AudioService.cs` | `AudioEffector.Infrastructure.Tests\Audio\AudioServiceTests.cs` |
+| `AudioEffector.McpServer\Tools\LibraryTools.cs` | `AudioEffector.McpServer.Tests\Tools\LibraryToolsTests.cs` |
 | `AudioEffector\Presentation\ViewModels\PlaylistViewModel.cs` | `AudioEffector.Tests\Presentation\ViewModels\PlaylistViewModelTests.cs` |
 | `AudioEffector\Presentation\Converters\EnumToBoolConverter.cs` | `AudioEffector.Tests\Presentation\Converters\EnumToBoolConverterTests.cs` |
 | `AudioEffector\Presentation\Controls\SpectrumBarItem.cs` | `AudioEffector.Tests\Presentation\Controls\SpectrumBarItemTests.cs` |
 | `AudioEffector\Presentation\Themes\DarkTheme.xaml` | `AudioEffector.Tests\Presentation\Themes\ThemeResourceTests.cs` |
 
 ### 1.2 名前空間（Namespace）の命名規則
-テストクラスの名前空間は、**`AudioEffector.Tests` の配下とし、以降は `AudioEffector` のプロジェクト階層構造と同一** とします。
+テストクラスの名前空間は、**`<テストプロジェクト名>` の配下とし、以降は対応する本番プロジェクト内のディレクトリ階層と同一** とします。
 
 ```csharp
-// AudioEffector.Tests\Domain\Services\SequentialPlaybackStrategyTests.cs の場合
-namespace AudioEffector.Tests.Domain.Services;
+// AudioEffector.Domain.Tests\Services\SequentialPlaybackStrategyTests.cs の場合
+namespace AudioEffector.Domain.Tests.Services;
 
 public sealed class SequentialPlaybackStrategyTests
 {
     // ...
 }
+
+// AudioEffector.Tests\Presentation\ViewModels\PlaylistViewModelTests.cs の場合
+namespace AudioEffector.Tests.Presentation.ViewModels;
 ```
 
 ---
