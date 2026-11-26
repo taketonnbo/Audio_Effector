@@ -81,7 +81,7 @@ public class AudioService : IAudioService
             {
                 _userQueue.Clear();
                 _playlist = new List<Track>(_albumQueue);
-                _finalTrackOfQueue = _albumQueue.Count > 0 ? _albumQueue[^1] : _currentlyPlayingTrack;
+                UpdateFinalTrackMarkerLocked();
                 changedPlaylist = new List<Track>(_playlist);
             }
         }
@@ -114,7 +114,7 @@ public class AudioService : IAudioService
             _userQueue.Insert(toIndex, item);
 
             _playlist = _userQueue.Concat(_albumQueue).ToList();
-            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            UpdateFinalTrackMarkerLocked();
             changedPlaylist = new List<Track>(_playlist);
         }
 
@@ -143,7 +143,7 @@ public class AudioService : IAudioService
             _albumQueue.Insert(toIndex, item);
 
             _playlist = _userQueue.Concat(_albumQueue).ToList();
-            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            UpdateFinalTrackMarkerLocked();
             changedPlaylist = new List<Track>(_playlist);
         }
 
@@ -171,7 +171,7 @@ public class AudioService : IAudioService
             _userQueue.Insert(clampedToIndex, item);
 
             _playlist = _userQueue.Concat(_albumQueue).ToList();
-            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            UpdateFinalTrackMarkerLocked();
             changedPlaylist = new List<Track>(_playlist);
         }
 
@@ -185,6 +185,7 @@ public class AudioService : IAudioService
 
     private Track? _lastPlayingTrack;
     private Track? _finalTrackOfQueue;
+    private bool _isCurrentlyPlayingFinalTrack;
     private bool _stopRequested;
     private bool _currentTrackReportedAsEnded;
 
@@ -343,6 +344,7 @@ public class AudioService : IAudioService
                 _playlist.Clear();
                 _currentlyPlayingTrack = null;
                 _finalTrackOfQueue = null;
+                _isCurrentlyPlayingFinalTrack = false;
             }
             else
             {
@@ -355,7 +357,6 @@ public class AudioService : IAudioService
                     var remaining = tracks!.Where(t => !string.Equals(t.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase)).ToList();
                     ShuffleList(remaining);
                     _albumQueue = remaining;
-                    _finalTrackOfQueue = _albumQueue.Count > 0 ? _albumQueue[^1] : currentTrack;
                 }
                 else
                 {
@@ -368,10 +369,10 @@ public class AudioService : IAudioService
                     {
                         _albumQueue = tracks!.Where(t => !string.Equals(t.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase)).ToList();
                     }
-                    _finalTrackOfQueue = _albumQueue.Count > 0 ? _albumQueue[^1] : currentTrack;
                 }
 
                 _playlist = new List<Track>(_albumQueue);
+                UpdateFinalTrackMarkerLocked();
             }
         }
 
@@ -434,7 +435,7 @@ public class AudioService : IAudioService
             }
 
             _playlist = _userQueue.Concat(_albumQueue).ToList();
-            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            UpdateFinalTrackMarkerLocked();
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
@@ -455,13 +456,24 @@ public class AudioService : IAudioService
             _originalAlbumTracks.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
 
             _playlist = _userQueue.Concat(_albumQueue).ToList();
-            if (_finalTrackOfQueue != null && string.Equals(_finalTrackOfQueue.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase))
-            {
-                _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
-            }
+            UpdateFinalTrackMarkerLocked();
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
+    }
+
+    private void UpdateFinalTrackMarkerLocked()
+    {
+        if (_playlist.Count > 0)
+        {
+            _finalTrackOfQueue = _playlist[^1];
+            _isCurrentlyPlayingFinalTrack = false;
+        }
+        else
+        {
+            _finalTrackOfQueue = _currentlyPlayingTrack;
+            _isCurrentlyPlayingFinalTrack = _currentlyPlayingTrack != null;
+        }
     }
 
     private void ShufflePlaylist(Track? keepFirstTrack = null)
@@ -1052,8 +1064,8 @@ public class AudioService : IAudioService
                                 : _originalAlbumTracks.Where(t => !string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase)).ToList();
                         }
 
-                        _finalTrackOfQueue = _albumQueue.Count > 0 ? _albumQueue[^1] : trackToPlay;
                         _playlist = new List<Track>(_albumQueue);
+                        UpdateFinalTrackMarkerLocked();
                         changedPlaylist = new List<Track>(_playlist);
                     }
                     else
@@ -1288,8 +1300,17 @@ public class AudioService : IAudioService
             if (expectedPlaybackId.HasValue && _currentPlaybackId != expectedPlaybackId.Value) return;
 
             endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
-            bool isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
-                string.Equals(endedTrack.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+            bool isFinalTrackEnded;
+            if (endedTrack != null && _currentlyPlayingTrack != null &&
+                string.Equals(endedTrack.FilePath, _currentlyPlayingTrack.FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                isFinalTrackEnded = _isCurrentlyPlayingFinalTrack;
+            }
+            else
+            {
+                isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
+                    string.Equals(endedTrack.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+            }
 
             if (_userQueue.Count > 0)
             {
@@ -1318,6 +1339,8 @@ public class AudioService : IAudioService
                     _albumQueue = repeatTracks.Skip(1).ToList();
                     _playlist = _userQueue.Concat(_albumQueue).ToList();
                     newPlaylist = new List<Track>(_playlist);
+                    _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : nextTrack;
+                    _isCurrentlyPlayingFinalTrack = _playlist.Count == 0;
                 }
                 else
                 {
@@ -1325,7 +1348,13 @@ public class AudioService : IAudioService
                     StopInternal();
                     _currentlyPlayingTrack = null;
                     _finalTrackOfQueue = null;
+                    _isCurrentlyPlayingFinalTrack = false;
                 }
+            }
+            else
+            {
+                _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : nextTrack;
+                _isCurrentlyPlayingFinalTrack = _playlist.Count == 0;
             }
         }
 
@@ -1422,6 +1451,7 @@ public class AudioService : IAudioService
 
             StopInternal();
             _currentlyPlayingTrack = null;
+            _isCurrentlyPlayingFinalTrack = false;
             _stopRequested = false;
             playlistEmpty = (_playlist.Count == 0);
         }
