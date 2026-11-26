@@ -92,3 +92,34 @@ description: AI エージェントによる自律開発ループ（ループエ�
      - `.agents/rules/*.md` へのルール追記
      - `.agents/skills/*/SKILL.md` の手順・チェックリスト補強
      - `tools/verify_loop.ps1` や補助検証スクリプトの検知項目追加
+
+---
+
+## 7. Epic 運用ルール（Outer Loop ガードレール）
+
+複数の子 Issue を束ねる Epic Issue を自律推進する外側ループ（Outer Loop: `run-epic-loop` / `tools/epic_tracker.py`）では、単一 Issue 用のルール（Section 1〜6）に加えて以下のガードレールを厳守します。
+
+### 7.1 進捗追跡とセッション跨ぎ再開
+- Epic 配下の各子 Issue の状態（`pending`, `waiting_deps`, `implementing`, `in_review`, `fixing_review`, `merged`, `blocked`）および依存関係は、`tools/epic_tracker.py --epic <Epic番号>` を用いて機械的に同期・判定します。
+- 状態スナップショットは `.gitignore` 登録済みの `.agent_logs/epic_<Epic番号>_state.json` に保存し、Git 管理対象を汚さずにセッション跨ぎで再開可能とします。
+- トラッカー自体は読み取り専用（GitHub Issue/PR への書き込みを行わない）として運用し、`blocked` の記録・解除もローカル状態スナップショット上で行います。
+
+### 7.2 ブランチ・ワークツリー衛生管理（並列実行時の隔離）
+- 同一順序グループに属する独立した子 Issue を並列実行する場合、**同一の作業ディレクトリ上で複数ブランチの編集・ビルド・テストを混在させてはなりません**。
+- 並列実行時は必ず `git worktree` またはエージェントのワークスペース分離機能（`branch` / `share`）を使用し、子 Issue ごとに独立した作業ツリーを確保します。
+- 隔離ビルドディレクトリ（`.agent_build/`）は各作業ツリーのルート配下に独立作成し、他ワークツリーのビルド成果物と競合させないこと。
+- 子 Issue の PR 作成・マージ完了後、または並列タスクの中断時には、作成した一時ワークツリーおよび `.agent_build/` を速やかに削除・整理します（`git worktree remove` / `git worktree prune`）。
+
+### 7.3 Epic 進行時のコンテキスト分離徹底
+- Epic のオーケストレーション中であっても、Section 5（コンテキスト分離の原則）を一切緩和してはなりません。
+- Outer Loop のオーケストレーターおよび子 Issue の実装セッションは、担当した PR に対して直接 `review-pr` を実行・コメント投稿してはなりません。
+- 自動レビュー運用モードを選択した場合でも、必ず **実装時の会話履歴・前提を引き継がない独立セッションまたは新規独立サブエージェント** を起動して `review-pr` を実施します。
+
+### 7.4 Epic レベルの停止条件・エスカレーション基準
+Inner Loop 単体の停止条件（Section 3）に加え、以下のいずれかに該当した時点で **Outer Loop 全体を一時停止** し、ユーザーへエスカレーションします。
+
+| 条件カテゴリ | Epic 停止基準 | エスカレーション時に報告すべき内容 |
+| :--- | :--- | :--- |
+| **連続・複数ブロック** | 連続して **2 つ以上の子 Issue**（または未解消の `blocked` が累計 2 件以上）が `blocked` となった | 各 `blocked` 子 Issue の番号・停止理由、依存する後続 Issue の影響範囲、再開・方針変更の選択肢 |
+| **統合検証失敗** | 子 Issue マージ後または Epic 完了時の最新 `develop` における `tools/verify_loop.ps1 -Full` が失敗した | 失敗ゲート名、エラー抜粋、直前にマージされた PR との関連性、ロールバック／修正方針の提案 |
+| **単一子 Issue のブロック** | 1 件の子 Issue が `blocked` となった | 依存する後続 Issue のみを保留とし、独立した他タスクの継続可否と該当 Issue の判断事項を提示 |
