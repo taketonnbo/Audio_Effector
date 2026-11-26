@@ -1068,4 +1068,174 @@ public sealed class IpcPlaybackControlGatewayTests : IDisposable
         Assert.False(result.IsSuccess);
         Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, result.ErrorCode);
     }
+
+    /// <summary>
+    /// 起動中の AppIpcServer へ基本再生制御の 5 コマンドを送信し、各コマンドに対応する PlaybackActionResponse が返却されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransportCommands_IPCサーバ起動中_5コマンドが送受信されPlaybackActionResponseを返す()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.Transport.{Guid.NewGuid():N}";
+        var track = new AppIpcTrackInfo(
+            Id: Guid.NewGuid(),
+            Title: "Blue Note Morning",
+            Artist: "Miles Trio",
+            Album: "Midnight Sessions",
+            DurationSeconds: 225.5,
+            DurationString: "03:45",
+            FilePath: @"C:\Music\Jazz\BlueNote.flac");
+
+        var handler = new Mock<IAppIpcCommandHandler>();
+        handler
+            .Setup(h => h.HandleAsync(It.IsAny<AppIpcRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((AppIpcRequest req, CancellationToken _) => req.Command switch
+            {
+                AppIpcServer.COMMAND_PAUSE_PLAYBACK => AppIpcResponse.SuccessPlaybackControl(PlaybackIpcCommandHandler.PLAYBACK_STATE_PAUSED, track),
+                AppIpcServer.COMMAND_RESUME_PLAYBACK => AppIpcResponse.SuccessPlaybackControl(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, track),
+                AppIpcServer.COMMAND_STOP_PLAYBACK => AppIpcResponse.SuccessPlaybackControl(PlaybackIpcCommandHandler.PLAYBACK_STATE_STOPPED, null),
+                AppIpcServer.COMMAND_NEXT_TRACK => AppIpcResponse.SuccessPlaybackControl(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, track),
+                AppIpcServer.COMMAND_PREVIOUS_TRACK => AppIpcResponse.SuccessPlaybackControl(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, track),
+                _ => AppIpcResponse.Failure(AppIpcErrorCodes.UNSUPPORTED_COMMAND, "unsupported"),
+            });
+
+        using var server = new AppIpcServer(pipeName, handler.Object);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackActionResponse> pauseRes = await sut.PausePlaybackAsync();
+        PlaybackControlResult<PlaybackActionResponse> resumeRes = await sut.ResumePlaybackAsync();
+        PlaybackControlResult<PlaybackActionResponse> stopRes = await sut.StopPlaybackAsync();
+        PlaybackControlResult<PlaybackActionResponse> nextRes = await sut.NextTrackAsync();
+        PlaybackControlResult<PlaybackActionResponse> prevRes = await sut.PreviousTrackAsync();
+
+        // Assert
+        Assert.True(pauseRes.IsSuccess);
+        Assert.Equal(AppIpcServer.COMMAND_PAUSE_PLAYBACK, pauseRes.Value!.Action);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PAUSED, pauseRes.Value.PlaybackState);
+        Assert.Equal(track.Id, pauseRes.Value.Track!.Id);
+
+        Assert.True(resumeRes.IsSuccess);
+        Assert.Equal(AppIpcServer.COMMAND_RESUME_PLAYBACK, resumeRes.Value!.Action);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, resumeRes.Value.PlaybackState);
+
+        Assert.True(stopRes.IsSuccess);
+        Assert.Equal(AppIpcServer.COMMAND_STOP_PLAYBACK, stopRes.Value!.Action);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_STOPPED, stopRes.Value.PlaybackState);
+        Assert.Null(stopRes.Value.Track);
+
+        Assert.True(nextRes.IsSuccess);
+        Assert.Equal(AppIpcServer.COMMAND_NEXT_TRACK, nextRes.Value!.Action);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, nextRes.Value.PlaybackState);
+
+        Assert.True(prevRes.IsSuccess);
+        Assert.Equal(AppIpcServer.COMMAND_PREVIOUS_TRACK, prevRes.Value!.Action);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, prevRes.Value.PlaybackState);
+    }
+
+    /// <summary>
+    /// WPF 本体の IPC サーバが未起動の状態で基本再生制御コマンドを呼び出した場合、いずれも WPF_APP_NOT_RUNNING を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(AppIpcServer.COMMAND_PAUSE_PLAYBACK)]
+    [InlineData(AppIpcServer.COMMAND_RESUME_PLAYBACK)]
+    [InlineData(AppIpcServer.COMMAND_STOP_PLAYBACK)]
+    [InlineData(AppIpcServer.COMMAND_NEXT_TRACK)]
+    [InlineData(AppIpcServer.COMMAND_PREVIOUS_TRACK)]
+    public async Task TransportCommands_IPCサーバ未起動時_WPF_APP_NOT_RUNNINGを返す(string command)
+    {
+        // Arrange
+        var sut = new IpcPlaybackControlGateway(
+            $"AudioEffector.Ipc.MissingTransport.{Guid.NewGuid():N}",
+            commandTimeout: TimeSpan.FromMilliseconds(300),
+            connectTimeout: TimeSpan.FromMilliseconds(100),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackActionResponse> result = command switch
+        {
+            AppIpcServer.COMMAND_PAUSE_PLAYBACK => await sut.PausePlaybackAsync(),
+            AppIpcServer.COMMAND_RESUME_PLAYBACK => await sut.ResumePlaybackAsync(),
+            AppIpcServer.COMMAND_STOP_PLAYBACK => await sut.StopPlaybackAsync(),
+            AppIpcServer.COMMAND_NEXT_TRACK => await sut.NextTrackAsync(),
+            AppIpcServer.COMMAND_PREVIOUS_TRACK => await sut.PreviousTrackAsync(),
+            _ => throw new ArgumentOutOfRangeException(nameof(command)),
+        };
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.WPF_APP_NOT_RUNNING, result.ErrorCode);
+        Assert.Contains("launch_app", result.ErrorMessage ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// IPC サーバから NO_ACTIVE_TRACK 理由コード付きの NOT_FOUND 応答を受信した場合、play_track 案内メッセージと reason 付き details を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PausePlaybackAsync_NO_ACTIVE_TRACK受信時_play_track案内付きのNOT_FOUNDを返す()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.NoActiveTrack.{Guid.NewGuid():N}";
+        var handler = new Mock<IAppIpcCommandHandler>();
+        handler
+            .Setup(h => h.HandleAsync(It.IsAny<AppIpcRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(AppIpcResponse.Failure(AppIpcErrorCodes.NOT_FOUND, "no active track", AppIpcErrorReasons.NO_ACTIVE_TRACK));
+
+        using var server = new AppIpcServer(pipeName, handler.Object);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackActionResponse> result = await sut.PausePlaybackAsync();
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.NOT_FOUND, result.ErrorCode);
+        Assert.Contains("play_track", result.ErrorMessage ?? string.Empty, StringComparison.Ordinal);
+        Assert.NotNull(result.Details);
+    }
+
+    /// <summary>
+    /// 基本再生制御の IPC 成功応答で不正な playbackState または playing/paused 時の track 欠損がある場合に IPC_CONNECTION_FAILED を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("invalid_state")]
+    [InlineData("playing")]
+    [InlineData("paused")]
+    public async Task PausePlaybackAsync_IPC成功応答の不正状態またはトラック欠損時_IPC_CONNECTION_FAILEDを返す(string playbackState)
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.MalformedAction.{Guid.NewGuid():N}";
+        var handler = new Mock<IAppIpcCommandHandler>();
+        handler
+            .Setup(h => h.HandleAsync(It.IsAny<AppIpcRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppIpcResponse(Ok: true, PlaybackState: playbackState, Track: null));
+
+        using var server = new AppIpcServer(pipeName, handler.Object);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackActionResponse> result = await sut.PausePlaybackAsync();
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, result.ErrorCode);
+    }
 }

@@ -1000,6 +1000,357 @@ public sealed class PlaybackIpcCommandHandlerTests
         audioService.VerifyGet(a => a.IsPlaying, Times.Never);
     }
 
+    /// <summary>
+    /// pause_playback を再生中に実行した場合、UiDispatcher 経由で Pause() を呼び出し paused 状態とトラック情報を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_pause_playback再生中時_Pauseを呼び出しpaused状態を返す()
+    {
+        // Arrange
+        var track = CreateTrack(TrackId.New(), @"C:\Music\Jazz\BlueNote.flac", "Blue Note", "Miles Trio", "Midnight");
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(true);
+        audioService.SetupGet(a => a.IsPaused).Returns(false);
+        audioService.SetupGet(a => a.CurrentTrack).Returns(track);
+        audioService.Setup(a => a.Pause()).Returns(true);
+        var dispatcher = new RecordingUiDispatcher();
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            dispatcher,
+            fileExists: _ => true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_PAUSE_PLAYBACK));
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PAUSED, response.PlaybackState);
+        Assert.NotNull(response.Track);
+        Assert.Equal(track.Id.Value, response.Track.Id);
+        Assert.Equal(1, dispatcher.InvokeCount);
+        audioService.Verify(a => a.Pause(), Times.Once);
+    }
+
+    /// <summary>
+    /// pause_playback をすでに一時停止中に実行した場合、Pause() を再実行せず冪等に paused 状態を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_pause_playback既に一時停止中時_冪等にpaused状態を返す()
+    {
+        // Arrange
+        var track = CreateTrack(TrackId.New(), @"C:\Music\Jazz\BlueNote.flac", "Blue Note", "Miles Trio", "Midnight");
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(false);
+        audioService.SetupGet(a => a.IsPaused).Returns(true);
+        audioService.SetupGet(a => a.CurrentTrack).Returns(track);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_PAUSE_PLAYBACK));
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PAUSED, response.PlaybackState);
+        Assert.NotNull(response.Track);
+        audioService.Verify(a => a.Pause(), Times.Never);
+    }
+
+    /// <summary>
+    /// pause_playback を停止中（トラック未ロード）に実行した場合、NOT_FOUND および NO_ACTIVE_TRACK を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_pause_playback停止中時_NOT_FOUNDとNO_ACTIVE_TRACKを返す()
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(false);
+        audioService.SetupGet(a => a.IsPaused).Returns(false);
+        audioService.SetupGet(a => a.CurrentTrack).Returns((Track?)null);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_PAUSE_PLAYBACK));
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.NOT_FOUND, response.ErrorCode);
+        Assert.Equal(AppIpcErrorReasons.NO_ACTIVE_TRACK, response.ErrorReason);
+    }
+
+    /// <summary>
+    /// resume_playback を一時停止中に実行した場合、ResumeAsync を呼び出し playing 状態とトラック情報を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_resume_playback一時停止中時_ResumeAsyncを呼び出しplaying状態を返す()
+    {
+        // Arrange
+        var track = CreateTrack(TrackId.New(), @"C:\Music\Jazz\BlueNote.flac", "Blue Note", "Miles Trio", "Midnight");
+        var trackRepo = new Mock<ITrackRepository>();
+        bool isPlaying = false;
+        bool isPaused = true;
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(() => isPlaying);
+        audioService.SetupGet(a => a.IsPaused).Returns(() => isPaused);
+        audioService.SetupGet(a => a.CurrentTrack).Returns(track);
+        audioService.Setup(a => a.ResumeAsync(It.IsAny<CancellationToken>())).ReturnsAsync(() =>
+        {
+            isPlaying = true;
+            isPaused = false;
+            return true;
+        });
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_RESUME_PLAYBACK));
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, response.PlaybackState);
+        Assert.NotNull(response.Track);
+        Assert.Equal(track.Id.Value, response.Track.Id);
+        audioService.Verify(a => a.ResumeAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// resume_playback をすでに再生中に実行した場合、冪等に playing 状態を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_resume_playback既に再生中時_冪等にplaying状態を返す()
+    {
+        // Arrange
+        var track = CreateTrack(TrackId.New(), @"C:\Music\Jazz\BlueNote.flac", "Blue Note", "Miles Trio", "Midnight");
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(true);
+        audioService.SetupGet(a => a.IsPaused).Returns(false);
+        audioService.SetupGet(a => a.CurrentTrack).Returns(track);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_RESUME_PLAYBACK));
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, response.PlaybackState);
+        Assert.NotNull(response.Track);
+        audioService.Verify(a => a.ResumeAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// resume_playback をトラック未選択かつキュー空で実行した場合、NOT_FOUND と NO_ACTIVE_TRACK を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_resume_playback対象トラック未存在時_NOT_FOUNDとNO_ACTIVE_TRACKを返す()
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(false);
+        audioService.SetupGet(a => a.IsPaused).Returns(false);
+        audioService.SetupGet(a => a.CurrentTrack).Returns((Track?)null);
+        audioService.SetupGet(a => a.UserQueue).Returns(Array.Empty<Track>());
+        audioService.SetupGet(a => a.AlbumQueue).Returns(Array.Empty<Track>());
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_RESUME_PLAYBACK));
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.NOT_FOUND, response.ErrorCode);
+        Assert.Equal(AppIpcErrorReasons.NO_ACTIVE_TRACK, response.ErrorReason);
+    }
+
+    /// <summary>
+    /// stop_playback を再生中に実行した場合に Stop() を呼び出し、すでに停止中に実行した場合は冪等に stopped / track null を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public async Task HandleAsync_stop_playback_再生中停止と停止中冪等が正しく動作する(bool isPlaying, int expectedStopCalls)
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(isPlaying);
+        audioService.SetupGet(a => a.IsPaused).Returns(false);
+        audioService.SetupGet(a => a.CurrentTrack).Returns(
+            isPlaying ? CreateTrack(TrackId.New(), @"C:\Music\Jazz\BlueNote.flac", "Blue Note", "Miles Trio", "Midnight") : null);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_STOP_PLAYBACK));
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_STOPPED, response.PlaybackState);
+        Assert.Null(response.Track);
+        audioService.Verify(a => a.Stop(false), Times.Exactly(expectedStopCalls));
+    }
+
+    /// <summary>
+    /// next_track で次曲へ遷移成功した場合は playing と新トラック情報を返し、次曲がない場合は stopped と track null を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HandleAsync_next_track_次曲ありとなしで期待される状態とトラック情報を返す(bool hasNextTrack)
+    {
+        // Arrange
+        var nextTrack = CreateTrack(TrackId.New(), @"C:\Music\Jazz\NextSong.flac", "Next Song", "Miles Trio", "Midnight");
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.Setup(a => a.NextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(hasNextTrack);
+        audioService.SetupGet(a => a.IsPlaying).Returns(hasNextTrack);
+        audioService.SetupGet(a => a.IsPaused).Returns(false);
+        audioService.SetupGet(a => a.CurrentTrack).Returns(hasNextTrack ? nextTrack : null);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_NEXT_TRACK));
+
+        // Assert
+        Assert.True(response.Ok);
+        if (hasNextTrack)
+        {
+            Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, response.PlaybackState);
+            Assert.NotNull(response.Track);
+            Assert.Equal(nextTrack.Id.Value, response.Track.Id);
+        }
+        else
+        {
+            Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_STOPPED, response.PlaybackState);
+            Assert.Null(response.Track);
+        }
+    }
+
+    /// <summary>
+    /// previous_track でトラック再生中は PreviousAsync を呼び出し結果を返し、トラック未選択時は NOT_FOUND と NO_ACTIVE_TRACK を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_previous_track_再生中戻りとトラック未選択エラーが正しく動作する()
+    {
+        // Arrange 1: 再生中
+        var track = CreateTrack(TrackId.New(), @"C:\Music\Jazz\PrevSong.flac", "Prev Song", "Miles Trio", "Midnight");
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.CurrentTrack).Returns(track);
+        audioService.SetupGet(a => a.IsPlaying).Returns(true);
+        audioService.SetupGet(a => a.IsPaused).Returns(false);
+        audioService.Setup(a => a.PreviousAsync(It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        // Act 1
+        AppIpcResponse successResponse = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_PREVIOUS_TRACK));
+
+        // Assert 1
+        Assert.True(successResponse.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, successResponse.PlaybackState);
+        Assert.NotNull(successResponse.Track);
+        Assert.Equal(track.Id.Value, successResponse.Track.Id);
+
+        // Arrange 2: トラック未選択
+        audioService.SetupGet(a => a.CurrentTrack).Returns((Track?)null);
+
+        // Act 2
+        AppIpcResponse errorResponse = await sut.HandleAsync(new AppIpcRequest(AppIpcServer.COMMAND_PREVIOUS_TRACK));
+
+        // Assert 2
+        Assert.False(errorResponse.Ok);
+        Assert.Equal(AppIpcErrorCodes.NOT_FOUND, errorResponse.ErrorCode);
+        Assert.Equal(AppIpcErrorReasons.NO_ACTIVE_TRACK, errorResponse.ErrorReason);
+    }
+
+    /// <summary>
+    /// 基本再生制御の 5 コマンドで DeadlineUtc が超過している場合、いずれも OperationCanceledException を送出することを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(AppIpcServer.COMMAND_PAUSE_PLAYBACK)]
+    [InlineData(AppIpcServer.COMMAND_RESUME_PLAYBACK)]
+    [InlineData(AppIpcServer.COMMAND_STOP_PLAYBACK)]
+    [InlineData(AppIpcServer.COMMAND_NEXT_TRACK)]
+    [InlineData(AppIpcServer.COMMAND_PREVIOUS_TRACK)]
+    public async Task HandleAsync_基本再生制御コマンド期限超過時_OperationCanceledExceptionを送出する(string command)
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        DateTimeOffset now = new(2026, 11, 27, 12, 0, 5, TimeSpan.Zero);
+        DateTimeOffset expiredDeadline = new(2026, 11, 27, 12, 0, 0, TimeSpan.Zero);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true,
+            utcNow: () => now);
+
+        var request = new AppIpcRequest(command, DeadlineUtc: expiredDeadline);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<OperationCanceledException>(() => sut.HandleAsync(request));
+        audioService.Verify(a => a.Pause(), Times.Never);
+        audioService.Verify(a => a.Stop(It.IsAny<bool>()), Times.Never);
+        audioService.Verify(a => a.ResumeAsync(It.IsAny<CancellationToken>()), Times.Never);
+        audioService.Verify(a => a.NextAsync(It.IsAny<CancellationToken>()), Times.Never);
+        audioService.Verify(a => a.PreviousAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     private static LibraryApplicationService CreateLibraryService(
         ITrackRepository trackRepository,
         IMetadataExtractor? metadataExtractor = null)
