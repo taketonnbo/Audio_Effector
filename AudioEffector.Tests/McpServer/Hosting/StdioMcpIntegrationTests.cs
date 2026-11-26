@@ -96,6 +96,8 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Contains("ping", toolNames);
                 Assert.Contains("get_server_info", toolNames);
                 Assert.Contains("search_tracks", toolNames);
+                Assert.Contains("search_albums", toolNames);
+                Assert.Contains("search_playlists", toolNames);
                 Assert.Contains("launch_app", toolNames);
                 Assert.Contains("play_track", toolNames);
             }
@@ -163,6 +165,57 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 JsonElement track = Assert.Single(data.GetProperty("tracks").EnumerateArray());
                 Assert.Equal("統合テスト曲 1", track.GetProperty("title").GetString());
                 Assert.Equal("テストアーティスト", track.GetProperty("artist").GetString());
+            }
+
+            // Act & Assert 4b-2: tools/call (search_albums)
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":401,"method":"tools/call","params":{"name":"search_albums","arguments":{"keyword":"テストアルバム","includeTracks":true,"limit":10,"offset":0}}}""",
+                timeoutCts.Token);
+
+            string searchAlbumsLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument searchAlbumsDoc = JsonDocument.Parse(searchAlbumsLine))
+            {
+                JsonElement result = searchAlbumsDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                JsonElement data = payloadDoc.RootElement.GetProperty("data");
+                Assert.Equal(1, data.GetProperty("totalCount").GetInt32());
+                Assert.Equal(1, data.GetProperty("count").GetInt32());
+                JsonElement album = Assert.Single(data.GetProperty("albums").EnumerateArray());
+                Assert.NotEqual(Guid.Empty, album.GetProperty("id").GetGuid());
+                Assert.Equal("テストアルバム", album.GetProperty("name").GetString());
+                Assert.Equal("テストアーティスト", album.GetProperty("artist").GetString());
+                Assert.Equal(2, album.GetProperty("trackCount").GetInt32());
+                Assert.Equal(2, album.GetProperty("tracks").GetArrayLength());
+            }
+
+            // Act & Assert 4b-3: tools/call (search_playlists)
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":402,"method":"tools/call","params":{"name":"search_playlists","arguments":{"keyword":"統合テストプレイリスト","includeTracks":true,"limit":10,"offset":0}}}""",
+                timeoutCts.Token);
+
+            string searchPlaylistsLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument searchPlaylistsDoc = JsonDocument.Parse(searchPlaylistsLine))
+            {
+                JsonElement result = searchPlaylistsDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                JsonElement data = payloadDoc.RootElement.GetProperty("data");
+                Assert.Equal(1, data.GetProperty("totalCount").GetInt32());
+                Assert.Equal(1, data.GetProperty("count").GetInt32());
+                JsonElement playlist = Assert.Single(data.GetProperty("playlists").EnumerateArray());
+                Assert.NotEqual(Guid.Empty, playlist.GetProperty("id").GetGuid());
+                Assert.Equal("統合テストプレイリスト", playlist.GetProperty("name").GetString());
+                Assert.Equal(2, playlist.GetProperty("trackCount").GetInt32());
+                Assert.Equal(2, playlist.GetProperty("tracks").GetArrayLength());
             }
 
             // Act & Assert 4c: tools/call (launch_app 不正 mode パラメータ検証)
@@ -272,6 +325,13 @@ public sealed class StdioMcpIntegrationTests : IDisposable
             .ToList();
 
         await repo.SaveRangeAsync(tracks);
+
+        IPlaylistRepository playlistRepo = provider.GetRequiredService<IPlaylistRepository>();
+        var playlist = new UserPlaylist(
+            AudioEffector.Domain.ValueObjects.PlaylistId.New(),
+            "統合テストプレイリスト",
+            tracks.Select(t => t.Id));
+        await playlistRepo.SaveAsync(playlist);
     }
 
     private static Process StartMcpServerProcess(string dataDirectory)

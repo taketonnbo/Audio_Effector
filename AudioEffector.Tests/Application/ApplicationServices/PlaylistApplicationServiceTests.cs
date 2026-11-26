@@ -250,4 +250,92 @@ public sealed class PlaylistApplicationServiceTests
         mockPlaylistRepo.Verify(r => r.UpdateAsync(playlistId, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()), Times.Once);
         mockEventBus.Verify(b => b.PublishAsync(It.Is<PlaylistUpdatedEvent>(e => e.Playlist == playlist), It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    /// <summary>
+    /// SearchPlaylistsAsync でキーワード絞り込み・昇順ソート・ページネーションが正しく適用されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchPlaylistsAsync_キーワードとページネーション指定_絞り込みと安定ソート結果を返すこと()
+    {
+        // Arrange
+        var p1 = new UserPlaylist(PlaylistId.New(), "Jazz Night");
+        var p2 = new UserPlaylist(PlaylistId.New(), "Ambient Jazz");
+        var p3 = new UserPlaylist(PlaylistId.New(), "Rock Hits");
+        var p4 = new UserPlaylist(PlaylistId.New(), "Smooth jazz");
+
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([p1, p2, p3, p4]);
+
+        var sut = new PlaylistApplicationService(
+            mockPlaylistRepo.Object,
+            new Mock<ITrackRepository>().Object,
+            new Mock<IEventBus>().Object);
+
+        // Act
+        PlaylistSearchResult result = await sut.SearchPlaylistsAsync(
+            new PlaylistSearchQuery(Keyword: "  JAZZ ", Limit: 1, Offset: 1));
+
+        // Assert
+        Assert.Equal(3, result.TotalCount);
+        Assert.Equal(1, result.Offset);
+        Assert.Equal(1, result.Limit);
+        UserPlaylist single = Assert.Single(result.Playlists);
+        Assert.Equal("Jazz Night", single.Name);
+    }
+
+    /// <summary>
+    /// SearchPlaylistsAsync で不正な limit または offset を指定した場合、ArgumentOutOfRangeException がスローされることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(201, 0)]
+    [InlineData(50, -1)]
+    public async Task SearchPlaylistsAsync_範囲外パラメータ指定_ArgumentOutOfRangeExceptionをスローすること(int limit, int offset)
+    {
+        // Arrange
+        var sut = new PlaylistApplicationService(
+            new Mock<IPlaylistRepository>().Object,
+            new Mock<ITrackRepository>().Object,
+            new Mock<IEventBus>().Object);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => sut.SearchPlaylistsAsync(new PlaylistSearchQuery(Limit: limit, Offset: offset)));
+    }
+
+    /// <summary>
+    /// ResolvePlaylistTracksAsync が TrackIds による順序解決および旧互換 TrackPaths フォールバック解決を正しく行うことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ResolvePlaylistTracksAsync_TrackIdsと旧互換TrackPaths指定_順序通りにトラック詳細を解決すること()
+    {
+        // Arrange
+        var track1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\first.flac"), title: "First", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(180));
+        var track2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\second.flac"), title: "Second", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(180));
+        var missingId = TrackId.New();
+
+        var idBasedPlaylist = new UserPlaylist(PlaylistId.New(), "ByIds", [track2.Id, missingId, track1.Id]);
+        var pathBasedPlaylist = new UserPlaylist(PlaylistId.New(), "ByPaths")
+        {
+            TrackPaths = [@"c:\music\second.flac", @"C:\Music\missing.flac", @"C:\Music\first.flac"],
+        };
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track1, track2]);
+
+        var sut = new PlaylistApplicationService(
+            new Mock<IPlaylistRepository>().Object,
+            mockTrackRepo.Object,
+            new Mock<IEventBus>().Object);
+
+        // Act
+        IReadOnlyList<Track> resolvedByIds = await sut.ResolvePlaylistTracksAsync(idBasedPlaylist);
+        IReadOnlyList<Track> resolvedByPaths = await sut.ResolvePlaylistTracksAsync(pathBasedPlaylist);
+
+        // Assert
+        Assert.Equal([track2.Id, track1.Id], resolvedByIds.Select(t => t.Id).ToArray());
+        Assert.Equal([track2.Id, track1.Id], resolvedByPaths.Select(t => t.Id).ToArray());
+    }
 }

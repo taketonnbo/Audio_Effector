@@ -665,4 +665,78 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             r => r.UpdateMetadataAsync(It.IsAny<IReadOnlyList<FavoriteMetadataChange>>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
+
+    /// <summary>
+    /// SearchAlbumsAsync で複合条件絞り込み・代表年算出・安定ソート・ページネーションが正しく適用されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchAlbumsAsync_複合条件とページネーション指定_代表年算出と絞り込みおよび安定ソート結果を返すこと()
+    {
+        // Arrange
+        var t1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\a1.flac"), title: "T1", artist: "Alpha Trio", album: "Zeta Album", duration: TimeSpan.FromSeconds(180), year: 2024, trackNumber: 1, genre: "Jazz");
+        var t2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\a2.flac"), title: "T2", artist: "Alpha Trio", album: "Zeta Album", duration: TimeSpan.FromSeconds(180), year: 2024, trackNumber: 2, genre: "Jazz");
+        var t3 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\a3.flac"), title: "T3", artist: "Alpha Trio", album: "Zeta Album", duration: TimeSpan.FromSeconds(180), year: 0, trackNumber: 3, genre: "Fusion");
+        var t4 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\b1.flac"), title: "B1", artist: "Alpha Trio", album: "Beta Album", duration: TimeSpan.FromSeconds(180), year: 2024, trackNumber: 1, genre: "Jazz");
+        var t5 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\c1.flac"), title: "C1", artist: "Alpha Trio", album: "Old Album", duration: TimeSpan.FromSeconds(180), year: 2020, trackNumber: 1, genre: "Jazz");
+        var t6 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\d1.flac"), title: "D1", artist: "Other Artist", album: "Rock Album", duration: TimeSpan.FromSeconds(180), year: 2024, trackNumber: 1, genre: "Rock");
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([t1, t2, t3, t4, t5, t6]);
+
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([FavoriteTrackEntry.FromTrack(t2)]);
+
+        var sut = new LibraryApplicationService(
+            mockTrackRepo.Object,
+            mockFavRepo.Object,
+            new TagLibMetadataExtractor(),
+            new Mock<IEventBus>().Object);
+
+        // Act
+        AlbumSearchResult result = await sut.SearchAlbumsAsync(new AlbumSearchQuery(
+            Keyword: "alpha",
+            Artist: "ALPHA",
+            Genre: "jazz",
+            Year: 2024,
+            Limit: 1,
+            Offset: 1));
+
+        // Assert
+        Assert.Equal(2, result.TotalCount);
+        Assert.Equal(1, result.Offset);
+        Assert.Equal(1, result.Limit);
+        Album album = Assert.Single(result.Albums);
+        Assert.Equal("Zeta Album", album.Name);
+        Assert.Equal("Alpha Trio", album.Artist);
+        Assert.Equal(2024u, album.Year);
+        Assert.Equal(3, album.TrackCount);
+        Assert.True(Assert.Single(album.Tracks, t => t.Id == t2.Id).IsFavorite);
+        mockFavRepo.Verify(
+            r => r.UpdateMetadataAsync(It.IsAny<IReadOnlyList<FavoriteMetadataChange>>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// SearchAlbumsAsync で範囲外の limit・offset・year を指定した場合、ArgumentOutOfRangeException がスローされることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0, null)]
+    [InlineData(201, 0, null)]
+    [InlineData(50, -1, null)]
+    [InlineData(50, 0, -1)]
+    public async Task SearchAlbumsAsync_範囲外パラメータ指定_ArgumentOutOfRangeExceptionをスローすること(int limit, int offset, int? year)
+    {
+        // Arrange
+        var sut = new LibraryApplicationService(
+            new Mock<ITrackRepository>().Object,
+            new Mock<IFavoriteRepository>().Object,
+            new TagLibMetadataExtractor(),
+            new Mock<IEventBus>().Object);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => sut.SearchAlbumsAsync(new AlbumSearchQuery(Year: year, Limit: limit, Offset: offset)));
+    }
 }
