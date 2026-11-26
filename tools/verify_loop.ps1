@@ -68,7 +68,9 @@ catch {
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solutionPath = Join-Path $repoRoot "AudioEffector.sln"
-$agentBuildDir = Join-Path $repoRoot ".agent_build"
+$agentBuildRoot = Join-Path $repoRoot ".agent_build"
+$runId = "run_{0}_{1}" -f $PID, ([Guid]::NewGuid().ToString("N").Substring(0, 8))
+$agentBuildDir = Join-Path $agentBuildRoot $runId
 $agentBuildOutDir = "$agentBuildDir\"
 $overallStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
@@ -120,36 +122,46 @@ function Invoke-ExternalCommand {
     $proc.StartInfo = $psi
 
     $timedOut = $false
+    $startFailed = $false
+    $startError = ""
     $exitCode = -1
     $stdoutText = ""
     $stderrText = ""
 
     try {
-        $null = $proc.Start()
-
-        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-        $stderrTask = $proc.StandardError.ReadToEndAsync()
-
-        $exited = $proc.WaitForExit($TimeoutSeconds * 1000)
-        if (-not $exited) {
-            $timedOut = $true
-            Stop-ProcessTree -ProcessId $proc.Id
-            try { $proc.WaitForExit(5000) | Out-Null } catch {}
-        }
-        else {
-            # リダイレクトストリームのフラッシュ完了を保証
-            $proc.WaitForExit()
-            $exitCode = $proc.ExitCode
-        }
-
         try {
-            if ($stdoutTask.Wait(3000)) { $stdoutText = $stdoutTask.Result }
+            $null = $proc.Start()
         }
-        catch {}
-        try {
-            if ($stderrTask.Wait(3000)) { $stderrText = $stderrTask.Result }
+        catch {
+            $startFailed = $true
+            $startError = $_.Exception.Message
         }
-        catch {}
+
+        if (-not $startFailed) {
+            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+            $stderrTask = $proc.StandardError.ReadToEndAsync()
+
+            $exited = $proc.WaitForExit($TimeoutSeconds * 1000)
+            if (-not $exited) {
+                $timedOut = $true
+                Stop-ProcessTree -ProcessId $proc.Id
+                try { $proc.WaitForExit(5000) | Out-Null } catch {}
+            }
+            else {
+                # リダイレクトストリームのフラッシュ完了を保証
+                $proc.WaitForExit()
+                $exitCode = $proc.ExitCode
+            }
+
+            try {
+                if ($stdoutTask.Wait(3000)) { $stdoutText = $stdoutTask.Result }
+            }
+            catch {}
+            try {
+                if ($stderrTask.Wait(3000)) { $stderrText = $stderrTask.Result }
+            }
+            catch {}
+        }
     }
     finally {
         $sw.Stop()
@@ -159,6 +171,9 @@ function Invoke-ExternalCommand {
     return [PSCustomObject]@{
         ExitCode        = $exitCode
         TimedOut        = $timedOut
+        StartFailed     = $startFailed
+        StartError      = $startError
+        FilePath        = $FilePath
         DurationSeconds = [Math]::Round($sw.Elapsed.TotalSeconds, 2)
         StdOut          = $stdoutText
         StdErr          = $stderrText
@@ -166,16 +181,95 @@ function Invoke-ExternalCommand {
     }
 }
 
-function Get-ChangedFiles {
+function Resolve-BaseMergeCommit {
     param([string]$BaseRef)
+
+    $candidates = @("$BaseRef^{commit}")
+    if ($BaseRef -notmatch '^origin/') {
+        $candidates += "origin/$BaseRef^{commit}"
+    }
+
+    $resolvedTarget = $null
+    $lastError = ""
+    foreach ($candidate in $candidates) {
+        $revRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("rev-parse", "--verify", "--quiet", $candidate) -WorkingDirectory $repoRoot -TimeoutSeconds 30
+        if ($revRes.StartFailed) {
+            return [PSCustomObject]@{
+                Success     = $false
+                MergeBase   = ""
+                ResolvedRef = ""
+                Error       = "コマンド '$($revRes.FilePath)' の起動に失敗しました: $($revRes.StartError)"
+            }
+        }
+        if ($revRes.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($revRes.StdOut)) {
+            $resolvedTarget = ($revRes.StdOut -split "`r?`n")[0].Trim()
+            break
+        }
+        $errText = ($revRes.StdErr + " " + $revRes.StdOut).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($errText)) {
+            $lastError = $errText
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($resolvedTarget)) {
+        $detail = if ($lastError) { " ($lastError)" } else { "" }
+        return [PSCustomObject]@{
+            Success     = $false
+            MergeBase   = ""
+            ResolvedRef = ""
+            Error       = "比較元 '$BaseRef'（および 'origin/$BaseRef'）を解決できませんでした。ブランチ名またはコミット指定を確認してください。$detail"
+        }
+    }
+
+    $mbRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("merge-base", $resolvedTarget, "HEAD") -WorkingDirectory $repoRoot -TimeoutSeconds 30
+    if ($mbRes.StartFailed) {
+        return [PSCustomObject]@{
+            Success     = $false
+            MergeBase   = ""
+            ResolvedRef = $resolvedTarget
+            Error       = "コマンド '$($mbRes.FilePath)' の起動に失敗しました: $($mbRes.StartError)"
+        }
+    }
+    if ($mbRes.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($mbRes.StdOut)) {
+        $errText = ($mbRes.StdErr + " " + $mbRes.StdOut).Trim()
+        return [PSCustomObject]@{
+            Success     = $false
+            MergeBase   = ""
+            ResolvedRef = $resolvedTarget
+            Error       = "比較元 '$BaseRef' ($resolvedTarget) と HEAD のマージベースを解決できませんでした: $errText"
+        }
+    }
+
+    $mergeBase = ($mbRes.StdOut -split "`r?`n")[0].Trim()
+    return [PSCustomObject]@{
+        Success     = $true
+        MergeBase   = $mergeBase
+        ResolvedRef = $resolvedTarget
+        Error       = ""
+    }
+}
+
+function Get-ChangedFiles {
+    param([string]$BaseCommit)
 
     $changed = New-Object System.Collections.Generic.HashSet[string] ([System.StringComparer]::OrdinalIgnoreCase)
 
-    $diffRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("-c", "core.quotepath=false", "diff", "--name-only", "$BaseRef...HEAD") -WorkingDirectory $repoRoot -TimeoutSeconds 30
-    if ($diffRes.ExitCode -ne 0) {
-        $diffRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("-c", "core.quotepath=false", "diff", "--name-only", "origin/$BaseRef...HEAD") -WorkingDirectory $repoRoot -TimeoutSeconds 30
+    $diffRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("-c", "core.quotepath=false", "diff", "--name-only", "$BaseCommit..HEAD") -WorkingDirectory $repoRoot -TimeoutSeconds 30
+    if ($diffRes.StartFailed) {
+        return [PSCustomObject]@{
+            Success = $false
+            Files   = @()
+            Error   = "コマンド '$($diffRes.FilePath)' の起動に失敗しました: $($diffRes.StartError)"
+        }
     }
-    if ($diffRes.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($diffRes.StdOut)) {
+    if ($diffRes.ExitCode -ne 0) {
+        return [PSCustomObject]@{
+            Success = $false
+            Files   = @()
+            Error   = "ベースコミット '$BaseCommit' からの差分取得に失敗しました: $(($diffRes.StdErr + ' ' + $diffRes.StdOut).Trim())"
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($diffRes.StdOut)) {
         foreach ($line in ($diffRes.StdOut -split "`r?`n")) {
             $norm = $line.Trim().Replace("\", "/")
             if ($norm) { [void]$changed.Add($norm) }
@@ -190,6 +284,13 @@ function Get-ChangedFiles {
 
     foreach ($cmdArgs in $workingCommands) {
         $res = Invoke-ExternalCommand -FilePath "git" -ArgumentList $cmdArgs -WorkingDirectory $repoRoot -TimeoutSeconds 30
+        if ($res.StartFailed) {
+            return [PSCustomObject]@{
+                Success = $false
+                Files   = @()
+                Error   = "コマンド '$($res.FilePath)' の起動に失敗しました: $($res.StartError)"
+            }
+        }
         if ($res.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($res.StdOut)) {
             foreach ($line in ($res.StdOut -split "`r?`n")) {
                 $norm = $line.Trim().Replace("\", "/")
@@ -198,26 +299,50 @@ function Get-ChangedFiles {
         }
     }
 
-    return @($changed | Sort-Object)
+    return [PSCustomObject]@{
+        Success = $true
+        Files   = @($changed | Sort-Object)
+        Error   = ""
+    }
 }
 
 function Remove-AgentBuildDir {
-    param([string]$PathToRemove)
-    if (-not (Test-Path -LiteralPath $PathToRemove)) {
-        return $true
+    param(
+        [string]$RunDirToRemove,
+        [string]$RootDirToPrune
+    )
+
+    $removedRunDir = $true
+    if (Test-Path -LiteralPath $RunDirToRemove) {
+        $removedRunDir = $false
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+                Remove-Item -Recurse -Force -LiteralPath $RunDirToRemove -ErrorAction Stop
+                if (-not (Test-Path -LiteralPath $RunDirToRemove)) {
+                    $removedRunDir = $true
+                    break
+                }
+            }
+            catch {
+                Start-Sleep -Milliseconds 300
+            }
+        }
     }
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
+
+    # 他の並行実行がなければ親の .agent_build ディレクトリも空削除する
+    if ($removedRunDir -and -not [string]::IsNullOrWhiteSpace($RootDirToPrune) -and (Test-Path -LiteralPath $RootDirToPrune)) {
         try {
-            Remove-Item -Recurse -Force -LiteralPath $PathToRemove -ErrorAction Stop
-            if (-not (Test-Path -LiteralPath $PathToRemove)) {
-                return $true
+            $remaining = @(Get-ChildItem -LiteralPath $RootDirToPrune -Force -ErrorAction SilentlyContinue)
+            if ($remaining.Count -eq 0) {
+                Remove-Item -Force -LiteralPath $RootDirToPrune -ErrorAction SilentlyContinue
             }
         }
         catch {
-            Start-Sleep -Milliseconds 300
+            # 他プロセスが同時に書き込んでいる場合は無視
         }
     }
-    return (-not (Test-Path -LiteralPath $PathToRemove))
+
+    return $removedRunDir
 }
 
 function Write-GateHeader {
@@ -252,6 +377,7 @@ function New-GateResult {
 $gateResults = New-Object System.Collections.Generic.List[object]
 $overallPassed = $true
 $cleanupSucceeded = $true
+$resolvedBaseCommit = ""
 
 Write-Host "========================================================================" -ForegroundColor Cyan
 Write-Host "  Audio Effector - 統合検証ハーネス (verify_loop.ps1)" -ForegroundColor Cyan
@@ -265,12 +391,40 @@ if (-not [string]::IsNullOrWhiteSpace($TestFilter)) {
 
 try {
     # ==========================================================================
+    # Preflight: 引数整合性・比較元コミットの事前解決
+    # ==========================================================================
+    $preflightOk = $true
+    $preflightErrors = New-Object System.Collections.Generic.List[string]
+
+    if ($Full -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
+        $preflightOk = $false
+        $preflightErrors.Add("-Full（最終ゲート）と -TestFilter の併用は禁止されています。最終ゲートでは全テストを実行してください。")
+    }
+
+    $baseRes = Resolve-BaseMergeCommit -BaseRef $BaseBranch
+    if (-not $baseRes.Success) {
+        $preflightOk = $false
+        $preflightErrors.Add($baseRes.Error)
+    }
+    else {
+        $resolvedBaseCommit = $baseRes.MergeBase
+        Write-Host ("  解決済Base : {0}" -f $resolvedBaseCommit)
+    }
+
+    if (-not $preflightOk) {
+        $overallPassed = $false
+        Write-GateHeader -Title "Preflight: 事前検証エラー"
+        foreach ($err in $preflightErrors) {
+            Write-Host "  [FAIL] $err" -ForegroundColor Red
+        }
+        $gateResults.Add((New-GateResult -Name "preflight" -Status "FAILED" -DurationSeconds 0 -ErrorCount $preflightErrors.Count -Summary ($preflightErrors -join " / ") -Details @($preflightErrors.ToArray())))
+    }
+
+    if ($preflightOk) {
+    # ==========================================================================
     # Gate 1: 隔離ビルド検証 (build_rules.md 準拠)
     # ==========================================================================
     Write-GateHeader -Title "Gate 1/4: 隔離ビルド検証 (dotnet build)"
-
-    # 事前に古い .agent_build が残っていればクリーンアップ
-    [void](Remove-AgentBuildDir -PathToRemove $agentBuildDir)
 
     $buildArgs = @("build", $solutionPath, "-p:OutDir=$agentBuildOutDir", "--nologo")
     $buildExec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $buildArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
@@ -298,7 +452,13 @@ try {
         $enforceZeroWarnings = $true
     }
 
-    if ($buildExec.TimedOut) {
+    if ($buildExec.StartFailed) {
+        $overallPassed = $false
+        $msg = "コマンド '$($buildExec.FilePath)' の起動に失敗しました: $($buildExec.StartError)"
+        Write-Host "  [FAIL] $msg" -ForegroundColor Red
+        $gateResults.Add((New-GateResult -Name "build" -Status "FAILED" -DurationSeconds $buildExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details @($buildExec.Command, $buildExec.StartError)))
+    }
+    elseif ($buildExec.TimedOut) {
         $overallPassed = $false
         $msg = "ビルドがタイムアウトしました (${BuildTimeoutSeconds}秒超過)。"
         Write-Host "  [FAIL] $msg" -ForegroundColor Red
@@ -353,7 +513,13 @@ try {
         $failedTests = @($testLines | Where-Object { $_ -match '^\s*(失敗|Failed)\s+' } | Select-Object -First 20)
         $summaryMatches = @($testLines | Where-Object { $_ -match '(成功!|合格!|失敗!|Passed!|Failed!)\s*-' })
 
-        if ($testExec.TimedOut) {
+        if ($testExec.StartFailed) {
+            $overallPassed = $false
+            $msg = "コマンド '$($testExec.FilePath)' の起動に失敗しました: $($testExec.StartError)"
+            Write-Host "  [FAIL] $msg" -ForegroundColor Red
+            $gateResults.Add((New-GateResult -Name "test" -Status "FAILED" -DurationSeconds $testExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details @($testExec.Command, $testExec.StartError)))
+        }
+        elseif ($testExec.TimedOut) {
             $overallPassed = $false
             $msg = "単体テストがタイムアウトしました (${TestTimeoutSeconds}秒超過)。プロセスツリーを強制終了しました。"
             Write-Host "  [FAIL] $msg" -ForegroundColor Red
@@ -393,10 +559,16 @@ try {
     }
     else {
         $specScript = Join-Path $repoRoot "tools\check_spec_sync.py"
-        $specArgs = @($specScript, "--base", $BaseBranch, "--strict", "--json")
+        $specArgs = @($specScript, "--base", $resolvedBaseCommit, "--strict", "--json")
         $specExec = Invoke-ExternalCommand -FilePath "python" -ArgumentList $specArgs -WorkingDirectory $repoRoot -TimeoutSeconds 60
 
-        if ($specExec.TimedOut) {
+        if ($specExec.StartFailed) {
+            $overallPassed = $false
+            $msg = "コマンド '$($specExec.FilePath)' の起動に失敗しました: $($specExec.StartError)"
+            Write-Host "  [FAIL] $msg" -ForegroundColor Red
+            $gateResults.Add((New-GateResult -Name "spec_sync" -Status "FAILED" -DurationSeconds $specExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details @($specExec.Command, $specExec.StartError)))
+        }
+        elseif ($specExec.TimedOut) {
             $overallPassed = $false
             $msg = "仕様書同期チェックがタイムアウトしました。"
             Write-Host "  [FAIL] $msg" -ForegroundColor Red
@@ -454,7 +626,15 @@ try {
     # ==========================================================================
     Write-GateHeader -Title "Gate 4/4: XAML バインディング等価性検証 (check_equivalence.py)"
 
-    $changedFiles = @(Get-ChangedFiles -BaseRef $BaseBranch)
+    $changedFilesRes = Get-ChangedFiles -BaseCommit $resolvedBaseCommit
+    if (-not $changedFilesRes.Success) {
+        $overallPassed = $false
+        $msg = "変更ファイルの取得に失敗しました: $($changedFilesRes.Error)"
+        Write-Host "  [FAIL] $msg" -ForegroundColor Red
+        $gateResults.Add((New-GateResult -Name "xaml_equivalence" -Status "FAILED" -DurationSeconds 0 -ErrorCount 1 -Summary $msg))
+    }
+    else {
+    $changedFiles = @($changedFilesRes.Files)
     $changedXamlFiles = @($changedFiles | Where-Object { $_ -match '\.xaml$' })
 
     if (-not $Full -and $changedXamlFiles.Count -eq 0) {
@@ -467,7 +647,13 @@ try {
         $equivArgs = @($equivScript, "--xaml", "--indexer", "--json")
         $equivExec = Invoke-ExternalCommand -FilePath "python" -ArgumentList $equivArgs -WorkingDirectory $repoRoot -TimeoutSeconds 60
 
-        if ($equivExec.TimedOut) {
+        if ($equivExec.StartFailed) {
+            $overallPassed = $false
+            $msg = "コマンド '$($equivExec.FilePath)' の起動に失敗しました: $($equivExec.StartError)"
+            Write-Host "  [FAIL] $msg" -ForegroundColor Red
+            $gateResults.Add((New-GateResult -Name "xaml_equivalence" -Status "FAILED" -DurationSeconds $equivExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details @($equivExec.Command, $equivExec.StartError)))
+        }
+        elseif ($equivExec.TimedOut) {
             $overallPassed = $false
             $msg = "XAML 等価性チェックがタイムアウトしました。"
             Write-Host "  [FAIL] $msg" -ForegroundColor Red
@@ -538,12 +724,14 @@ try {
             }
         }
     }
+    }
+    }
 }
 finally {
     # ==========================================================================
-    # 後処理: 隔離ビルド出力の確実なクリーンアップ
+    # 後処理: 実行単位の隔離ビルド出力の確実なクリーンアップ
     # ==========================================================================
-    $cleanupSucceeded = Remove-AgentBuildDir -PathToRemove $agentBuildDir
+    $cleanupSucceeded = Remove-AgentBuildDir -RunDirToRemove $agentBuildDir -RootDirToPrune $agentBuildRoot
     $overallStopwatch.Stop()
 }
 
@@ -597,6 +785,7 @@ if (-not [string]::IsNullOrWhiteSpace($JsonOut)) {
         overall_passed         = $overallPassed
         exit_code              = $exitCode
         base_branch            = $BaseBranch
+        resolved_base_commit   = $resolvedBaseCommit
         full_mode              = [bool]$Full
         skip_spec_sync         = [bool]($SkipSpecSync -and -not $Full)
         test_filter            = $TestFilter
