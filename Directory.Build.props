@@ -23,7 +23,24 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <InternalsVisibleTo Include="AudioEffector.Tests" />
+    <InternalsVisibleTo Include="$(MSBuildProjectName).Tests" />
+    <!-- テストプロジェクト分割の段階移行中、既存 AudioEffector.Tests のビルドを維持するための暫定設定 -->
+    <InternalsVisibleTo Include="AudioEffector.Tests" Condition="'$(MSBuildProjectName)' != 'AudioEffector'" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+    <IsPackable>false</IsPackable>
+    <!-- テストデータ配列リテラルやテスト内カルチャ指定の軽微なアナライザ警告を抑制（MCPサーバ詳細設計書 2.2 準拠） -->
+    <NoWarn>$(NoWarn);CA1304;CA1311;CA1861</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="Moq" Version="4.20.72" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+    <Using Include="Xunit" />
   </ItemGroup>
 
 </Project>
