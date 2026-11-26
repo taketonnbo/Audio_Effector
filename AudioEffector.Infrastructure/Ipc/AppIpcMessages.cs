@@ -58,7 +58,7 @@ public static class AppIpcErrorReasons
 /// <summary>
 /// MCP サーバから Audio Effector（WPF 本体）へ送信する Named Pipe IPC リクエストを表します。
 /// </summary>
-/// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>play_track</c>, <c>play_album</c>, <c>play_playlist</c>）。</param>
+/// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>get_playback_state</c>, <c>play_track</c>, <c>play_album</c>, <c>play_playlist</c>）。</param>
 /// <param name="TrackId">再生対象トラックの GUID 文字列（任意）。</param>
 /// <param name="FilePath">再生対象音声ファイルの絶対パス（任意）。</param>
 /// <param name="DeadlineUtc">クライアント側が設定した要求の有効期限（UTC、任意）。期限超過時は処理を実行しない。</param>
@@ -115,17 +115,24 @@ public sealed record AppIpcTrackInfo(
 /// Audio Effector（WPF 本体）から MCP サーバへ返却する Named Pipe IPC 応答を表します。
 /// </summary>
 /// <param name="Ok">コマンド実行が成功したかどうか。</param>
-/// <param name="PlaybackState">現在の再生状態（例: <c>playing</c>）。</param>
-/// <param name="Track">再生を開始したトラック情報。</param>
+/// <param name="PlaybackState">現在の再生状態（<c>playing</c> / <c>paused</c> / <c>stopped</c>）。</param>
+/// <param name="Track">再生中・一時停止中または再生開始したトラック情報（停止・未選択時は <see langword="null"/>）。</param>
 /// <param name="ErrorCode">失敗時の標準エラーコード（<see cref="AppIpcErrorCodes"/>）。</param>
 /// <param name="Error">失敗時のエラー説明。</param>
 /// <param name="SourceType">コレクション再生時のソース種別（<c>album</c> / <c>playlist</c>）。</param>
 /// <param name="SourceId">コレクション再生時のソース ID（アルバム ID またはプレイリスト ID）。</param>
 /// <param name="SourceName">コレクション再生時のソース名（アルバム名またはプレイリスト名）。</param>
 /// <param name="TotalTracks">コレクション再生時の総トラック数（再生可能ファイル数）。</param>
-/// <param name="IsShuffleEnabled">適用後のシャッフル再生有効状態。</param>
-/// <param name="IsRepeatEnabled">適用後のリピート再生有効状態。</param>
+/// <param name="IsShuffleEnabled">シャッフル再生の有効状態。</param>
+/// <param name="IsRepeatEnabled">リピート再生の有効状態。</param>
 /// <param name="ErrorReason">失敗時の構造化理由コード（<see cref="AppIpcErrorReasons"/>、任意）。</param>
+/// <param name="PositionSeconds">現在の再生位置（秒）。</param>
+/// <param name="PositionString">フォーマット済み現在再生位置文字列（例: <c>01:23</c>）。</param>
+/// <param name="DurationSeconds">総再生時間（秒）。</param>
+/// <param name="DurationString">フォーマット済み総再生時間文字列（例: <c>03:45</c>）。</param>
+/// <param name="Volume">現在の音量（0.0〜1.0）。</param>
+/// <param name="UserQueueCount">予約キューの件数。</param>
+/// <param name="AlbumQueueCount">アルバム残り曲キューの件数。</param>
 public sealed record AppIpcResponse(
     bool Ok,
     string? PlaybackState = null,
@@ -138,7 +145,14 @@ public sealed record AppIpcResponse(
     int? TotalTracks = null,
     bool? IsShuffleEnabled = null,
     bool? IsRepeatEnabled = null,
-    string? ErrorReason = null)
+    string? ErrorReason = null,
+    double? PositionSeconds = null,
+    string? PositionString = null,
+    double? DurationSeconds = null,
+    string? DurationString = null,
+    double? Volume = null,
+    int? UserQueueCount = null,
+    int? AlbumQueueCount = null)
 {
     /// <summary>
     /// 疎通確認（<c>ping</c>）の成功応答を生成します。
@@ -157,6 +171,55 @@ public sealed record AppIpcResponse(
         ArgumentException.ThrowIfNullOrWhiteSpace(playbackState);
         ArgumentNullException.ThrowIfNull(track);
         return new AppIpcResponse(Ok: true, PlaybackState: playbackState, Track: track);
+    }
+
+    /// <summary>
+    /// 再生状態取得コマンド（<c>get_playback_state</c>）の成功応答を生成します。
+    /// </summary>
+    /// <param name="playbackState">再生状態文字列（<c>playing</c> / <c>paused</c> / <c>stopped</c>）。</param>
+    /// <param name="track">再生中または一時停止中のトラック情報（停止・未選択時は <see langword="null"/>）。</param>
+    /// <param name="positionSeconds">現在再生位置（秒）。</param>
+    /// <param name="positionString">フォーマット済み現在再生位置文字列。</param>
+    /// <param name="durationSeconds">総再生時間（秒）。</param>
+    /// <param name="durationString">フォーマット済み総再生時間文字列。</param>
+    /// <param name="volume">現在の音量（0.0〜1.0）。</param>
+    /// <param name="isShuffleEnabled">シャッフル再生の有効状態。</param>
+    /// <param name="isRepeatEnabled">リピート再生の有効状態。</param>
+    /// <param name="userQueueCount">予約キュー件数。</param>
+    /// <param name="albumQueueCount">アルバム残り曲キュー件数。</param>
+    /// <returns>再生状態スナップショットを表す <see cref="AppIpcResponse"/>。</returns>
+    public static AppIpcResponse SuccessPlaybackState(
+        string playbackState,
+        AppIpcTrackInfo? track,
+        double positionSeconds,
+        string positionString,
+        double durationSeconds,
+        string durationString,
+        double volume,
+        bool isShuffleEnabled,
+        bool isRepeatEnabled,
+        int userQueueCount,
+        int albumQueueCount)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(playbackState);
+        ArgumentException.ThrowIfNullOrWhiteSpace(positionString);
+        ArgumentException.ThrowIfNullOrWhiteSpace(durationString);
+        ArgumentOutOfRangeException.ThrowIfNegative(userQueueCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(albumQueueCount);
+
+        return new AppIpcResponse(
+            Ok: true,
+            PlaybackState: playbackState,
+            Track: track,
+            IsShuffleEnabled: isShuffleEnabled,
+            IsRepeatEnabled: isRepeatEnabled,
+            PositionSeconds: positionSeconds,
+            PositionString: positionString,
+            DurationSeconds: durationSeconds,
+            DurationString: durationString,
+            Volume: volume,
+            UserQueueCount: userQueueCount,
+            AlbumQueueCount: albumQueueCount);
     }
 
     /// <summary>

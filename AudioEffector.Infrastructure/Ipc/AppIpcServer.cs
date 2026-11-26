@@ -34,6 +34,11 @@ public sealed class AppIpcServer : IDisposable
     /// </summary>
     public const string COMMAND_PLAY_PLAYLIST = "play_playlist";
 
+    /// <summary>
+    /// 再生状態取得（get_playback_state）コマンド名。
+    /// </summary>
+    public const string COMMAND_GET_PLAYBACK_STATE = "get_playback_state";
+
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
     private static readonly TimeSpan ClientRequestTimeout = TimeSpan.FromSeconds(5);
