@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -125,13 +125,26 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         _isLoaded = true;
     }
 
-    private async Task SaveToFileCoreAsync(CancellationToken cancellationToken)
+    private async Task<FileMetadataSnapshot> WritePlaylistsAtomicCoreAsync(
+        IEnumerable<UserPlaylist> candidatePlaylists,
+        CancellationToken cancellationToken)
     {
-        var dtos = _playlists.Values.Select(PlaylistDto.FromEntity).ToList();
+        var dtos = candidatePlaylists.Select(PlaylistDto.FromEntity).ToList();
         string json = JsonSerializer.Serialize(dtos, _jsonOptions);
 
         await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
-        _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+        return _fileLockHelper.GetFileMetadata(_filePath);
+    }
+
+    private void CommitCache(Dictionary<PlaylistId, UserPlaylist> candidate, FileMetadataSnapshot updatedMetadata)
+    {
+        _playlists.Clear();
+        foreach (KeyValuePair<PlaylistId, UserPlaylist> pair in candidate)
+        {
+            _playlists[pair.Key] = pair.Value;
+        }
+
+        _lastLoadedMetadata = updatedMetadata;
         _isLoaded = true;
     }
 
@@ -192,8 +205,13 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
                 .ConfigureAwait(false);
 
             await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
-            _playlists[playlist.Id] = playlist;
-            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            var candidate = new Dictionary<PlaylistId, UserPlaylist>(_playlists)
+            {
+                [playlist.Id] = playlist,
+            };
+
+            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
+            CommitCache(candidate, updatedMetadata);
         }
         finally
         {
@@ -218,16 +236,17 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
                 .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            _playlists.Clear();
+            var candidate = new Dictionary<PlaylistId, UserPlaylist>(playlists.Count);
             foreach (UserPlaylist playlist in playlists)
             {
                 if (playlist != null)
                 {
-                    _playlists[playlist.Id] = playlist;
+                    candidate[playlist.Id] = playlist;
                 }
             }
 
-            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
+            CommitCache(candidate, updatedMetadata);
         }
         finally
         {
@@ -251,9 +270,11 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
                 .ConfigureAwait(false);
 
             await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
-            if (_playlists.Remove(id))
+            var candidate = new Dictionary<PlaylistId, UserPlaylist>(_playlists);
+            if (candidate.Remove(id))
             {
-                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+                FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
+                CommitCache(candidate, updatedMetadata);
             }
         }
         finally
@@ -277,9 +298,22 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
 
             if (update(playlist))
             {
-                _isLoaded = false;
-                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(_playlists.Values, cancellationToken).ConfigureAwait(false);
+                    _lastLoadedMetadata = updatedMetadata;
+                    _isLoaded = true;
+                }
+                catch
+                {
+                    // update デリゲートがインメモリインスタンスを変更済みの可能性があるため、キャッシュを破棄して次回必ずディスクから再読込させる
+                    _playlists.Clear();
+                    _lastLoadedMetadata = FileMetadataSnapshot.Missing;
+                    _isLoaded = false;
+                    throw;
+                }
             }
+
             return playlist;
         }
         finally
