@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using AudioEffector.Domain.Entities;
 
 namespace AudioEffector.McpServer.Dtos;
@@ -79,5 +80,87 @@ public sealed record TrackSummaryDto(
             BitsPerSample: track.BitsPerSample,
             IsFavorite: track.IsFavorite,
             FilePath: track.FilePath);
+    }
+}
+
+/// <summary>
+/// <c>search_albums</c> ツールの応答データ DTO です。
+/// </summary>
+/// <param name="TotalCount">検索条件に一致したアルバム総件数（ページネーション適用前）。</param>
+/// <param name="Count">今回返却されたアルバム件数。</param>
+/// <param name="Offset">適用された取得開始位置。</param>
+/// <param name="Limit">適用された最大返却件数。</param>
+/// <param name="Albums">検索に一致したアルバムのサマリ一覧。</param>
+public sealed record SearchAlbumsResponse(
+    int TotalCount,
+    int Count,
+    int Offset,
+    int Limit,
+    IReadOnlyList<AlbumSummaryDto> Albums);
+
+/// <summary>
+/// MCP 応答で返却するアルバムメタデータのサマリ DTO です。
+/// </summary>
+/// <param name="Id">決定論的アルゴリズムで採番された一意のアルバム ID（GUID）。</param>
+/// <param name="Name">アルバム名。</param>
+/// <param name="Artist">アルバムアーティスト名。</param>
+/// <param name="Year">代表リリース年（未設定時は 0）。</param>
+/// <param name="TrackCount">収録トラック数。</param>
+/// <param name="TotalDurationSeconds">総再生時間（秒）。</param>
+/// <param name="TotalDurationString">フォーマット済み総再生時間文字列（例: <c>42:15</c> または <c>1:12:30</c>）。</param>
+/// <param name="ContainsHiRes">ハイレゾ楽曲を含むかどうか。</param>
+/// <param name="ContainsLossless">可逆圧縮楽曲を含むかどうか。</param>
+/// <param name="Tracks">収録トラック一覧（<c>includeTracks: true</c> 指定時のみ出力）。</param>
+public sealed record AlbumSummaryDto(
+    Guid Id,
+    string Name,
+    string Artist,
+    uint Year,
+    int TrackCount,
+    double TotalDurationSeconds,
+    string TotalDurationString,
+    bool ContainsHiRes,
+    bool ContainsLossless,
+    IReadOnlyList<TrackSummaryDto>? Tracks = null)
+{
+    /// <summary>
+    /// <see cref="Album"/> ドメインエンティティから <see cref="AlbumSummaryDto"/> を生成します。
+    /// </summary>
+    /// <param name="album">変換元のアルバムエンティティ。</param>
+    /// <param name="includeTracks">収録トラック一覧を含めるかどうか。</param>
+    /// <returns>生成された DTO。</returns>
+    public static AlbumSummaryDto FromEntity(Album album, bool includeTracks = false)
+    {
+        ArgumentNullException.ThrowIfNull(album);
+
+        TimeSpan totalDuration = album.TotalDuration;
+        string totalDurationString = FormatDuration(totalDuration);
+        IReadOnlyList<TrackSummaryDto>? tracks = includeTracks
+            ? album.Tracks.Select(TrackSummaryDto.FromEntity).ToList()
+            : null;
+
+        return new AlbumSummaryDto(
+            Id: album.Id.Value,
+            Name: album.Name,
+            Artist: album.Artist,
+            Year: album.Year,
+            TrackCount: album.TrackCount,
+            TotalDurationSeconds: Math.Round(totalDuration.TotalSeconds, 3),
+            TotalDurationString: totalDurationString,
+            ContainsHiRes: album.ContainsHiRes,
+            ContainsLossless: album.ContainsLossless,
+            Tracks: tracks);
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalHours >= 1)
+        {
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"{(int)duration.TotalHours}:{duration.Minutes:D2}:{duration.Seconds:D2}");
+        }
+
+        return duration.ToString(@"mm\:ss", CultureInfo.InvariantCulture);
     }
 }
