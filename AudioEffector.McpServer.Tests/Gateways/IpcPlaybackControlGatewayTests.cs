@@ -10,10 +10,46 @@ using AudioEffector.McpServer.Protocol;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
-namespace AudioEffector.Tests.McpServer.Gateways;
+namespace AudioEffector.McpServer.Tests.Gateways;
 
-public sealed class IpcPlaybackControlGatewayTests
+public sealed class IpcPlaybackControlGatewayTests : IDisposable
 {
+    private readonly string _tempDir;
+
+    public IpcPlaybackControlGatewayTests()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorIpcGatewayTests_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_tempDir))
+            {
+                Directory.Delete(_tempDir, recursive: true);
+            }
+        }
+        catch
+        {
+            // クリーンアップエラーは無視
+        }
+    }
+
+    private string CreateExistingAudioFile(string relativePath)
+    {
+        string fullPath = Path.Combine(_tempDir, relativePath);
+        string? directory = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllBytes(fullPath, [0x01]);
+        return fullPath;
+    }
+
     /// <summary>
     /// 起動中の AppIpcServer へ trackId を送信し、IUiDispatcher 経由の再生開始と PlayTrackResponse の返却が行われることを検証します。
     /// </summary>
@@ -22,10 +58,11 @@ public sealed class IpcPlaybackControlGatewayTests
     {
         // Arrange
         string pipeName = $"AudioEffector.Ipc.PlayTest.{Guid.NewGuid():N}";
+        string audioFilePath = CreateExistingAudioFile("TestTrack.flac");
         var trackId = TrackId.New();
         var track = new Track(
             id: trackId,
-            filePath: AudioPath.Create(@"C:\Music\TestTrack.flac"),
+            filePath: AudioPath.Create(audioFilePath),
             title: "Night Drive",
             artist: "Synth Wave",
             album: "Neon City",
@@ -67,8 +104,7 @@ public sealed class IpcPlaybackControlGatewayTests
             trackRepo.Object,
             libraryService,
             audioService.Object,
-            uiDispatcher.Object,
-            fileExists: _ => true);
+            uiDispatcher.Object);
 
         using var server = new AppIpcServer(pipeName, handler);
         server.Start();
@@ -92,7 +128,7 @@ public sealed class IpcPlaybackControlGatewayTests
         Assert.Equal("Neon City", result.Value.Track.Album);
         Assert.Equal(185.25, result.Value.Track.DurationSeconds);
         Assert.Equal("03:05", result.Value.Track.DurationString);
-        Assert.Equal(@"C:\Music\TestTrack.flac", result.Value.Track.FilePath);
+        Assert.Equal(audioFilePath, result.Value.Track.FilePath);
         Assert.Equal(1, dispatchCount);
         audioService.Verify(a => a.PlayTrackAsync(track, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -359,7 +395,7 @@ public sealed class IpcPlaybackControlGatewayTests
         var trackId = TrackId.New();
         var track = new Track(
             id: trackId,
-            filePath: AudioPath.Create(@"C:\Music\SlowResolve.flac"),
+            filePath: AudioPath.Create(CreateExistingAudioFile("SlowResolve.flac")),
             title: "Slow",
             artist: "Artist",
             album: "Album",
@@ -396,8 +432,7 @@ public sealed class IpcPlaybackControlGatewayTests
             trackRepo.Object,
             libraryService,
             audioService.Object,
-            ImmediateUiDispatcher.Instance,
-            fileExists: _ => true);
+            ImmediateUiDispatcher.Instance);
 
         using var server = new AppIpcServer(pipeName, handler);
         server.Start();
@@ -429,7 +464,7 @@ public sealed class IpcPlaybackControlGatewayTests
         var albumId = AlbumId.New();
         var track1 = new Track(
             id: TrackId.New(),
-            filePath: AudioPath.Create(@"C:\Music\Album\01.flac"),
+            filePath: AudioPath.Create(CreateExistingAudioFile(@"Album\01.flac")),
             title: "Track 1",
             artist: "Miles Trio",
             album: "Midnight Sessions",
@@ -472,8 +507,7 @@ public sealed class IpcPlaybackControlGatewayTests
             trackRepo.Object,
             libraryService,
             audioService.Object,
-            ImmediateUiDispatcher.Instance,
-            fileExists: _ => true);
+            ImmediateUiDispatcher.Instance);
 
         using var server = new AppIpcServer(pipeName, handler);
         server.Start();
@@ -517,7 +551,7 @@ public sealed class IpcPlaybackControlGatewayTests
         string pipeName = $"AudioEffector.Ipc.PlayPlaylistTest.{Guid.NewGuid():N}";
         var track1 = new Track(
             id: TrackId.New(),
-            filePath: AudioPath.Create(@"C:\Music\Playlist\01.flac"),
+            filePath: AudioPath.Create(CreateExistingAudioFile(@"Playlist\01.flac")),
             title: "Drive Song",
             artist: "Synth Wave",
             album: "Highway",
@@ -571,7 +605,6 @@ public sealed class IpcPlaybackControlGatewayTests
             libraryService,
             audioService.Object,
             ImmediateUiDispatcher.Instance,
-            fileExists: _ => true,
             playlistService: playlistService);
 
         using var server = new AppIpcServer(pipeName, handler);
@@ -639,7 +672,7 @@ public sealed class IpcPlaybackControlGatewayTests
         // カスタム側プレイリスト（[C1, C2] を 2 曲目 C2 から開始）
         var customTrack1 = new Track(
             id: TrackId.New(),
-            filePath: AudioPath.Create(@"C:\CustomMusic\C1.flac"),
+            filePath: AudioPath.Create(CreateExistingAudioFile(@"CustomMusic\C1.flac")),
             title: "Custom 1",
             artist: "Custom Artist",
             album: "Custom Album",
@@ -653,7 +686,7 @@ public sealed class IpcPlaybackControlGatewayTests
             genre: "Jazz");
         var customTrack2 = new Track(
             id: TrackId.New(),
-            filePath: AudioPath.Create(@"C:\CustomMusic\C2.flac"),
+            filePath: AudioPath.Create(CreateExistingAudioFile(@"CustomMusic\C2.flac")),
             title: "Custom 2",
             artist: "Custom Artist",
             album: "Custom Album",
@@ -757,7 +790,6 @@ public sealed class IpcPlaybackControlGatewayTests
             wpfLibraryService,
             audioService.Object,
             ImmediateUiDispatcher.Instance,
-            fileExists: _ => true,
             playlistService: wpfPlaylistService);
 
         using var server = new AppIpcServer(pipeName, handler);
@@ -839,8 +871,7 @@ public sealed class IpcPlaybackControlGatewayTests
             trackRepo.Object,
             libraryService,
             new Mock<IAudioService>().Object,
-            ImmediateUiDispatcher.Instance,
-            fileExists: _ => true);
+            ImmediateUiDispatcher.Instance);
 
         using var server = new AppIpcServer(pipeName, handler);
         server.Start();

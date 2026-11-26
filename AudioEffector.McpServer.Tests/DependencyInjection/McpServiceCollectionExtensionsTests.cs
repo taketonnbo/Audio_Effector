@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 
-namespace AudioEffector.Tests.McpServer.DependencyInjection;
+namespace AudioEffector.McpServer.Tests.DependencyInjection;
 
 public sealed class McpServiceCollectionExtensionsTests : IDisposable
 {

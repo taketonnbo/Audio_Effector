@@ -9,7 +9,7 @@ using AudioEffector.McpServer.DependencyInjection;
 using AudioEffector.McpServer.Tools;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace AudioEffector.Tests.McpServer.Hosting;
+namespace AudioEffector.McpServer.Tests.Hosting;
 
 public sealed class StdioMcpIntegrationTests : IDisposable
 {

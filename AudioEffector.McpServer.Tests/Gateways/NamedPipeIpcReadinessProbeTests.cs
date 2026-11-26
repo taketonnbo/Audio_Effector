@@ -1,7 +1,7 @@
 using AudioEffector.Infrastructure.Ipc;
 using AudioEffector.McpServer.Gateways;
 
-namespace AudioEffector.Tests.McpServer.Gateways;
+namespace AudioEffector.McpServer.Tests.Gateways;
 
 /// <summary>
 /// <see cref="NamedPipeIpcReadinessProbe"/> と <see cref="AppIpcServer"/> の Named Pipe 準備完了プローブ結合動作を検証するテストクラス

@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace AudioEffector.Tests.McpServer.Hosting;
+namespace AudioEffector.McpServer.Tests.Hosting;
 
 public sealed class StdioMcpHostRunnerTests : IDisposable
 {

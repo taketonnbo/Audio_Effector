@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
 using Moq;
 
-namespace AudioEffector.Tests.McpServer.Tools;
+namespace AudioEffector.McpServer.Tests.Tools;
 
 public sealed class PlaybackToolsTests
 {

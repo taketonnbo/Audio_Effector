@@ -5,7 +5,7 @@ using AudioEffector.McpServer.Gateways;
 using Microsoft.Extensions.Logging;
 using Moq;
 
-namespace AudioEffector.Tests.McpServer.Gateways;
+namespace AudioEffector.McpServer.Tests.Gateways;
 
 public sealed class WpfAppLauncherTests
 {

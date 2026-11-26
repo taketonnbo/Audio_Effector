@@ -3,7 +3,7 @@ using AudioEffector.McpServer;
 using AudioEffector.McpServer.Configuration;
 using AudioEffector.McpServer.Hosting;
 
-namespace AudioEffector.Tests.McpServer.Hosting;
+namespace AudioEffector.McpServer.Tests.Hosting;
 
 public sealed class HttpMcpHostRunnerTests
 {
