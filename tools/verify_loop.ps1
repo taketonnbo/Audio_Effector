@@ -373,7 +373,7 @@ for entry in manifest:
 print(json.dumps(counts, ensure_ascii=False))
 "@
 
-        $pyRes = Invoke-ExternalCommand -FilePath "python" -ArgumentList @("-c", $pyCode, $repoRoot, $manifestPath) -WorkingDirectory $repoRoot -TimeoutSeconds 30
+        $pyRes = Invoke-ExternalCommand -FilePath "python" -ArgumentList @("-B", "-c", $pyCode, $repoRoot, $manifestPath) -WorkingDirectory $repoRoot -TimeoutSeconds 30
         if ($pyRes.StartFailed) {
             return [PSCustomObject]@{
                 Success = $false
@@ -677,7 +677,7 @@ try {
     }
     else {
         $specScript = Join-Path $repoRoot "tools\check_spec_sync.py"
-        $specArgs = @($specScript, "--base", $resolvedBaseCommit, "--strict", "--json")
+        $specArgs = @("-B", $specScript, "--base", $resolvedBaseCommit, "--strict", "--json")
         $specExec = Invoke-ExternalCommand -FilePath "python" -ArgumentList $specArgs -WorkingDirectory $repoRoot -TimeoutSeconds 60
 
         if ($specExec.StartFailed) {
@@ -762,7 +762,7 @@ try {
     }
     else {
         $equivScript = Join-Path $repoRoot "tools\check_equivalence.py"
-        $equivArgs = @($equivScript, "--xaml", "--indexer", "--json")
+        $equivArgs = @("-B", $equivScript, "--xaml", "--indexer", "--json")
         $equivExec = Invoke-ExternalCommand -FilePath "python" -ArgumentList $equivArgs -WorkingDirectory $repoRoot -TimeoutSeconds 60
 
         if ($equivExec.StartFailed) {
