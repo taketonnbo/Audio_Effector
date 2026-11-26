@@ -18,7 +18,7 @@ description: AI エージェントによる自律開発ループ（ループエ�
   - 実装・修正の途上では、`-SkipSpecSync` や `-TestFilter "<条件>"` を用いて対象領域を高速に反復検証して構いません。
   - 検証ログや構造化結果 JSON は `.agent_logs/` 配下へ出力します（例: `-JsonOut ".agent_logs/verify_iter.json"`）。
 - **最終完了ゲート（PR 作成前・レビュー指摘対応完了前）**:
-  - **必ず `.\tools\verify_loop.ps1 -Full` を実行**し、隔離ビルド（エラー 0・警告 0）・全単体テスト合格・仕様書同期（未更新 Primary 0 件）・XAML バインディング等価性チェックの全ゲートが終了コード `0` で合格することを確認します。
+  - **必ず `.\tools\verify_loop.ps1 -Full` を実行**し、隔離ビルド（エラー 0・警告 0）・全単体テスト合格・仕様書同期（未更新 Primary 0 件）・XAML バインディング等価性チェック・Python ツール単体テスト（`tools/tests`）の全 5 ゲートが終了コード `0` で合格することを確認します。
   - 最終ゲートでの `-SkipSpecSync` や `-TestFilter` による絞り込みは禁止します。
 
 ---
@@ -61,6 +61,8 @@ description: AI エージェントによる自律開発ループ（ループエ�
   - ビルド・テストの長時間ハングを防ぐため、[build_rules.md](build_rules.md) のタイムアウト管理・即時 `kill` ルールを厳守します。`tools/verify_loop.ps1` のタイムアウト保護（`-BuildTimeoutSeconds` / `-TestTimeoutSeconds`）を無効化してはなりません。
   - 実行終了後（正常・異常問わず）に `.agent_build/` が残留していないことを確認します。
   - ループ実行時のログや JSON レポートは `.gitignore` 登録済みの `.agent_logs/` 配下にのみ保存し、`git status` やコミットへ混入させてはなりません。
+- **シェル構文の互換性（Windows PowerShell 5.1 準拠）**:
+  - 本環境の既定シェルは Windows PowerShell 5.1（`&&` 演算子非対応）のため、コマンド連結やスキル内手順では `&&` を使用せず、`; if ($?) { ... }` または `$LASTEXITCODE` チェックを用いて前段失敗時の連鎖実行を防止します。
 
 ---
 
