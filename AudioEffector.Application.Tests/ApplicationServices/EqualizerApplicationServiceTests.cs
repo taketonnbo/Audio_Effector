@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -11,11 +10,10 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Events;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.ValueObjects;
-using AudioEffector.Infrastructure.Repository;
 using Moq;
 using Xunit;
 
-namespace AudioEffector.Tests.Application.ApplicationServices;
+namespace AudioEffector.Application.Tests.ApplicationServices;
 
 /// <summary>
 /// EqualizerApplicationServiceのイコライザー適用、バンドゲイン調整、カスタムプリセット永続化、イベント発行を検証するテストクラス
@@ -143,37 +141,29 @@ public sealed class EqualizerApplicationServiceTests
         Assert.Contains(presets, p => p.Name == "CustomBass" && p.IsCustom);
     }
 
-    /// <summary>同じ設定ファイルを使う2サービスの保存・削除で別名のプリセットが残ることを検証します</summary>
+    /// <summary>同じ設定ストアを共有する2サービスの並行保存・削除で別名のプリセットが残ることを検証します</summary>
     [Fact]
     public async Task カスタムプリセット_別インスタンスの並行保存と削除で他の名前の変更が残る()
     {
         // Arrange
-        var directory = Directory.CreateTempSubdirectory();
-        try
-        {
-            var path = Path.Combine(directory.FullName, "settings.json");
-            using var firstRepo = new JsonSettingsRepository(path);
-            using var secondRepo = new JsonSettingsRepository(path);
-            var first = new EqualizerApplicationService(Mock.Of<IAudioEngine>(), firstRepo, new InMemoryEventBus());
-            var second = new EqualizerApplicationService(Mock.Of<IAudioEngine>(), secondRepo, new InMemoryEventBus());
+        var sharedStore = new SharedInMemorySettingsStore();
+        var firstRepo = new InMemorySettingsRepository(sharedStore);
+        var secondRepo = new InMemorySettingsRepository(sharedStore);
+        var first = new EqualizerApplicationService(Mock.Of<IAudioEngine>(), firstRepo, new InMemoryEventBus());
+        var second = new EqualizerApplicationService(Mock.Of<IAudioEngine>(), secondRepo, new InMemoryEventBus());
 
-            // Act
-            await Task.WhenAll(first.SaveCustomPresetAsync(CreateSamplePreset("A")), second.SaveCustomPresetAsync(CreateSamplePreset("B")));
-            var both = await first.GetPresetsAsync();
-            var deletion = second.DeleteCustomPresetAsync("a");
-            await Task.WhenAll(deletion, first.SaveCustomPresetAsync(CreateSamplePreset("C")));
+        // Act
+        await Task.WhenAll(first.SaveCustomPresetAsync(CreateSamplePreset("A")), second.SaveCustomPresetAsync(CreateSamplePreset("B")));
+        var both = await first.GetPresetsAsync();
+        var deletion = second.DeleteCustomPresetAsync("a");
+        await Task.WhenAll(deletion, first.SaveCustomPresetAsync(CreateSamplePreset("C")));
 
-            // Assert
-            Assert.Equal(new[] { "A", "B" }, both.Where(p => p.IsCustom).Select(p => p.Name).OrderBy(n => n));
-            Assert.True(await deletion);
-            Assert.False(await second.DeleteCustomPresetAsync("a"));
-            var remaining = await second.GetPresetsAsync();
-            Assert.Equal(new[] { "B", "C" }, remaining.Where(p => p.IsCustom).Select(p => p.Name).OrderBy(n => n));
-        }
-        finally
-        {
-            directory.Delete(true);
-        }
+        // Assert
+        Assert.Equal(new[] { "A", "B" }, both.Where(p => p.IsCustom).Select(p => p.Name).OrderBy(n => n));
+        Assert.True(await deletion);
+        Assert.False(await second.DeleteCustomPresetAsync("a"));
+        var remaining = await second.GetPresetsAsync();
+        Assert.Equal(new[] { "B", "C" }, remaining.Where(p => p.IsCustom).Select(p => p.Name).OrderBy(n => n));
     }
 
     /// <summary>
@@ -274,5 +264,105 @@ public sealed class EqualizerApplicationServiceTests
                 return Task.FromResult(value != previous);
             });
         return () => value;
+    }
+
+    private sealed class SharedInMemorySettingsStore
+    {
+        private readonly object _sync = new();
+        private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
+
+        public string? GetValue(string key, string? defaultValue)
+        {
+            lock (_sync)
+            {
+                return _values.TryGetValue(key, out var val) ? val : defaultValue;
+            }
+        }
+
+        public void SetValue(string key, string? value)
+        {
+            lock (_sync)
+            {
+                if (value is null)
+                {
+                    _values.Remove(key);
+                }
+                else
+                {
+                    _values[key] = value;
+                }
+            }
+        }
+
+        public Dictionary<string, string> GetAll()
+        {
+            lock (_sync)
+            {
+                return new Dictionary<string, string>(_values, StringComparer.Ordinal);
+            }
+        }
+
+        public void Remove(string key)
+        {
+            lock (_sync)
+            {
+                _values.Remove(key);
+            }
+        }
+
+        public bool UpdateValue(string key, Func<string?, string?> update)
+        {
+            lock (_sync)
+            {
+                _values.TryGetValue(key, out var previous);
+                var updated = update(previous);
+                if (string.Equals(previous, updated, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                if (updated is null)
+                {
+                    _values.Remove(key);
+                }
+                else
+                {
+                    _values[key] = updated;
+                }
+
+                return true;
+            }
+        }
+    }
+
+    private sealed class InMemorySettingsRepository : ISettingsRepository
+    {
+        private readonly SharedInMemorySettingsStore _store;
+
+        public InMemorySettingsRepository(SharedInMemorySettingsStore store)
+        {
+            _store = store;
+        }
+
+        public Task<string?> GetValueAsync(string key, string? defaultValue = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(_store.GetValue(key, defaultValue));
+
+        public Task SetValueAsync(string key, string? value, CancellationToken cancellationToken = default)
+        {
+            _store.SetValue(key, value);
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyDictionary<string, string>> GetAllAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<string, string>>(_store.GetAll());
+
+        public Task RemoveAsync(string key, CancellationToken cancellationToken = default)
+        {
+            _store.Remove(key);
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> UpdateValueAsync(string key, Func<string?, string?> update, CancellationToken cancellationToken = default)
+            => Task.FromResult(_store.UpdateValue(key, update));
     }
 }
