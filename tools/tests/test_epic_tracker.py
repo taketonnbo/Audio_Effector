@@ -94,6 +94,101 @@ class EpicTrackerParserTests(unittest.TestCase):
         # Assert
         self.assertTrue(any("循環依存" in w for w in warnings))
 
+    def test_コロンなしのdepends_on指定を正しく抽出する(self) -> None:
+        # Arrange
+        body = """
+- [ ] #601 基盤構築
+- [ ] #602 拡張機能 (depends on #601)
+"""
+        # Act
+        specs, warnings = epic_tracker.parse_epic_body(body, epic_number=600)
+        by_num = {s.number: s for s in specs}
+
+        # Assert
+        self.assertEqual(warnings, [])
+        self.assertEqual(by_num[602].depends_on, [601])
+
+    def test_依存Issue列とコードフェンス内の例示を誤判定しない(self) -> None:
+        # Arrange
+        body = """
+| 順序 | 依存 Issue | 子 Issue | 内容 |
+| :---: | :--- | :--- | :--- |
+| 1 | - | #701 | 基盤 |
+| 2 | #701 | #702 | 後続 |
+
+```markdown
+| 順序 | 子 Issue | 内容 |
+| :---: | :--- | :--- |
+| 1 | #999 | 例示テーブル |
+
+- [ ] #998 例示チェックリスト
+```
+"""
+        # Act
+        specs, warnings = epic_tracker.parse_epic_body(body, epic_number=700)
+        by_num = {s.number: s for s in specs}
+
+        # Assert
+        self.assertEqual(warnings, [])
+        self.assertEqual([s.number for s in specs], [701, 702])
+        self.assertEqual(by_num[702].depends_on, [701])
+
+
+class EpicTrackerPrAndApiTests(unittest.TestCase):
+    """PR 紐付け・GraphQL 変数バインド・API エラーハンドリングのテスト。"""
+
+    def test_PR本文の単なるIssue言及では誤紐付けされずクローズキーワードのみ紐付く(self) -> None:
+        # Arrange
+        pr = {
+            "headRefName": "feat/322-domain-tests",
+            "title": "[リファクタ] Domain.Tests 新設 (Issue #322)",
+            "body": "前提 Issue #321 の基盤を利用します。\nCloses: #322\nFixed #323\nResolved #324",
+        }
+
+        # Act
+        matched = epic_tracker.match_pr_to_issue_numbers(pr)
+
+        # Assert
+        self.assertNotIn(321, matched)
+        self.assertEqual(matched, {322, 323, 324})
+
+    def test_不正なrepo指定はRuntimeErrorを送出する(self) -> None:
+        # Arrange / Act / Assert
+        with self.assertRaises(RuntimeError):
+            epic_tracker.detect_repo_slug('bad"owner/repo', timeout=5)
+
+    def test_fetch_pull_requests失敗時はサイレント空配列にせずRuntimeErrorを送出する(self) -> None:
+        # Arrange
+        with mock.patch.object(epic_tracker, "run_command", return_value=(1, "", "network error")):
+            # Act / Assert
+            with self.assertRaises(RuntimeError):
+                epic_tracker.fetch_pull_requests(repo="owner/repo", timeout=5)
+
+    def test_fetch_unresolved_review_threadsは変数バインドを使用しGraphQLエラー時に例外を送出する(self) -> None:
+        # Arrange: 正常応答で変数バインド引数を検証
+        ok_payload = json.dumps({
+            "data": {
+                "repository": {
+                    "p10": {"reviewThreads": {"nodes": [{"isResolved": False}, {"isResolved": True}]}}
+                }
+            }
+        })
+        with mock.patch.object(epic_tracker, "run_command", return_value=(0, ok_payload, "")) as mocked_run:
+            # Act
+            counts = epic_tracker.fetch_unresolved_review_threads([10], repo="owner/repo", timeout=5)
+
+            # Assert
+            self.assertEqual(counts, {10: 1})
+            called_cmd = mocked_run.call_args[0][0]
+            self.assertIn("owner=owner", called_cmd)
+            self.assertIn("name=repo", called_cmd)
+
+        # Arrange: GraphQL errors 返却時は RuntimeError
+        err_payload = json.dumps({"errors": [{"message": "API rate limit exceeded"}]})
+        with mock.patch.object(epic_tracker, "run_command", return_value=(0, err_payload, "")):
+            with self.assertRaises(RuntimeError):
+                epic_tracker.fetch_unresolved_review_threads([10], repo="owner/repo", timeout=5)
+
 
 class EpicTrackerClassificationTests(unittest.TestCase):
     """状態分類および次アクション提案のテスト。"""
@@ -243,6 +338,34 @@ class EpicTrackerClassificationTests(unittest.TestCase):
         # Assert
         self.assertEqual(next_info["primary_action"]["action"], "complete_epic")
 
+    def test_Epic外の外部依存IssueがCLOSEDならpendingへ遷移する(self) -> None:
+        # Arrange
+        specs = [
+            epic_tracker.ChildIssueSpec(number=341, order=1, depends_on=[340], parallel_group=1),
+            epic_tracker.ChildIssueSpec(number=342, order=1, depends_on=[339], parallel_group=1),
+        ]
+        live_issues = {
+            341: {"number": 341, "title": "Child 1", "state": "OPEN", "url": "", "labels": []},
+            342: {"number": 342, "title": "Child 2", "state": "OPEN", "url": "", "labels": []},
+            340: {"number": 340, "title": "External Closed", "state": "CLOSED", "url": "", "labels": []},
+            339: {"number": 339, "title": "External Open", "state": "OPEN", "url": "", "labels": []},
+        }
+
+        # Act
+        classified = epic_tracker.classify_child_statuses(
+            specs=specs,
+            live_issues=live_issues,
+            prs_by_issue={341: [], 342: []},
+            unresolved_threads_by_pr={},
+            local_branch_issues=set(),
+            blocked_overrides={},
+        )
+        status_map = {c["number"]: c["status"] for c in classified}
+
+        # Assert
+        self.assertEqual(status_map[341], "pending")
+        self.assertEqual(status_map[342], "waiting_deps")
+
 
 class EpicTrackerPersistenceTests(unittest.TestCase):
     """状態スナップショット永続化とオフライン読み込みのテスト。"""
@@ -288,6 +411,86 @@ class EpicTrackerPersistenceTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             loaded = json.loads("".join(buf))
             self.assertEqual(loaded["epic"]["number"], 999)
+
+    def test_offlineモードでmark_blockedとunblockがローカル反映され同一番号同時指定はエラーになる(self) -> None:
+        # Arrange
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "epic_888_state.json"
+            sample_state = {
+                "schema_version": 1,
+                "updated_at": "2026-11-26T22:00:00+09:00",
+                "state_file": str(state_path),
+                "epic": {"number": 888, "title": "オフラインテストEpic", "state": "OPEN", "url": ""},
+                "summary": {
+                    "total": 1,
+                    "pending": 1,
+                    "waiting_deps": 0,
+                    "implementing": 0,
+                    "in_review": 0,
+                    "fixing_review": 0,
+                    "merged": 0,
+                    "blocked": 0,
+                },
+                "children": [
+                    {
+                        "number": 889,
+                        "order": 1,
+                        "parallel_group": 1,
+                        "title": "子タスク",
+                        "scope": "",
+                        "url": "",
+                        "issue_state": "OPEN",
+                        "checked_in_epic": False,
+                        "depends_on": [],
+                        "unmet_depends": [],
+                        "status": "pending",
+                        "status_reason": "着手可能",
+                        "blocked_reason": "",
+                        "pr": None,
+                    }
+                ],
+                "next": {
+                    "epic_halt_recommended": False,
+                    "epic_halt_reason": "",
+                    "recommended_actions": [],
+                    "primary_action": None,
+                },
+                "blocked_overrides": {},
+                "warnings": [],
+            }
+            epic_tracker.save_state(state_path, sample_state)
+
+            # Act 1: 同一番号の同時指定はエラー終了
+            with mock.patch("sys.stderr"):
+                rc_err = epic_tracker.main([
+                    "--epic", "888", "--offline", "--mark-blocked", "889", "--unblock", "889",
+                    "--state-file", str(state_path),
+                ])
+
+            # Act 2: --offline --mark-blocked でローカル反映・保存
+            with mock.patch("sys.stdout"):
+                rc_blk = epic_tracker.main([
+                    "--epic", "888", "--offline", "--mark-blocked", "889", "--reason", "ネットワーク断",
+                    "--state-file", str(state_path),
+                ])
+            after_blk = epic_tracker.load_existing_state(state_path)
+
+            # Act 3: --offline --unblock で pending へ復帰
+            with mock.patch("sys.stdout"):
+                rc_unblk = epic_tracker.main([
+                    "--epic", "888", "--offline", "--unblock", "889",
+                    "--state-file", str(state_path),
+                ])
+            after_unblk = epic_tracker.load_existing_state(state_path)
+
+            # Assert
+            self.assertEqual(rc_err, 1)
+            self.assertEqual(rc_blk, 0)
+            self.assertEqual(after_blk["children"][0]["status"], "blocked")
+            self.assertEqual(after_blk["summary"]["blocked"], 1)
+            self.assertEqual(rc_unblk, 0)
+            self.assertEqual(after_unblk["children"][0]["status"], "pending")
+            self.assertEqual(after_unblk["summary"]["blocked"], 0)
 
 
 if __name__ == "__main__":
