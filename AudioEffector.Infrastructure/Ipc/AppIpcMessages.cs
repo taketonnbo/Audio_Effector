@@ -40,17 +40,57 @@ public static class AppIpcErrorCodes
 }
 
 /// <summary>
+/// Named Pipe IPC のエラー応答でクライアントへ安全な案内を伝えるための構造化理由コード定数を定義します。
+/// </summary>
+public static class AppIpcErrorReasons
+{
+    /// <summary>
+    /// 同名アルバムが複数存在し一意に特定できない。
+    /// </summary>
+    public const string AMBIGUOUS_ALBUM = "AMBIGUOUS_ALBUM";
+
+    /// <summary>
+    /// 同名プレイリストが複数存在し一意に特定できない。
+    /// </summary>
+    public const string AMBIGUOUS_PLAYLIST = "AMBIGUOUS_PLAYLIST";
+}
+
+/// <summary>
 /// MCP サーバから Audio Effector（WPF 本体）へ送信する Named Pipe IPC リクエストを表します。
 /// </summary>
-/// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>play_track</c>）。</param>
+/// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>play_track</c>, <c>play_album</c>, <c>play_playlist</c>）。</param>
 /// <param name="TrackId">再生対象トラックの GUID 文字列（任意）。</param>
 /// <param name="FilePath">再生対象音声ファイルの絶対パス（任意）。</param>
 /// <param name="DeadlineUtc">クライアント側が設定した要求の有効期限（UTC、任意）。期限超過時は処理を実行しない。</param>
+/// <param name="AlbumId">再生対象アルバムの GUID 文字列（任意）。</param>
+/// <param name="AlbumName">再生対象アルバム名（任意）。</param>
+/// <param name="Artist">同名アルバム絞り込み用アーティスト名（任意）。</param>
+/// <param name="PlaylistId">再生対象プレイリストの GUID 文字列（任意）。</param>
+/// <param name="PlaylistName">再生対象プレイリスト名（任意）。</param>
+/// <param name="StartTrackId">コレクション再生時の開始トラック GUID 文字列（任意）。</param>
+/// <param name="StartTrackIndex">コレクション再生時の開始トラック 0 始まりインデックス（任意）。</param>
+/// <param name="Shuffle">シャッフル再生の有効／無効（任意、省略時は現在設定を維持）。</param>
+/// <param name="Repeat">リピート再生の有効／無効（任意、省略時は現在設定を維持）。</param>
+/// <param name="TrackFilePaths">カスタムデータディレクトリ使用時に MCP 側で解決済みの再生対象音声ファイルパス一覧（順序保持、任意）。</param>
+/// <param name="SourceId">解決済みコレクションのソース ID（任意）。</param>
+/// <param name="SourceName">解決済みコレクションのソース名（キュー見出し同期用、任意）。</param>
 public sealed record AppIpcRequest(
     string Command,
     string? TrackId = null,
     string? FilePath = null,
-    DateTimeOffset? DeadlineUtc = null);
+    DateTimeOffset? DeadlineUtc = null,
+    string? AlbumId = null,
+    string? AlbumName = null,
+    string? Artist = null,
+    string? PlaylistId = null,
+    string? PlaylistName = null,
+    string? StartTrackId = null,
+    int? StartTrackIndex = null,
+    bool? Shuffle = null,
+    bool? Repeat = null,
+    IReadOnlyList<string>? TrackFilePaths = null,
+    Guid? SourceId = null,
+    string? SourceName = null);
 
 /// <summary>
 /// Named Pipe IPC 応答で返却する再生中トラック情報です。
@@ -79,12 +119,26 @@ public sealed record AppIpcTrackInfo(
 /// <param name="Track">再生を開始したトラック情報。</param>
 /// <param name="ErrorCode">失敗時の標準エラーコード（<see cref="AppIpcErrorCodes"/>）。</param>
 /// <param name="Error">失敗時のエラー説明。</param>
+/// <param name="SourceType">コレクション再生時のソース種別（<c>album</c> / <c>playlist</c>）。</param>
+/// <param name="SourceId">コレクション再生時のソース ID（アルバム ID またはプレイリスト ID）。</param>
+/// <param name="SourceName">コレクション再生時のソース名（アルバム名またはプレイリスト名）。</param>
+/// <param name="TotalTracks">コレクション再生時の総トラック数（再生可能ファイル数）。</param>
+/// <param name="IsShuffleEnabled">適用後のシャッフル再生有効状態。</param>
+/// <param name="IsRepeatEnabled">適用後のリピート再生有効状態。</param>
+/// <param name="ErrorReason">失敗時の構造化理由コード（<see cref="AppIpcErrorReasons"/>、任意）。</param>
 public sealed record AppIpcResponse(
     bool Ok,
     string? PlaybackState = null,
     AppIpcTrackInfo? Track = null,
     string? ErrorCode = null,
-    string? Error = null)
+    string? Error = null,
+    string? SourceType = null,
+    Guid? SourceId = null,
+    string? SourceName = null,
+    int? TotalTracks = null,
+    bool? IsShuffleEnabled = null,
+    bool? IsRepeatEnabled = null,
+    string? ErrorReason = null)
 {
     /// <summary>
     /// 疎通確認（<c>ping</c>）の成功応答を生成します。
@@ -106,15 +160,54 @@ public sealed record AppIpcResponse(
     }
 
     /// <summary>
+    /// アルバム・プレイリスト再生コマンドの成功応答を生成します。
+    /// </summary>
+    /// <param name="sourceType">再生ソース種別（<c>album</c> / <c>playlist</c>）。</param>
+    /// <param name="sourceId">再生ソース ID（アルバム ID またはプレイリスト ID）。</param>
+    /// <param name="sourceName">再生ソース名。</param>
+    /// <param name="playbackState">再生状態文字列（例: <c>playing</c>）。</param>
+    /// <param name="totalTracks">再生対象コレクションの総トラック数。</param>
+    /// <param name="isShuffleEnabled">適用後のシャッフル再生有効状態。</param>
+    /// <param name="isRepeatEnabled">適用後のリピート再生有効状態。</param>
+    /// <param name="track">再生を開始したトラック情報。</param>
+    /// <returns>コレクション再生開始結果を表す <see cref="AppIpcResponse"/>。</returns>
+    public static AppIpcResponse SuccessCollectionPlayback(
+        string sourceType,
+        Guid sourceId,
+        string sourceName,
+        string playbackState,
+        int totalTracks,
+        bool isShuffleEnabled,
+        bool isRepeatEnabled,
+        AppIpcTrackInfo track)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(playbackState);
+        ArgumentNullException.ThrowIfNull(track);
+        return new AppIpcResponse(
+            Ok: true,
+            PlaybackState: playbackState,
+            Track: track,
+            SourceType: sourceType,
+            SourceId: sourceId,
+            SourceName: sourceName,
+            TotalTracks: totalTracks,
+            IsShuffleEnabled: isShuffleEnabled,
+            IsRepeatEnabled: isRepeatEnabled);
+    }
+
+    /// <summary>
     /// エラーコードと説明を含む失敗応答を生成します。
     /// </summary>
     /// <param name="errorCode">標準エラーコード（<see cref="AppIpcErrorCodes"/>）。</param>
     /// <param name="error">エラー説明。</param>
+    /// <param name="errorReason">クライアント向け案内生成用の構造化理由コード（<see cref="AppIpcErrorReasons"/>、任意）。</param>
     /// <returns>失敗を表す <see cref="AppIpcResponse"/>。</returns>
-    public static AppIpcResponse Failure(string errorCode, string error)
+    public static AppIpcResponse Failure(string errorCode, string error, string? errorReason = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(errorCode);
         ArgumentException.ThrowIfNullOrWhiteSpace(error);
-        return new AppIpcResponse(Ok: false, ErrorCode: errorCode, Error: error);
+        return new AppIpcResponse(Ok: false, ErrorCode: errorCode, Error: error, ErrorReason: errorReason);
     }
 }

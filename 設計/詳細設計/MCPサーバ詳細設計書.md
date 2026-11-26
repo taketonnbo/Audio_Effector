@@ -708,7 +708,75 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 - **WPF・MCP 間の永続化形式共通化と整合性保護**: `PlaylistApplicationService` の `TryLoadPlaylists` / `TrySavePlaylist` / `TryDeletePlaylist`（および `LoadPlaylists` / `SavePlaylists`）は `IPlaylistRepository`（`JsonPlaylistRepository`）経由で `Id` / `Name` / `TrackIds` / `TrackPaths` / `CreatedAt` / `UpdatedAt` を共通管理します。旧 WPF 形式（`Name` と `TrackPaths` のみ、`Id` 欠落）は収録順を保って読み込み、決定論的 ID を付与して再読み込み・再起動後も同一 ID を維持します。また、書き込みはファイル置換成功後にのみキャッシュを確定し、読み込み失敗時は再読み込み成功まで全件置換をガードし、編集時は `TrackIds` と `TrackPaths` を常に同一順序へ同期します。
 - **ソート順・エラーケース**: フィルタ適用後は `Name` → `Id` 順で安定ソートします。`limit` / `offset` / `year` 範囲外は `INVALID_PARAMETER`、ファイルロックタイムアウトは `CONFLICT_LOCK_TIMEOUT`、キャンセルは `OPERATION_CANCELLED`、その他例外は `INTERNAL_ERROR` へ変換します。
 
-### 5.9 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
+### 5.9 アルバム・プレイリスト再生ツール仕様（Phase 2 #330 実装）
+
+`PlaybackTools`（`AudioEffector.McpServer/Tools/PlaybackTools.cs`）に、起動中の Audio Effector（WPF 本体）でアルバムまたはユーザー作成プレイリストの再生・キュー展開・シャッフル／リピート適用を行う **`play_album`** および **`play_playlist`** ツールを実装します。IPC 通信は `IPlaybackControlGateway` / `IpcPlaybackControlGateway` へ委譲し、WPF 側の `PlaybackIpcCommandHandler` が `IUiDispatcher` 経由で `IAudioService.PlayPlaylistAsync` を呼び出します。
+
+#### 5.9.1 アルバム再生ツール（`play_album`）入力パラメータ
+
+| パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
+| :--- | :--- | :---: | :---: | :--- |
+| `albumId` | `string?` | 条件付き必須 | `null` | 再生対象アルバムの `AlbumId`（有効な非空 GUID 文字列）。`albumName` 未指定時は必須。両方指定時は `albumId` 優先。 |
+| `albumName` | `string?` | 条件付き必須 | `null` | 再生対象アルバム名（大文字・小文字区別なし、前後空白トリム）。`albumId` 未指定時は必須。 |
+| `artist` | `string?` | 任意 | `null` | `albumName` 指定時の同名アルバム絞り込み用アーティスト名（大文字・小文字区別なし）。 |
+| `startTrackId` | `string?` | 任意 | `null` | 途中曲から再生する場合の開始トラック ID（有効な非空 GUID 文字列、`startTrackIndex` より優先）。 |
+| `startTrackIndex` | `int?` | 任意 | `null` | 途中曲から再生する場合の 0 始まりインデックス（0 以上、再生可能トラック件数未満）。 |
+| `shuffle` | `bool?` | 任意 | `null` | シャッフル再生の有効／無効（省略時は WPF 本体の現在設定を維持）。 |
+| `repeat` | `bool?` | 任意 | `null` | リピート再生の有効／無効（省略時は WPF 本体の現在設定を維持）。 |
+
+#### 5.9.2 プレイリスト再生ツール（`play_playlist`）入力パラメータ
+
+| パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
+| :--- | :--- | :---: | :---: | :--- |
+| `playlistId` | `string?` | 条件付き必須 | `null` | 再生対象プレイリストの `PlaylistId`（有効な非空 GUID 文字列）。`playlistName` 未指定時は必須。両方指定時は `playlistId` 優先。 |
+| `playlistName` | `string?` | 条件付き必須 | `null` | 再生対象プレイリスト名（大文字・小文字区別なし、前後空白トリム）。`playlistId` 未指定時は必須。 |
+| `startTrackId` | `string?` | 任意 | `null` | 途中曲から再生する場合の開始トラック ID（有効な非空 GUID 文字列、`startTrackIndex` より優先）。 |
+| `startTrackIndex` | `int?` | 任意 | `null` | 途中曲から再生する場合の 0 始まりインデックス（0 以上、再生可能トラック件数未満）。 |
+| `shuffle` | `bool?` | 任意 | `null` | シャッフル再生の有効／無効（省略時は WPF 本体の現在設定を維持）。 |
+| `repeat` | `bool?` | 任意 | `null` | リピート再生の有効／無効（省略時は WPF 本体の現在設定を維持）。 |
+
+#### 5.9.3 出力（`data`）JSON スキーマ（`PlayCollectionResponse`）
+
+```json
+{
+  "sourceType": "album",
+  "sourceId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "sourceName": "Midnight Sessions",
+  "playbackState": "playing",
+  "totalTracks": 8,
+  "isShuffleEnabled": true,
+  "isRepeatEnabled": false,
+  "track": {
+    "id": "11111111-2222-3333-4444-555555555555",
+    "title": "Blue Note Morning",
+    "artist": "Miles Trio",
+    "album": "Midnight Sessions",
+    "durationSeconds": 225.5,
+    "durationString": "03:45",
+    "filePath": "C:\\Music\\Jazz\\BlueNote.flac"
+  }
+}
+```
+
+#### 5.9.4 Named Pipe IPC プロトコル拡張および WPF 画面同期
+
+- **IPC コマンド**: `AppIpcServer.COMMAND_PLAY_ALBUM`（`"play_album"`）および `AppIpcServer.COMMAND_PLAY_PLAYLIST`（`"play_playlist"`）を追加。`AppIpcRequest` / `AppIpcResponse` はすべて任意（nullable）フィールド＋`WhenWritingNull` で拡張し、既存コマンド（`ping` / `play_track`）との後方互換性を維持します。
+- **コレクション解決ロジック（`PlaybackIpcCommandHandler` / `IpcPlaybackControlGateway`）**:
+  - `play_album`: `albumId` 指定時は `LibraryApplicationService.GetAlbumByIdAsync` で一意特定。`albumName` 指定時は `GetAllAlbumsAsync` から大文字・小文字区別なしで検索し、`artist` で絞り込む。同名アルバムが複数候補に残る場合は `INVALID_PARAMETER` と構造化理由コード `AMBIGUOUS_ALBUM` を返し、クライアントへ `albumId` または `artist` の指定案内を返却。再生可能な実在ファイルをトラック番号順に並べて再生対象とします。
+  - `play_playlist`: `PlaylistApplicationService` を DI 注入し、`playlistId`（優先）または `playlistName` で `UserPlaylist` を特定（同名複数時は `INVALID_PARAMETER` + `AMBIGUOUS_PLAYLIST` で `playlistId` 指定案内を返却）。`ResolvePlaylistTracksAsync` により `TrackIds`（および旧互換 `TrackPaths`）から順序通りに解決し、欠損ファイルをスキップして再生対象とします。
+  - `--data-dir` によるカスタムデータディレクトリ使用時は、`IpcPlaybackControlGateway` が MCP 側の `LibraryApplicationService` / `PlaylistApplicationService` で対象コレクション・曲順・開始位置を事前解決し、`trackFilePaths`・`sourceId`・`sourceName`・`startTrackIndex` として WPF 側へ送信することで、検索と再生のライブラリ参照先を一致させます。
+- **トランザクショナル再生と UI 同期**:
+  - `IAudioService.PlayPlaylistAsync` は、開始曲（`startTrackIndex` 指定時は同一トラック重複を含め出現位置を保持、未指定かつシャッフル有効時はランダム選出、通常時は先頭曲）のデコード・出力デバイス開始が確定したタイミングで、キュー（`AlbumQueue` / `UserQueue`）と `IsShuffleEnabled` / `IsRepeatEnabled` を一括コミットします。
+  - `IAudioService` に `ShuffleChanged` / `RepeatChanged` / `QueueSourceNameChanged` イベントを追加し、`PlayerControlViewModel` が購読して `MainViewModel`・ミニプレイヤーのシャッフル／リピートボタン表示およびキュー見出し（`AlbumQueueSourceName` / `AlbumQueueTitle`）をリアルタイム同期します（通知直前に `Stop()` が割り込んだ場合も最新のシャッフル／リピート状態は同期維持）。起動済み WPF 本体のウィンドウ状態（通常メイン画面／ミニプレイヤー）は維持します。
+- **エラーケース**:
+  - 必須識別子未指定、不正・空 GUID、負数／範囲外 `startTrackIndex`、同名アルバム／プレイリストの曖昧一致 → `INVALID_PARAMETER`
+  - 対象アルバム・プレイリスト・指定 `startTrackId` 未存在、空プレイリスト → `NOT_FOUND`
+  - コレクション内にディスク実在する再生可能音声ファイルが 0 件 → `FILE_NOT_FOUND`
+  - WPF 本体未起動 → `WPF_APP_NOT_RUNNING`（`launch_app` 案内付き）
+  - IPC 応答タイムアウト・切断・必須項目欠損 → `IPC_CONNECTION_FAILED`
+  - 期限超過（`deadlineUtc`）またはキャンセル要求 → `OPERATION_CANCELLED`
+
+### 5.10 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
 
 個別ツールの詳細スキーマ・バリデーション・実装仕様は Phase 2 親 Issue（#301）配下の各子 Issue にて順次策定し、実装に合わせて本設計書および機能仕様書へ追記します。
 
@@ -719,7 +787,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 | **プレイリスト管理** | `search_playlists`, `get_playlist`, `create_playlist`, `add_tracks_to_playlist`, `remove_track_from_playlist` | `PlaylistApplicationService` | #331（アルバム・プレイリスト検索）ほか |
 | **イコライザー・プリセット** | `list_equalizer_presets`, `get_equalizer_settings`, `apply_equalizer_preset` | `EqualizerApplicationService` | 順次起票 |
 | **アプリ設定** | `get_settings`, `update_settings` | `SettingsApplicationService` / `ISettingsService` | 順次起票 |
-| **再生制御・再生キュー連携** | `play_track`, `get_playback_status`, `pause_playback`, `next_track`, `enqueue_tracks` | `IPlaybackControlGateway` → WPF `IAudioService` / `AudioApplicationService` | #306（曲の再生）ほか |
+| **再生制御・再生キュー連携** | `play_track`, `play_album`, `play_playlist`, `get_playback_status`, `pause_playback`, `next_track`, `enqueue_tracks` | `IPlaybackControlGateway` → WPF `IAudioService` / `AudioApplicationService` | #306（曲の再生）, #330（アルバム・プレイリスト再生）ほか |
 
 ---
 
@@ -748,4 +816,4 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - [インフラストラクチャ層詳細設計書](アーキテクチャ/インフラストラクチャ層詳細設計書.md)
   - [プレゼンテーション層詳細設計書](アーキテクチャ/プレゼンテーション層詳細設計書.md)
   - [テスト方針書](テスト仕様/テスト方針書.md)
-- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)
+- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)

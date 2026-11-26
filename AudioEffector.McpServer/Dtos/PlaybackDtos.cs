@@ -14,6 +14,27 @@ public sealed record PlayTrackResponse(
     PlayedTrackDto Track);
 
 /// <summary>
+/// <c>play_album</c> および <c>play_playlist</c> ツールの応答データ DTO です。
+/// </summary>
+/// <param name="SourceType">再生対象コレクションの種別（<c>album</c> または <c>playlist</c>）。</param>
+/// <param name="SourceId">再生対象コレクションの一意 ID（<c>AlbumId</c> または <c>PlaylistId</c> の GUID）。</param>
+/// <param name="SourceName">再生対象コレクション名（アルバム名またはプレイリスト名）。</param>
+/// <param name="PlaybackState">現在の再生状態（例: <c>playing</c>）。</param>
+/// <param name="TotalTracks">再生対象コレクション内の再生可能トラック総数。</param>
+/// <param name="IsShuffleEnabled">適用後のシャッフル再生有効状態。</param>
+/// <param name="IsRepeatEnabled">適用後のリピート再生有効状態。</param>
+/// <param name="Track">再生を開始したトラック情報。</param>
+public sealed record PlayCollectionResponse(
+    string SourceType,
+    Guid SourceId,
+    string SourceName,
+    string PlaybackState,
+    int TotalTracks,
+    bool IsShuffleEnabled,
+    bool IsRepeatEnabled,
+    PlayedTrackDto Track);
+
+/// <summary>
 /// 再生制御応答で返却する楽曲情報 DTO です。
 /// </summary>
 /// <param name="Id">一意のトラック ID（GUID）。</param>

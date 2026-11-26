@@ -112,7 +112,8 @@ public partial class App : System.Windows.Application
             ServiceProvider.GetRequiredService<ITrackRepository>(),
             ServiceProvider.GetRequiredService<LibraryApplicationService>(),
             ServiceProvider.GetRequiredService<IAudioService>(),
-            ServiceProvider.GetRequiredService<IUiDispatcher>());
+            ServiceProvider.GetRequiredService<IUiDispatcher>(),
+            ServiceProvider.GetRequiredService<PlaylistApplicationService>());
         _ipcServer = new AppIpcServer(ipcCommandHandler);
         _ipcServer.Start();
     }

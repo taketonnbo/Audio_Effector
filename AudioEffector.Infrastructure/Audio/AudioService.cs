@@ -43,6 +43,7 @@ public class AudioService : IAudioService
     private List<Track> _playlist = new();
     private Track? _currentlyPlayingTrack;
     private bool _isShuffleEnabled;
+    private bool _isRepeatEnabled;
     private bool _wasPlayingBeforeSeek;
     private Guid _currentPlaybackId;
     private Guid _pendingPlaybackRequestId;
@@ -80,7 +81,7 @@ public class AudioService : IAudioService
             {
                 _userQueue.Clear();
                 _playlist = new List<Track>(_albumQueue);
-                _finalTrackOfQueue = _albumQueue.Count > 0 ? _albumQueue[^1] : _currentlyPlayingTrack;
+                UpdateFinalTrackMarkerLocked();
                 changedPlaylist = new List<Track>(_playlist);
             }
         }
@@ -113,7 +114,7 @@ public class AudioService : IAudioService
             _userQueue.Insert(toIndex, item);
 
             _playlist = _userQueue.Concat(_albumQueue).ToList();
-            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            UpdateFinalTrackMarkerLocked();
             changedPlaylist = new List<Track>(_playlist);
         }
 
@@ -142,7 +143,7 @@ public class AudioService : IAudioService
             _albumQueue.Insert(toIndex, item);
 
             _playlist = _userQueue.Concat(_albumQueue).ToList();
-            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            UpdateFinalTrackMarkerLocked();
             changedPlaylist = new List<Track>(_playlist);
         }
 
@@ -170,7 +171,7 @@ public class AudioService : IAudioService
             _userQueue.Insert(clampedToIndex, item);
 
             _playlist = _userQueue.Concat(_albumQueue).ToList();
-            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            UpdateFinalTrackMarkerLocked();
             changedPlaylist = new List<Track>(_playlist);
         }
 
@@ -184,6 +185,7 @@ public class AudioService : IAudioService
 
     private Track? _lastPlayingTrack;
     private Track? _finalTrackOfQueue;
+    private bool _isCurrentlyPlayingFinalTrack;
     private bool _stopRequested;
     private bool _currentTrackReportedAsEnded;
 
@@ -228,6 +230,21 @@ public class AudioService : IAudioService
     public event Action<float>? VolumeChanged;
 
     /// <summary>
+    /// シャッフル再生の有効状態が変更された際に発生するイベント
+    /// </summary>
+    public event Action<bool>? ShuffleChanged;
+
+    /// <summary>
+    /// リピート再生の有効状態が変更された際に発生するイベント
+    /// </summary>
+    public event Action<bool>? RepeatChanged;
+
+    /// <summary>
+    /// コレクション再生によりキュー生成元リスト名（アルバム名・プレイリスト名）が変更された際に発生するイベント
+    /// </summary>
+    public event Action<string>? QueueSourceNameChanged;
+
+    /// <summary>
     /// イコライザーの周波数帯域定義（10バンド）
     /// </summary>
     public float[] Frequencies { get; } = { 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
@@ -246,11 +263,13 @@ public class AudioService : IAudioService
         set
         {
             List<Track>? changedPlaylist = null;
+            bool changed = false;
             lock (_lock)
             {
                 if (_isShuffleEnabled != value)
                 {
                     _isShuffleEnabled = value;
+                    changed = true;
                     if (_isShuffleEnabled)
                     {
                         ShufflePlaylist();
@@ -263,6 +282,11 @@ public class AudioService : IAudioService
                 }
             }
 
+            if (changed)
+            {
+                ShuffleChanged?.Invoke(value);
+            }
+
             if (changedPlaylist != null)
             {
                 PlaylistChanged?.Invoke(changedPlaylist);
@@ -273,7 +297,27 @@ public class AudioService : IAudioService
     /// <summary>
     /// リピート再生が有効かどうかを取得または設定します
     /// </summary>
-    public bool IsRepeatEnabled { get; set; }
+    public bool IsRepeatEnabled
+    {
+        get => _isRepeatEnabled;
+        set
+        {
+            bool changed = false;
+            lock (_lock)
+            {
+                if (_isRepeatEnabled != value)
+                {
+                    _isRepeatEnabled = value;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                RepeatChanged?.Invoke(value);
+            }
+        }
+    }
 
     /// <summary>
     /// プレイリストを設定します
@@ -300,6 +344,7 @@ public class AudioService : IAudioService
                 _playlist.Clear();
                 _currentlyPlayingTrack = null;
                 _finalTrackOfQueue = null;
+                _isCurrentlyPlayingFinalTrack = false;
             }
             else
             {
@@ -312,7 +357,6 @@ public class AudioService : IAudioService
                     var remaining = tracks!.Where(t => !string.Equals(t.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase)).ToList();
                     ShuffleList(remaining);
                     _albumQueue = remaining;
-                    _finalTrackOfQueue = _albumQueue.Count > 0 ? _albumQueue[^1] : currentTrack;
                 }
                 else
                 {
@@ -325,10 +369,10 @@ public class AudioService : IAudioService
                     {
                         _albumQueue = tracks!.Where(t => !string.Equals(t.FilePath, currentTrack.FilePath, StringComparison.OrdinalIgnoreCase)).ToList();
                     }
-                    _finalTrackOfQueue = _albumQueue.Count > 0 ? _albumQueue[^1] : currentTrack;
                 }
 
                 _playlist = new List<Track>(_albumQueue);
+                UpdateFinalTrackMarkerLocked();
             }
         }
 
@@ -391,7 +435,7 @@ public class AudioService : IAudioService
             }
 
             _playlist = _userQueue.Concat(_albumQueue).ToList();
-            _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
+            UpdateFinalTrackMarkerLocked();
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
@@ -412,13 +456,24 @@ public class AudioService : IAudioService
             _originalAlbumTracks.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
 
             _playlist = _userQueue.Concat(_albumQueue).ToList();
-            if (_finalTrackOfQueue != null && string.Equals(_finalTrackOfQueue.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase))
-            {
-                _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : _currentlyPlayingTrack;
-            }
+            UpdateFinalTrackMarkerLocked();
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
+    }
+
+    private void UpdateFinalTrackMarkerLocked()
+    {
+        if (_playlist.Count > 0)
+        {
+            _finalTrackOfQueue = _playlist[^1];
+            _isCurrentlyPlayingFinalTrack = false;
+        }
+        else
+        {
+            _finalTrackOfQueue = _currentlyPlayingTrack;
+            _isCurrentlyPlayingFinalTrack = _currentlyPlayingTrack != null;
+        }
     }
 
     private void ShufflePlaylist(Track? keepFirstTrack = null)
@@ -495,17 +550,97 @@ public class AudioService : IAudioService
         ArgumentNullException.ThrowIfNull(track);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return PlayTrackTransactionalAsync(track, cancellationToken);
+        return PlayTrackTransactionalAsync(
+            track,
+            playlistTracks: null,
+            shuffle: null,
+            repeat: null,
+            sourceName: null,
+            startTrackIndex: null,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// トラックコレクションのキュー設定・シャッフル／リピート適用・開始曲の再生開始完了待機までを一貫して非同期実行します
+    /// </summary>
+    /// <param name="tracks">再生対象のトラックコレクション</param>
+    /// <param name="startTrack">最初に再生開始するトラック（省略時は通常順なら先頭曲、シャッフル有効時はランダム選出）</param>
+    /// <param name="shuffle">シャッフル再生の有効／無効（省略時は現在設定を維持）</param>
+    /// <param name="repeat">リピート再生の有効／無効（省略時は現在設定を維持）</param>
+    /// <param name="sourceName">キュー生成元のリスト名（アルバム名またはプレイリスト名、省略可）</param>
+    /// <param name="startTrackIndex">コレクション内における開始曲の 0 始まり出現位置（同一トラック重複時の位置保持用、省略可）</param>
+    /// <param name="cancellationToken">キャンセル要求トークン</param>
+    /// <returns>再生が正常に開始された場合は開始トラック、トラック空または再生開始に失敗・中断された場合は <see langword="null"/></returns>
+    public async Task<Track?> PlayPlaylistAsync(
+        IReadOnlyList<Track> tracks,
+        Track? startTrack = null,
+        bool? shuffle = null,
+        bool? repeat = null,
+        string? sourceName = null,
+        int? startTrackIndex = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tracks);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var trackList = tracks.Where(t => t != null).ToList();
+        if (trackList.Count == 0)
+        {
+            return null;
+        }
+
+        bool effectiveShuffle;
+        lock (_lock)
+        {
+            effectiveShuffle = shuffle ?? _isShuffleEnabled;
+        }
+
+        Track resolvedStartTrack;
+        int? resolvedStartIndex = null;
+        if (startTrackIndex.HasValue && startTrackIndex.Value >= 0 && startTrackIndex.Value < trackList.Count)
+        {
+            resolvedStartIndex = startTrackIndex.Value;
+            resolvedStartTrack = startTrack ?? trackList[resolvedStartIndex.Value];
+        }
+        else if (startTrack != null)
+        {
+            resolvedStartTrack = startTrack;
+        }
+        else if (effectiveShuffle)
+        {
+            resolvedStartIndex = Random.Shared.Next(trackList.Count);
+            resolvedStartTrack = trackList[resolvedStartIndex.Value];
+        }
+        else
+        {
+            resolvedStartIndex = 0;
+            resolvedStartTrack = trackList[0];
+        }
+
+        bool started = await PlayTrackTransactionalAsync(
+            resolvedStartTrack,
+            playlistTracks: trackList,
+            shuffle: shuffle,
+            repeat: repeat,
+            sourceName: sourceName,
+            startTrackIndex: resolvedStartIndex,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        return started ? resolvedStartTrack : null;
     }
 
     private void PrepareTrackForPlayback(Track track)
     {
         lock (_lock)
         {
+            bool selectedFinalTrack = _finalTrackOfQueue != null &&
+                string.Equals(track.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+
             _currentlyPlayingTrack = track;
             _userQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
             _albumQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
             _playlist = _userQueue.Concat(_albumQueue).ToList();
+            _isCurrentlyPlayingFinalTrack = selectedFinalTrack || _playlist.Count == 0;
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
@@ -741,7 +876,14 @@ public class AudioService : IAudioService
         return false;
     }
 
-    private async Task<bool> PlayTrackTransactionalAsync(Track trackToPlay, CancellationToken cancellationToken)
+    private async Task<bool> PlayTrackTransactionalAsync(
+        Track trackToPlay,
+        IReadOnlyList<Track>? playlistTracks,
+        bool? shuffle,
+        bool? repeat,
+        string? sourceName,
+        int? startTrackIndex,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -758,6 +900,8 @@ public class AudioService : IAudioService
 
         Track? endedTrack = null;
         List<Track>? changedPlaylist = null;
+        bool? changedShuffle = null;
+        bool? changedRepeat = null;
 
         bool committed = await Task.Run(() =>
         {
@@ -879,19 +1023,76 @@ public class AudioService : IAudioService
 
                     _currentPlaybackId = thisPlaybackId;
 
-                    if (_currentlyPlayingTrack != null && !string.Equals(_currentlyPlayingTrack.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase))
+                    if (playlistTracks != null)
                     {
+                        if (shuffle.HasValue && _isShuffleEnabled != shuffle.Value)
+                        {
+                            _isShuffleEnabled = shuffle.Value;
+                            changedShuffle = shuffle.Value;
+                        }
+
+                        if (repeat.HasValue && _isRepeatEnabled != repeat.Value)
+                        {
+                            _isRepeatEnabled = repeat.Value;
+                            changedRepeat = repeat.Value;
+                        }
+
                         endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
-                        _playedTrackPaths.Add(_currentlyPlayingTrack.FilePath);
+                        _playedTrackPaths.Clear();
+                        _userQueue.Clear();
+                        _originalAlbumTracks = new List<Track>(playlistTracks);
+                        _currentlyPlayingTrack = trackToPlay;
+                        _lastPlayingTrack = trackToPlay;
+                        _currentTrackReportedAsEnded = false;
+
+                        int startIdx = startTrackIndex.HasValue && startTrackIndex.Value >= 0 && startTrackIndex.Value < _originalAlbumTracks.Count
+                            ? startTrackIndex.Value
+                            : _originalAlbumTracks.FindIndex(t => ReferenceEquals(t, trackToPlay));
+                        if (startIdx < 0)
+                        {
+                            startIdx = _originalAlbumTracks.FindIndex(t => string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase));
+                        }
+
+                        if (_isShuffleEnabled)
+                        {
+                            List<Track> remaining = startIdx >= 0
+                                ? _originalAlbumTracks.Where((_, idx) => idx != startIdx).ToList()
+                                : _originalAlbumTracks.Where(t => !string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase)).ToList();
+                            ShuffleList(remaining);
+                            _albumQueue = remaining;
+                        }
+                        else
+                        {
+                            _albumQueue = startIdx >= 0
+                                ? _originalAlbumTracks.Skip(startIdx + 1).ToList()
+                                : _originalAlbumTracks.Where(t => !string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase)).ToList();
+                        }
+
+                        _playlist = new List<Track>(_albumQueue);
+                        UpdateFinalTrackMarkerLocked();
+                        changedPlaylist = new List<Track>(_playlist);
+                    }
+                    else
+                    {
+                        if (_currentlyPlayingTrack != null && !string.Equals(_currentlyPlayingTrack.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            endedTrack = CheckAndPreparePlaybackEnded(forceEnded: false);
+                            _playedTrackPaths.Add(_currentlyPlayingTrack.FilePath);
+                        }
+
+                        bool selectedFinalTrack = _finalTrackOfQueue != null &&
+                            string.Equals(trackToPlay.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+
+                        _currentlyPlayingTrack = trackToPlay;
+                        _lastPlayingTrack = trackToPlay;
+                        _currentTrackReportedAsEnded = false;
+                        _userQueue.RemoveAll(t => string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase));
+                        _albumQueue.RemoveAll(t => string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase));
+                        _playlist = _userQueue.Concat(_albumQueue).ToList();
+                        _isCurrentlyPlayingFinalTrack = selectedFinalTrack || _playlist.Count == 0;
+                        changedPlaylist = new List<Track>(_playlist);
                     }
 
-                    _currentlyPlayingTrack = trackToPlay;
-                    _lastPlayingTrack = trackToPlay;
-                    _currentTrackReportedAsEnded = false;
-                    _userQueue.RemoveAll(t => string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase));
-                    _albumQueue.RemoveAll(t => string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase));
-                    _playlist = _userQueue.Concat(_albumQueue).ToList();
-                    changedPlaylist = new List<Track>(_playlist);
                     return true;
                 }
             }
@@ -937,12 +1138,35 @@ public class AudioService : IAudioService
         {
             _uiDispatcher.Invoke(() =>
             {
+                bool isCurrentPlayback;
+                bool currentShuffle;
+                bool currentRepeat;
                 lock (_lock)
                 {
-                    if (_currentPlaybackId != thisPlaybackId)
-                    {
-                        return;
-                    }
+                    isCurrentPlayback = _currentPlaybackId == thisPlaybackId;
+                    currentShuffle = _isShuffleEnabled;
+                    currentRepeat = _isRepeatEnabled;
+                }
+
+                // 停止や後続再生が割り込んで曲通知を破棄する場合でも、設定変更後の最新シャッフル・リピート状態は UI へ同期する
+                if (changedShuffle.HasValue)
+                {
+                    ShuffleChanged?.Invoke(currentShuffle);
+                }
+
+                if (changedRepeat.HasValue)
+                {
+                    RepeatChanged?.Invoke(currentRepeat);
+                }
+
+                if (!isCurrentPlayback)
+                {
+                    return;
+                }
+
+                if (sourceName != null)
+                {
+                    QueueSourceNameChanged?.Invoke(sourceName);
                 }
 
                 if (endedTrack != null)
@@ -1084,8 +1308,17 @@ public class AudioService : IAudioService
             if (expectedPlaybackId.HasValue && _currentPlaybackId != expectedPlaybackId.Value) return;
 
             endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
-            bool isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
-                string.Equals(endedTrack.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+            bool isFinalTrackEnded;
+            if (endedTrack != null && _currentlyPlayingTrack != null &&
+                string.Equals(endedTrack.FilePath, _currentlyPlayingTrack.FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                isFinalTrackEnded = _isCurrentlyPlayingFinalTrack;
+            }
+            else
+            {
+                isFinalTrackEnded = endedTrack != null && _finalTrackOfQueue != null &&
+                    string.Equals(endedTrack.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+            }
 
             if (_userQueue.Count > 0)
             {
@@ -1114,6 +1347,8 @@ public class AudioService : IAudioService
                     _albumQueue = repeatTracks.Skip(1).ToList();
                     _playlist = _userQueue.Concat(_albumQueue).ToList();
                     newPlaylist = new List<Track>(_playlist);
+                    _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : nextTrack;
+                    _isCurrentlyPlayingFinalTrack = _playlist.Count == 0;
                 }
                 else
                 {
@@ -1121,7 +1356,13 @@ public class AudioService : IAudioService
                     StopInternal();
                     _currentlyPlayingTrack = null;
                     _finalTrackOfQueue = null;
+                    _isCurrentlyPlayingFinalTrack = false;
                 }
+            }
+            else
+            {
+                _finalTrackOfQueue = _playlist.Count > 0 ? _playlist[^1] : nextTrack;
+                _isCurrentlyPlayingFinalTrack = _playlist.Count == 0;
             }
         }
 
@@ -1218,6 +1459,7 @@ public class AudioService : IAudioService
 
             StopInternal();
             _currentlyPlayingTrack = null;
+            _isCurrentlyPlayingFinalTrack = false;
             _stopRequested = false;
             playlistEmpty = (_playlist.Count == 0);
         }

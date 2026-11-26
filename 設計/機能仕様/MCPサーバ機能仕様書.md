@@ -76,18 +76,32 @@ AI エージェントが Audio Effector の楽曲ライブラリやユーザー�
     - 「Audio Effector をミニプレイヤーで起動して」
     - 「Audio Effector を通常画面で起動して」
 
-### 2.5 楽曲再生機能（Phase 2 #306 提供）
+### 2.5 楽曲・アルバム・プレイリスト再生機能（Phase 2 #306, #330 提供）
 
-AI エージェントが「曲の検索」（#305: `search_tracks`）等で特定した楽曲を、起動中の Audio Effector デスクトップアプリ本体で即座に再生開始するための再生ツールを提供します。
+AI エージェントが「曲の検索」（#305: `search_tracks`）や「アルバム・プレイリストの検索」（#331: `search_albums`, `search_playlists`）等で特定した楽曲・アルバム・プレイリストを、起動中の Audio Effector デスクトップアプリ本体で即座に再生開始するための再生ツールを提供します。
 
-- **曲の再生（`play_track`）**:
+- **曲の再生（`play_track` / #306）**:
   - 再生対象として **`trackId`（トラックの GUID）** または **`filePath`（音声ファイルの絶対パス）** のいずれか（少なくとも一方必須、両方指定時は `trackId` 優先）を指定して再生を開始できます。
   - Audio Effector デスクトップアプリ本体が起動済みの場合、**現在のウィンドウ状態（通常メイン画面／ミニプレイヤー）を変更せず維持したまま**、再生バー・再生中曲情報・再生キュー・ミニプレイヤー・スペクトラムアナライザ等の画面表示をリアルタイムに完全同期させて再生を開始します。
+- **アルバムの再生（`play_album` / #330）**:
+  - **`albumId`（決定論的 `AlbumId` の GUID）** または **`albumName`（大文字・小文字区別なし、必要に応じて `artist` で同名アルバムを絞り込み）** を指定して、アルバム全体の再生および残り曲のキュー展開を開始できます。
+  - 途中曲から開始したい場合は `startTrackId` または 0 始まりの `startTrackIndex`（`startTrackId` 優先）を指定できます。
+  - `shuffle`（シャッフル再生）・`repeat`（リピート再生）を任意指定でき、省略時は Audio Effector 本体の現在の設定を維持します。`shuffle: true` かつ開始曲未指定時はアルバム内からランダムに開始曲を選出し、残りの曲をシャッフル順でキューへ展開します。変更されたシャッフル／リピート状態は WPF 画面上のボタン表示にもリアルタイム同期されます。
+  - **利用例**:
+    - 「アルバム `Midnight Sessions` をシャッフル＆リピートで流して」
+    - 「`search_albums` で見つけたアルバムの 3 曲目から再生して」
+- **プレイリストの再生（`play_playlist` / #330）**:
+  - **`playlistId`（GUID）** または **`playlistName`（大文字・小文字区別なし）** を指定して、ユーザー作成プレイリストの収録順（またはシャッフル順）での再生およびキュー展開を開始できます。
+  - `startTrackId` / `startTrackIndex` による途中曲開始、および `shuffle` / `repeat` の切り替えに対応し、欠損した音声ファイルは自動的にスキップして再生可能な楽曲のみで連続再生します。
+  - **利用例**:
+    - 「ドライブ用プレイリストをシャッフル再生して」
+    - 「`search_playlists` で取得したプレイリストを最初からリピート再生して」
+- **未起動時の振る舞い（共通）**:
   - Audio Effector デスクトップアプリ本体が未起動の状態で呼び出した場合は、意図しないバックグラウンド再生や多重起動を行わず、エラーコード `WPF_APP_NOT_RUNNING` とともに **`launch_app` ツールでの事前起動を案内するメッセージ** を返却します。
-  - **利用例（`search_tracks` / `launch_app` との連携フロー）**:
-    1. 「Jazz のお気に入りの曲を探して」（`search_tracks` で `id` / `filePath` を取得）
+  - **利用例（検索 / `launch_app` との連携フロー）**:
+    1. 「Jazz のお気に入りの曲やアルバムを探して」（`search_tracks` / `search_albums` / `search_playlists` で ID を取得）
     2. 「Audio Effector をミニプレイヤーで起動して」（未起動時のみ `launch_app(mode: "mini_player")`）
-    3. 「最初に見つかった曲を再生して」（`play_track(trackId: "...")` または `play_track(filePath: "...")`）
+    3. 「そのアルバムをシャッフルで再生して」（`play_album(albumId: "...", shuffle: true)`）
 
 ### 2.6 段階的に拡張される連携機能カテゴリ（Phase 2 以降）
 
@@ -100,7 +114,7 @@ Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリ
 | **プレイリスト管理** | 既存プレイリストの一覧・内容を検索・確認し（`search_playlists` 実装済み）、AI が選んだ楽曲で新しいプレイリストを作成・編集する | #331（アルバム・プレイリスト検索）ほか |
 | **イコライザー・プリセット** | 現在のイコライザー設定や登録済みプリセットを確認し、聴くジャンルに合わせてプリセットを切り替える | Phase 2 順次追加 |
 | **アプリケーション設定** | 監視フォルダや表示設定などの現在値を確認・調整する | Phase 2 順次追加 |
-| **再生制御・再生キュー連携** | 検索した楽曲を即座に再生したり（`play_track` 実装済み）、再生中トラック・キューの確認や再生／一時停止／スキップを行う | #306（曲の再生）ほか |
+| **再生制御・再生キュー連携** | 検索した楽曲・アルバム・プレイリストを即座に再生し（`play_track`, `play_album`, `play_playlist` 実装済み）、シャッフル・リピートや再生中トラック・キューの確認、再生／一時停止／スキップを行う | #306（曲の再生）, #330（アルバム・プレイリスト再生）ほか |
 
 ### 2.7 Audio Effector デスクトップアプリ本体との共存動作
 
@@ -157,4 +171,4 @@ Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリ
   - 親 Epic: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294)（C# による MCP サーバ機能の追加）
   - Phase 0（設計）: [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303)
   - Phase 1（基盤実装）: [#296](https://github.com/taketonnbo/Audio_Effector/issues/296)
-  - Phase 2（機能拡張）: [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)
+  - Phase 2（機能拡張）: [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)

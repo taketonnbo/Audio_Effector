@@ -772,6 +772,9 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         _audioService.PlaybackStateChanged += OnAudioServicePlaybackStateChanged;
         _audioService.PlaylistChanged += OnAudioServicePlaylistChanged;
         _audioService.VolumeChanged += OnAudioServiceVolumeChanged;
+        _audioService.ShuffleChanged += OnAudioServiceShuffleChanged;
+        _audioService.RepeatChanged += OnAudioServiceRepeatChanged;
+        _audioService.QueueSourceNameChanged += OnAudioServiceQueueSourceNameChanged;
         _audioService.TrackPlaybackEnded += OnAudioServiceTrackPlaybackEnded;
         _audioService.FftCalculated += OnLegacyFftCalculated;
         _audioEngine.FftCalculated += OnFftCalculated;
@@ -1257,6 +1260,41 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         });
     }
 
+    private void OnAudioServiceShuffleChanged(bool isShuffleEnabled)
+    {
+        RunOnUiThread(() =>
+        {
+            if (_isShuffleEnabled != isShuffleEnabled)
+            {
+                _isShuffleEnabled = isShuffleEnabled;
+                OnPropertyChanged(nameof(IsShuffleEnabled));
+                OnPropertyChanged(nameof(IsShuffle));
+            }
+        });
+    }
+
+    private void OnAudioServiceRepeatChanged(bool isRepeatEnabled)
+    {
+        RunOnUiThread(() =>
+        {
+            if (_isAlbumRepeat != isRepeatEnabled)
+            {
+                _isAlbumRepeat = isRepeatEnabled;
+                _repeatMode = isRepeatEnabled ? 1 : 0;
+                OnPropertyChanged(nameof(IsAlbumRepeat));
+                OnPropertyChanged(nameof(RepeatMode));
+            }
+        });
+    }
+
+    private void OnAudioServiceQueueSourceNameChanged(string sourceName)
+    {
+        RunOnUiThread(() =>
+        {
+            AlbumQueueSourceName = sourceName ?? string.Empty;
+        });
+    }
+
     private void UpdateTrackDisplays(Track? track)
     {
         int artworkGeneration = Interlocked.Increment(ref _trackArtworkGeneration);
@@ -1588,6 +1626,9 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         _audioService.PlaybackStateChanged -= OnAudioServicePlaybackStateChanged;
         _audioService.PlaylistChanged -= OnAudioServicePlaylistChanged;
         _audioService.VolumeChanged -= OnAudioServiceVolumeChanged;
+        _audioService.ShuffleChanged -= OnAudioServiceShuffleChanged;
+        _audioService.RepeatChanged -= OnAudioServiceRepeatChanged;
+        _audioService.QueueSourceNameChanged -= OnAudioServiceQueueSourceNameChanged;
         _audioService.TrackPlaybackEnded -= OnAudioServiceTrackPlaybackEnded;
         _audioService.FftCalculated -= OnLegacyFftCalculated;
         _audioEngine.FftCalculated -= OnFftCalculated;

@@ -24,6 +24,16 @@ public sealed class AppIpcServer : IDisposable
     /// </summary>
     public const string COMMAND_PLAY_TRACK = "play_track";
 
+    /// <summary>
+    /// アルバム再生開始（play_album）コマンド名。
+    /// </summary>
+    public const string COMMAND_PLAY_ALBUM = "play_album";
+
+    /// <summary>
+    /// プレイリスト再生開始（play_playlist）コマンド名。
+    /// </summary>
+    public const string COMMAND_PLAY_PLAYLIST = "play_playlist";
+
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
     private static readonly TimeSpan ClientRequestTimeout = TimeSpan.FromSeconds(5);

@@ -788,6 +788,9 @@ public sealed class AllSongsViewModelTests
         public event EventHandler<FftEventArgs>? FftCalculated { add { } remove { } }
         public event Action<List<Track>>? PlaylistChanged { add { } remove { } }
         public event Action<float>? VolumeChanged { add { } remove { } }
+        public event Action<bool>? ShuffleChanged { add { } remove { } }
+        public event Action<bool>? RepeatChanged { add { } remove { } }
+        public event Action<string>? QueueSourceNameChanged { add { } remove { } }
 
         public IReadOnlyList<Track> UserQueue => Array.Empty<Track>();
         public IReadOnlyList<Track> AlbumQueue => LastPlaylist;
@@ -817,6 +820,15 @@ public sealed class AllSongsViewModelTests
         public void PlayTrack(Track track) { LastStartTrack = track; PlayCalled = true; }
         public void PlayTrack(Track track, bool insertAtBeginning) { LastStartTrack = track; PlayCalled = true; }
         public Task<bool> PlayTrackAsync(Track track, CancellationToken cancellationToken = default) { PlayTrack(track); return Task.FromResult(true); }
+        public Task<Track?> PlayPlaylistAsync(IReadOnlyList<Track> tracks, Track? startTrack = null, bool? shuffle = null, bool? repeat = null, string? sourceName = null, int? startTrackIndex = null, CancellationToken cancellationToken = default)
+        {
+            if (shuffle.HasValue) IsShuffleEnabled = shuffle.Value;
+            if (repeat.HasValue) IsRepeatEnabled = repeat.Value;
+            SetPlaylist(tracks.ToList(), startTrack);
+            Track? started = startTrack ?? (tracks.Count > 0 ? tracks[0] : null);
+            if (started != null) PlayTrack(started);
+            return Task.FromResult(started);
+        }
         public void TogglePlayPause() => PlayCalled = !PlayCalled;
         public void Next() { }
         public void Previous() { }
