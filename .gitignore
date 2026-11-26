@@ -27,6 +27,8 @@ objects.txt
 .agent_test_build/
 .agent_logs/
 PowerShell/
+__pycache__/
+*.py[cod]
 
 # Proposal documents (リモート管理対象外)
 設計/提案書/
