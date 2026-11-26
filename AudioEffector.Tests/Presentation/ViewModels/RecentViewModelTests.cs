@@ -467,6 +467,7 @@ public sealed class RecentViewModelTests
         public event Action<float>? VolumeChanged { add { } remove { } }
         public event Action<bool>? ShuffleChanged { add { } remove { } }
         public event Action<bool>? RepeatChanged { add { } remove { } }
+        public event Action<string>? QueueSourceNameChanged { add { } remove { } }
 
         public void RaiseTrackChanged(Track? track) => TrackChanged?.Invoke(track);
 
@@ -509,7 +510,7 @@ public sealed class RecentViewModelTests
             PlayTrack(track);
             return Task.FromResult(true);
         }
-        public Task<Track?> PlayPlaylistAsync(IReadOnlyList<Track> tracks, Track? startTrack = null, bool? shuffle = null, bool? repeat = null, CancellationToken cancellationToken = default)
+        public Task<Track?> PlayPlaylistAsync(IReadOnlyList<Track> tracks, Track? startTrack = null, bool? shuffle = null, bool? repeat = null, string? sourceName = null, int? startTrackIndex = null, CancellationToken cancellationToken = default)
         {
             if (shuffle.HasValue) IsShuffleEnabled = shuffle.Value;
             if (repeat.HasValue) IsRepeatEnabled = repeat.Value;

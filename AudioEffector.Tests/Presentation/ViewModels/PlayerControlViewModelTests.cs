@@ -1215,5 +1215,36 @@ public sealed class PlayerControlViewModelTests
         _audioServiceMock.VerifySet(a => a.IsShuffleEnabled = It.IsAny<bool>(), Times.Never);
         _audioServiceMock.VerifySet(a => a.IsRepeatEnabled = It.IsAny<bool>(), Times.Never);
     }
+
+    /// <summary>
+    /// 画面でアルバム A を再生した後に AudioService の QueueSourceNameChanged でプレイリスト B が通知された場合、AlbumQueueSourceName と AlbumQueueTitle が B へ更新されることを検証します。
+    /// </summary>
+    [Fact]
+    public void AudioServiceイベント_QueueSourceNameChanged発火時_AlbumQueueSourceNameとAlbumQueueTitleが更新される()
+    {
+        // Arrange
+        using var sut = new PlayerControlViewModel(
+            _audioServiceMock.Object,
+            _audioEngineMock.Object,
+            _eventBus,
+            _settingsServiceMock.Object);
+
+        var trackA = new Track { FilePath = @"C:\Music\a.flac", Title = "Song A", Album = "Album A" };
+        sut.SetPlaybackList([trackA], "Album A", "Artist A");
+        Assert.Equal("Album A", sut.AlbumQueueSourceName);
+        Assert.Equal("次のアルバムから: Album A", sut.AlbumQueueTitle);
+
+        var notifiedProperties = new List<string?>();
+        sut.PropertyChanged += (_, e) => notifiedProperties.Add(e.PropertyName);
+
+        // Act
+        _audioServiceMock.Raise(a => a.QueueSourceNameChanged += null, "Playlist B");
+
+        // Assert
+        Assert.Equal("Playlist B", sut.AlbumQueueSourceName);
+        Assert.Equal("次のアルバムから: Playlist B", sut.AlbumQueueTitle);
+        Assert.Contains(nameof(PlayerControlViewModel.AlbumQueueSourceName), notifiedProperties);
+        Assert.Contains(nameof(PlayerControlViewModel.AlbumQueueTitle), notifiedProperties);
+    }
 }
 

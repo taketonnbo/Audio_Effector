@@ -453,6 +453,80 @@ public sealed class AudioServicePlayTrackAsyncTests : IDisposable
         Assert.Equal([true, false], repeatValues);
     }
 
+    /// <summary>
+    /// PlayPlaylistAsync の通知配信直前に Stop が割り込んだ場合でも、曲通知は抑制しつつ最新のシャッフル・リピート状態は UI へ同期通知されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayPlaylistAsync_通知配信前にStopが割り込んだ場合_曲通知は抑制しつつシャッフルとリピート最新状態は同期される()
+    {
+        // Arrange
+        var track = CreateTrack(CreateSilentWavFile(durationSeconds: 0.5), "Stop Race Track");
+        AudioService? sut = null;
+        var dispatcher = new Mock<IUiDispatcher>();
+        dispatcher
+            .Setup(d => d.Invoke(It.IsAny<Action>()))
+            .Callback<Action>(action =>
+            {
+                sut!.Stop();
+                action();
+            });
+
+        sut = new AudioService(dispatcher.Object);
+        using (sut)
+        {
+            var notifiedTracks = new List<Track?>();
+            var notifiedShuffles = new List<bool>();
+            var notifiedRepeats = new List<bool>();
+            sut.TrackChanged += t => notifiedTracks.Add(t);
+            sut.ShuffleChanged += v => notifiedShuffles.Add(v);
+            sut.RepeatChanged += v => notifiedRepeats.Add(v);
+
+            // Act
+            Track? started = await sut.PlayPlaylistAsync([track], shuffle: true, repeat: true, sourceName: "Race Playlist");
+
+            // Assert
+            Assert.NotNull(started);
+            Assert.True(sut.IsShuffleEnabled);
+            Assert.True(sut.IsRepeatEnabled);
+            Assert.Equal([true], notifiedShuffles);
+            Assert.Equal([true], notifiedRepeats);
+            Assert.DoesNotContain(notifiedTracks, t => t != null && string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    /// <summary>
+    /// 同一トラックが重複する [A, B, A, C] のプレイリストを startTrackIndex=2・シャッフル無効で開始した場合、指定出現位置を保持し残り曲が [C] のみになることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayPlaylistAsync_同一トラック重複リストでstartTrackIndex指定時_指定出現位置を保持し残り曲が後続のみになる()
+    {
+        // Arrange
+        var trackA = CreateTrack(CreateSilentWavFile(durationSeconds: 0.5), "Track A");
+        var trackB = CreateTrack(CreateSilentWavFile(durationSeconds: 0.5), "Track B");
+        var trackC = CreateTrack(CreateSilentWavFile(durationSeconds: 0.5), "Track C");
+        List<Track> playlist = [trackA, trackB, trackA, trackC];
+
+        using var sut = new AudioService(ImmediateUiDispatcher.Instance);
+        string? notifiedSourceName = null;
+        sut.QueueSourceNameChanged += name => notifiedSourceName = name;
+
+        // Act
+        Track? started = await sut.PlayPlaylistAsync(
+            playlist,
+            startTrack: trackA,
+            shuffle: false,
+            repeat: false,
+            sourceName: "Duplicate Playlist",
+            startTrackIndex: 2);
+
+        // Assert
+        Assert.NotNull(started);
+        Assert.Equal(trackA.FilePath, started.FilePath);
+        Assert.Equal("Duplicate Playlist", notifiedSourceName);
+        Assert.Single(sut.AlbumQueue);
+        Assert.Equal(trackC.FilePath, sut.AlbumQueue[0].FilePath);
+    }
+
     private string CreateSilentWavFile(double durationSeconds = 0.5)
     {
         string path = Path.Combine(Path.GetTempPath(), $"AudioEffectorSilent_{Guid.NewGuid():N}.wav");
