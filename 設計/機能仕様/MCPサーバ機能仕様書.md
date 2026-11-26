@@ -76,9 +76,17 @@ AI エージェントが Audio Effector の楽曲ライブラリやユーザー�
     - 「Audio Effector をミニプレイヤーで起動して」
     - 「Audio Effector を通常画面で起動して」
 
-### 2.5 楽曲・アルバム・プレイリスト再生機能（Phase 2 #306, #330 提供）
+### 2.5 楽曲・アルバム・プレイリスト再生および再生状態取得機能（Phase 2 #306, #328, #330 提供）
 
-AI エージェントが「曲の検索」（#305: `search_tracks`）や「アルバム・プレイリストの検索」（#331: `search_albums`, `search_playlists`）等で特定した楽曲・アルバム・プレイリストを、起動中の Audio Effector デスクトップアプリ本体で即座に再生開始するための再生ツールを提供します。
+AI エージェントが「曲の検索」（#305: `search_tracks`）や「アルバム・プレイリストの検索」（#331: `search_albums`, `search_playlists`）等で特定した楽曲・アルバム・プレイリストを、起動中の Audio Effector デスクトップアプリ本体で即座に再生開始したり、現在の再生状況を副作用なく照会するための再生系ツールを提供します。
+
+- **再生状態の取得（`get_playback_state` / #328）**:
+  - 起動中の Audio Effector デスクトップアプリ本体の現在の再生状態（`playing` / `paused` / `stopped`）、再生中または一時停止中のトラック情報、現在の再生位置・総再生時間、音量（`0.0`〜`1.0`）、シャッフル／リピート状態、および予約キュー・アルバム残り曲キューの件数を読み取り専用で取得できます。
+  - 停止中・トラック未選択時もエラーとせず、`playbackState: "stopped"`・`track: null` の正常応答を返却します。
+  - 本ツールの呼び出しによって、WPF 本体の再生状態・再生位置・ウィンドウ状態（通常メイン画面／ミニプレイヤー）に一切の副作用は生じません。
+  - **利用例**:
+    - 「今 Audio Effector で何の曲を再生しているか教えて」
+    - 「現在の音量とシャッフル・リピート設定、キューに残っている曲数を確認して」
 
 - **曲の再生（`play_track` / #306）**:
   - 再生対象として **`trackId`（トラックの GUID）** または **`filePath`（音声ファイルの絶対パス）** のいずれか（少なくとも一方必須、両方指定時は `trackId` 優先）を指定して再生を開始できます。
@@ -114,7 +122,7 @@ Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリ
 | **プレイリスト管理** | 既存プレイリストの一覧・内容を検索・確認し（`search_playlists` 実装済み）、AI が選んだ楽曲で新しいプレイリストを作成・編集する | #331（アルバム・プレイリスト検索）ほか |
 | **イコライザー・プリセット** | 現在のイコライザー設定や登録済みプリセットを確認し、聴くジャンルに合わせてプリセットを切り替える | Phase 2 順次追加 |
 | **アプリケーション設定** | 監視フォルダや表示設定などの現在値を確認・調整する | Phase 2 順次追加 |
-| **再生制御・再生キュー連携** | 検索した楽曲・アルバム・プレイリストを即座に再生し（`play_track`, `play_album`, `play_playlist` 実装済み）、シャッフル・リピートや再生中トラック・キューの確認、再生／一時停止／スキップを行う | #306（曲の再生）, #330（アルバム・プレイリスト再生）ほか |
+| **再生制御・再生キュー連携** | 現在の再生状態・再生中トラック・位置・音量・キュー件数を照会し（`get_playback_state` 実装済み）、検索した楽曲・アルバム・プレイリストを即座に再生する（`play_track`, `play_album`, `play_playlist` 実装済み）。今後、一時停止・スキップ・キュー操作を順次拡張 | #306（曲の再生）, #328（再生状態の取得）, #330（アルバム・プレイリスト再生）ほか |
 
 ### 2.7 Audio Effector デスクトップアプリ本体との共存動作
 
@@ -171,4 +179,4 @@ Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリ
   - 親 Epic: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294)（C# による MCP サーバ機能の追加）
   - Phase 0（設計）: [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303)
   - Phase 1（基盤実装）: [#296](https://github.com/taketonnbo/Audio_Effector/issues/296)
-  - Phase 2（機能拡張）: [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)
+  - Phase 2（機能拡張）: [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#328](https://github.com/taketonnbo/Audio_Effector/issues/328), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)
