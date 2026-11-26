@@ -5,7 +5,7 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Audio;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Audio;
+namespace AudioEffector.Infrastructure.Tests.Audio;
 
 /// <summary>
 /// <see cref="AudioService"/> の再生終了検知、履歴イベント発火、および再生キューからの削除挙動を検証するテストクラス。

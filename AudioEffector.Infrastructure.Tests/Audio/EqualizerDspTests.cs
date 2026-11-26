@@ -3,7 +3,7 @@ using AudioEffector.Infrastructure.Audio;
 using NAudio.Wave;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Audio;
+namespace AudioEffector.Infrastructure.Tests.Audio;
 
 /// <summary>
 /// EqualizerDspの10バンドBiQuadイコライザー処理およびゲイン制御を検証するテストクラス

@@ -4,7 +4,7 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Repository;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Repository;
+namespace AudioEffector.Infrastructure.Tests.Repository;
 
 /// <summary>
 /// JsonRecentTrackRepositoryの保存・読み込み・破損JSONフォールバックを検証するテストクラス

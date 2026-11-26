@@ -13,7 +13,7 @@ using AudioEffector.Infrastructure.Repository;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Repository;
+namespace AudioEffector.Infrastructure.Tests.Repository;
 
 /// <summary>
 /// 全JSONリポジトリのプロセス間鮮度検知、並行書き込み整合性、ロックタイムアウト、およびデータディレクトリDI注入を検証するテストクラス

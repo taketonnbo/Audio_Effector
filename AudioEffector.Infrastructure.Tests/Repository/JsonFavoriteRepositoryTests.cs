@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
@@ -7,7 +7,7 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Repository;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Repository;
+namespace AudioEffector.Infrastructure.Tests.Repository;
 
 /// <summary>
 /// JsonFavoriteRepositoryのメタデータベース永続化、旧形式後方互換マイグレーション、および破損JSON耐性を検証するテストクラス

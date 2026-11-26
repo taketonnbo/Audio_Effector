@@ -7,7 +7,7 @@ using AudioEffector.Application.Common;
 using AudioEffector.Infrastructure.Repository;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Repository;
+namespace AudioEffector.Infrastructure.Tests.Repository;
 
 /// <summary>
 /// JsonFileLockHelperのプロセス間ロック取得、タイムアウト、原子的書き込み、およびメタデータ検知を検証するテストクラス

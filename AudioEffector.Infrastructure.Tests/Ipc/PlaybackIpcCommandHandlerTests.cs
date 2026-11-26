@@ -8,7 +8,7 @@ using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Infrastructure.Ipc;
 using Moq;
 
-namespace AudioEffector.Tests.Infrastructure.Ipc;
+namespace AudioEffector.Infrastructure.Tests.Ipc;
 
 public sealed class PlaybackIpcCommandHandlerTests
 {

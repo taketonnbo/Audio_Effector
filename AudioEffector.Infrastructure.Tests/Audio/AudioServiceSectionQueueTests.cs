@@ -5,7 +5,7 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Audio;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Audio;
+namespace AudioEffector.Infrastructure.Tests.Audio;
 
 /// <summary>
 /// Issue #225 で導入された再生キューのセクション分離モデル（予約キュー／アルバムの残り曲）の

@@ -7,7 +7,7 @@ using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Repository;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Repository;
+namespace AudioEffector.Infrastructure.Tests.Repository;
 
 /// <summary>
 /// JsonPlaylistRepositoryの永続化およびCRUD操作を検証するテストクラス

@@ -5,7 +5,7 @@ using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Library;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Library;
+namespace AudioEffector.Infrastructure.Tests.Library;
 
 /// <summary>
 /// AlbumArtLoaderの画像抽出・メモリキャッシュ・LRU破棄ロジックを検証するテストクラス

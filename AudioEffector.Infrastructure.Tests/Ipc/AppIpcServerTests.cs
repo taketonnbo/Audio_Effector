@@ -1,7 +1,7 @@
+using System.IO.Pipes;
 using AudioEffector.Infrastructure.Ipc;
-using AudioEffector.McpServer.Gateways;
 
-namespace AudioEffector.Tests.Infrastructure.Ipc;
+namespace AudioEffector.Infrastructure.Tests.Ipc;
 
 public sealed class AppIpcServerTests
 {
@@ -46,32 +46,54 @@ public sealed class AppIpcServerTests
     }
 
     /// <summary>
-    /// AppIpcServer の起動前・起動中・停止後に対して NamedPipeIpcReadinessProbe がそれぞれ false・true・false を返すことを検証します。
+    /// AppIpcServer の起動前・起動中・停止後に対して NamedPipeClientStream での接続可否がそれぞれ false・true・false となることを検証します。
     /// </summary>
     [Fact]
-    public async Task IsReadyAsync_AppIpcServer起動前後と停止後_期待される準備完了状態を返す()
+    public async Task StartおよびDispose_AppIpcServer起動前後と停止後_NamedPipe接続可否が期待通りに遷移する()
     {
         // Arrange
         string pipeName = $"AudioEffector.Ipc.Test.{Guid.NewGuid():N}";
-        var probe = new NamedPipeIpcReadinessProbe(pipeName, TimeSpan.FromMilliseconds(150));
 
         // Act 1: サーバ未起動
-        bool beforeStart = await probe.IsReadyAsync();
+        bool beforeStart = await TryConnectPipeAsync(pipeName);
 
         // Act 2: サーバ起動中
         bool whileRunning;
         using (var sut = new AppIpcServer(pipeName))
         {
             sut.Start();
-            whileRunning = await probe.IsReadyAsync();
+            whileRunning = await TryConnectPipeAsync(pipeName);
         }
 
         // Act 3: サーバ停止後
-        bool afterDispose = await probe.IsReadyAsync();
+        bool afterDispose = await TryConnectPipeAsync(pipeName);
 
         // Assert
         Assert.False(beforeStart);
         Assert.True(whileRunning);
         Assert.False(afterDispose);
+    }
+
+    private static async Task<bool> TryConnectPipeAsync(string pipeName)
+    {
+        try
+        {
+            using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
+            await client.ConnectAsync(cts.Token);
+            return client.IsConnected;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 }

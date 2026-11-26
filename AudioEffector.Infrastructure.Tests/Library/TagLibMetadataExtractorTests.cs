@@ -5,7 +5,7 @@ using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Library;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Library;
+namespace AudioEffector.Infrastructure.Tests.Library;
 
 /// <summary>
 /// TagLibMetadataExtractorのメタデータ抽出およびカバーアート抽出を検証するテストクラス
