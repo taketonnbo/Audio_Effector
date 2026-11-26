@@ -774,6 +774,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         _audioService.VolumeChanged += OnAudioServiceVolumeChanged;
         _audioService.ShuffleChanged += OnAudioServiceShuffleChanged;
         _audioService.RepeatChanged += OnAudioServiceRepeatChanged;
+        _audioService.QueueSourceNameChanged += OnAudioServiceQueueSourceNameChanged;
         _audioService.TrackPlaybackEnded += OnAudioServiceTrackPlaybackEnded;
         _audioService.FftCalculated += OnLegacyFftCalculated;
         _audioEngine.FftCalculated += OnFftCalculated;
@@ -1286,6 +1287,14 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         });
     }
 
+    private void OnAudioServiceQueueSourceNameChanged(string sourceName)
+    {
+        RunOnUiThread(() =>
+        {
+            AlbumQueueSourceName = sourceName ?? string.Empty;
+        });
+    }
+
     private void UpdateTrackDisplays(Track? track)
     {
         int artworkGeneration = Interlocked.Increment(ref _trackArtworkGeneration);
@@ -1619,6 +1628,7 @@ public class PlayerControlViewModel : ViewModelBase, IDisposable,
         _audioService.VolumeChanged -= OnAudioServiceVolumeChanged;
         _audioService.ShuffleChanged -= OnAudioServiceShuffleChanged;
         _audioService.RepeatChanged -= OnAudioServiceRepeatChanged;
+        _audioService.QueueSourceNameChanged -= OnAudioServiceQueueSourceNameChanged;
         _audioService.TrackPlaybackEnded -= OnAudioServiceTrackPlaybackEnded;
         _audioService.FftCalculated -= OnLegacyFftCalculated;
         _audioEngine.FftCalculated -= OnFftCalculated;

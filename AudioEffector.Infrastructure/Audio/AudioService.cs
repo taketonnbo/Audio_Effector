@@ -239,6 +239,11 @@ public class AudioService : IAudioService
     public event Action<bool>? RepeatChanged;
 
     /// <summary>
+    /// コレクション再生によりキュー生成元リスト名（アルバム名・プレイリスト名）が変更された際に発生するイベント
+    /// </summary>
+    public event Action<string>? QueueSourceNameChanged;
+
+    /// <summary>
     /// イコライザーの周波数帯域定義（10バンド）
     /// </summary>
     public float[] Frequencies { get; } = { 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
@@ -533,7 +538,14 @@ public class AudioService : IAudioService
         ArgumentNullException.ThrowIfNull(track);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return PlayTrackTransactionalAsync(track, playlistTracks: null, shuffle: null, repeat: null, cancellationToken);
+        return PlayTrackTransactionalAsync(
+            track,
+            playlistTracks: null,
+            shuffle: null,
+            repeat: null,
+            sourceName: null,
+            startTrackIndex: null,
+            cancellationToken);
     }
 
     /// <summary>
@@ -543,6 +555,8 @@ public class AudioService : IAudioService
     /// <param name="startTrack">最初に再生開始するトラック（省略時は通常順なら先頭曲、シャッフル有効時はランダム選出）</param>
     /// <param name="shuffle">シャッフル再生の有効／無効（省略時は現在設定を維持）</param>
     /// <param name="repeat">リピート再生の有効／無効（省略時は現在設定を維持）</param>
+    /// <param name="sourceName">キュー生成元のリスト名（アルバム名またはプレイリスト名、省略可）</param>
+    /// <param name="startTrackIndex">コレクション内における開始曲の 0 始まり出現位置（同一トラック重複時の位置保持用、省略可）</param>
     /// <param name="cancellationToken">キャンセル要求トークン</param>
     /// <returns>再生が正常に開始された場合は開始トラック、トラック空または再生開始に失敗・中断された場合は <see langword="null"/></returns>
     public async Task<Track?> PlayPlaylistAsync(
@@ -550,6 +564,8 @@ public class AudioService : IAudioService
         Track? startTrack = null,
         bool? shuffle = null,
         bool? repeat = null,
+        string? sourceName = null,
+        int? startTrackIndex = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(tracks);
@@ -568,16 +584,24 @@ public class AudioService : IAudioService
         }
 
         Track resolvedStartTrack;
-        if (startTrack != null)
+        int? resolvedStartIndex = null;
+        if (startTrackIndex.HasValue && startTrackIndex.Value >= 0 && startTrackIndex.Value < trackList.Count)
+        {
+            resolvedStartIndex = startTrackIndex.Value;
+            resolvedStartTrack = startTrack ?? trackList[resolvedStartIndex.Value];
+        }
+        else if (startTrack != null)
         {
             resolvedStartTrack = startTrack;
         }
         else if (effectiveShuffle)
         {
-            resolvedStartTrack = trackList[Random.Shared.Next(trackList.Count)];
+            resolvedStartIndex = Random.Shared.Next(trackList.Count);
+            resolvedStartTrack = trackList[resolvedStartIndex.Value];
         }
         else
         {
+            resolvedStartIndex = 0;
             resolvedStartTrack = trackList[0];
         }
 
@@ -586,6 +610,8 @@ public class AudioService : IAudioService
             playlistTracks: trackList,
             shuffle: shuffle,
             repeat: repeat,
+            sourceName: sourceName,
+            startTrackIndex: resolvedStartIndex,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return started ? resolvedStartTrack : null;
@@ -839,6 +865,8 @@ public class AudioService : IAudioService
         IReadOnlyList<Track>? playlistTracks,
         bool? shuffle,
         bool? repeat,
+        string? sourceName,
+        int? startTrackIndex,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -1001,7 +1029,9 @@ public class AudioService : IAudioService
                         _lastPlayingTrack = trackToPlay;
                         _currentTrackReportedAsEnded = false;
 
-                        int startIdx = _originalAlbumTracks.FindIndex(t => ReferenceEquals(t, trackToPlay));
+                        int startIdx = startTrackIndex.HasValue && startTrackIndex.Value >= 0 && startTrackIndex.Value < _originalAlbumTracks.Count
+                            ? startTrackIndex.Value
+                            : _originalAlbumTracks.FindIndex(t => ReferenceEquals(t, trackToPlay));
                         if (startIdx < 0)
                         {
                             startIdx = _originalAlbumTracks.FindIndex(t => string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase));
@@ -1088,22 +1118,35 @@ public class AudioService : IAudioService
         {
             _uiDispatcher.Invoke(() =>
             {
+                bool isCurrentPlayback;
+                bool currentShuffle;
+                bool currentRepeat;
                 lock (_lock)
                 {
-                    if (_currentPlaybackId != thisPlaybackId)
-                    {
-                        return;
-                    }
+                    isCurrentPlayback = _currentPlaybackId == thisPlaybackId;
+                    currentShuffle = _isShuffleEnabled;
+                    currentRepeat = _isRepeatEnabled;
                 }
 
+                // 停止や後続再生が割り込んで曲通知を破棄する場合でも、設定変更後の最新シャッフル・リピート状態は UI へ同期する
                 if (changedShuffle.HasValue)
                 {
-                    ShuffleChanged?.Invoke(changedShuffle.Value);
+                    ShuffleChanged?.Invoke(currentShuffle);
                 }
 
                 if (changedRepeat.HasValue)
                 {
-                    RepeatChanged?.Invoke(changedRepeat.Value);
+                    RepeatChanged?.Invoke(currentRepeat);
+                }
+
+                if (!isCurrentPlayback)
+                {
+                    return;
+                }
+
+                if (sourceName != null)
+                {
+                    QueueSourceNameChanged?.Invoke(sourceName);
                 }
 
                 if (endedTrack != null)

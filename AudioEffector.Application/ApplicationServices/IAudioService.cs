@@ -63,6 +63,11 @@ public interface IAudioService : IDisposable
     event Action<bool>? RepeatChanged;
 
     /// <summary>
+    /// コレクション再生によりキュー生成元リスト名（アルバム名・プレイリスト名）が変更された際に発生するイベント
+    /// </summary>
+    event Action<string>? QueueSourceNameChanged;
+
+    /// <summary>
     /// ユーザーが手動で追加した予約キュー
     /// </summary>
     IReadOnlyList<Track> UserQueue { get; }
@@ -191,6 +196,8 @@ public interface IAudioService : IDisposable
     /// <param name="startTrack">最初に再生開始するトラック（省略時は通常順なら先頭曲、シャッフル有効時はランダム選出）</param>
     /// <param name="shuffle">シャッフル再生の有効／無効（省略時は現在設定を維持）</param>
     /// <param name="repeat">リピート再生の有効／無効（省略時は現在設定を維持）</param>
+    /// <param name="sourceName">キュー生成元のリスト名（アルバム名またはプレイリスト名、省略可）</param>
+    /// <param name="startTrackIndex">コレクション内における開始曲の 0 始まり出現位置（同一トラック重複時の位置保持用、省略可）</param>
     /// <param name="cancellationToken">キャンセル要求トークン</param>
     /// <returns>再生が正常に開始された場合は開始トラック、トラック空または再生開始に失敗・中断された場合は <see langword="null"/></returns>
     [LogDescription("プレイリストを設定して再生し開始完了を待機します")]
@@ -199,6 +206,8 @@ public interface IAudioService : IDisposable
         Track? startTrack = null,
         bool? shuffle = null,
         bool? repeat = null,
+        string? sourceName = null,
+        int? startTrackIndex = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
