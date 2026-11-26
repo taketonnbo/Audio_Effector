@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AudioEffector.Domain\AudioEffector.Domain.csproj" />
+    <ProjectReference Include="..\AudioEffector.Application\AudioEffector.Application.csproj" />
+    <ProjectReference Include="..\AudioEffector.Infrastructure\AudioEffector.Infrastructure.csproj" />
+    <ProjectReference Include="..\AudioEffector.McpServer\AudioEffector.McpServer.csproj" />
+  </ItemGroup>
+
+</Project>
