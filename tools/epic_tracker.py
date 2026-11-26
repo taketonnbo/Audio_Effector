@@ -57,7 +57,7 @@ VALID_STATUSES = (
 
 # 依存指定パターン: "depends: #321, #322" / "依存: #321" / "(depends on #321)" など
 DEPENDS_BLOCK_RE = re.compile(
-    r"(?:depends(?:\s+on)?|依存)\s*[:：]\s*([#\d,\s、/]+)",
+    r"(?:depends(?:\s+on)?|依存)(?:\s*[:：]\s*|\s+)(#\d+(?:[\s,、/]+#\d+)*)",
     re.IGNORECASE,
 )
 ISSUE_NUM_RE = re.compile(r"#(\d+)")
@@ -66,10 +66,36 @@ CHECKLIST_LINE_RE = re.compile(
 )
 ORDER_TAG_RE = re.compile(r"\[(?:order|順序)\s*[:：]\s*(\d+)\]", re.IGNORECASE)
 PR_ISSUE_REF_RE = re.compile(
-    r"(?:closes|fixes|resolves|issue)\s*#(\d+)",
+    r"(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s*#(\d+)",
     re.IGNORECASE,
 )
 BRANCH_ISSUE_RE = re.compile(r"(?:^|/)(\d+)(?:[-_]|$)")
+REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+CODE_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+
+
+def _strip_code_fences(body: str) -> str:
+    """Markdown のコードフェンス（``` / ~~~）内の行を除外したテキストを返す。"""
+    output_lines: List[str] = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    for line in body.splitlines():
+        m = CODE_FENCE_RE.match(line)
+        if m:
+            marker = m.group(1)
+            if not in_fence:
+                in_fence = True
+                fence_char = marker[0]
+                fence_len = len(marker)
+            elif marker[0] == fence_char and len(marker) >= fence_len:
+                in_fence = False
+                fence_char = ""
+                fence_len = 0
+            continue
+        if not in_fence:
+            output_lines.append(line)
+    return "\n".join(output_lines)
 
 
 @dataclass
@@ -126,10 +152,10 @@ def _find_table_columns(headers: Sequence[str]) -> Tuple[Optional[int], Optional
         h = raw.lower()
         if order_idx is None and ("順序" in raw or "order" in h or "step" in h or h == "#"):
             order_idx = idx
-        elif issue_idx is None and ("issue" in h or "子" in raw):
-            issue_idx = idx
         elif depends_idx is None and ("依存" in raw or "depend" in h):
             depends_idx = idx
+        elif issue_idx is None and ("issue" in h or "子" in raw):
+            issue_idx = idx
         elif scope_idx is None and ("スコープ" in raw or "内容" in raw or "概要" in raw or "scope" in h or "title" in h):
             scope_idx = idx
 
@@ -209,11 +235,12 @@ def parse_epic_body(body: str, epic_number: Optional[int] = None) -> Tuple[List[
         (child_specs, warnings)
     """
     warnings: List[str] = []
-    specs = _parse_tables(body, epic_number)
+    sanitized_body = _strip_code_fences(body)
+    specs = _parse_tables(sanitized_body, epic_number)
     next_fallback_order = max((s.order for s in specs.values()), default=0) + 1
 
     # チェックリスト行（- [ ] #123 ... / - [x] #123 ...）を解析・マージ
-    for line in body.splitlines():
+    for line in sanitized_body.splitlines():
         m_chk = CHECKLIST_LINE_RE.match(line)
         if not m_chk:
             continue
@@ -348,15 +375,20 @@ def run_command(cmd: Sequence[str], timeout: int = 30) -> Tuple[int, str, str]:
 
 
 def detect_repo_slug(explicit_repo: Optional[str], timeout: int) -> Optional[str]:
-    """対象リポジトリの owner/name を取得する。"""
+    """対象リポジトリの owner/name を取得・検証する。"""
     if explicit_repo:
-        return explicit_repo
+        slug = explicit_repo.strip()
+        if not REPO_SLUG_RE.fullmatch(slug):
+            raise RuntimeError(f"不正な --repo 形式です (owner/name 形式で指定してください): {explicit_repo}")
+        return slug
     rc, out, _ = run_command(
         ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
         timeout=timeout,
     )
     if rc == 0 and out.strip():
-        return out.strip()
+        slug = out.strip()
+        if REPO_SLUG_RE.fullmatch(slug):
+            return slug
     return None
 
 
@@ -375,25 +407,48 @@ def fetch_child_issues_live(
     issue_numbers: Sequence[int],
     repo: Optional[str],
     timeout: int,
+    warnings: Optional[List[str]] = None,
 ) -> Dict[int, Dict[str, Any]]:
-    """子 Issue のライブ状態（OPEN/CLOSED, タイトル, ラベル, URL）を一括取得する。"""
+    """子 Issue（および外部依存 Issue）のライブ状態（OPEN/CLOSED, タイトル, ラベル, URL）を一括取得する。"""
     if not issue_numbers:
         return {}
 
     result: Dict[int, Dict[str, Any]] = {}
     repo_slug = detect_repo_slug(repo, timeout)
-    if repo_slug and "/" in repo_slug:
+    if repo_slug:
         owner, name = repo_slug.split("/", 1)
         aliases = "\n".join(
-            f'    i{n}: issue(number: {n}) {{ number title state url labels(first: 20) {{ nodes {{ name }} }} }}'
+            f"    i{n}: issue(number: {n}) {{ number title state url labels(first: 20) {{ nodes {{ name }} }} }}"
             for n in issue_numbers
         )
-        query = f'query {{ repository(owner: "{owner}", name: "{name}") {{\n{aliases}\n  }} }}'
-        rc, out, _ = run_command(["gh", "api", "graphql", "-f", f"query={query}"], timeout=timeout)
+        query = (
+            "query($owner: String!, $name: String!) {\n"
+            "  repository(owner: $owner, name: $name) {\n"
+            f"{aliases}\n"
+            "  }\n"
+            "}"
+        )
+        rc, out, err = run_command(
+            [
+                "gh",
+                "api",
+                "graphql",
+                "-f",
+                f"query={query}",
+                "-f",
+                f"owner={owner}",
+                "-f",
+                f"name={name}",
+            ],
+            timeout=timeout,
+        )
         if rc == 0 and out.strip():
             try:
                 payload = json.loads(out)
-                repo_data = payload.get("data", {}).get("repository", {}) or {}
+                gql_errors = payload.get("errors")
+                if gql_errors and warnings is not None:
+                    warnings.append(f"GraphQL Issue 取得で一部エラーが発生しました（個別取得へフォールバック）: {gql_errors[0].get('message', '')}")
+                repo_data = (payload.get("data") or {}).get("repository") or {}
                 for n in issue_numbers:
                     node = repo_data.get(f"i{n}")
                     if node:
@@ -412,9 +467,13 @@ def fetch_child_issues_live(
                 if len(result) == len(issue_numbers):
                     return result
             except json.JSONDecodeError:
-                pass
+                if warnings is not None:
+                    warnings.append("GraphQL Issue 取得レスポンスの JSON 解析に失敗しました（個別取得へフォールバック）。")
+        elif warnings is not None:
+            warnings.append(f"GraphQL Issue 取得に失敗しました（個別取得へフォールバック）: {err.strip() or f'exit={rc}'}")
 
     # フォールバック: 個別 gh issue view
+    failed_numbers: List[int] = []
     for n in issue_numbers:
         if n in result:
             continue
@@ -437,13 +496,24 @@ def fetch_child_issues_live(
                     "url": data.get("url", ""),
                     "labels": labels,
                 }
-            except json.JSONDecodeError:
                 continue
+            except json.JSONDecodeError:
+                pass
+        failed_numbers.append(n)
+
+    if failed_numbers:
+        if len(failed_numbers) == len(issue_numbers):
+            failed_str = ", ".join(f"#{n}" for n in failed_numbers)
+            raise RuntimeError(f"対象 Issue ({failed_str}) のライブ状態取得にすべて失敗しました。")
+        if warnings is not None:
+            failed_str = ", ".join(f"#{n}" for n in failed_numbers)
+            warnings.append(f"一部 Issue ({failed_str}) のライブ状態取得に失敗しました。")
+
     return result
 
 
 def fetch_pull_requests(repo: Optional[str], timeout: int) -> List[Dict[str, Any]]:
-    """リポジトリの PR 一覧を取得する（最新 100 件）。"""
+    """リポジトリの PR 一覧を取得する（最新 100 件）。失敗時は RuntimeError を送出する。"""
     cmd = [
         "gh",
         "pr",
@@ -457,14 +527,18 @@ def fetch_pull_requests(repo: Optional[str], timeout: int) -> List[Dict[str, Any
     ]
     if repo:
         cmd.extend(["--repo", repo])
-    rc, out, _ = run_command(cmd, timeout=timeout)
-    if rc != 0 or not out.strip():
+    rc, out, err = run_command(cmd, timeout=timeout)
+    if rc != 0:
+        raise RuntimeError(f"PR 一覧の取得に失敗しました: {err.strip() or out.strip() or f'exit={rc}'}")
+    if not out.strip():
         return []
     try:
         data = json.loads(out)
-        return data if isinstance(data, list) else []
-    except json.JSONDecodeError:
-        return []
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"PR 一覧レスポンスの JSON 解析に失敗しました: {exc}") from exc
+    if not isinstance(data, list):
+        raise RuntimeError("PR 一覧レスポンスが配列形式ではありません。")
+    return data
 
 
 def fetch_unresolved_review_threads(
@@ -472,38 +546,67 @@ def fetch_unresolved_review_threads(
     repo: Optional[str],
     timeout: int,
 ) -> Dict[int, int]:
-    """OPEN PR ごとの未解決レビュースレッド数を GraphQL で取得する。"""
+    """OPEN PR ごとの未解決レビュースレッド数を GraphQL で取得する。失敗時は RuntimeError を送出する。"""
     if not pr_numbers:
         return {}
     repo_slug = detect_repo_slug(repo, timeout)
-    if not repo_slug or "/" not in repo_slug:
-        return {}
+    if not repo_slug:
+        raise RuntimeError("リポジトリ名 (owner/name) を特定できないため、未解決レビュースレッドを取得できません。")
 
     owner, name = repo_slug.split("/", 1)
     aliases = "\n".join(
-        f'    p{n}: pullRequest(number: {n}) {{ reviewThreads(first: 100) {{ nodes {{ isResolved isOutdated }} }} }}'
+        f"    p{n}: pullRequest(number: {n}) {{ reviewThreads(first: 100) {{ nodes {{ isResolved isOutdated }} }} }}"
         for n in pr_numbers
     )
-    query = f'query {{ repository(owner: "{owner}", name: "{name}") {{\n{aliases}\n  }} }}'
-    rc, out, _ = run_command(["gh", "api", "graphql", "-f", f"query={query}"], timeout=timeout)
+    query = (
+        "query($owner: String!, $name: String!) {\n"
+        "  repository(owner: $owner, name: $name) {\n"
+        f"{aliases}\n"
+        "  }\n"
+        "}"
+    )
+    rc, out, err = run_command(
+        [
+            "gh",
+            "api",
+            "graphql",
+            "-f",
+            f"query={query}",
+            "-f",
+            f"owner={owner}",
+            "-f",
+            f"name={name}",
+        ],
+        timeout=timeout,
+    )
     if rc != 0 or not out.strip():
-        return {}
+        raise RuntimeError(
+            f"未解決レビュースレッドの取得に失敗しました: {err.strip() or out.strip() or f'exit={rc}'}"
+        )
 
-    counts: Dict[int, int] = {}
     try:
         payload = json.loads(out)
-        repo_data = payload.get("data", {}).get("repository", {}) or {}
-        for n in pr_numbers:
-            node = repo_data.get(f"p{n}") or {}
-            threads = (node.get("reviewThreads") or {}).get("nodes") or []
-            unresolved = sum(
-                1
-                for t in threads
-                if isinstance(t, dict) and not t.get("isResolved", False)
-            )
-            counts[n] = unresolved
-    except json.JSONDecodeError:
-        return {}
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"未解決レビュースレッド応答の JSON 解析に失敗しました: {exc}") from exc
+
+    gql_errors = payload.get("errors")
+    if gql_errors:
+        msg = "; ".join(str(e.get("message", e)) for e in gql_errors if isinstance(e, dict)) or str(gql_errors)
+        raise RuntimeError(f"GraphQL 未解決レビュースレッド取得でエラーが返されました: {msg}")
+
+    repo_data = (payload.get("data") or {}).get("repository") or {}
+    counts: Dict[int, int] = {}
+    for n in pr_numbers:
+        node = repo_data.get(f"p{n}")
+        if node is None:
+            raise RuntimeError(f"PR #{n} のレビュースレッド情報を取得できませんでした。")
+        threads = (node.get("reviewThreads") or {}).get("nodes") or []
+        unresolved = sum(
+            1
+            for t in threads
+            if isinstance(t, dict) and not t.get("isResolved", False)
+        )
+        counts[n] = unresolved
     return counts
 
 
@@ -665,7 +768,11 @@ def classify_child_statuses(
         }
 
     # 2nd pass: pending のうち未完了依存があるものを waiting_deps へ分類
+    # Epic 外の外部依存 Issue についても GitHub 上で CLOSED であれば依存解消済みとみなす
     merged_set = {num for num, rec in preliminary.items() if rec["status"] == "merged"}
+    for ext_num, ext_live in live_issues.items():
+        if ext_num not in preliminary and str(ext_live.get("state") or "").upper() == "CLOSED":
+            merged_set.add(ext_num)
     results: List[Dict[str, Any]] = []
     for spec in specs:
         rec = preliminary[spec.number]
@@ -928,8 +1035,11 @@ def build_state(
     epic_data = fetch_epic_issue(epic_number, repo, timeout)
     specs, warnings = parse_epic_body(epic_data.get("body") or "", epic_number=epic_number)
     child_numbers = [s.number for s in specs]
+    child_set = set(child_numbers)
+    external_dep_numbers = sorted({d for s in specs for d in s.depends_on if d not in child_set})
+    all_issue_numbers = list(dict.fromkeys([*child_numbers, *external_dep_numbers]))
 
-    live_issues = fetch_child_issues_live(child_numbers, repo, timeout)
+    live_issues = fetch_child_issues_live(all_issue_numbers, repo, timeout, warnings=warnings)
     all_prs = fetch_pull_requests(repo, timeout)
     prs_by_issue: Dict[int, List[Dict[str, Any]]] = {n: [] for n in child_numbers}
     open_pr_numbers: List[int] = []
@@ -1007,8 +1117,85 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def apply_offline_block_updates(
+    state: Dict[str, Any],
+    mark_blocked: Optional[int],
+    unblock: Optional[int],
+    reason: str,
+) -> Dict[str, Any]:
+    """オフライン状態スナップショットに対してローカルの blocked 記録・解除を反映する。"""
+    if mark_blocked is None and unblock is None:
+        return state
+
+    now_iso = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    blocked_overrides = extract_blocked_overrides(state)
+    if mark_blocked is not None:
+        blocked_overrides[mark_blocked] = {
+            "reason": reason or "停止条件超過・人間判断待ち",
+            "marked_at": now_iso,
+        }
+    if unblock is not None and unblock in blocked_overrides:
+        del blocked_overrides[unblock]
+
+    children = state.get("children") or []
+    for c in children:
+        num = c.get("number")
+        if c.get("status") == "merged":
+            if num in blocked_overrides:
+                del blocked_overrides[num]
+            continue
+        if num in blocked_overrides:
+            blk_reason = blocked_overrides[num].get("reason") or "停止条件超過・人間判断待ち"
+            c["status"] = "blocked"
+            c["status_reason"] = blk_reason
+            c["blocked_reason"] = blk_reason
+        elif c.get("status") == "blocked" and num == unblock:
+            c["blocked_reason"] = ""
+            pr_info = c.get("pr")
+            unmet_deps = c.get("unmet_depends") or []
+            if pr_info and pr_info.get("state") == "OPEN":
+                if pr_info.get("is_draft"):
+                    c["status"] = "implementing"
+                    c["status_reason"] = f"Draft PR #{pr_info['number']} 進行中"
+                elif (
+                    pr_info.get("unresolved_review_threads", 0) > 0
+                    or pr_info.get("review_decision") == "CHANGES_REQUESTED"
+                    or pr_info.get("ci_state") == "FAIL"
+                ):
+                    c["status"] = "fixing_review"
+                    c["status_reason"] = f"PR #{pr_info['number']} レビュー指摘対応待ち"
+                else:
+                    c["status"] = "in_review"
+                    c["status_reason"] = f"PR #{pr_info['number']} レビュー待ち／マージ確認待ち"
+            elif unmet_deps:
+                c["status"] = "waiting_deps"
+                dep_str = ", ".join(f"#{d}" for d in unmet_deps)
+                c["status_reason"] = f"先行 Issue ({dep_str}) のマージ待ち"
+            else:
+                c["status"] = "pending"
+                c["status_reason"] = "依存解消済み・着手可能"
+
+    summary: Dict[str, int] = {"total": len(children)}
+    for st in VALID_STATUSES:
+        summary[st] = sum(1 for c in children if c.get("status") == st)
+
+    epic_num = int((state.get("epic") or {}).get("number") or 0)
+    state["updated_at"] = now_iso
+    state["summary"] = summary
+    state["next"] = compute_next_actions(children, epic_number=epic_num)
+    state["blocked_overrides"] = {str(k): v for k, v in blocked_overrides.items()}
+    return state
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
+    if args.mark_blocked is not None and args.unblock is not None and args.mark_blocked == args.unblock:
+        print(
+            f"[ERROR] --mark-blocked と --unblock に同一の Issue 番号 (#{args.mark_blocked}) を同時指定することはできません。",
+            file=sys.stderr,
+        )
+        return 1
+
     state_path = (
         Path(args.state_file)
         if args.state_file
@@ -1022,6 +1209,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if state is None:
             print(f"[ERROR] オフライン読み込み対象の状態ファイルが見つかりません: {state_path}", file=sys.stderr)
             return 1
+        if args.mark_blocked is not None or args.unblock is not None:
+            state = apply_offline_block_updates(
+                state=state,
+                mark_blocked=args.mark_blocked,
+                unblock=args.unblock,
+                reason=args.reason,
+            )
+            if not args.no_save:
+                save_state(state_path, state)
     else:
         try:
             state = build_state(
