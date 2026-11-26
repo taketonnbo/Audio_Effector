@@ -1205,10 +1205,25 @@ public sealed class MiniPlayerWindowTests
                 double playingAngle = rotateTransform.Angle;
                 Assert.True(playingAngle > 1.0, $"再生中に角度が進むべきです (Angle={playingAngle})");
 
-                // Act 2: 一時停止 → WPFクロックの Pause 反映ティック後に角度を記録し、さらに経過しても維持されること
+                // Act 2: 一時停止 → WPFクロックの Pause 反映で角度変化が停止するまで待機してから記録し、さらに経過しても維持されること
                 playerVm.IsPlaying = false;
-                Thread.Sleep(60);
-                PumpDispatcher();
+                double previousAngle = double.NaN;
+                int stableSamples = 0;
+                WaitUntil(() =>
+                {
+                    double currentAngle = rotateTransform.Angle;
+                    if (!double.IsNaN(previousAngle) && Math.Abs(currentAngle - previousAngle) < 0.01)
+                    {
+                        stableSamples++;
+                    }
+                    else
+                    {
+                        stableSamples = 0;
+                    }
+
+                    previousAngle = currentAngle;
+                    return stableSamples >= 3;
+                }, timeoutMs: 1000);
                 double pausedAngle = rotateTransform.Angle;
                 Thread.Sleep(150);
                 PumpDispatcher();
