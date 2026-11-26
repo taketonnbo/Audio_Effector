@@ -183,7 +183,7 @@ classDiagram
 | `IAppLauncher` / `WpfAppLauncher` | `Gateways/IAppLauncher.cs`, `Gateways/WpfAppLauncher.cs` | WPF 本体の実行ファイルパス解決・多重起動防止確認・起動中プロセス追跡・IPC 待受準備完了待機を担う起動ゲートウェイ。 |
 | `IAppLaunchCoordinator` / `SessionFileAppLaunchCoordinator` | `Gateways/IAppLaunchCoordinator.cs`, `Gateways/SessionFileAppLaunchCoordinator.cs` | Windows セッション単位の OS ファイルロックと共有状態ファイルにより、複数の独立 MCP プロセス間の WPF 起動を調停するコーディネータ。 |
 | `IIpcReadinessProbe` / `NamedPipeIpcReadinessProbe` | `Gateways/IIpcReadinessProbe.cs`, `Gateways/NamedPipeIpcReadinessProbe.cs` | Named Pipe IPC（`AudioEffector.Ipc.v1.<CurrentUserSidHash>.s<SessionId>`）へ `ping` を送信し、WPF 本体の待受準備完了を確認するプローブ。 |
-| `PlaybackTools` / `PlaybackDtos` | `Tools/PlaybackTools.cs`, `Dtos/PlaybackDtos.cs` | Phase 2 の楽曲再生ツール（`play_track`）および応答 DTO（`PlayTrackResponse`, `PlayedTrackDto`）。 |
+| `PlaybackTools` / `PlaybackDtos` | `Tools/PlaybackTools.cs`, `Dtos/PlaybackDtos.cs` | Phase 2 の再生状態取得・再生制御ツール（`get_playback_state`, `play_track`, `play_album`, `play_playlist`）および応答 DTO（`PlaybackStateResponse`, `PlayTrackResponse`, `PlayCollectionResponse`, `PlayedTrackDto`）。 |
 | `IPlaybackControlGateway` / `IpcPlaybackControlGateway` | `Gateways/IPlaybackControlGateway.cs`, `Gateways/IpcPlaybackControlGateway.cs` | Named Pipe IPC 経由で起動中 WPF 本体へ再生制御コマンドを送信する抽象化ゲートウェイおよび実装。 |
 
 ### 3.3 CLI オプション・設定モデル（将来互換インターフェース）
@@ -776,7 +776,73 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - IPC 応答タイムアウト・切断・必須項目欠損 → `IPC_CONNECTION_FAILED`
   - 期限超過（`deadlineUtc`）またはキャンセル要求 → `OPERATION_CANCELLED`
 
-### 5.10 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
+### 5.10 再生状態取得ツール仕様（Phase 2 #328 実装）
+
+`PlaybackTools`（`AudioEffector.McpServer/Tools/PlaybackTools.cs`）に、起動中の Audio Effector（WPF 本体）の現在の再生状態を副作用なく取得する読み取り専用ツール **`get_playback_state`** を実装します。IPC 通信は `IPlaybackControlGateway.GetPlaybackStateAsync` / `IpcPlaybackControlGateway` へ委譲し、WPF 側の `PlaybackIpcCommandHandler` が `IUiDispatcher.Invoke` 経由で UI スレッド上の `IAudioService` から状態スナップショットを取得します。
+
+#### 入力パラメータ
+
+入力パラメータはありません（`CancellationToken` のみ）。
+
+#### 出力（`data`）JSON スキーマ（`PlaybackStateResponse`）
+
+- 再生中／一時停止中：
+  ```json
+  {
+    "playbackState": "playing",
+    "track": {
+      "id": "11111111-2222-3333-4444-555555555555",
+      "title": "Blue Note Morning",
+      "artist": "Miles Trio",
+      "album": "Midnight Sessions",
+      "durationSeconds": 225.5,
+      "durationString": "03:45",
+      "filePath": "C:\\Music\\Jazz\\BlueNote.flac"
+    },
+    "positionSeconds": 83.457,
+    "positionString": "01:23",
+    "durationSeconds": 225.5,
+    "durationString": "03:45",
+    "volume": 0.75,
+    "isShuffleEnabled": true,
+    "isRepeatEnabled": false,
+    "userQueueCount": 1,
+    "albumQueueCount": 5
+  }
+  ```
+- 停止中・トラック未選択時：
+  ```json
+  {
+    "playbackState": "stopped",
+    "track": null,
+    "positionSeconds": 0,
+    "positionString": "00:00",
+    "durationSeconds": 0,
+    "durationString": "00:00",
+    "volume": 0.8,
+    "isShuffleEnabled": false,
+    "isRepeatEnabled": false,
+    "userQueueCount": 0,
+    "albumQueueCount": 0
+  }
+  ```
+- `PlaybackStateResponse.Track` は `[JsonIgnore(Condition = JsonIgnoreCondition.Never)]` を付与し、停止中も明示的に `"track": null` を返却します。
+
+#### Named Pipe IPC プロトコル拡張および WPF 側実装詳細
+
+- **IPC コマンド**: `AppIpcServer.COMMAND_GET_PLAYBACK_STATE`（`"get_playback_state"`）。`AppIpcResponse` に `PositionSeconds` / `PositionString` / `DurationSeconds` / `DurationString` / `Volume` / `UserQueueCount` / `AlbumQueueCount`（すべて nullable・`WhenWritingNull` 互換）および `AppIpcResponse.SuccessPlaybackState(...)` を追加。
+- **`IAudioService` 参照 API 拡張**: `Track? CurrentTrack { get; }` および `bool IsPaused { get; }` を追加（`AudioService` では `_lock` 保護下で `_currentlyPlayingTrack` および `_outputDevice?.PlaybackState == PlaybackState.Paused` を返却）。
+- **状態判定（`PlaybackIpcCommandHandler`）**:
+  - `IUiDispatcher.Invoke` 上で期限超過・キャンセルを再確認したうえで `IAudioService` のスナップショットを取得する（再生・一時停止・停止等の状態変更は一切行わない）。
+  - `IsPlaying && CurrentTrack != null` → `"playing"`、`IsPaused && CurrentTrack != null` → `"paused"`、それ以外 → `"stopped"`（`track: null`, `position: 0`, `duration: 0`）。
+  - 再生位置は `0`〜`duration` へクランプし、`1 時間以上` は `h:mm:ss`、未満は `mm:ss` でフォーマットする。
+- **エラーケース**:
+  - WPF 本体未起動（パイプ接続不可）→ `WPF_APP_NOT_RUNNING`（`launch_app` ツールでの事前起動案内付き）
+  - IPC 応答タイムアウト・切断・不正状態文字列・必須フィールド欠損（`playing` / `paused` 時の `track` 欠損含む）→ `IPC_CONNECTION_FAILED`
+  - 期限超過（`deadlineUtc`）またはキャンセル要求 → `OPERATION_CANCELLED`
+  - その他の未捕捉例外 → `INTERNAL_ERROR`（内部診断非露出、詳細は `ILogger` へ記録）
+
+### 5.11 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
 
 個別ツールの詳細スキーマ・バリデーション・実装仕様は Phase 2 親 Issue（#301）配下の各子 Issue にて順次策定し、実装に合わせて本設計書および機能仕様書へ追記します。
 
@@ -787,7 +853,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 | **プレイリスト管理** | `search_playlists`, `get_playlist`, `create_playlist`, `add_tracks_to_playlist`, `remove_track_from_playlist` | `PlaylistApplicationService` | #331（アルバム・プレイリスト検索）ほか |
 | **イコライザー・プリセット** | `list_equalizer_presets`, `get_equalizer_settings`, `apply_equalizer_preset` | `EqualizerApplicationService` | 順次起票 |
 | **アプリ設定** | `get_settings`, `update_settings` | `SettingsApplicationService` / `ISettingsService` | 順次起票 |
-| **再生制御・再生キュー連携** | `play_track`, `play_album`, `play_playlist`, `get_playback_status`, `pause_playback`, `next_track`, `enqueue_tracks` | `IPlaybackControlGateway` → WPF `IAudioService` / `AudioApplicationService` | #306（曲の再生）, #330（アルバム・プレイリスト再生）ほか |
+| **再生制御・再生キュー連携** | `get_playback_state`, `play_track`, `play_album`, `play_playlist`, `pause_playback`, `next_track`, `enqueue_tracks` | `IPlaybackControlGateway` → WPF `IAudioService` / `AudioApplicationService` | #306（曲の再生）, #328（再生状態の取得）, #330（アルバム・プレイリスト再生）ほか |
 
 ---
 
@@ -816,4 +882,4 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - [インフラストラクチャ層詳細設計書](アーキテクチャ/インフラストラクチャ層詳細設計書.md)
   - [プレゼンテーション層詳細設計書](アーキテクチャ/プレゼンテーション層詳細設計書.md)
   - [テスト方針書](テスト仕様/テスト方針書.md)
-- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)
+- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#328](https://github.com/taketonnbo/Audio_Effector/issues/328), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)

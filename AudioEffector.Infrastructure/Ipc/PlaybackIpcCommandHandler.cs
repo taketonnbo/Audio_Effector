@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
@@ -8,15 +9,25 @@ using AudioEffector.Domain.ValueObjects;
 namespace AudioEffector.Infrastructure.Ipc;
 
 /// <summary>
-/// MCP サーバからの再生制御 IPC コマンド（<c>play_track</c> 等）を解決し、
+/// MCP サーバからの再生制御 IPC コマンド（<c>play_track</c>・<c>get_playback_state</c> 等）を解決し、
 /// <see cref="IUiDispatcher"/> 経由で UI スレッド上の <see cref="IAudioService"/> へディスパッチするハンドラです。
 /// </summary>
 public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
 {
     /// <summary>
-    /// 再生開始後の状態を表す文字列。
+    /// 再生中の状態を表す文字列。
     /// </summary>
     public const string PLAYBACK_STATE_PLAYING = "playing";
+
+    /// <summary>
+    /// 一時停止中の状態を表す文字列。
+    /// </summary>
+    public const string PLAYBACK_STATE_PAUSED = "paused";
+
+    /// <summary>
+    /// 停止中・未選択の状態を表す文字列。
+    /// </summary>
+    public const string PLAYBACK_STATE_STOPPED = "stopped";
 
     /// <summary>
     /// コレクション再生ソース種別（アルバム）。
@@ -108,7 +119,112 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
             return await HandlePlayPlaylistAsync(request, cancellationToken).ConfigureAwait(false);
         }
 
+        if (string.Equals(request.Command, AppIpcServer.COMMAND_GET_PLAYBACK_STATE, StringComparison.OrdinalIgnoreCase))
+        {
+            return HandleGetPlaybackState(request, cancellationToken);
+        }
+
         return AppIpcResponse.Failure(AppIpcErrorCodes.UNSUPPORTED_COMMAND, "unsupported_command");
+    }
+
+    private AppIpcResponse HandleGetPlaybackState(AppIpcRequest request, CancellationToken cancellationToken)
+    {
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        AppIpcResponse? snapshot = null;
+        bool aborted = false;
+
+        _uiDispatcher.Invoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || IsExpired(request.DeadlineUtc))
+            {
+                aborted = true;
+                return;
+            }
+
+            bool isPlaying = _audioService.IsPlaying;
+            bool isPaused = _audioService.IsPaused;
+            Track? currentTrack = _audioService.CurrentTrack;
+            TimeSpan currentTime = _audioService.CurrentTime;
+            TimeSpan totalTime = _audioService.TotalTime;
+            float volume = _audioService.Volume;
+            bool isShuffleEnabled = _audioService.IsShuffleEnabled;
+            bool isRepeatEnabled = _audioService.IsRepeatEnabled;
+            int userQueueCount = _audioService.UserQueue?.Count ?? 0;
+            int albumQueueCount = _audioService.AlbumQueue?.Count ?? 0;
+
+            string playbackState;
+            AppIpcTrackInfo? trackInfo;
+            TimeSpan position;
+            TimeSpan duration;
+
+            if (isPlaying && currentTrack is not null)
+            {
+                playbackState = PLAYBACK_STATE_PLAYING;
+                trackInfo = CreateTrackInfo(currentTrack);
+                duration = totalTime > TimeSpan.Zero ? totalTime : currentTrack.Duration;
+                position = ClampPosition(currentTime, duration);
+            }
+            else if (isPaused && currentTrack is not null)
+            {
+                playbackState = PLAYBACK_STATE_PAUSED;
+                trackInfo = CreateTrackInfo(currentTrack);
+                duration = totalTime > TimeSpan.Zero ? totalTime : currentTrack.Duration;
+                position = ClampPosition(currentTime, duration);
+            }
+            else
+            {
+                playbackState = PLAYBACK_STATE_STOPPED;
+                trackInfo = null;
+                position = TimeSpan.Zero;
+                duration = TimeSpan.Zero;
+            }
+
+            double clampedVolume = Math.Round(Math.Clamp((double)volume, 0.0, 1.0), 4);
+
+            snapshot = AppIpcResponse.SuccessPlaybackState(
+                playbackState: playbackState,
+                track: trackInfo,
+                positionSeconds: Math.Round(position.TotalSeconds, 3),
+                positionString: FormatDuration(position),
+                durationSeconds: Math.Round(duration.TotalSeconds, 3),
+                durationString: FormatDuration(duration),
+                volume: clampedVolume,
+                isShuffleEnabled: isShuffleEnabled,
+                isRepeatEnabled: isRepeatEnabled,
+                userQueueCount: userQueueCount,
+                albumQueueCount: albumQueueCount);
+        });
+
+        if (aborted || snapshot is null)
+        {
+            throw new OperationCanceledException("要求期限を超過したため再生状態の取得を中止しました。", cancellationToken);
+        }
+
+        return snapshot;
+    }
+
+    private static TimeSpan ClampPosition(TimeSpan position, TimeSpan duration)
+    {
+        if (position < TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        if (duration > TimeSpan.Zero && position > duration)
+        {
+            return duration;
+        }
+
+        return position;
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        TimeSpan safe = duration < TimeSpan.Zero ? TimeSpan.Zero : duration;
+        return safe.TotalHours >= 1.0
+            ? safe.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture)
+            : safe.ToString(@"mm\:ss", CultureInfo.InvariantCulture);
     }
 
     private async Task<AppIpcResponse> HandlePlayTrackAsync(AppIpcRequest request, CancellationToken cancellationToken)

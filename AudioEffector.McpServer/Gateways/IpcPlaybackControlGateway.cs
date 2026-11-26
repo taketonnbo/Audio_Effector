@@ -135,6 +135,22 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
     }
 
     /// <inheritdoc />
+    public async Task<PlaybackControlResult<PlaybackStateResponse>> GetPlaybackStateAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_GET_PLAYBACK_STATE,
+            DeadlineUtc: DateTimeOffset.UtcNow + _commandTimeout);
+
+        return await SendCommandAsync(
+            request,
+            MapPlaybackStateSuccessResponse,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task<PlaybackControlResult<PlayTrackResponse>> PlayTrackAsync(
         TrackId? trackId,
         string? filePath,
@@ -519,6 +535,53 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
         }
 
         return true;
+    }
+
+    private PlaybackControlResult<PlaybackStateResponse> MapPlaybackStateSuccessResponse(AppIpcResponse response)
+    {
+        bool isKnownState = string.Equals(response.PlaybackState, PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, StringComparison.Ordinal)
+            || string.Equals(response.PlaybackState, PlaybackIpcCommandHandler.PLAYBACK_STATE_PAUSED, StringComparison.Ordinal)
+            || string.Equals(response.PlaybackState, PlaybackIpcCommandHandler.PLAYBACK_STATE_STOPPED, StringComparison.Ordinal);
+
+        bool requiresTrack = string.Equals(response.PlaybackState, PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, StringComparison.Ordinal)
+            || string.Equals(response.PlaybackState, PlaybackIpcCommandHandler.PLAYBACK_STATE_PAUSED, StringComparison.Ordinal);
+
+        if (!isKnownState
+            || (requiresTrack && response.Track is null)
+            || !response.PositionSeconds.HasValue
+            || string.IsNullOrWhiteSpace(response.PositionString)
+            || !response.DurationSeconds.HasValue
+            || string.IsNullOrWhiteSpace(response.DurationString)
+            || !response.Volume.HasValue
+            || !response.IsShuffleEnabled.HasValue
+            || !response.IsRepeatEnabled.HasValue
+            || !response.UserQueueCount.HasValue
+            || !response.AlbumQueueCount.HasValue)
+        {
+            LogIpcCommunicationFailedDelegate(_logger, _pipeName, null);
+            return PlaybackControlResult<PlaybackStateResponse>.Failure(
+                McpErrorCodes.IPC_CONNECTION_FAILED,
+                McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
+        }
+
+        PlayedTrackDto? trackDto = response.Track is null
+            ? null
+            : PlayedTrackDto.FromIpcTrackInfo(response.Track);
+
+        var dto = new PlaybackStateResponse(
+            PlaybackState: response.PlaybackState!,
+            Track: trackDto,
+            PositionSeconds: response.PositionSeconds.Value,
+            PositionString: response.PositionString,
+            DurationSeconds: response.DurationSeconds.Value,
+            DurationString: response.DurationString,
+            Volume: response.Volume.Value,
+            IsShuffleEnabled: response.IsShuffleEnabled.Value,
+            IsRepeatEnabled: response.IsRepeatEnabled.Value,
+            UserQueueCount: response.UserQueueCount.Value,
+            AlbumQueueCount: response.AlbumQueueCount.Value);
+
+        return PlaybackControlResult<PlaybackStateResponse>.Success(dto);
     }
 
     private PlaybackControlResult<PlayCollectionResponse> MapCollectionSuccessResponse(

@@ -794,7 +794,9 @@ public sealed class AllSongsViewModelTests
 
         public IReadOnlyList<Track> UserQueue => Array.Empty<Track>();
         public IReadOnlyList<Track> AlbumQueue => LastPlaylist;
+        public Track? CurrentTrack => LastStartTrack;
         public bool IsPlaying => PlayCalled;
+        public bool IsPaused => false;
         public bool IsShuffleEnabled { get; set; }
         public bool IsRepeatEnabled { get; set; }
         public TimeSpan CurrentTime => TimeSpan.Zero;

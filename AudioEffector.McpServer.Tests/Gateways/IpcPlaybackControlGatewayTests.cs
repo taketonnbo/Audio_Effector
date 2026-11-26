@@ -899,4 +899,173 @@ public sealed class IpcPlaybackControlGatewayTests : IDisposable
         Assert.Contains("artist", result.ErrorMessage ?? string.Empty, StringComparison.Ordinal);
         Assert.NotNull(result.Details);
     }
+
+    /// <summary>
+    /// 起動中の AppIpcServer へ get_playback_state を送信し、再生中・一時停止中・停止中の 3 状態が PlaybackStateResponse として正確に取得できることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, "playing")]
+    [InlineData(false, true, "paused")]
+    [InlineData(false, false, "stopped")]
+    public async Task GetPlaybackStateAsync_IPCサーバ起動中で各状態時_正確なPlaybackStateResponseを返す(
+        bool isPlaying,
+        bool isPaused,
+        string expectedState)
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.GetState.{expectedState}.{Guid.NewGuid():N}";
+        var trackId = TrackId.New();
+        var track = new Track(
+            id: trackId,
+            filePath: AudioPath.Create(@"C:\Music\Jazz\BlueNote.flac"),
+            title: "Blue Note Morning",
+            artist: "Miles Trio",
+            album: "Midnight Sessions",
+            duration: TimeSpan.FromSeconds(225.5),
+            year: 2024,
+            trackNumber: 1,
+            bitrate: 1411,
+            sampleRate: 96000,
+            bitsPerSample: 24,
+            format: "FLAC",
+            genre: "Jazz");
+
+        var trackRepo = new Mock<ITrackRepository>();
+        var libraryService = new LibraryApplicationService(
+            trackRepo.Object,
+            new Mock<IFavoriteRepository>().Object,
+            new Mock<IMetadataExtractor>().Object,
+            new Mock<IEventBus>().Object);
+
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(isPlaying);
+        audioService.SetupGet(a => a.IsPaused).Returns(isPaused);
+        audioService.SetupGet(a => a.CurrentTrack).Returns(isPlaying || isPaused ? track : null);
+        audioService.SetupGet(a => a.CurrentTime).Returns(isPlaying || isPaused ? TimeSpan.FromSeconds(45.5) : TimeSpan.Zero);
+        audioService.SetupGet(a => a.TotalTime).Returns(isPlaying || isPaused ? TimeSpan.FromSeconds(225.5) : TimeSpan.Zero);
+        audioService.SetupGet(a => a.Volume).Returns(0.65f);
+        audioService.SetupGet(a => a.IsShuffleEnabled).Returns(true);
+        audioService.SetupGet(a => a.IsRepeatEnabled).Returns(true);
+        audioService.SetupGet(a => a.UserQueue).Returns([track]);
+        audioService.SetupGet(a => a.AlbumQueue).Returns([track, track]);
+
+        var handler = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            libraryService,
+            audioService.Object,
+            ImmediateUiDispatcher.Instance);
+
+        using var server = new AppIpcServer(pipeName, handler);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackStateResponse> result = await sut.GetPlaybackStateAsync();
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value);
+        Assert.Equal(expectedState, result.Value.PlaybackState);
+        Assert.Equal(0.65, result.Value.Volume);
+        Assert.True(result.Value.IsShuffleEnabled);
+        Assert.True(result.Value.IsRepeatEnabled);
+        Assert.Equal(1, result.Value.UserQueueCount);
+        Assert.Equal(2, result.Value.AlbumQueueCount);
+
+        if (expectedState == "stopped")
+        {
+            Assert.Null(result.Value.Track);
+            Assert.Equal(0.0, result.Value.PositionSeconds);
+            Assert.Equal("00:00", result.Value.PositionString);
+            Assert.Equal(0.0, result.Value.DurationSeconds);
+            Assert.Equal("00:00", result.Value.DurationString);
+        }
+        else
+        {
+            Assert.NotNull(result.Value.Track);
+            Assert.Equal(trackId.Value, result.Value.Track.Id);
+            Assert.Equal("Blue Note Morning", result.Value.Track.Title);
+            Assert.Equal(45.5, result.Value.PositionSeconds);
+            Assert.Equal("00:45", result.Value.PositionString);
+            Assert.Equal(225.5, result.Value.DurationSeconds);
+            Assert.Equal("03:45", result.Value.DurationString);
+        }
+    }
+
+    /// <summary>
+    /// WPF 本体の IPC サーバが未起動の状態で get_playback_state を呼び出した場合、WPF_APP_NOT_RUNNING を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackStateAsync_IPCサーバ未起動時_WPF_APP_NOT_RUNNINGを返す()
+    {
+        // Arrange
+        var sut = new IpcPlaybackControlGateway(
+            $"AudioEffector.Ipc.MissingState.{Guid.NewGuid():N}",
+            commandTimeout: TimeSpan.FromMilliseconds(300),
+            connectTimeout: TimeSpan.FromMilliseconds(100),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackStateResponse> result = await sut.GetPlaybackStateAsync();
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.WPF_APP_NOT_RUNNING, result.ErrorCode);
+        Assert.Contains("launch_app", result.ErrorMessage ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// get_playback_state の IPC 成功応答で必須フィールドが欠損または不正な playbackState の場合に IPC_CONNECTION_FAILED を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("invalid_state", false)]
+    [InlineData("playing", true)]
+    [InlineData("stopped", false)]
+    public async Task GetPlaybackStateAsync_IPC成功応答の必須項目欠損または不正状態時_IPC_CONNECTION_FAILEDを返す(
+        string playbackState,
+        bool missingTrackOnly)
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.MalformedState.{Guid.NewGuid():N}";
+        AppIpcResponse malformedResponse = missingTrackOnly
+            ? AppIpcResponse.SuccessPlaybackState(
+                playbackState: playbackState,
+                track: null,
+                positionSeconds: 10,
+                positionString: "00:10",
+                durationSeconds: 100,
+                durationString: "01:40",
+                volume: 0.8,
+                isShuffleEnabled: false,
+                isRepeatEnabled: false,
+                userQueueCount: 0,
+                albumQueueCount: 0)
+            : new AppIpcResponse(Ok: true, PlaybackState: playbackState);
+
+        var handler = new Mock<IAppIpcCommandHandler>();
+        handler
+            .Setup(h => h.HandleAsync(It.IsAny<AppIpcRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(malformedResponse);
+
+        using var server = new AppIpcServer(pipeName, handler.Object);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackStateResponse> result = await sut.GetPlaybackStateAsync();
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, result.ErrorCode);
+    }
 }

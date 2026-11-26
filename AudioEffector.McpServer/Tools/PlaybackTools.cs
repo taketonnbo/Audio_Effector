@@ -39,6 +39,29 @@ public sealed class PlaybackTools
     }
 
     /// <summary>
+    /// 起動中の Audio Effector の現在の再生状態・再生中トラック・再生位置・音量・再生モード・キュー件数を取得します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>現在の再生状態スナップショットを含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "get_playback_state")]
+    [Description("起動中の Audio Effector の現在の再生状態（playing / paused / stopped）、再生中または一時停止中のトラック情報、現在再生位置、総再生時間、音量、シャッフル・リピート状態、再生キュー件数を取得します（読み取り専用・副作用なし）。Audio Effector 本体が未起動の場合は、先に launch_app（例: mode: \"mini_player\"）で起動してから再実行してください。")]
+    public async Task<CallToolResult> GetPlaybackStateAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            PlaybackControlResult<PlaybackStateResponse> result = await _playbackGateway
+                .GetPlaybackStateAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            return FormatGatewayResult(result);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
+    /// <summary>
     /// 起動中の Audio Effector で指定されたトラック ID または音声ファイルパスの楽曲再生を開始します。
     /// </summary>
     /// <param name="trackId">再生対象トラックの ID（GUID 文字列。<paramref name="filePath"/> 未指定時は必須）。</param>

@@ -814,6 +814,192 @@ public sealed class PlaybackIpcCommandHandlerTests
             Times.Never);
     }
 
+    /// <summary>
+    /// get_playback_state 受信時、再生中の場合は UiDispatcher 経由で再生状態スナップショット（playing）を返し副作用を起こさないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_get_playback_state再生中時_playingとトラック情報およびキュー件数を返す()
+    {
+        // Arrange
+        var trackId = TrackId.New();
+        var currentTrack = CreateTrack(trackId, @"C:\Music\Jazz\BlueNote.flac", "Blue Note Morning", "Miles Trio", "Midnight Sessions");
+        var queuedTrack1 = CreateTrack(TrackId.New(), @"C:\Music\Jazz\Track2.flac", "Track 2", "Miles Trio", "Midnight Sessions");
+        var queuedTrack2 = CreateTrack(TrackId.New(), @"C:\Music\Jazz\Track3.flac", "Track 3", "Miles Trio", "Midnight Sessions");
+
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(true);
+        audioService.SetupGet(a => a.IsPaused).Returns(false);
+        audioService.SetupGet(a => a.CurrentTrack).Returns(currentTrack);
+        audioService.SetupGet(a => a.CurrentTime).Returns(TimeSpan.FromSeconds(83.4567));
+        audioService.SetupGet(a => a.TotalTime).Returns(TimeSpan.FromSeconds(225.5));
+        audioService.SetupGet(a => a.Volume).Returns(0.75f);
+        audioService.SetupGet(a => a.IsShuffleEnabled).Returns(true);
+        audioService.SetupGet(a => a.IsRepeatEnabled).Returns(false);
+        audioService.SetupGet(a => a.UserQueue).Returns([queuedTrack1]);
+        audioService.SetupGet(a => a.AlbumQueue).Returns([queuedTrack1, queuedTrack2]);
+
+        var recordingDispatcher = new RecordingUiDispatcher();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_GET_PLAYBACK_STATE);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, response.PlaybackState);
+        Assert.NotNull(response.Track);
+        Assert.Equal(trackId.Value, response.Track.Id);
+        Assert.Equal("Blue Note Morning", response.Track.Title);
+        Assert.Equal(83.457, response.PositionSeconds);
+        Assert.Equal("01:23", response.PositionString);
+        Assert.Equal(225.5, response.DurationSeconds);
+        Assert.Equal("03:45", response.DurationString);
+        Assert.Equal(0.75, response.Volume);
+        Assert.True(response.IsShuffleEnabled);
+        Assert.False(response.IsRepeatEnabled);
+        Assert.Equal(1, response.UserQueueCount);
+        Assert.Equal(2, response.AlbumQueueCount);
+        Assert.Equal(1, recordingDispatcher.InvokeCount);
+        audioService.Verify(a => a.PlayTrack(It.IsAny<Track>()), Times.Never);
+        audioService.Verify(a => a.TogglePlayPause(), Times.Never);
+        audioService.Verify(a => a.Stop(It.IsAny<bool>()), Times.Never);
+    }
+
+    /// <summary>
+    /// get_playback_state 受信時、一時停止中の場合は paused とトラック情報・現在再生位置を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_get_playback_state一時停止中時_pausedとトラック情報を返す()
+    {
+        // Arrange
+        var trackId = TrackId.New();
+        var currentTrack = CreateTrack(trackId, @"C:\Music\Classic\Long.flac", "Symphony", "Orchestra", "Live");
+
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(false);
+        audioService.SetupGet(a => a.IsPaused).Returns(true);
+        audioService.SetupGet(a => a.CurrentTrack).Returns(currentTrack);
+        audioService.SetupGet(a => a.CurrentTime).Returns(new TimeSpan(1, 5, 9));
+        audioService.SetupGet(a => a.TotalTime).Returns(new TimeSpan(1, 20, 0));
+        audioService.SetupGet(a => a.Volume).Returns(0.5f);
+        audioService.SetupGet(a => a.IsShuffleEnabled).Returns(false);
+        audioService.SetupGet(a => a.IsRepeatEnabled).Returns(true);
+        audioService.SetupGet(a => a.UserQueue).Returns(Array.Empty<Track>());
+        audioService.SetupGet(a => a.AlbumQueue).Returns(Array.Empty<Track>());
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_GET_PLAYBACK_STATE);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PAUSED, response.PlaybackState);
+        Assert.NotNull(response.Track);
+        Assert.Equal(trackId.Value, response.Track.Id);
+        Assert.Equal(3909.0, response.PositionSeconds);
+        Assert.Equal("1:05:09", response.PositionString);
+        Assert.Equal(4800.0, response.DurationSeconds);
+        Assert.Equal("1:20:00", response.DurationString);
+        Assert.Equal(0.5, response.Volume);
+        Assert.False(response.IsShuffleEnabled);
+        Assert.True(response.IsRepeatEnabled);
+        Assert.Equal(0, response.UserQueueCount);
+        Assert.Equal(0, response.AlbumQueueCount);
+    }
+
+    /// <summary>
+    /// get_playback_state 受信時、停止中・トラック未選択の場合はエラーとせず stopped と track=null の正常応答を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_get_playback_state停止中時_stoppedとtrackNullの正常応答を返す()
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.IsPlaying).Returns(false);
+        audioService.SetupGet(a => a.IsPaused).Returns(false);
+        audioService.SetupGet(a => a.CurrentTrack).Returns((Track?)null);
+        audioService.SetupGet(a => a.CurrentTime).Returns(TimeSpan.Zero);
+        audioService.SetupGet(a => a.TotalTime).Returns(TimeSpan.Zero);
+        audioService.SetupGet(a => a.Volume).Returns(0.8f);
+        audioService.SetupGet(a => a.IsShuffleEnabled).Returns(false);
+        audioService.SetupGet(a => a.IsRepeatEnabled).Returns(false);
+        audioService.SetupGet(a => a.UserQueue).Returns(Array.Empty<Track>());
+        audioService.SetupGet(a => a.AlbumQueue).Returns(Array.Empty<Track>());
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_GET_PLAYBACK_STATE);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_STOPPED, response.PlaybackState);
+        Assert.Null(response.Track);
+        Assert.Equal(0.0, response.PositionSeconds);
+        Assert.Equal("00:00", response.PositionString);
+        Assert.Equal(0.0, response.DurationSeconds);
+        Assert.Equal("00:00", response.DurationString);
+        Assert.Equal(0.8, response.Volume);
+        Assert.False(response.IsShuffleEnabled);
+        Assert.False(response.IsRepeatEnabled);
+        Assert.Equal(0, response.UserQueueCount);
+        Assert.Equal(0, response.AlbumQueueCount);
+    }
+
+    /// <summary>
+    /// get_playback_state で DeadlineUtc がすでに超過している場合、OperationCanceledException を送出することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_get_playback_state期限超過時_OperationCanceledExceptionを送出する()
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        DateTimeOffset now = new(2026, 11, 27, 12, 0, 5, TimeSpan.Zero);
+        DateTimeOffset expiredDeadline = new(2026, 11, 27, 12, 0, 0, TimeSpan.Zero);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true,
+            utcNow: () => now);
+
+        var request = new AppIpcRequest(
+            AppIpcServer.COMMAND_GET_PLAYBACK_STATE,
+            DeadlineUtc: expiredDeadline);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<OperationCanceledException>(() => sut.HandleAsync(request));
+        audioService.VerifyGet(a => a.IsPlaying, Times.Never);
+    }
+
     private static LibraryApplicationService CreateLibraryService(
         ITrackRepository trackRepository,
         IMetadataExtractor? metadataExtractor = null)
