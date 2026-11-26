@@ -11,12 +11,11 @@ using AudioEffector.Infrastructure.Library;
 using AudioEffector.Infrastructure.Repository;
 using AudioEffector.McpServer.Protocol;
 using AudioEffector.McpServer.Tools;
-using AudioEffector.Presentation.ViewModels;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using Moq;
 
-namespace AudioEffector.Tests.McpServer.Tools;
+namespace AudioEffector.McpServer.Tests.Tools;
 
 public sealed class LibraryToolsTests
 {
@@ -455,10 +454,10 @@ public sealed class LibraryToolsTests
     }
 
     /// <summary>
-    /// 空の一時データディレクトリとタグ付き MP4 を用い、WPF の通常読み込み経路（LibraryViewModel.LoadLibraryAsync）から別インスタンス MCP の search_tracks まで、追加・タグ更新（ID 維持）・削除・フォルダ切替が一貫して同期されることを検証します。
+    /// 空の一時データディレクトリとタグ付き MP4 を用い、ライブラリ同期経路（LibraryApplicationService.SyncLibraryTracksAsync）から別インスタンス MCP の search_tracks まで、追加・タグ更新（ID 維持）・削除・フォルダ切替が一貫して同期されることを検証します。
     /// </summary>
     [Fact]
-    public async Task SearchTracksAsync_WPF通常読み込み経路でタグ付きMP4をスキャン後_別インスタンスMCPからアーティスト名と曲名で検索でき更新削除フォルダ切替とID維持も同期される()
+    public async Task SearchTracksAsync_ライブラリ同期経路でタグ付きMP4をスキャン後_別インスタンスMCPからアーティスト名と曲名で検索でき更新削除フォルダ切替とID維持も同期される()
     {
         // Arrange
         string rootDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorWpfToMcpMp4_{Guid.NewGuid():N}");
@@ -479,22 +478,17 @@ public sealed class LibraryToolsTests
             CreateTaggedMp4File(mp4PathA, title: "Starlight MP4", artist: "Luna Quartet", album: "Night Sky");
             CreateTaggedMp4File(mp4PathB, title: "Horizon Line", artist: "Solar Ensemble", album: "Dawn");
 
-            // WPF 側の通常読み込み経路
-            using var wpfTrackRepo = new JsonTrackRepository(tracksPath);
-            using var wpfFavRepo = new JsonFavoriteRepository(favoritesPath);
-            var wpfLibraryService = new LibraryApplicationService(
-                wpfTrackRepo,
-                wpfFavRepo,
-                new TagLibMetadataExtractor(),
+            // 書き込み側（WPF 相当の別インスタンス）
+            var extractor = new TagLibMetadataExtractor();
+            using var writerTrackRepo = new JsonTrackRepository(tracksPath);
+            using var writerFavRepo = new JsonFavoriteRepository(favoritesPath);
+            var writerLibraryService = new LibraryApplicationService(
+                writerTrackRepo,
+                writerFavRepo,
+                extractor,
                 new InMemoryEventBus());
-            var settingsMock = new Mock<ISettingsService>();
-            settingsMock.Setup(s => s.LoadSettings()).Returns(new AppSettings { DetectMetadataChangesOnRescan = true });
-            using var wpfViewModel = new LibraryViewModel(
-                wpfLibraryService,
-                new Mock<IAudioService>().Object,
-                settingsMock.Object);
 
-            // 別インスタンスの MCP 側
+            // 読み取り側（別インスタンスの MCP 側）
             using var mcpTrackRepo = new JsonTrackRepository(tracksPath);
             using var mcpFavRepo = new JsonFavoriteRepository(favoritesPath);
             var mcpLibraryService = new LibraryApplicationService(
@@ -504,9 +498,25 @@ public sealed class LibraryToolsTests
                 new InMemoryEventBus());
             var sut = new LibraryTools(mcpLibraryService, new Mock<ILogger<LibraryTools>>().Object);
 
-            // Act 1: WPF の通常読み込みで MP4 をスキャン
-            await wpfViewModel.LoadLibraryAsync(musicDirA);
-            Track wpfTrack = Assert.Single(wpfViewModel.Tracks);
+            async Task<IReadOnlyList<Track>> SyncFolderAsync(LibraryApplicationService service, ITrackRepository repo, string folderPath)
+            {
+                var scanned = new List<Track>();
+                foreach (string file in Directory.EnumerateFiles(folderPath, "*.mp4", SearchOption.AllDirectories))
+                {
+                    Track? extracted = await extractor.ExtractMetadataAsync(AudioPath.Create(file));
+                    if (extracted is not null)
+                    {
+                        scanned.Add(extracted);
+                    }
+                }
+
+                await service.SyncLibraryTracksAsync(scanned);
+                return await repo.GetAllAsync();
+            }
+
+            // Act 1: フォルダ A の MP4 をスキャン・同期
+            IReadOnlyList<Track> syncedA = await SyncFolderAsync(writerLibraryService, writerTrackRepo, musicDirA);
+            Track initialTrack = Assert.Single(syncedA);
 
             // Assert 1: 別インスタンス MCP からアーティスト名・曲名それぞれで同一トラックが取得できる
             CallToolResult byArtist = await sut.SearchTracksAsync(keyword: "Luna Quartet");
@@ -517,7 +527,7 @@ public sealed class LibraryToolsTests
             {
                 JsonElement trackJson = Assert.Single(artistDoc.RootElement.GetProperty("data").GetProperty("tracks").EnumerateArray());
                 initialId = trackJson.GetProperty("id").GetGuid();
-                Assert.Equal(wpfTrack.Id.Value, initialId);
+                Assert.Equal(initialTrack.Id.Value, initialId);
                 Assert.Equal("Starlight MP4", trackJson.GetProperty("title").GetString());
                 Assert.Equal("Luna Quartet", trackJson.GetProperty("artist").GetString());
                 Assert.Equal("MP4", trackJson.GetProperty("format").GetString());
@@ -532,7 +542,7 @@ public sealed class LibraryToolsTests
             // Act 2: タグ更新後に再スキャン（既存 TrackId を維持して更新されること）
             CreateTaggedMp4File(mp4PathA, title: "Starlight Remastered", artist: "Luna Quartet", album: "Night Sky");
             File.SetLastWriteTimeUtc(mp4PathA, DateTime.UtcNow.AddSeconds(10));
-            await wpfViewModel.LoadLibraryAsync(musicDirA);
+            await SyncFolderAsync(writerLibraryService, writerTrackRepo, musicDirA);
 
             CallToolResult afterUpdate = await sut.SearchTracksAsync(keyword: "Starlight Remastered");
             using (JsonDocument updatedDoc = JsonDocument.Parse(GetSingleText(afterUpdate)))
@@ -543,7 +553,7 @@ public sealed class LibraryToolsTests
             }
 
             // Act 3: フォルダ切替（musicDirB へ切替後、旧フォルダの曲が消え新フォルダの曲だけ検索できること）
-            await wpfViewModel.LoadLibraryAsync(musicDirB);
+            await SyncFolderAsync(writerLibraryService, writerTrackRepo, musicDirB);
 
             CallToolResult oldFolderSearch = await sut.SearchTracksAsync(keyword: "Luna Quartet");
             CallToolResult newFolderSearch = await sut.SearchTracksAsync(keyword: "Solar Ensemble");
@@ -560,18 +570,21 @@ public sealed class LibraryToolsTests
                 Assert.Equal("Horizon Line", trackJson.GetProperty("title").GetString());
             }
 
-            // Act 4: アプリ再起動相当（新しい LibraryViewModel で同フォルダ再読み込み）でも既存 TrackId を維持すること
-            using var restartedWpfViewModel = new LibraryViewModel(
-                wpfLibraryService,
-                new Mock<IAudioService>().Object,
-                settingsMock.Object);
-            await restartedWpfViewModel.LoadLibraryAsync(musicDirB);
-            Track restartedTrack = Assert.Single(restartedWpfViewModel.Tracks);
+            // Act 4: アプリ再起動相当（別インスタンスで同フォルダ再同期）でも既存 TrackId を維持すること
+            using var restartedTrackRepo = new JsonTrackRepository(tracksPath);
+            using var restartedFavRepo = new JsonFavoriteRepository(favoritesPath);
+            var restartedLibraryService = new LibraryApplicationService(
+                restartedTrackRepo,
+                restartedFavRepo,
+                extractor,
+                new InMemoryEventBus());
+            IReadOnlyList<Track> restartedTracks = await SyncFolderAsync(restartedLibraryService, restartedTrackRepo, musicDirB);
+            Track restartedTrack = Assert.Single(restartedTracks);
             Assert.Equal(folderBTrackId, restartedTrack.Id.Value);
 
             // Act 5: ファイル削除後に再スキャン（MCP 検索結果が 0 件になること）
             File.Delete(mp4PathB);
-            await restartedWpfViewModel.LoadLibraryAsync(musicDirB);
+            await SyncFolderAsync(restartedLibraryService, restartedTrackRepo, musicDirB);
 
             CallToolResult afterDelete = await sut.SearchTracksAsync();
             using (JsonDocument deleteDoc = JsonDocument.Parse(GetSingleText(afterDelete)))
