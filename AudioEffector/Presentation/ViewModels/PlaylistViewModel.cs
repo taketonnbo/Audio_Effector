@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -33,6 +33,8 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
     private string _currentPlaylistName = string.Empty;
     private ImageSource? _playlistBackgroundImage;
     private bool _isFavoritesView;
+    private bool _hasLoadError;
+    private string? _lastErrorMessage;
     private bool _disposed;
 
     /// <summary>
@@ -93,6 +95,24 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
     {
         get => _isFavoritesView;
         private set => SetProperty(ref _isFavoritesView, value);
+    }
+
+    /// <summary>
+    /// 直近のプレイリスト読み込みが失敗したかどうか
+    /// </summary>
+    public bool HasLoadError
+    {
+        get => _hasLoadError;
+        private set => SetProperty(ref _hasLoadError, value);
+    }
+
+    /// <summary>
+    /// 直近の読み込み・保存で発生したエラーメッセージ（正常時はnull）
+    /// </summary>
+    public string? LastErrorMessage
+    {
+        get => _lastErrorMessage;
+        private set => SetProperty(ref _lastErrorMessage, value);
     }
 
     /// <summary>プレイリストを作成するコマンド</summary>
@@ -201,10 +221,21 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
 
     /// <summary>
     /// 永続化済みプレイリストを読み込みます。
+    /// 読み込みに失敗した場合は空データと区別してエラー状態を記録し、表示中の一覧を破壊しません。
     /// </summary>
     public void LoadPlaylists()
     {
-        var loadedPlaylists = _playlistService.LoadPlaylists();
+        Result<List<UserPlaylist>> loadResult = _playlistService.TryLoadPlaylists();
+        if (loadResult.IsFailure || loadResult.Value is null)
+        {
+            HasLoadError = true;
+            LastErrorMessage = loadResult.ErrorMessage;
+            return;
+        }
+
+        HasLoadError = false;
+        LastErrorMessage = null;
+        var loadedPlaylists = loadResult.Value;
         RunOnUiThread(() =>
         {
             UserPlaylists.Clear();
@@ -431,8 +462,12 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
         }
 
         var playlist = new UserPlaylist { Name = name.Trim() };
+        if (!TryPersistPlaylist(playlist))
+        {
+            return;
+        }
+
         UserPlaylists.Add(playlist);
-        SavePlaylists();
     }
 
     private void DeletePlaylist(object? parameter)
@@ -444,8 +479,15 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
             return;
         }
 
+        Result deleteResult = _playlistService.TryDeletePlaylist(playlist.Id);
+        if (deleteResult.IsFailure)
+        {
+            ReportPersistenceFailure(deleteResult.ErrorMessage);
+            return;
+        }
+
+        LastErrorMessage = null;
         UserPlaylists.Remove(playlist);
-        SavePlaylists();
         if (ReferenceEquals(SelectedPlaylist, playlist))
         {
             _ = SelectPlaylistAsync(null);
@@ -468,8 +510,18 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
             return;
         }
 
+        string previousName = playlist.Name;
+        DateTime previousUpdatedAt = playlist.UpdatedAt;
         playlist.Name = inputBox.InputText.Trim();
         playlist.UpdatedAt = DateTime.UtcNow;
+
+        if (!TryPersistPlaylist(playlist))
+        {
+            playlist.Name = previousName;
+            playlist.UpdatedAt = previousUpdatedAt;
+            return;
+        }
+
         int index = UserPlaylists.IndexOf(playlist);
         if (index >= 0)
         {
@@ -480,8 +532,6 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
         {
             CurrentPlaylistName = playlist.Name;
         }
-
-        SavePlaylists();
     }
 
     private async Task PlayPlaylistAsync(UserPlaylist? requestedPlaylist, bool shuffle)
@@ -532,11 +582,23 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
             return;
         }
 
+        var previousIds = playlist.TrackIds.ToList();
+        var previousPaths = playlist.TrackPaths.ToList();
+        DateTime previousUpdatedAt = playlist.UpdatedAt;
+
+        var remainingTracks = PlaylistTracks.ToList();
+        remainingTracks.RemoveAt(index);
+        PlaylistApplicationService.SyncPlaylistTracks(playlist, remainingTracks);
+
+        if (!TryPersistPlaylist(playlist))
+        {
+            playlist.ReplaceTracks(previousIds, previousPaths);
+            playlist.UpdatedAt = previousUpdatedAt;
+            return;
+        }
+
         PlaylistTracks.RemoveAt(index);
-        playlist.TrackPaths = PlaylistTracks.Select(item => item.FilePath).ToList();
-        playlist.UpdatedAt = DateTime.UtcNow;
         UpdatePlaylistThumbnails(playlist);
-        SavePlaylists();
         await Task.CompletedTask;
     }
 
@@ -600,33 +662,63 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
 
     private int AddTracks(UserPlaylist playlist, IEnumerable<Track> requestedTracks)
     {
-        int addedCount = 0;
-        foreach (var track in requestedTracks)
-        {
-            if (playlist.TrackPaths.Any(path => PathsEqual(path, track.FilePath)))
-            {
-                continue;
-            }
+        var previousIds = playlist.TrackIds.ToList();
+        var previousPaths = playlist.TrackPaths.ToList();
+        DateTime previousUpdatedAt = playlist.UpdatedAt;
 
-            playlist.TrackPaths.Add(track.FilePath);
-            addedCount++;
-            if (ReferenceEquals(SelectedPlaylist, playlist) && !IsFavoritesView)
+        IReadOnlyList<Track> addedTracks = _playlistService.AddTracksPreservingOrder(playlist, requestedTracks);
+        if (addedTracks.Count == 0)
+        {
+            return 0;
+        }
+
+        if (!TryPersistPlaylist(playlist))
+        {
+            playlist.ReplaceTracks(previousIds, previousPaths);
+            playlist.UpdatedAt = previousUpdatedAt;
+            return 0;
+        }
+
+        if (ReferenceEquals(SelectedPlaylist, playlist) && !IsFavoritesView)
+        {
+            foreach (Track track in addedTracks)
             {
                 PlaylistTracks.Add(track);
             }
         }
 
-        if (addedCount > 0)
-        {
-            playlist.UpdatedAt = DateTime.UtcNow;
-            UpdatePlaylistThumbnails(playlist);
-            SavePlaylists();
-        }
-
-        return addedCount;
+        UpdatePlaylistThumbnails(playlist);
+        return addedTracks.Count;
     }
 
-    private void SavePlaylists() => _playlistService.SavePlaylists(UserPlaylists.ToList());
+    private bool TryPersistPlaylist(UserPlaylist playlist)
+    {
+        Result result = _playlistService.TrySavePlaylist(playlist);
+        if (result.IsFailure)
+        {
+            ReportPersistenceFailure(result.ErrorMessage);
+            return false;
+        }
+
+        LastErrorMessage = null;
+        return true;
+    }
+
+    private void ReportPersistenceFailure(string? errorMessage)
+    {
+        LastErrorMessage = errorMessage;
+        if (string.IsNullOrWhiteSpace(errorMessage))
+        {
+            return;
+        }
+
+        System.Diagnostics.Trace.TraceWarning(errorMessage);
+        var app = System.Windows.Application.Current;
+        if (app != null && app.Dispatcher.CheckAccess() && app.MainWindow is { IsVisible: true })
+        {
+            MessageBox.Show(errorMessage, "Playlist Save Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
 
     private static bool PathsEqual(string left, string right) =>
         string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
