@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Audio Effector ループエンジニアリング用 統合検証ハーネス (Verifier)
 
@@ -407,6 +407,71 @@ print(json.dumps(counts, ensure_ascii=False))
     }
 }
 
+function Get-TrxTestCounts {
+    param([string]$ResultsDir)
+
+    $total = 0
+    $executed = 0
+    $passed = 0
+    $failed = 0
+    $fileCount = 0
+
+    if (-not (Test-Path -LiteralPath $ResultsDir)) {
+        return [PSCustomObject]@{
+            FileCount = 0
+            Total     = 0
+            Executed  = 0
+            Passed    = 0
+            Failed    = 0
+            ParseError = ""
+        }
+    }
+
+    $trxFiles = @(Get-ChildItem -LiteralPath $ResultsDir -Filter "*.trx" -Recurse -File -ErrorAction SilentlyContinue)
+    foreach ($file in $trxFiles) {
+        $fileCount++
+        try {
+            [xml]$doc = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8
+            $counters = $doc.SelectSingleNode("//*[local-name()='ResultSummary']/*[local-name()='Counters']")
+            if ($null -ne $counters) {
+                $tAttr = $counters.GetAttribute("total")
+                $eAttr = $counters.GetAttribute("executed")
+                $pAttr = $counters.GetAttribute("passed")
+                $fAttr = $counters.GetAttribute("failed")
+
+                $tVal = if (-not [string]::IsNullOrWhiteSpace($tAttr)) { [int]$tAttr } else { 0 }
+                $eVal = if (-not [string]::IsNullOrWhiteSpace($eAttr)) { [int]$eAttr } else { $tVal }
+                $pVal = if (-not [string]::IsNullOrWhiteSpace($pAttr)) { [int]$pAttr } else { 0 }
+                $fVal = if (-not [string]::IsNullOrWhiteSpace($fAttr)) { [int]$fAttr } else { 0 }
+
+                $total += $tVal
+                $executed += $eVal
+                $passed += $pVal
+                $failed += $fVal
+            }
+        }
+        catch {
+            return [PSCustomObject]@{
+                FileCount  = $fileCount
+                Total      = $total
+                Executed   = $executed
+                Passed     = $passed
+                Failed     = $failed
+                ParseError = "TRX ファイル '$($file.Name)' の解析に失敗しました: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    return [PSCustomObject]@{
+        FileCount  = $fileCount
+        Total      = $total
+        Executed   = $executed
+        Passed     = $passed
+        Failed     = $failed
+        ParseError = ""
+    }
+}
+
 function Remove-AgentBuildDir {
     param(
         [string]$RunDirToRemove,
@@ -602,7 +667,10 @@ try {
         $gateResults.Add((New-GateResult -Name "test" -Status "SKIPPED" -DurationSeconds 0 -Summary $msg))
     }
     else {
-        $testArgs = @("test", $solutionPath, "-p:OutDir=$agentBuildOutDir", "--no-build", "--nologo")
+        $testResultsDir = Join-Path $agentBuildDir "TestResults"
+        New-Item -ItemType Directory -Path $testResultsDir -Force | Out-Null
+
+        $testArgs = @("test", $solutionPath, "-p:OutDir=$agentBuildOutDir", "--no-build", "--nologo", "--logger", "trx", "--results-directory", $testResultsDir)
         if (-not [string]::IsNullOrWhiteSpace($TestFilter)) {
             $testArgs += @("--filter", $TestFilter)
         }
@@ -612,15 +680,7 @@ try {
         $testLines = $testCombined -split "`r?`n"
 
         $failedTests = @($testLines | Where-Object { $_ -match '^\s*(失敗|Failed)\s+' } | Select-Object -First 20)
-        $summaryMatches = @($testLines | Where-Object { $_ -match '(成功!|合格!|失敗!|Passed!|Failed!)\s*-' })
-
-        $totalExecutedTests = 0
-        foreach ($sm in $summaryMatches) {
-            if ($sm -match '(?:合計|Total)\s*:\s*(\d+)') {
-                $totalExecutedTests += [int]$Matches[1]
-            }
-        }
-        $noTestMatched = ($testCombined -match 'No test matches the given testcase filter|指定されたテストケース\s*フィルターに一致するテストがありません|テストが見つかりません|No test is available')
+        $trxStats = Get-TrxTestCounts -ResultsDir $testResultsDir
 
         if ($testExec.StartFailed) {
             $overallPassed = $false
@@ -635,33 +695,39 @@ try {
             $tailLines = @($testLines | Where-Object { $_.Trim() -ne "" } | Select-Object -Last 15)
             $gateResults.Add((New-GateResult -Name "test" -Status "FAILED" -DurationSeconds $testExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details $tailLines))
         }
-        elseif ($testExec.ExitCode -ne 0) {
+        elseif (-not [string]::IsNullOrWhiteSpace($trxStats.ParseError)) {
             $overallPassed = $false
-            $msg = "単体テストに失敗しました (ExitCode=$($testExec.ExitCode), 所要: $($testExec.DurationSeconds)秒)。"
+            $msg = "テスト結果 (TRX) の集計に失敗しました: $($trxStats.ParseError)"
+            Write-Host "  [FAIL] $msg" -ForegroundColor Red
+            $gateResults.Add((New-GateResult -Name "test" -Status "FAILED" -DurationSeconds $testExec.DurationSeconds -ErrorCount 1 -Summary $msg))
+        }
+        elseif ($testExec.ExitCode -ne 0 -or $trxStats.Failed -gt 0) {
+            $overallPassed = $false
+            $msg = "単体テストに失敗しました (ExitCode=$($testExec.ExitCode), 実行: $($trxStats.Executed)件, 合格: $($trxStats.Passed)件, 失敗: $($trxStats.Failed)件, 所要: $($testExec.DurationSeconds)秒)。"
             Write-Host "  [FAIL] $msg" -ForegroundColor Red
             $detailLines = @()
-            if ($summaryMatches.Count -gt 0) { $detailLines += $summaryMatches }
             if ($failedTests.Count -gt 0) { $detailLines += $failedTests }
             if ($detailLines.Count -eq 0) {
                 $detailLines = @($testLines | Where-Object { $_.Trim() -ne "" } | Select-Object -Last 20)
             }
             foreach ($d in $detailLines) { Write-Host "    $d" -ForegroundColor Red }
-            $gateResults.Add((New-GateResult -Name "test" -Status "FAILED" -DurationSeconds $testExec.DurationSeconds -ErrorCount ([Math]::Max($failedTests.Count, 1)) -Summary $msg -Details $detailLines))
+            $errCount = [Math]::Max($trxStats.Failed, [Math]::Max($failedTests.Count, 1))
+            $gateResults.Add((New-GateResult -Name "test" -Status "FAILED" -DurationSeconds $testExec.DurationSeconds -ErrorCount $errCount -Summary $msg -Details $detailLines))
         }
-        elseif ($totalExecutedTests -eq 0 -or $noTestMatched) {
+        elseif ($trxStats.Executed -eq 0) {
             $overallPassed = $false
             $filterNote = if (-not [string]::IsNullOrWhiteSpace($TestFilter)) { " (フィルタ: $TestFilter)" } else { "" }
-            $msg = "実行された単体テストが 0 件でした${filterNote}。テストフィルタの誤記やテスト未検出を確認してください。"
+            $msg = "実行された単体テストが 0 件でした${filterNote} (TRX: $($trxStats.FileCount)件)。テストフィルタの誤記やテスト未検出を確認してください。"
             Write-Host "  [FAIL] $msg" -ForegroundColor Red
             $detailLines = @($testLines | Where-Object { $_.Trim() -ne "" } | Select-Object -Last 15)
             foreach ($d in $detailLines) { Write-Host "    $d" -ForegroundColor Red }
             $gateResults.Add((New-GateResult -Name "test" -Status "FAILED" -DurationSeconds $testExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details $detailLines))
         }
         else {
-            $summaryText = ($summaryMatches -join " / ").Trim()
-            $msg = "単体テスト合格 (実行合計: ${totalExecutedTests}件 | $summaryText, 所要: $($testExec.DurationSeconds)秒)。"
+            $skippedCount = [Math]::Max(0, $trxStats.Total - $trxStats.Executed)
+            $msg = "単体テスト合格 (実行: $($trxStats.Executed)件, 合格: $($trxStats.Passed)件, 失敗: 0件, スキップ: ${skippedCount}件, TRX: $($trxStats.FileCount)件, 所要: $($testExec.DurationSeconds)秒)。"
             Write-Host "  [PASS] $msg" -ForegroundColor Green
-            $gateResults.Add((New-GateResult -Name "test" -Status "PASSED" -DurationSeconds $testExec.DurationSeconds -Summary $msg -Details $summaryMatches))
+            $gateResults.Add((New-GateResult -Name "test" -Status "PASSED" -DurationSeconds $testExec.DurationSeconds -Summary $msg))
         }
     }
 
