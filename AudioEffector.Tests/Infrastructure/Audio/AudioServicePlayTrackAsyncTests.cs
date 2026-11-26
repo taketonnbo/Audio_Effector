@@ -527,6 +527,47 @@ public sealed class AudioServicePlayTrackAsyncTests : IDisposable
         Assert.Equal(trackC.FilePath, sut.AlbumQueue[0].FilePath);
     }
 
+    /// <summary>
+    /// 先頭と末尾が同一曲のプレイリスト [A, B, A] を先頭からシャッフル・リピート無効で再生した場合、最初の A 終了で終了せず A → B → A と進行し最後の A で PlaylistEnded が発火することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayPlaylistAsync_先頭と末尾が同一曲のリストで連続再生時_AからBを経て最後のAでPlaylistEndedが発火する()
+    {
+        // Arrange
+        var trackA = CreateTrack(CreateSilentWavFile(durationSeconds: 1.0), "Track A");
+        var trackB = CreateTrack(CreateSilentWavFile(durationSeconds: 1.0), "Track B");
+        List<Track> playlist = [trackA, trackB, trackA];
+
+        using var sut = new AudioService(ImmediateUiDispatcher.Instance);
+        var notifiedTrackTitles = new List<string?>();
+        int playlistEndedCount = 0;
+        sut.TrackChanged += t => notifiedTrackTitles.Add(t?.Title);
+        sut.PlaylistEnded += (_, _) => playlistEndedCount++;
+
+        // Act & Assert 1: 先頭の A を再生開始し、残りキューが [B, A] であることを確認
+        Track? started = await sut.PlayPlaylistAsync(playlist, startTrack: null, shuffle: false, repeat: false);
+        Assert.NotNull(started);
+        Assert.Equal(trackA.FilePath, started.FilePath);
+        Assert.Equal([trackB.FilePath, trackA.FilePath], sut.AlbumQueue.Select(t => t.FilePath).ToArray());
+        Assert.Equal(0, playlistEndedCount);
+
+        // Act & Assert 2: 1 回目の Next() で B へ進み、PlaylistEnded は発火しない
+        sut.Next();
+        Assert.Equal(0, playlistEndedCount);
+        Assert.Contains("Track B", notifiedTrackTitles);
+        Assert.Equal([trackA.FilePath], sut.AlbumQueue.Select(t => t.FilePath).ToArray());
+
+        // Act & Assert 3: 2 回目の Next() で末尾の A へ進み、残りキューが空になり、まだ PlaylistEnded は発火しない
+        sut.Next();
+        Assert.Equal(0, playlistEndedCount);
+        Assert.Empty(sut.AlbumQueue);
+        Assert.Equal(2, notifiedTrackTitles.Count(title => title == "Track A"));
+
+        // Act & Assert 4: 3 回目の Next()（最後の A の終了）で PlaylistEnded が発火する
+        sut.Next();
+        Assert.Equal(1, playlistEndedCount);
+    }
+
     private string CreateSilentWavFile(double durationSeconds = 0.5)
     {
         string path = Path.Combine(Path.GetTempPath(), $"AudioEffectorSilent_{Guid.NewGuid():N}.wav");
