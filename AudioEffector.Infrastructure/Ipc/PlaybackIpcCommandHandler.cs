@@ -219,6 +219,12 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
     {
         ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
 
+        if (request.TrackFilePaths is { Count: > 0 })
+        {
+            return await HandlePreResolvedCollectionAsync(SOURCE_TYPE_ALBUM, request, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         bool hasAlbumId = !string.IsNullOrWhiteSpace(request.AlbumId);
         bool hasAlbumName = !string.IsNullOrWhiteSpace(request.AlbumName);
 
@@ -292,7 +298,8 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
             {
                 return AppIpcResponse.Failure(
                     AppIpcErrorCodes.INVALID_PARAMETER,
-                    "同名アルバムが複数存在するため一意に特定できません。albumId または artist を指定してください。");
+                    "同名アルバムが複数存在するため一意に特定できません。albumId または artist を指定してください。",
+                    AppIpcErrorReasons.AMBIGUOUS_ALBUM);
             }
 
             resolvedAlbum = matchedAlbums[0];
@@ -328,6 +335,12 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
     private async Task<AppIpcResponse> HandlePlayPlaylistAsync(AppIpcRequest request, CancellationToken cancellationToken)
     {
         ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        if (request.TrackFilePaths is { Count: > 0 })
+        {
+            return await HandlePreResolvedCollectionAsync(SOURCE_TYPE_PLAYLIST, request, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         if (_playlistService is null)
         {
@@ -398,7 +411,8 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
             {
                 return AppIpcResponse.Failure(
                     AppIpcErrorCodes.INVALID_PARAMETER,
-                    "同名のプレイリストが複数存在するため一意に特定できません。playlistId を指定してください。");
+                    "同名のプレイリストが複数存在するため一意に特定できません。playlistId を指定してください。",
+                    AppIpcErrorReasons.AMBIGUOUS_PLAYLIST);
             }
 
             resolvedPlaylist = matchedPlaylists[0];
@@ -439,6 +453,104 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
             cancellationToken).ConfigureAwait(false);
     }
 
+    private async Task<AppIpcResponse> HandlePreResolvedCollectionAsync(
+        string sourceType,
+        AppIpcRequest request,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> rawPaths = request.TrackFilePaths!;
+        if (request.StartTrackIndex.HasValue && (request.StartTrackIndex.Value < 0 || request.StartTrackIndex.Value >= rawPaths.Count))
+        {
+            return AppIpcResponse.Failure(
+                AppIpcErrorCodes.INVALID_PARAMETER,
+                $"startTrackIndex は 0〜{rawPaths.Count - 1} の範囲で指定してください。");
+        }
+
+        var playableTracks = new List<Track>(rawPaths.Count);
+        int? resolvedStartIndex = null;
+
+        for (int i = 0; i < rawPaths.Count; i++)
+        {
+            ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+            string rawPath = rawPaths[i];
+            if (string.IsNullOrWhiteSpace(rawPath))
+            {
+                return AppIpcResponse.Failure(
+                    AppIpcErrorCodes.INVALID_PARAMETER,
+                    "trackFilePaths に空のファイルパスが含まれています。");
+            }
+
+            string trimmedPath = rawPath.Trim();
+            if (!Path.IsPathFullyQualified(trimmedPath))
+            {
+                return AppIpcResponse.Failure(
+                    AppIpcErrorCodes.INVALID_PARAMETER,
+                    "trackFilePaths には絶対パスを指定してください。");
+            }
+
+            if (!_fileExists(trimmedPath))
+            {
+                if (request.StartTrackIndex.HasValue && request.StartTrackIndex.Value == i)
+                {
+                    return AppIpcResponse.Failure(
+                        AppIpcErrorCodes.FILE_NOT_FOUND,
+                        "指定された開始トラックの音声ファイルが見つかりません。");
+                }
+
+                continue;
+            }
+
+            Track? track = await _libraryService
+                .GetTrackByPathAsync(trimmedPath, cancellationToken)
+                .ConfigureAwait(false);
+            if (track is null)
+            {
+                if (request.StartTrackIndex.HasValue && request.StartTrackIndex.Value == i)
+                {
+                    return AppIpcResponse.Failure(
+                        AppIpcErrorCodes.INTERNAL_ERROR,
+                        "指定された開始トラックのメタデータを解決できませんでした。");
+                }
+
+                continue;
+            }
+
+            if (request.StartTrackIndex.HasValue && request.StartTrackIndex.Value == i)
+            {
+                resolvedStartIndex = playableTracks.Count;
+            }
+
+            playableTracks.Add(track);
+        }
+
+        if (playableTracks.Count == 0)
+        {
+            return AppIpcResponse.Failure(
+                AppIpcErrorCodes.FILE_NOT_FOUND,
+                "コレクション内に再生可能な音声ファイルが見つかりません。");
+        }
+
+        Guid sourceId = request.SourceId ?? Guid.Empty;
+        string sourceName = !string.IsNullOrWhiteSpace(request.SourceName)
+            ? request.SourceName.Trim()
+            : (string.Equals(sourceType, SOURCE_TYPE_ALBUM, StringComparison.Ordinal)
+                ? playableTracks[0].Album
+                : "Playlist");
+
+        return await PlayCollectionCoreAsync(
+            sourceType,
+            sourceId,
+            sourceName,
+            playableTracks,
+            startTrackId: null,
+            startTrackIndex: resolvedStartIndex,
+            request.Shuffle,
+            request.Repeat,
+            request.DeadlineUtc,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<AppIpcResponse> PlayCollectionCoreAsync(
         string sourceType,
         Guid sourceId,
@@ -452,15 +564,19 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
         CancellationToken cancellationToken)
     {
         Track? startTrack = null;
+        int? resolvedStartIndex = null;
         if (startTrackId.HasValue)
         {
-            startTrack = playableTracks.FirstOrDefault(t => t.Id == startTrackId.Value);
-            if (startTrack is null)
+            int foundIndex = playableTracks.FindIndex(t => t.Id == startTrackId.Value);
+            if (foundIndex < 0)
             {
                 return AppIpcResponse.Failure(
                     AppIpcErrorCodes.NOT_FOUND,
                     "指定された startTrackId は対象コレクション内の再生可能トラックに見つかりません。");
             }
+
+            resolvedStartIndex = foundIndex;
+            startTrack = playableTracks[foundIndex];
         }
         else if (startTrackIndex.HasValue)
         {
@@ -471,6 +587,7 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
                     $"startTrackIndex は 0〜{playableTracks.Count - 1} の範囲で指定してください。");
             }
 
+            resolvedStartIndex = startTrackIndex.Value;
             startTrack = playableTracks[startTrackIndex.Value];
         }
 
@@ -491,7 +608,9 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
                 startTrack,
                 shuffle,
                 repeat,
-                cancellationToken);
+                sourceName: sourceName,
+                startTrackIndex: resolvedStartIndex,
+                cancellationToken: cancellationToken);
         });
 
         if (abortedBeforePlayback || playTask is null)

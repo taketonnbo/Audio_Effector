@@ -40,6 +40,22 @@ public static class AppIpcErrorCodes
 }
 
 /// <summary>
+/// Named Pipe IPC のエラー応答でクライアントへ安全な案内を伝えるための構造化理由コード定数を定義します。
+/// </summary>
+public static class AppIpcErrorReasons
+{
+    /// <summary>
+    /// 同名アルバムが複数存在し一意に特定できない。
+    /// </summary>
+    public const string AMBIGUOUS_ALBUM = "AMBIGUOUS_ALBUM";
+
+    /// <summary>
+    /// 同名プレイリストが複数存在し一意に特定できない。
+    /// </summary>
+    public const string AMBIGUOUS_PLAYLIST = "AMBIGUOUS_PLAYLIST";
+}
+
+/// <summary>
 /// MCP サーバから Audio Effector（WPF 本体）へ送信する Named Pipe IPC リクエストを表します。
 /// </summary>
 /// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>play_track</c>, <c>play_album</c>, <c>play_playlist</c>）。</param>
@@ -55,6 +71,9 @@ public static class AppIpcErrorCodes
 /// <param name="StartTrackIndex">コレクション再生時の開始トラック 0 始まりインデックス（任意）。</param>
 /// <param name="Shuffle">シャッフル再生の有効／無効（任意、省略時は現在設定を維持）。</param>
 /// <param name="Repeat">リピート再生の有効／無効（任意、省略時は現在設定を維持）。</param>
+/// <param name="TrackFilePaths">カスタムデータディレクトリ使用時に MCP 側で解決済みの再生対象音声ファイルパス一覧（順序保持、任意）。</param>
+/// <param name="SourceId">解決済みコレクションのソース ID（任意）。</param>
+/// <param name="SourceName">解決済みコレクションのソース名（キュー見出し同期用、任意）。</param>
 public sealed record AppIpcRequest(
     string Command,
     string? TrackId = null,
@@ -68,7 +87,10 @@ public sealed record AppIpcRequest(
     string? StartTrackId = null,
     int? StartTrackIndex = null,
     bool? Shuffle = null,
-    bool? Repeat = null);
+    bool? Repeat = null,
+    IReadOnlyList<string>? TrackFilePaths = null,
+    Guid? SourceId = null,
+    string? SourceName = null);
 
 /// <summary>
 /// Named Pipe IPC 応答で返却する再生中トラック情報です。
@@ -103,6 +125,7 @@ public sealed record AppIpcTrackInfo(
 /// <param name="TotalTracks">コレクション再生時の総トラック数（再生可能ファイル数）。</param>
 /// <param name="IsShuffleEnabled">適用後のシャッフル再生有効状態。</param>
 /// <param name="IsRepeatEnabled">適用後のリピート再生有効状態。</param>
+/// <param name="ErrorReason">失敗時の構造化理由コード（<see cref="AppIpcErrorReasons"/>、任意）。</param>
 public sealed record AppIpcResponse(
     bool Ok,
     string? PlaybackState = null,
@@ -114,7 +137,8 @@ public sealed record AppIpcResponse(
     string? SourceName = null,
     int? TotalTracks = null,
     bool? IsShuffleEnabled = null,
-    bool? IsRepeatEnabled = null)
+    bool? IsRepeatEnabled = null,
+    string? ErrorReason = null)
 {
     /// <summary>
     /// 疎通確認（<c>ping</c>）の成功応答を生成します。
@@ -178,11 +202,12 @@ public sealed record AppIpcResponse(
     /// </summary>
     /// <param name="errorCode">標準エラーコード（<see cref="AppIpcErrorCodes"/>）。</param>
     /// <param name="error">エラー説明。</param>
+    /// <param name="errorReason">クライアント向け案内生成用の構造化理由コード（<see cref="AppIpcErrorReasons"/>、任意）。</param>
     /// <returns>失敗を表す <see cref="AppIpcResponse"/>。</returns>
-    public static AppIpcResponse Failure(string errorCode, string error)
+    public static AppIpcResponse Failure(string errorCode, string error, string? errorReason = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(errorCode);
         ArgumentException.ThrowIfNullOrWhiteSpace(error);
-        return new AppIpcResponse(Ok: false, ErrorCode: errorCode, Error: error);
+        return new AppIpcResponse(Ok: false, ErrorCode: errorCode, Error: error, ErrorReason: errorReason);
     }
 }
