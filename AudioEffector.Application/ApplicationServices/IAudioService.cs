@@ -227,16 +227,47 @@ public interface IAudioService : IDisposable
     void TogglePlayPause();
 
     /// <summary>
+    /// 再生を一時停止します（すでに一時停止中の場合は状態を維持して <see langword="true"/> を返します）
+    /// </summary>
+    /// <returns>一時停止状態になった、またはすでに一時停止中だった場合は <see langword="true"/>、停止中（トラック未ロード）で一時停止できない場合は <see langword="false"/></returns>
+    [LogDescription("再生を一時停止します")]
+    bool Pause();
+
+    /// <summary>
+    /// 一時停止中の再生を再開、または待機中トラック／キュー先頭の再生を開始します（すでに再生中の場合は状態を維持して <see langword="true"/> を返します）
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン</param>
+    /// <returns>再生状態になった、またはすでに再生中だった場合は <see langword="true"/>、再開対象トラックが存在しないまたは再生開始に失敗した場合は <see langword="false"/></returns>
+    [LogDescription("再生を再開します")]
+    Task<bool> ResumeAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 次の楽曲へ進みます
     /// </summary>
     [LogDescription("次の曲へ進みます")]
     void Next();
 
     /// <summary>
+    /// 次の楽曲へ進み、遷移先の再生開始完了またはキュー末尾での停止まで非同期で待機します
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン</param>
+    /// <returns>次の楽曲（またはリピートによる先頭曲）の再生開始に成功した場合は <see langword="true"/>、次曲が存在せず停止した場合または再生開始に失敗した場合は <see langword="false"/></returns>
+    [LogDescription("次の曲へ進み完了を待機します")]
+    Task<bool> NextAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 前の楽曲に戻ります
     /// </summary>
     [LogDescription("前の曲に戻ります")]
     void Previous();
+
+    /// <summary>
+    /// 前の楽曲（または再生位置が 3 秒超の場合は現在曲の先頭）へ戻り、切り替え完了まで非同期で待機します
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン</param>
+    /// <returns>先頭シークまたは遷移先楽曲の再生開始に成功した場合は <see langword="true"/>、対象トラックが存在しないまたは再生開始に失敗した場合は <see langword="false"/></returns>
+    [LogDescription("前の曲へ戻り完了を待機します")]
+    Task<bool> PreviousAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 再生を停止します
