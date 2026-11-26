@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Audio Effector ループエンジニアリング用 統合検証ハーネス (Verifier)
 
