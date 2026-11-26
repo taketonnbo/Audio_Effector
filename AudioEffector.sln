@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AudioEffector.Infrastructur
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AudioEffector.McpServer", "AudioEffector.McpServer\AudioEffector.McpServer.csproj", "{8CF6B09B-9F11-4D2B-801B-477A2D120CAA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AudioEffector.Domain.Tests", "AudioEffector.Domain.Tests\AudioEffector.Domain.Tests.csproj", "{0BA2FB99-9C4B-47C1-8508-8764872B090B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -97,6 +99,18 @@ Global
 		{8CF6B09B-9F11-4D2B-801B-477A2D120CAA}.Release|x64.Build.0 = Release|Any CPU
 		{8CF6B09B-9F11-4D2B-801B-477A2D120CAA}.Release|x86.ActiveCfg = Release|Any CPU
 		{8CF6B09B-9F11-4D2B-801B-477A2D120CAA}.Release|x86.Build.0 = Release|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Debug|x64.Build.0 = Debug|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Debug|x86.Build.0 = Debug|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Release|x64.ActiveCfg = Release|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Release|x64.Build.0 = Release|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Release|x86.ActiveCfg = Release|Any CPU
+		{0BA2FB99-9C4B-47C1-8508-8764872B090B}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -5,7 +5,7 @@ using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
 using Xunit;
 
-namespace AudioEffector.Tests.Domain.Services;
+namespace AudioEffector.Domain.Tests.Services;
 
 /// <summary>
 /// AlbumGroupingResolverの作品単位AlbumId割り当て・既存ID引き継ぎ・コンピレーションフォールバックを検証するテストクラス

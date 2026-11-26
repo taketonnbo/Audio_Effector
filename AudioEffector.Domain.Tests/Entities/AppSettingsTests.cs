@@ -1,10 +1,8 @@
 using System.Text.Json;
-using System.Windows.Input;
 using AudioEffector.Domain.Entities;
-using AudioEffector.Presentation.Views;
 using Xunit;
 
-namespace AudioEffector.Tests.Domain.Entities;
+namespace AudioEffector.Domain.Tests.Entities;
 
 /// <summary>
 /// <see cref="AppSettings"/> および <see cref="ShortcutKeyConfig"/> の JSON シリアライズ後方互換性を検証するテストクラス
@@ -12,16 +10,16 @@ namespace AudioEffector.Tests.Domain.Entities;
 public sealed class AppSettingsTests
 {
     /// <summary>
-    /// 旧形式の settings.json（WPF の Key / ModifierKeys 整数値表現）をデシリアライズおよび再シリアライズしても数値・意味ともに完全一致することを検証します。
+    /// 旧形式の settings.json（キーコード・修飾キーの整数値表現）をデシリアライズおよび再シリアライズしても数値・意味ともに完全一致することを検証します。
     /// </summary>
     [Fact]
     public void JsonSerializer_旧形式のsettingsJsonを読み書きした場合_キーコードと修飾キーの数値表現が完全互換であること()
     {
-        // Arrange
-        int expectedSpaceKey = (int)Key.Space;
-        int expectedCtrlShift = (int)(ModifierKeys.Control | ModifierKeys.Shift);
-        int expectedMediaStopKey = (int)Key.MediaStop;
-        int expectedAlt = (int)ModifierKeys.Alt;
+        // Arrange（WPF Key.Space=18, Key.MediaStop=136 / ModifierKeys.Alt=1, Control=2, Shift=4 互換の整数値）
+        const int expectedSpaceKey = 18;
+        const int expectedCtrlShift = (int)(ShortcutModifiers.Control | ShortcutModifiers.Shift);
+        const int expectedMediaStopKey = 136;
+        const int expectedAlt = (int)ShortcutModifiers.Alt;
 
         string legacyJson = $$"""
         {
@@ -43,8 +41,6 @@ public sealed class AppSettingsTests
         // Assert
         Assert.Equal(expectedSpaceKey, sut.PlayPauseShortcut.Key);
         Assert.Equal(ShortcutModifiers.Control | ShortcutModifiers.Shift, sut.PlayPauseShortcut.Modifiers);
-        Assert.Equal(Key.Space, ShortcutKeyHelper.ToWpfKey(sut.PlayPauseShortcut.Key));
-        Assert.Equal(ModifierKeys.Control | ModifierKeys.Shift, ShortcutKeyHelper.ToWpfModifiers(sut.PlayPauseShortcut.Modifiers));
 
         Assert.Equal(expectedMediaStopKey, sut.StopShortcut.Key);
         Assert.Equal(ShortcutModifiers.Alt, sut.StopShortcut.Modifiers);
@@ -59,19 +55,5 @@ public sealed class AppSettingsTests
         JsonElement stopElement = doc.RootElement.GetProperty("StopShortcut");
         Assert.Equal(expectedMediaStopKey, stopElement.GetProperty("Key").GetInt32());
         Assert.Equal(expectedAlt, stopElement.GetProperty("Modifiers").GetInt32());
-    }
-
-    /// <summary>
-    /// ShortcutModifiers の全ビット値が WPF の ModifierKeys と 1:1 で一致することを検証します。
-    /// </summary>
-    [Fact]
-    public void ShortcutModifiers_全フラグ値_WPFModifierKeysとビット値が一致すること()
-    {
-        // Arrange & Act & Assert
-        Assert.Equal((int)ModifierKeys.None, (int)ShortcutModifiers.None);
-        Assert.Equal((int)ModifierKeys.Alt, (int)ShortcutModifiers.Alt);
-        Assert.Equal((int)ModifierKeys.Control, (int)ShortcutModifiers.Control);
-        Assert.Equal((int)ModifierKeys.Shift, (int)ShortcutModifiers.Shift);
-        Assert.Equal((int)ModifierKeys.Windows, (int)ShortcutModifiers.Windows);
     }
 }

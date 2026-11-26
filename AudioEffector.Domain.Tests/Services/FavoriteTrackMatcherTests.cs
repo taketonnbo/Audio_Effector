@@ -1,10 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
 using Xunit;
 
-namespace AudioEffector.Tests.Domain.Services;
+namespace AudioEffector.Domain.Tests.Services;
 
 /// <summary>
 /// FavoriteTrackMatcherのメタデータベース照合、同名曲判別、およびフォールバック解決ロジックを検証するテストクラス
