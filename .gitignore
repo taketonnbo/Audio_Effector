@@ -25,6 +25,7 @@ scratch/
 objects.txt
 .agent_build/
 .agent_test_build/
+.agent_logs/
 PowerShell/
 
 # Proposal documents (リモート管理対象外)
