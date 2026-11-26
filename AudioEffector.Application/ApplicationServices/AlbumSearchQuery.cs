@@ -7,6 +7,7 @@ namespace AudioEffector.Application.ApplicationServices;
 /// <param name="Artist">アーティスト名での部分一致絞り込みフィルタ（大文字・小文字を区別しない、省略可）。</param>
 /// <param name="Genre">収録楽曲のジャンル名での部分一致絞り込みフィルタ（大文字・小文字を区別しない、省略可）。</param>
 /// <param name="Year">リリース年での絞り込み条件（0 以上、省略可）。</param>
+/// <param name="IncludeTracks">収録トラックの詳細（最新のお気に入り状態を含む）を必要とするかどうか（既定値: <see langword="false"/>）。</param>
 /// <param name="Limit">返却する最大件数（1〜200、既定値: 50）。</param>
 /// <param name="Offset">ページネーション用の取得開始位置（0 以上、既定値: 0）。</param>
 public sealed record AlbumSearchQuery(
@@ -14,6 +15,7 @@ public sealed record AlbumSearchQuery(
     string? Artist = null,
     string? Genre = null,
     int? Year = null,
+    bool IncludeTracks = false,
     int Limit = AlbumSearchQuery.DEFAULT_LIMIT,
     int Offset = AlbumSearchQuery.DEFAULT_OFFSET)
 {

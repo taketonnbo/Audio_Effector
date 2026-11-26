@@ -545,9 +545,13 @@ public class LibraryApplicationService
             return new AlbumSearchResult(Array.Empty<Album>(), 0, query.Offset, query.Limit);
         }
 
-        // お気に入り永続化データ（favorites.json）を正本として全曲で読み取り専用照合を行い、収録トラックの IsFavorite を反映する
-        var favoriteEntries = await GetFavoriteEntriesAsync(cancellationToken).ConfigureAwait(false);
-        FavoriteTrackMatcher.Reconcile(favoriteEntries, allTracks);
+        // 収録トラック詳細を返す場合のみ、お気に入り永続化データ（favorites.json）を正本として全曲で読み取り専用照合を行う
+        // 概要のみの取得時は favorites.json のロック・I/O から独立させる
+        if (query.IncludeTracks)
+        {
+            var favoriteEntries = await GetFavoriteEntriesAsync(cancellationToken).ConfigureAwait(false);
+            FavoriteTrackMatcher.Reconcile(favoriteEntries, allTracks);
+        }
 
         IEnumerable<Album> filtered = AggregateAlbums(allTracks);
 

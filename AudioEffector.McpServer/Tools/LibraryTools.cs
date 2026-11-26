@@ -184,6 +184,7 @@ public sealed class LibraryTools
                 Artist: artist,
                 Genre: genre,
                 Year: year,
+                IncludeTracks: includeTracks,
                 Limit: limit,
                 Offset: offset);
 
