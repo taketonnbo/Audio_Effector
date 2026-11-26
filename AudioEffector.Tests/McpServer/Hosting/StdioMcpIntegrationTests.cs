@@ -167,7 +167,37 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Equal("テストアーティスト", track.GetProperty("artist").GetString());
             }
 
-            // Act & Assert 4b-2: tools/call (search_albums)
+            // Act & Assert 4b-2: tools/call (search_playlists を search_albums より先に呼び、旧WPF形式と最新お気に入り反映を検証)
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":402,"method":"tools/call","params":{"name":"search_playlists","arguments":{"keyword":"WPF保存プレイリスト","includeTracks":true,"limit":10,"offset":0}}}""",
+                timeoutCts.Token);
+
+            string searchPlaylistsLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument searchPlaylistsDoc = JsonDocument.Parse(searchPlaylistsLine))
+            {
+                JsonElement result = searchPlaylistsDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                JsonElement data = payloadDoc.RootElement.GetProperty("data");
+                Assert.Equal(1, data.GetProperty("totalCount").GetInt32());
+                Assert.Equal(1, data.GetProperty("count").GetInt32());
+                JsonElement playlist = Assert.Single(data.GetProperty("playlists").EnumerateArray());
+                Assert.NotEqual(Guid.Empty, playlist.GetProperty("id").GetGuid());
+                Assert.Equal("WPF保存プレイリスト", playlist.GetProperty("name").GetString());
+                Assert.Equal(2, playlist.GetProperty("trackCount").GetInt32());
+                List<JsonElement> tracks = playlist.GetProperty("tracks").EnumerateArray().ToList();
+                Assert.Equal(2, tracks.Count);
+                Assert.Equal("統合テスト曲 2", tracks[0].GetProperty("title").GetString());
+                Assert.False(tracks[0].GetProperty("isFavorite").GetBoolean());
+                Assert.Equal("統合テスト曲 1", tracks[1].GetProperty("title").GetString());
+                Assert.True(tracks[1].GetProperty("isFavorite").GetBoolean());
+            }
+
+            // Act & Assert 4b-3: tools/call (search_albums)
             await SendJsonLineAsync(
                 sut.StandardInput,
                 """{"jsonrpc":"2.0","id":401,"method":"tools/call","params":{"name":"search_albums","arguments":{"keyword":"テストアルバム","includeTracks":true,"limit":10,"offset":0}}}""",
@@ -191,31 +221,6 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Equal("テストアーティスト", album.GetProperty("artist").GetString());
                 Assert.Equal(2, album.GetProperty("trackCount").GetInt32());
                 Assert.Equal(2, album.GetProperty("tracks").GetArrayLength());
-            }
-
-            // Act & Assert 4b-3: tools/call (search_playlists)
-            await SendJsonLineAsync(
-                sut.StandardInput,
-                """{"jsonrpc":"2.0","id":402,"method":"tools/call","params":{"name":"search_playlists","arguments":{"keyword":"統合テストプレイリスト","includeTracks":true,"limit":10,"offset":0}}}""",
-                timeoutCts.Token);
-
-            string searchPlaylistsLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
-            using (JsonDocument searchPlaylistsDoc = JsonDocument.Parse(searchPlaylistsLine))
-            {
-                JsonElement result = searchPlaylistsDoc.RootElement.GetProperty("result");
-                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
-                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
-
-                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
-                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
-                JsonElement data = payloadDoc.RootElement.GetProperty("data");
-                Assert.Equal(1, data.GetProperty("totalCount").GetInt32());
-                Assert.Equal(1, data.GetProperty("count").GetInt32());
-                JsonElement playlist = Assert.Single(data.GetProperty("playlists").EnumerateArray());
-                Assert.NotEqual(Guid.Empty, playlist.GetProperty("id").GetGuid());
-                Assert.Equal("統合テストプレイリスト", playlist.GetProperty("name").GetString());
-                Assert.Equal(2, playlist.GetProperty("trackCount").GetInt32());
-                Assert.Equal(2, playlist.GetProperty("tracks").GetArrayLength());
             }
 
             // Act & Assert 4c: tools/call (launch_app 不正 mode パラメータ検証)
@@ -326,12 +331,20 @@ public sealed class StdioMcpIntegrationTests : IDisposable
 
         await repo.SaveRangeAsync(tracks);
 
-        IPlaylistRepository playlistRepo = provider.GetRequiredService<IPlaylistRepository>();
-        var playlist = new UserPlaylist(
-            AudioEffector.Domain.ValueObjects.PlaylistId.New(),
-            "統合テストプレイリスト",
-            tracks.Select(t => t.Id));
-        await playlistRepo.SaveAsync(playlist);
+        // favorites.json に 1 曲目のみ登録（tracks.json の IsFavorite は false のまま）
+        IFavoriteRepository favoriteRepo = provider.GetRequiredService<IFavoriteRepository>();
+        await favoriteRepo.AddOrUpdateAsync(FavoriteTrackEntry.FromTrack(tracks[0]));
+
+        // 旧 WPF 保存形式（Name と TrackPaths のみ、Id 欠落）で playlists.json を書き出す
+        string playlistsJson = JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                Name = "WPF保存プレイリスト",
+                TrackPaths = new[] { tracks[1].FilePath, tracks[0].FilePath },
+            },
+        });
+        await File.WriteAllTextAsync(Path.Combine(dataDirectory, "playlists.json"), playlistsJson);
     }
 
     private static Process StartMcpServerProcess(string dataDirectory)

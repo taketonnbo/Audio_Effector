@@ -260,6 +260,106 @@ public sealed class PlaylistToolsTests
         }
     }
 
+    /// <summary>
+    /// WPF 側の保存経路（PlaylistApplicationService.SavePlaylists）および旧 WPF 形式 JSON（Name / TrackPaths のみ）から、別インスタンスの search_playlists で収録順・ID・お気に入り状態を正しく取得できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchPlaylistsAsync_WPF保存経路と旧形式JSONおよび初回お気に入り照合_ID維持と最新isFavoriteで検索できる()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorPlaylistWpfCompat_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string playlistsPath = Path.Combine(tempDir, "playlists.json");
+            string tracksPath = Path.Combine(tempDir, "tracks.json");
+            string favoritesPath = Path.Combine(tempDir, "favorites.json");
+
+            string path1 = Path.Combine(tempDir, "song1.flac");
+            string path2 = Path.Combine(tempDir, "song2.flac");
+            var track1 = CreateTrack("First Song", "Artist A", "Album A", path1);
+            var track2 = CreateTrack("Second Song", "Artist A", "Album A", path2);
+
+            // tracks.json 側では IsFavorite=false、favorites.json に track2 のみ登録
+            using (var seedTrackRepo = new JsonTrackRepository(tracksPath))
+            using (var seedFavRepo = new JsonFavoriteRepository(favoritesPath))
+            {
+                await seedTrackRepo.SaveRangeAsync([track1, track2]);
+                await seedFavRepo.AddOrUpdateAsync(FavoriteTrackEntry.FromTrack(track2));
+            }
+
+            // 1) 旧 WPF 形式（Id 欠落・Name / TrackPaths のみ）の playlists.json を作成
+            string legacyJson = JsonSerializer.Serialize(new[]
+            {
+                new { Name = "WPF Legacy List", TrackPaths = new[] { path2, path1 } },
+            });
+            await File.WriteAllTextAsync(playlistsPath, legacyJson);
+
+            // Act 1: サーバ起動直後（search_albums 未実行）の初回 search_playlists(includeTracks: true)
+            Guid legacyAssignedId;
+            using (var mcpPlaylistRepo1 = new JsonPlaylistRepository(playlistsPath))
+            using (var mcpTrackRepo1 = new JsonTrackRepository(tracksPath))
+            using (var mcpFavRepo1 = new JsonFavoriteRepository(favoritesPath))
+            {
+                var service1 = new PlaylistApplicationService(mcpPlaylistRepo1, mcpTrackRepo1, new Mock<IEventBus>().Object, mcpFavRepo1);
+                var sut1 = new PlaylistTools(service1, new Mock<ILogger<PlaylistTools>>().Object);
+
+                CallToolResult res1 = await sut1.SearchPlaylistsAsync(keyword: "WPF Legacy", includeTracks: true);
+                Assert.False(res1.IsError ?? false);
+                using JsonDocument doc1 = JsonDocument.Parse(GetSingleText(res1));
+                JsonElement playlistJson = Assert.Single(doc1.RootElement.GetProperty("data").GetProperty("playlists").EnumerateArray());
+                legacyAssignedId = playlistJson.GetProperty("id").GetGuid();
+                Assert.NotEqual(Guid.Empty, legacyAssignedId);
+                Assert.Equal(2, playlistJson.GetProperty("trackCount").GetInt32());
+
+                List<JsonElement> tracks = playlistJson.GetProperty("tracks").EnumerateArray().ToList();
+                Assert.Equal(2, tracks.Count);
+                Assert.Equal("Second Song", tracks[0].GetProperty("title").GetString());
+                Assert.True(tracks[0].GetProperty("isFavorite").GetBoolean());
+                Assert.Equal("First Song", tracks[1].GetProperty("title").GetString());
+                Assert.False(tracks[1].GetProperty("isFavorite").GetBoolean());
+            }
+
+            // Act 2: WPF 側 LoadPlaylists -> SavePlaylists 経由で再保存後、別インスタンス MCP から同一 ID で検索できること
+            using (var wpfPlaylistRepo = new JsonPlaylistRepository(playlistsPath))
+            using (var wpfTrackRepo = new JsonTrackRepository(tracksPath))
+            {
+                var wpfService = new PlaylistApplicationService(wpfPlaylistRepo, wpfTrackRepo, new Mock<IEventBus>().Object);
+                List<UserPlaylist> loaded = wpfService.LoadPlaylists();
+                UserPlaylist single = Assert.Single(loaded);
+                Assert.Equal(legacyAssignedId, single.Id.Value);
+                wpfService.SavePlaylists(loaded);
+            }
+
+            using (var mcpPlaylistRepo2 = new JsonPlaylistRepository(playlistsPath))
+            using (var mcpTrackRepo2 = new JsonTrackRepository(tracksPath))
+            using (var mcpFavRepo2 = new JsonFavoriteRepository(favoritesPath))
+            {
+                var service2 = new PlaylistApplicationService(mcpPlaylistRepo2, mcpTrackRepo2, new Mock<IEventBus>().Object, mcpFavRepo2);
+                var sut2 = new PlaylistTools(service2, new Mock<ILogger<PlaylistTools>>().Object);
+
+                CallToolResult res2 = await sut2.SearchPlaylistsAsync(includeTracks: true);
+                Assert.False(res2.IsError ?? false);
+                using JsonDocument doc2 = JsonDocument.Parse(GetSingleText(res2));
+                JsonElement playlistJson2 = Assert.Single(doc2.RootElement.GetProperty("data").GetProperty("playlists").EnumerateArray());
+
+                // Assert
+                Assert.Equal(legacyAssignedId, playlistJson2.GetProperty("id").GetGuid());
+                List<JsonElement> tracks2 = playlistJson2.GetProperty("tracks").EnumerateArray().ToList();
+                Assert.Equal(["Second Song", "First Song"], tracks2.Select(t => t.GetProperty("title").GetString()).ToArray());
+                Assert.True(tracks2[0].GetProperty("isFavorite").GetBoolean());
+                Assert.False(tracks2[1].GetProperty("isFavorite").GetBoolean());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static PlaylistTools CreateSut(
         out Mock<IPlaylistRepository> playlistRepoMock,
         out Mock<ITrackRepository> trackRepoMock,

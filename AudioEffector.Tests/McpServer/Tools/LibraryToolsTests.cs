@@ -787,6 +787,58 @@ public sealed class LibraryToolsTests
             Times.Once);
     }
 
+    /// <summary>
+    /// 実リポジトリ環境で favorites.json.lock が他プロセスにより保持されている状態でも、includeTracks=false の search_albums がロック競合せずアルバム概要を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchAlbumsAsync_includeTracks無効かつお気に入りロック保持中_ロック競合せずアルバム概要を返す()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorAlbumLockTest_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string tracksPath = Path.Combine(tempDir, "tracks.json");
+            string favoritesPath = Path.Combine(tempDir, "favorites.json");
+            string favoritesLockPath = $"{favoritesPath}.lock";
+
+            using var trackRepo = new JsonTrackRepository(tracksPath);
+            using var favRepo = new JsonFavoriteRepository(favoritesPath);
+            var track = CreateTrack("Song 1", "Artist A", "Album Lock Test", "Jazz", filePath: Path.Combine(tempDir, "song1.flac"));
+            await trackRepo.SaveAsync(track);
+
+            var libraryService = new LibraryApplicationService(
+                trackRepo,
+                favRepo,
+                new Mock<IMetadataExtractor>().Object,
+                new Mock<IEventBus>().Object);
+            var sut = new LibraryTools(libraryService, new Mock<ILogger<LibraryTools>>().Object);
+
+            // favorites.json.lock を排他保持した状態で概要検索を実行
+            using var favLockStream = new FileStream(favoritesLockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+
+            // Act
+            CallToolResult result = await sut.SearchAlbumsAsync(includeTracks: false);
+
+            // Assert
+            Assert.False(result.IsError ?? false);
+            using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            JsonElement data = doc.RootElement.GetProperty("data");
+            Assert.Equal(1, data.GetProperty("totalCount").GetInt32());
+            JsonElement albumJson = Assert.Single(data.GetProperty("albums").EnumerateArray());
+            Assert.Equal("Album Lock Test", albumJson.GetProperty("name").GetString());
+            Assert.False(albumJson.TryGetProperty("tracks", out _));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static void CreateTaggedMp4File(string filePath, string title, string artist, string album)
     {
         byte[] ftyp = CreateIsoBox("ftyp", [
