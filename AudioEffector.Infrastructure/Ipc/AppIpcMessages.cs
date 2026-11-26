@@ -53,12 +53,17 @@ public static class AppIpcErrorReasons
     /// 同名プレイリストが複数存在し一意に特定できない。
     /// </summary>
     public const string AMBIGUOUS_PLAYLIST = "AMBIGUOUS_PLAYLIST";
+
+    /// <summary>
+    /// 現在再生中または一時停止中のトラックが存在しないため操作を実行できない。
+    /// </summary>
+    public const string NO_ACTIVE_TRACK = "NO_ACTIVE_TRACK";
 }
 
 /// <summary>
 /// MCP サーバから Audio Effector（WPF 本体）へ送信する Named Pipe IPC リクエストを表します。
 /// </summary>
-/// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>get_playback_state</c>, <c>play_track</c>, <c>play_album</c>, <c>play_playlist</c>）。</param>
+/// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>get_playback_state</c>, <c>pause_playback</c>, <c>resume_playback</c>, <c>stop_playback</c>, <c>next_track</c>, <c>previous_track</c>, <c>play_track</c>, <c>play_album</c>, <c>play_playlist</c>）。</param>
 /// <param name="TrackId">再生対象トラックの GUID 文字列（任意）。</param>
 /// <param name="FilePath">再生対象音声ファイルの絶対パス（任意）。</param>
 /// <param name="DeadlineUtc">クライアント側が設定した要求の有効期限（UTC、任意）。期限超過時は処理を実行しない。</param>
@@ -170,6 +175,18 @@ public sealed record AppIpcResponse(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(playbackState);
         ArgumentNullException.ThrowIfNull(track);
+        return new AppIpcResponse(Ok: true, PlaybackState: playbackState, Track: track);
+    }
+
+    /// <summary>
+    /// 基本再生制御コマンド（一時停止・再開・停止・次曲・前曲）の成功応答を生成します。
+    /// </summary>
+    /// <param name="playbackState">操作後の再生状態文字列（<c>playing</c> / <c>paused</c> / <c>stopped</c>）。</param>
+    /// <param name="track">操作後の現在トラック情報（停止時・次曲なし時は <see langword="null"/>）。</param>
+    /// <returns>再生制御結果を表す <see cref="AppIpcResponse"/>。</returns>
+    public static AppIpcResponse SuccessPlaybackControl(string playbackState, AppIpcTrackInfo? track = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(playbackState);
         return new AppIpcResponse(Ok: true, PlaybackState: playbackState, Track: track);
     }
 
