@@ -24,8 +24,6 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <InternalsVisibleTo Include="$(MSBuildProjectName).Tests" />
-    <!-- テストプロジェクト分割の段階移行中、既存 AudioEffector.Tests のビルドを維持するための暫定設定 -->
-    <InternalsVisibleTo Include="AudioEffector.Tests" Condition="'$(MSBuildProjectName)' != 'AudioEffector'" />
   </ItemGroup>
 
   <PropertyGroup Condition="'$(IsTestProject)' == 'true'">

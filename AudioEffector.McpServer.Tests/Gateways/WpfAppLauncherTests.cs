@@ -708,6 +708,23 @@ public sealed class WpfAppLauncherTests
             pollInterval ?? TimeSpan.FromMilliseconds(10));
     }
 
+    /// <summary>
+    /// MCP サーバ側の単一インスタンス Mutex 名および起動引数定数が WPF 連携プロトコル契約値と一致することを検証します。
+    /// </summary>
+    [Fact]
+    public void 定数整合性_MCPサーバ側のMutex名と起動引数_プロトコル契約値と一致する()
+    {
+        // Arrange
+        const string expectedMutexName = @"Local\AudioEffector.SingleInstance";
+        const string expectedMiniArg = "--mini-player";
+        const string expectedNormalArg = "--normal";
+
+        // Act & Assert
+        Assert.Equal(expectedMutexName, WpfAppLauncher.SINGLE_INSTANCE_MUTEX_NAME);
+        Assert.Equal(expectedMiniArg, WpfAppLauncher.MINI_PLAYER_ARGUMENT);
+        Assert.Equal(expectedNormalArg, WpfAppLauncher.NORMAL_ARGUMENT);
+    }
+
     private sealed class FakeLaunchedProcess(int processId = 12345) : WpfAppLauncher.ILaunchedProcess
     {
         public LaunchedProcessIdentity Identity { get; } = new(processId, 1000L);

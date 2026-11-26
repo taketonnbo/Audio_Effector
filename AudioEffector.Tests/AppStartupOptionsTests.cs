@@ -1,5 +1,3 @@
-using AudioEffector.McpServer.Gateways;
-
 namespace AudioEffector.Tests;
 
 public sealed class AppStartupOptionsTests
@@ -96,22 +94,19 @@ public sealed class AppStartupOptionsTests
     }
 
     /// <summary>
-    /// WPF 側と MCP サーバ側で使用する単一インスタンス Mutex 名および起動引数定数が完全に一致することを検証します。
+    /// WPF 側の単一インスタンス Mutex 名および起動引数定数が MCP 連携プロトコル契約値と一致することを検証します。
     /// </summary>
     [Fact]
-    public void 定数整合性_WPF側とMCPサーバ側_Mutex名と起動引数が一致する()
+    public void 定数整合性_WPF側のMutex名と起動引数_プロトコル契約値と一致する()
     {
-        // Arrange & Act
-        string wpfMutexName = App.SINGLE_INSTANCE_MUTEX_NAME;
-        string mcpMutexName = WpfAppLauncher.SINGLE_INSTANCE_MUTEX_NAME;
-        string wpfMiniArg = AppStartupOptions.MINI_PLAYER_ARGUMENT;
-        string mcpMiniArg = WpfAppLauncher.MINI_PLAYER_ARGUMENT;
-        string wpfNormalArg = AppStartupOptions.NORMAL_ARGUMENT;
-        string mcpNormalArg = WpfAppLauncher.NORMAL_ARGUMENT;
+        // Arrange
+        const string expectedMutexName = @"Local\AudioEffector.SingleInstance";
+        const string expectedMiniArg = "--mini-player";
+        const string expectedNormalArg = "--normal";
 
-        // Assert
-        Assert.Equal(wpfMutexName, mcpMutexName);
-        Assert.Equal(wpfMiniArg, mcpMiniArg);
-        Assert.Equal(wpfNormalArg, mcpNormalArg);
+        // Act & Assert
+        Assert.Equal(expectedMutexName, App.SINGLE_INSTANCE_MUTEX_NAME);
+        Assert.Equal(expectedMiniArg, AppStartupOptions.MINI_PLAYER_ARGUMENT);
+        Assert.Equal(expectedNormalArg, AppStartupOptions.NORMAL_ARGUMENT);
     }
 }
