@@ -251,9 +251,9 @@ public interface IAudioService : IDisposable
     /// 次の楽曲へ進み、遷移先の再生開始完了またはキュー末尾での停止まで非同期で待機します
     /// </summary>
     /// <param name="cancellationToken">キャンセル要求トークン</param>
-    /// <returns>次の楽曲（またはリピートによる先頭曲）の再生開始に成功した場合は <see langword="true"/>、次曲が存在せず停止した場合または再生開始に失敗した場合は <see langword="false"/></returns>
+    /// <returns>次曲遷移の結果（<see cref="NextTrackResult"/>）</returns>
     [LogDescription("次の曲へ進み完了を待機します")]
-    Task<bool> NextAsync(CancellationToken cancellationToken = default);
+    Task<NextTrackResult> NextAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 前の楽曲に戻ります

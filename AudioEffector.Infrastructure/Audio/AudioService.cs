@@ -1430,18 +1430,24 @@ public class AudioService : IAudioService
     /// 次の楽曲へ進み、遷移先の再生開始完了またはキュー末尾での停止まで非同期で待機します
     /// </summary>
     /// <param name="cancellationToken">キャンセル要求トークン</param>
-    /// <returns>次の楽曲（またはリピートによる先頭曲）の再生開始に成功した場合は <see langword="true"/>、次曲が存在せず停止した場合または再生開始に失敗した場合は <see langword="false"/></returns>
-    public async Task<bool> NextAsync(CancellationToken cancellationToken = default)
+    /// <returns>次曲遷移の結果（<see cref="NextTrackResult"/>）</returns>
+    public async Task<NextTrackResult> NextAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        Track? nextTrack = AdvanceToNextTrack(expectedPlaybackId: null);
-        if (nextTrack == null)
+        (Track? nextTrack, bool delegatedToPlaylistEnded) = AdvanceToNextTrack(expectedPlaybackId: null);
+        if (delegatedToPlaylistEnded)
         {
-            return false;
+            return NextTrackResult.DelegatedToPlaylistEnded;
         }
 
-        return await PlayTrackCoreAsync(nextTrack, cancellationToken).ConfigureAwait(false);
+        if (nextTrack == null)
+        {
+            return NextTrackResult.StoppedAtEnd;
+        }
+
+        bool started = await PlayTrackCoreAsync(nextTrack, cancellationToken).ConfigureAwait(false);
+        return started ? NextTrackResult.Started : NextTrackResult.Failed;
     }
 
     private void OnTrackEnded()
@@ -1451,14 +1457,14 @@ public class AudioService : IAudioService
 
     private void OnTrackEndedCore(Guid? expectedPlaybackId)
     {
-        Track? nextTrack = AdvanceToNextTrack(expectedPlaybackId);
+        (Track? nextTrack, _) = AdvanceToNextTrack(expectedPlaybackId);
         if (nextTrack != null)
         {
             PlayTrackInternal(nextTrack);
         }
     }
 
-    private Track? AdvanceToNextTrack(Guid? expectedPlaybackId)
+    private (Track? NextTrack, bool DelegatedToPlaylistEnded) AdvanceToNextTrack(Guid? expectedPlaybackId)
     {
         Track? endedTrack = null;
         Track? nextTrack = null;
@@ -1467,8 +1473,8 @@ public class AudioService : IAudioService
 
         lock (_lock)
         {
-            if (_stopRequested) return null;
-            if (expectedPlaybackId.HasValue && _currentPlaybackId != expectedPlaybackId.Value) return null;
+            if (_stopRequested) return (null, false);
+            if (expectedPlaybackId.HasValue && _currentPlaybackId != expectedPlaybackId.Value) return (null, false);
 
             endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
             bool isFinalTrackEnded;
@@ -1558,10 +1564,10 @@ public class AudioService : IAudioService
                 TrackChanged?.Invoke(null);
             }
 
-            return null;
+            return (null, hasNewPlaybackStarted);
         }
 
-        return nextTrack;
+        return (nextTrack, false);
     }
 
     /// <summary>

@@ -305,7 +305,7 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
     {
         ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
 
-        Task<bool>? nextTask = null;
+        Task<NextTrackResult>? nextTask = null;
         bool aborted = false;
 
         _uiDispatcher.Invoke(() =>
@@ -324,14 +324,23 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
             throw new OperationCanceledException("要求期限を超過したため次曲移動処理を中止しました。", cancellationToken);
         }
 
-        bool movedToNext = await nextTask.ConfigureAwait(false);
-        if (!movedToNext)
+        NextTrackResult nextResult = await nextTask.ConfigureAwait(false);
+        switch (nextResult)
         {
-            ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
-            return AppIpcResponse.SuccessPlaybackControl(PLAYBACK_STATE_STOPPED, track: null);
-        }
+            case NextTrackResult.Started:
+            case NextTrackResult.DelegatedToPlaylistEnded:
+                return CaptureTransportResultOnUiThread(PLAYBACK_STATE_PLAYING, request.DeadlineUtc, cancellationToken);
 
-        return CaptureTransportResultOnUiThread(PLAYBACK_STATE_PLAYING, request.DeadlineUtc, cancellationToken);
+            case NextTrackResult.StoppedAtEnd:
+                ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+                return AppIpcResponse.SuccessPlaybackControl(PLAYBACK_STATE_STOPPED, track: null);
+
+            default:
+                ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+                return AppIpcResponse.Failure(
+                    AppIpcErrorCodes.INTERNAL_ERROR,
+                    "次の楽曲の再生開始に失敗しました。");
+        }
     }
 
     private async Task<AppIpcResponse> HandlePreviousTrackAsync(AppIpcRequest request, CancellationToken cancellationToken)
