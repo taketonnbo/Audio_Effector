@@ -568,6 +568,41 @@ public sealed class AudioServicePlayTrackAsyncTests : IDisposable
         Assert.Equal(1, playlistEndedCount);
     }
 
+    /// <summary>
+    /// [A, B, C] を先頭から開始した後に PlayTrackAsync(C) でキュー最終曲へ移動して Next() を実行した場合、残存する B へ進まず PlaylistEnded が発火することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayTrackAsync_キュー最終曲へ単曲遷移後にNext実行時_残存曲へ進まずPlaylistEndedが発火する()
+    {
+        // Arrange
+        var trackA = CreateTrack(CreateSilentWavFile(durationSeconds: 1.0), "Track A");
+        var trackB = CreateTrack(CreateSilentWavFile(durationSeconds: 1.0), "Track B");
+        var trackC = CreateTrack(CreateSilentWavFile(durationSeconds: 1.0), "Track C");
+
+        using var sut = new AudioService(ImmediateUiDispatcher.Instance);
+        var notifiedTrackTitles = new List<string?>();
+        int playlistEndedCount = 0;
+        sut.TrackChanged += t => notifiedTrackTitles.Add(t?.Title);
+        sut.PlaylistEnded += (_, _) => playlistEndedCount++;
+
+        // Act 1: [A, B, C] を先頭から再生（リピート・シャッフル無効）
+        Track? started = await sut.PlayPlaylistAsync([trackA, trackB, trackC], startTrack: null, shuffle: false, repeat: false);
+        Assert.NotNull(started);
+        Assert.Equal(trackA.FilePath, started.FilePath);
+
+        // Act 2: 単曲再生で末尾曲 C へ移動
+        bool jumpedToC = await sut.PlayTrackAsync(trackC);
+        Assert.True(jumpedToC);
+        notifiedTrackTitles.Clear();
+
+        // Act 3: 末尾曲 C の終了（Next）
+        sut.Next();
+
+        // Assert: B の TrackChanged は届かず PlaylistEnded が発火する
+        Assert.Equal(1, playlistEndedCount);
+        Assert.DoesNotContain("Track B", notifiedTrackTitles);
+    }
+
     private string CreateSilentWavFile(double durationSeconds = 0.5)
     {
         string path = Path.Combine(Path.GetTempPath(), $"AudioEffectorSilent_{Guid.NewGuid():N}.wav");
