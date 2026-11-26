@@ -705,7 +705,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 
 - `includeTracks: false` の場合は `ITrackRepository` および `IFavoriteRepository` へアクセスせず、`tracks` プロパティを省略します。
 - `includeTracks: true` の場合は `UserPlaylist.TrackIds`（未設定時は旧互換 `UserPlaylist.TrackPaths`）を `ITrackRepository.GetAllAsync` から一括解決し、全曲を対象に `IFavoriteRepository` との読み取り専用お気に入り照合を行って最新の `isFavorite` を反映したうえで、プレイリスト内の順序を維持して返却します。
-- **WPF・MCP 間の永続化形式共通化**: `PlaylistApplicationService.LoadPlaylists` / `SavePlaylists` も `IPlaylistRepository`（`JsonPlaylistRepository`）経由で `Id` / `Name` / `TrackIds` / `TrackPaths` / `CreatedAt` / `UpdatedAt` を読み書きします。旧 WPF 形式（`Name` と `TrackPaths` のみ、`Id` 欠落）の `playlists.json` についても、収録順を保って読み込み、決定論的 ID を付与することで再読み込み・再起動後も同一のプレイリスト ID を維持します。
+- **WPF・MCP 間の永続化形式共通化と整合性保護**: `PlaylistApplicationService` の `TryLoadPlaylists` / `TrySavePlaylist` / `TryDeletePlaylist`（および `LoadPlaylists` / `SavePlaylists`）は `IPlaylistRepository`（`JsonPlaylistRepository`）経由で `Id` / `Name` / `TrackIds` / `TrackPaths` / `CreatedAt` / `UpdatedAt` を共通管理します。旧 WPF 形式（`Name` と `TrackPaths` のみ、`Id` 欠落）は収録順を保って読み込み、決定論的 ID を付与して再読み込み・再起動後も同一 ID を維持します。また、書き込みはファイル置換成功後にのみキャッシュを確定し、読み込み失敗時は再読み込み成功まで全件置換をガードし、編集時は `TrackIds` と `TrackPaths` を常に同一順序へ同期します。
 - **ソート順・エラーケース**: フィルタ適用後は `Name` → `Id` 順で安定ソートします。`limit` / `offset` / `year` 範囲外は `INVALID_PARAMETER`、ファイルロックタイムアウトは `CONFLICT_LOCK_TIMEOUT`、キャンセルは `OPERATION_CANCELLED`、その他例外は `INTERNAL_ERROR` へ変換します。
 
 ### 5.9 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
