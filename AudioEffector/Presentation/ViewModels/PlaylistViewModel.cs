@@ -666,7 +666,16 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
         var previousPaths = playlist.TrackPaths.ToList();
         DateTime previousUpdatedAt = playlist.UpdatedAt;
 
-        IReadOnlyList<Track> addedTracks = _playlistService.AddTracksPreservingOrder(playlist, requestedTracks);
+        Result<IReadOnlyList<Track>> addResult = _playlistService.TryAddTracksPreservingOrder(playlist, requestedTracks);
+        if (addResult.IsFailure)
+        {
+            playlist.ReplaceTracks(previousIds, previousPaths);
+            playlist.UpdatedAt = previousUpdatedAt;
+            ReportPersistenceFailure(addResult.ErrorMessage);
+            return 0;
+        }
+
+        IReadOnlyList<Track> addedTracks = addResult.Value;
         if (addedTracks.Count == 0)
         {
             return 0;

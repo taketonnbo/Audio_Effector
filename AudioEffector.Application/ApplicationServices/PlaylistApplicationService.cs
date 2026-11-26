@@ -156,8 +156,38 @@ public class PlaylistApplicationService
     }
 
     /// <summary>
-    /// プレイリストの既存収録曲（<see cref="UserPlaylist.TrackIds"/> および <see cref="UserPlaylist.TrackPaths"/>）の順序を保持したまま、
-    /// 指定された楽曲を重複なく末尾へ追加し、<see cref="UserPlaylist.TrackIds"/> と <see cref="UserPlaylist.TrackPaths"/> を共通の一覧へ同期します。
+    /// プレイリストの既存収録曲（<see cref="UserPlaylist.TrackIds"/> および <see cref="UserPlaylist.TrackPaths"/>）の順序と未解決参照を保持したまま、
+    /// 指定された楽曲を重複なく末尾へ追加します。お気に入りリポジトリにはアクセスせず、読み取りエラー時は <see cref="Result{T}"/> で失敗を返します。
+    /// </summary>
+    /// <param name="playlist">編集対象のプレイリスト。</param>
+    /// <param name="tracksToAdd">追加する楽曲一覧。</param>
+    /// <returns>成功時は実際に追加された楽曲一覧、失敗時はエラーメッセージを含む結果。</returns>
+    public Result<IReadOnlyList<Track>> TryAddTracksPreservingOrder(UserPlaylist playlist, IEnumerable<Track> tracksToAdd)
+    {
+        if (playlist == null)
+        {
+            return Result.Failure<IReadOnlyList<Track>>("編集対象のプレイリストが指定されていません。");
+        }
+
+        if (tracksToAdd == null)
+        {
+            return Result.Failure<IReadOnlyList<Track>>("追加対象の楽曲一覧が指定されていません。");
+        }
+
+        try
+        {
+            IReadOnlyList<Track> added = AddTracksPreservingOrder(playlist, tracksToAdd);
+            return Result.Success(added);
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure<IReadOnlyList<Track>>($"プレイリストへの楽曲追加準備に失敗しました: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// プレイリストの既存収録曲（<see cref="UserPlaylist.TrackIds"/> および <see cref="UserPlaylist.TrackPaths"/>）の順序と未解決参照を保持したまま、
+    /// 指定された楽曲を重複なく末尾へ追加します。編集時の参照解決はお気に入り照合から独立して実行されます。
     /// </summary>
     /// <param name="playlist">編集対象のプレイリスト。</param>
     /// <param name="tracksToAdd">追加する楽曲一覧。</param>
@@ -167,43 +197,103 @@ public class PlaylistApplicationService
         ArgumentNullException.ThrowIfNull(playlist);
         ArgumentNullException.ThrowIfNull(tracksToAdd);
 
-        List<Track> existingTracks = ResolvePlaylistTracksAsync(playlist).GetAwaiter().GetResult().ToList();
-        var mergedIds = new List<TrackId>(existingTracks.Count);
-        var mergedPaths = new List<string>(existingTracks.Count);
-        var existingIdSet = new HashSet<TrackId>();
-        var existingPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (Track track in existingTracks)
+        List<Track> candidatesToAdd = tracksToAdd.Where(t => t != null).ToList();
+        if (candidatesToAdd.Count == 0)
         {
-            mergedIds.Add(track.Id);
-            existingIdSet.Add(track.Id);
-            if (!string.IsNullOrWhiteSpace(track.FilePath))
-            {
-                mergedPaths.Add(track.FilePath);
-                existingPathSet.Add(track.FilePath);
-            }
+            return Array.Empty<Track>();
         }
 
-        // ライブラリ未解決のまま残っている旧トラックパスがある場合は欠落させない
-        if (existingTracks.Count == 0 && playlist.TrackPaths is { Count: > 0 })
+        bool hasExistingIds = playlist.TrackIds.Count > 0;
+        bool hasExistingPaths = playlist.TrackPaths is { Count: > 0 };
+
+        // 既存要素がある場合のみ、お気に入り照合を行わずにトラック一覧から ID/パス対応を引く
+        Dictionary<TrackId, Track>? tracksById = null;
+        Dictionary<string, Track>? tracksByPath = null;
+        if (hasExistingIds || hasExistingPaths)
         {
-            foreach (string rawPath in playlist.TrackPaths)
+            IReadOnlyList<Track> allTracks = _trackRepository.GetAllAsync().GetAwaiter().GetResult()
+                ?? Array.Empty<Track>();
+            tracksById = new Dictionary<TrackId, Track>(allTracks.Count);
+            tracksByPath = new Dictionary<string, Track>(allTracks.Count, StringComparer.OrdinalIgnoreCase);
+
+            foreach (Track track in allTracks)
             {
-                if (!string.IsNullOrWhiteSpace(rawPath) && existingPathSet.Add(rawPath))
+                tracksById.TryAdd(track.Id, track);
+                if (!string.IsNullOrWhiteSpace(track.FilePath))
                 {
-                    mergedPaths.Add(rawPath);
+                    tracksByPath.TryAdd(track.FilePath, track);
                 }
             }
         }
 
-        var addedTracks = new List<Track>();
-        foreach (Track track in tracksToAdd)
+        var mergedIds = new List<TrackId>();
+        var mergedPaths = new List<string>();
+        var existingIdSet = new HashSet<TrackId>();
+        var existingPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool keepPathAsSourceOfTruth = false;
+
+        if (hasExistingIds)
         {
-            if (track == null)
+            bool pathsAligned = hasExistingPaths && playlist.TrackPaths.Count == playlist.TrackIds.Count;
+            for (int i = 0; i < playlist.TrackIds.Count; i++)
             {
-                continue;
+                TrackId existingId = playlist.TrackIds[i];
+                mergedIds.Add(existingId);
+                existingIdSet.Add(existingId);
+
+                if (tracksById != null && tracksById.TryGetValue(existingId, out Track? resolved)
+                    && !string.IsNullOrWhiteSpace(resolved.FilePath))
+                {
+                    mergedPaths.Add(resolved.FilePath);
+                    existingPathSet.Add(resolved.FilePath);
+                }
+                else if (pathsAligned && !string.IsNullOrWhiteSpace(playlist.TrackPaths[i]))
+                {
+                    mergedPaths.Add(playlist.TrackPaths[i]);
+                    existingPathSet.Add(playlist.TrackPaths[i]);
+                }
+            }
+        }
+        else if (hasExistingPaths)
+        {
+            // 旧 WPF 形式（TrackPaths のみ）：全件の ID を確定できない場合はパス列を正本として未解決参照と収録順を保持する
+            var resolvedIdsForAllPaths = new List<TrackId>(playlist.TrackPaths.Count);
+            bool allPathsResolved = true;
+
+            foreach (string rawPath in playlist.TrackPaths)
+            {
+                if (string.IsNullOrWhiteSpace(rawPath))
+                {
+                    continue;
+                }
+
+                mergedPaths.Add(rawPath);
+                existingPathSet.Add(rawPath);
+
+                if (tracksByPath != null && tracksByPath.TryGetValue(rawPath, out Track? resolved))
+                {
+                    resolvedIdsForAllPaths.Add(resolved.Id);
+                    existingIdSet.Add(resolved.Id);
+                }
+                else
+                {
+                    allPathsResolved = false;
+                }
             }
 
+            if (allPathsResolved)
+            {
+                mergedIds.AddRange(resolvedIdsForAllPaths);
+            }
+            else
+            {
+                keepPathAsSourceOfTruth = true;
+            }
+        }
+
+        var addedTracks = new List<Track>();
+        foreach (Track track in candidatesToAdd)
+        {
             bool duplicateById = existingIdSet.Contains(track.Id);
             bool duplicateByPath = !string.IsNullOrWhiteSpace(track.FilePath) && existingPathSet.Contains(track.FilePath);
             if (duplicateById || duplicateByPath)
@@ -211,7 +301,11 @@ public class PlaylistApplicationService
                 continue;
             }
 
-            mergedIds.Add(track.Id);
+            if (!keepPathAsSourceOfTruth)
+            {
+                mergedIds.Add(track.Id);
+            }
+
             existingIdSet.Add(track.Id);
             if (!string.IsNullOrWhiteSpace(track.FilePath))
             {
