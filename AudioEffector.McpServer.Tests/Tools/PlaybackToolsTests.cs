@@ -548,6 +548,183 @@ public sealed class PlaybackToolsTests
         Assert.Contains("launch_app", description.Description, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// get_playback_state を呼び出し再生中・一時停止中応答を受け取った場合、全フィールドを含む統一 JSON が返ることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("playing")]
+    [InlineData("paused")]
+    public async Task GetPlaybackStateAsync_再生中または一時停止中時_再生状態JSONを返す(string state)
+    {
+        // Arrange
+        var trackGuid = Guid.NewGuid();
+        var expected = new PlaybackStateResponse(
+            PlaybackState: state,
+            Track: new PlayedTrackDto(
+                Id: trackGuid,
+                Title: "Blue Note Morning",
+                Artist: "Miles Trio",
+                Album: "Midnight Sessions",
+                DurationSeconds: 225.5,
+                DurationString: "03:45",
+                FilePath: @"C:\Music\Jazz\BlueNote.flac"),
+            PositionSeconds: 83.25,
+            PositionString: "01:23",
+            DurationSeconds: 225.5,
+            DurationString: "03:45",
+            Volume: 0.75,
+            IsShuffleEnabled: true,
+            IsRepeatEnabled: false,
+            UserQueueCount: 2,
+            AlbumQueueCount: 5);
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.GetPlaybackStateAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackStateResponse>.Success(expected));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.GetPlaybackStateAsync();
+
+        // Assert
+        Assert.False(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal(state, data.GetProperty("playbackState").GetString());
+        Assert.Equal(trackGuid.ToString("D"), data.GetProperty("track").GetProperty("id").GetString());
+        Assert.Equal(83.25, data.GetProperty("positionSeconds").GetDouble());
+        Assert.Equal("01:23", data.GetProperty("positionString").GetString());
+        Assert.Equal(225.5, data.GetProperty("durationSeconds").GetDouble());
+        Assert.Equal("03:45", data.GetProperty("durationString").GetString());
+        Assert.Equal(0.75, data.GetProperty("volume").GetDouble());
+        Assert.True(data.GetProperty("isShuffleEnabled").GetBoolean());
+        Assert.False(data.GetProperty("isRepeatEnabled").GetBoolean());
+        Assert.Equal(2, data.GetProperty("userQueueCount").GetInt32());
+        Assert.Equal(5, data.GetProperty("albumQueueCount").GetInt32());
+    }
+
+    /// <summary>
+    /// get_playback_state で停止中・トラック未選択の場合、playbackState が stopped、track が JSON の null として正常返却されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackStateAsync_停止中トラック未選択時_stoppedとtrackNullのJSONを返す()
+    {
+        // Arrange
+        var expected = new PlaybackStateResponse(
+            PlaybackState: "stopped",
+            Track: null,
+            PositionSeconds: 0.0,
+            PositionString: "00:00",
+            DurationSeconds: 0.0,
+            DurationString: "00:00",
+            Volume: 0.8,
+            IsShuffleEnabled: false,
+            IsRepeatEnabled: false,
+            UserQueueCount: 0,
+            AlbumQueueCount: 0);
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.GetPlaybackStateAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackStateResponse>.Success(expected));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.GetPlaybackStateAsync();
+
+        // Assert
+        Assert.False(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal("stopped", data.GetProperty("playbackState").GetString());
+        Assert.True(data.TryGetProperty("track", out JsonElement trackElement));
+        Assert.Equal(JsonValueKind.Null, trackElement.ValueKind);
+        Assert.Equal(0.0, data.GetProperty("positionSeconds").GetDouble());
+        Assert.Equal("00:00", data.GetProperty("positionString").GetString());
+        Assert.Equal(0.8, data.GetProperty("volume").GetDouble());
+    }
+
+    /// <summary>
+    /// get_playback_state でゲートウェイが WPF_APP_NOT_RUNNING または IPC_CONNECTION_FAILED を返した場合に対応するエラー応答となることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(McpErrorCodes.WPF_APP_NOT_RUNNING)]
+    [InlineData(McpErrorCodes.IPC_CONNECTION_FAILED)]
+    public async Task GetPlaybackStateAsync_ゲートウェイ失敗時_対応するエラーコードを返す(string errorCode)
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.GetPlaybackStateAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackStateResponse>.Failure(
+                errorCode,
+                McpErrorMapper.GetPublicMessage(errorCode)));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.GetPlaybackStateAsync();
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(errorCode, error.GetProperty("code").GetString());
+        if (errorCode == McpErrorCodes.WPF_APP_NOT_RUNNING)
+        {
+            Assert.Contains("launch_app", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// get_playback_state 実行中に予期しない例外が発生した場合、INTERNAL_ERROR に変換され機密詳細が露出しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackStateAsync_予期しない例外発生時_INTERNAL_ERRORを返し機密詳細を露出しない()
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.GetPlaybackStateAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException(@"secret diagnostic C:\private\token"));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.GetPlaybackStateAsync();
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(McpErrorCodes.INTERNAL_ERROR, error.GetProperty("code").GetString());
+        Assert.DoesNotContain("secret", error.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// get_playback_state ツールの Description 属性に launch_app による事前起動案内が含まれることを検証します。
+    /// </summary>
+    [Fact]
+    public void GetPlaybackStateAsync_ツール説明属性_launch_app案内が含まれる()
+    {
+        // Arrange
+        MethodInfo? method = typeof(PlaybackTools).GetMethod(nameof(PlaybackTools.GetPlaybackStateAsync));
+        Assert.NotNull(method);
+
+        // Act
+        DescriptionAttribute? description = method.GetCustomAttribute<DescriptionAttribute>();
+
+        // Assert
+        Assert.NotNull(description);
+        Assert.Contains("launch_app", description.Description, StringComparison.Ordinal);
+    }
+
     private static JsonDocument ParsePayload(CallToolResult result)
     {
         var textBlock = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));

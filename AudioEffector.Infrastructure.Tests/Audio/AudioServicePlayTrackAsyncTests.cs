@@ -603,6 +603,50 @@ public sealed class AudioServicePlayTrackAsyncTests : IDisposable
         Assert.DoesNotContain("Track B", notifiedTrackTitles);
     }
 
+    /// <summary>
+    /// 初期状態・再生開始後・一時停止後・Stop後の各遷移において CurrentTrack・IsPlaying・IsPaused が正確に反映されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task CurrentTrackとIsPaused_再生と一時停止と停止の状態遷移_期待される状態を返す()
+    {
+        // Arrange
+        string wavPath = CreateSilentWavFile(durationSeconds: 1.5);
+        var track = CreateTrack(wavPath, "State Transition Track");
+        using var sut = new AudioService(ImmediateUiDispatcher.Instance);
+
+        // Assert (初期状態: 停止)
+        Assert.Null(sut.CurrentTrack);
+        Assert.False(sut.IsPlaying);
+        Assert.False(sut.IsPaused);
+
+        // Act 1: 再生開始
+        bool started = await sut.PlayTrackAsync(track);
+
+        // Assert 1: 再生中
+        Assert.True(started);
+        Assert.NotNull(sut.CurrentTrack);
+        Assert.Equal(track.FilePath, sut.CurrentTrack.FilePath);
+        Assert.True(sut.IsPlaying);
+        Assert.False(sut.IsPaused);
+
+        // Act 2: 一時停止（シーク用の一時停止 API を利用して同期的に一時停止状態へ遷移）
+        sut.PauseForSeek();
+
+        // Assert 2: 一時停止中
+        Assert.NotNull(sut.CurrentTrack);
+        Assert.Equal(track.FilePath, sut.CurrentTrack.FilePath);
+        Assert.False(sut.IsPlaying);
+        Assert.True(sut.IsPaused);
+
+        // Act 3: 完全停止
+        sut.Stop();
+
+        // Assert 3: 停止・トラック未選択
+        Assert.Null(sut.CurrentTrack);
+        Assert.False(sut.IsPlaying);
+        Assert.False(sut.IsPaused);
+    }
+
     private string CreateSilentWavFile(double durationSeconds = 0.5)
     {
         string path = Path.Combine(Path.GetTempPath(), $"AudioEffectorSilent_{Guid.NewGuid():N}.wav");
