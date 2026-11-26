@@ -338,6 +338,121 @@ public sealed class AudioServicePlayTrackAsyncTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// PlayPlaylistAsync でシャッフル・リピートを指定して再生した場合、開始曲の再生・AlbumQueue 展開・ShuffleChanged / RepeatChanged イベント発火が行われることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayPlaylistAsync_シャッフルとリピート指定時_キュー展開と設定変更イベントが発火される()
+    {
+        // Arrange
+        var tracks = Enumerable.Range(1, 3)
+            .Select(i => CreateTrack(CreateSilentWavFile(durationSeconds: 0.5), $"Track {i}"))
+            .ToList();
+
+        using var sut = new AudioService(ImmediateUiDispatcher.Instance);
+        bool? notifiedShuffle = null;
+        bool? notifiedRepeat = null;
+        sut.ShuffleChanged += v => notifiedShuffle = v;
+        sut.RepeatChanged += v => notifiedRepeat = v;
+
+        // Act
+        Track? started = await sut.PlayPlaylistAsync(tracks, startTrack: tracks[1], shuffle: true, repeat: true);
+
+        // Assert
+        Assert.NotNull(started);
+        Assert.Equal(tracks[1].FilePath, started.FilePath);
+        Assert.True(sut.IsPlaying);
+        Assert.True(sut.IsShuffleEnabled);
+        Assert.True(sut.IsRepeatEnabled);
+        Assert.Equal(true, notifiedShuffle);
+        Assert.Equal(true, notifiedRepeat);
+        Assert.Equal(2, sut.AlbumQueue.Count);
+        Assert.DoesNotContain(sut.AlbumQueue, t => string.Equals(t.FilePath, tracks[1].FilePath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// PlayPlaylistAsync で shuffle=true かつ開始曲未指定の場合、コレクション内から開始曲が選出され残り曲が AlbumQueue に展開されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayPlaylistAsync_シャッフル有効かつ開始曲未指定時_コレクション内から開始曲が選出される()
+    {
+        // Arrange
+        var tracks = Enumerable.Range(1, 3)
+            .Select(i => CreateTrack(CreateSilentWavFile(durationSeconds: 0.5), $"Shuffle Track {i}"))
+            .ToList();
+
+        using var sut = new AudioService(ImmediateUiDispatcher.Instance);
+
+        // Act
+        Track? started = await sut.PlayPlaylistAsync(tracks, startTrack: null, shuffle: true, repeat: null);
+
+        // Assert
+        Assert.NotNull(started);
+        Assert.Contains(tracks, t => string.Equals(t.FilePath, started.FilePath, StringComparison.OrdinalIgnoreCase));
+        Assert.True(sut.IsShuffleEnabled);
+        Assert.False(sut.IsRepeatEnabled);
+        Assert.Equal(2, sut.AlbumQueue.Count);
+        Assert.DoesNotContain(sut.AlbumQueue, t => string.Equals(t.FilePath, started.FilePath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// PlayPlaylistAsync で shuffle / repeat 未指定（null）の場合、本体の現在のシャッフル・リピート設定がそのまま維持されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayPlaylistAsync_シャッフルとリピート未指定時_現在の本体設定を維持する()
+    {
+        // Arrange
+        var tracks = Enumerable.Range(1, 2)
+            .Select(i => CreateTrack(CreateSilentWavFile(durationSeconds: 0.5), $"Keep Track {i}"))
+            .ToList();
+
+        using var sut = new AudioService(ImmediateUiDispatcher.Instance);
+        sut.IsShuffleEnabled = false;
+        sut.IsRepeatEnabled = true;
+
+        int shuffleEventCount = 0;
+        int repeatEventCount = 0;
+        sut.ShuffleChanged += _ => shuffleEventCount++;
+        sut.RepeatChanged += _ => repeatEventCount++;
+
+        // Act
+        Track? started = await sut.PlayPlaylistAsync(tracks, startTrack: null, shuffle: null, repeat: null);
+
+        // Assert
+        Assert.NotNull(started);
+        Assert.Equal(tracks[0].FilePath, started.FilePath);
+        Assert.False(sut.IsShuffleEnabled);
+        Assert.True(sut.IsRepeatEnabled);
+        Assert.Equal(0, shuffleEventCount);
+        Assert.Equal(0, repeatEventCount);
+        Assert.Single(sut.AlbumQueue);
+        Assert.Equal(tracks[1].FilePath, sut.AlbumQueue[0].FilePath);
+    }
+
+    /// <summary>
+    /// IsShuffleEnabled / IsRepeatEnabled のプロパティ更新時に ShuffleChanged / RepeatChanged イベントが発火されることを検証します。
+    /// </summary>
+    [Fact]
+    public void IsShuffleEnabledとIsRepeatEnabled_値変更時_変更通知イベントが発火される()
+    {
+        // Arrange
+        using var sut = new AudioService(ImmediateUiDispatcher.Instance);
+        var shuffleValues = new List<bool>();
+        var repeatValues = new List<bool>();
+        sut.ShuffleChanged += v => shuffleValues.Add(v);
+        sut.RepeatChanged += v => repeatValues.Add(v);
+
+        // Act
+        sut.IsShuffleEnabled = true;
+        sut.IsShuffleEnabled = true; // 同値では再発火しない
+        sut.IsRepeatEnabled = true;
+        sut.IsRepeatEnabled = false;
+
+        // Assert
+        Assert.Equal([true], shuffleValues);
+        Assert.Equal([true, false], repeatValues);
+    }
+
     private string CreateSilentWavFile(double durationSeconds = 0.5)
     {
         string path = Path.Combine(Path.GetTempPath(), $"AudioEffectorSilent_{Guid.NewGuid():N}.wav");

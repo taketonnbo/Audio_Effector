@@ -417,4 +417,209 @@ public sealed class IpcPlaybackControlGatewayTests
         Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, result.ErrorCode);
         audioService.Verify(a => a.PlayTrackAsync(It.IsAny<Track>(), It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    /// <summary>
+    /// 起動中の AppIpcServer へ play_album コマンドを送信し、PlayCollectionResponse が返却されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayAlbumAsync_IPCサーバ起動中でalbumId指定時_再生開始されPlayCollectionResponseを返す()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.PlayAlbumTest.{Guid.NewGuid():N}";
+        var albumId = AlbumId.New();
+        var track1 = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\Album\01.flac"),
+            title: "Track 1",
+            artist: "Miles Trio",
+            album: "Midnight Sessions",
+            duration: TimeSpan.FromSeconds(200),
+            year: 2024,
+            trackNumber: 1,
+            bitrate: 1000,
+            sampleRate: 48000,
+            bitsPerSample: 24,
+            format: "FLAC",
+            genre: "Jazz",
+            albumId: albumId);
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track1]);
+
+        var libraryService = new LibraryApplicationService(
+            trackRepo.Object,
+            new Mock<IFavoriteRepository>().Object,
+            new Mock<IMetadataExtractor>().Object,
+            new Mock<IEventBus>().Object);
+
+        var audioService = new Mock<IAudioService>();
+        audioService
+            .Setup(a => a.PlayPlaylistAsync(
+                It.IsAny<IReadOnlyList<Track>>(),
+                null,
+                true,
+                false,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(track1);
+        audioService.SetupGet(a => a.IsShuffleEnabled).Returns(true);
+        audioService.SetupGet(a => a.IsRepeatEnabled).Returns(false);
+
+        var handler = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            libraryService,
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        using var server = new AppIpcServer(pipeName, handler);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlayCollectionResponse> result = await sut.PlayAlbumAsync(
+            albumId: albumId,
+            albumName: null,
+            artist: null,
+            startTrackId: null,
+            startTrackIndex: null,
+            shuffle: true,
+            repeat: false);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value);
+        Assert.Equal("album", result.Value.SourceType);
+        Assert.Equal(albumId.Value, result.Value.SourceId);
+        Assert.Equal("Midnight Sessions", result.Value.SourceName);
+        Assert.Equal("playing", result.Value.PlaybackState);
+        Assert.Equal(1, result.Value.TotalTracks);
+        Assert.True(result.Value.IsShuffleEnabled);
+        Assert.False(result.Value.IsRepeatEnabled);
+        Assert.Equal(track1.Id.Value, result.Value.Track.Id);
+    }
+
+    /// <summary>
+    /// 起動中の AppIpcServer へ play_playlist コマンドを送信し、PlayCollectionResponse が返却されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayPlaylistAsync_IPCサーバ起動中でplaylistId指定時_再生開始されPlayCollectionResponseを返す()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.PlayPlaylistTest.{Guid.NewGuid():N}";
+        var track1 = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\Playlist\01.flac"),
+            title: "Drive Song",
+            artist: "Synth Wave",
+            album: "Highway",
+            duration: TimeSpan.FromSeconds(240),
+            year: 2025,
+            trackNumber: 1,
+            bitrate: 1000,
+            sampleRate: 48000,
+            bitsPerSample: 24,
+            format: "FLAC",
+            genre: "Electronic");
+
+        var playlist = new UserPlaylist(PlaylistId.New(), "Drive Mix", [track1.Id]);
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track1]);
+
+        var playlistRepo = new Mock<IPlaylistRepository>();
+        playlistRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([playlist]);
+
+        var libraryService = new LibraryApplicationService(
+            trackRepo.Object,
+            new Mock<IFavoriteRepository>().Object,
+            new Mock<IMetadataExtractor>().Object,
+            new Mock<IEventBus>().Object);
+        var playlistService = new PlaylistApplicationService(
+            playlistRepo.Object,
+            trackRepo.Object,
+            new Mock<IEventBus>().Object);
+
+        var audioService = new Mock<IAudioService>();
+        audioService
+            .Setup(a => a.PlayPlaylistAsync(
+                It.IsAny<IReadOnlyList<Track>>(),
+                null,
+                false,
+                true,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(track1);
+        audioService.SetupGet(a => a.IsShuffleEnabled).Returns(false);
+        audioService.SetupGet(a => a.IsRepeatEnabled).Returns(true);
+
+        var handler = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            libraryService,
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true,
+            playlistService: playlistService);
+
+        using var server = new AppIpcServer(pipeName, handler);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlayCollectionResponse> result = await sut.PlayPlaylistAsync(
+            playlistId: playlist.Id,
+            playlistName: null,
+            startTrackId: null,
+            startTrackIndex: null,
+            shuffle: false,
+            repeat: true);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value);
+        Assert.Equal("playlist", result.Value.SourceType);
+        Assert.Equal(playlist.Id.Value, result.Value.SourceId);
+        Assert.Equal("Drive Mix", result.Value.SourceName);
+        Assert.Equal("playing", result.Value.PlaybackState);
+        Assert.Equal(1, result.Value.TotalTracks);
+        Assert.False(result.Value.IsShuffleEnabled);
+        Assert.True(result.Value.IsRepeatEnabled);
+        Assert.Equal(track1.Id.Value, result.Value.Track.Id);
+    }
+
+    /// <summary>
+    /// PlayAlbumAsync で IPC サーバ未起動の場合に WPF_APP_NOT_RUNNING を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayAlbumAsync_IPCサーバ未起動時_WPF_APP_NOT_RUNNINGを返す()
+    {
+        // Arrange
+        var sut = new IpcPlaybackControlGateway(
+            $"AudioEffector.Ipc.MissingAlbum.{Guid.NewGuid():N}",
+            commandTimeout: TimeSpan.FromMilliseconds(300),
+            connectTimeout: TimeSpan.FromMilliseconds(100),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlayCollectionResponse> result = await sut.PlayAlbumAsync(
+            AlbumId.New(), null, null, null, null, null, null);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.WPF_APP_NOT_RUNNING, result.ErrorCode);
+    }
 }

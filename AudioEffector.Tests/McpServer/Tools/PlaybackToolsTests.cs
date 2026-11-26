@@ -267,6 +267,287 @@ public sealed class PlaybackToolsTests
         Assert.Contains("launch_app", description.Description, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// play_album で albumId・shuffle・repeat・startTrackIndex を指定した場合、ゲートウェイへ渡され統一 JSON 応答が返ることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayAlbumAsync_有効なパラメータ指定時_コレクション再生結果JSONを返す()
+    {
+        // Arrange
+        var albumGuid = Guid.NewGuid();
+        var trackGuid = Guid.NewGuid();
+        var expected = new PlayCollectionResponse(
+            SourceType: "album",
+            SourceId: albumGuid,
+            SourceName: "Midnight Sessions",
+            PlaybackState: "playing",
+            TotalTracks: 8,
+            IsShuffleEnabled: true,
+            IsRepeatEnabled: true,
+            Track: new PlayedTrackDto(
+                Id: trackGuid,
+                Title: "Blue Note Morning",
+                Artist: "Miles Trio",
+                Album: "Midnight Sessions",
+                DurationSeconds: 225.5,
+                DurationString: "03:45",
+                FilePath: @"C:\Music\Jazz\BlueNote.flac"));
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.PlayAlbumAsync(
+                It.Is<AlbumId?>(id => id.HasValue && id.Value.Value == albumGuid),
+                null,
+                null,
+                null,
+                2,
+                true,
+                true,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlayCollectionResponse>.Success(expected));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.PlayAlbumAsync(
+            albumId: albumGuid.ToString("D"),
+            startTrackIndex: 2,
+            shuffle: true,
+            repeat: true);
+
+        // Assert
+        Assert.False(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal("album", data.GetProperty("sourceType").GetString());
+        Assert.Equal(albumGuid.ToString("D"), data.GetProperty("sourceId").GetString());
+        Assert.Equal("Midnight Sessions", data.GetProperty("sourceName").GetString());
+        Assert.Equal("playing", data.GetProperty("playbackState").GetString());
+        Assert.Equal(8, data.GetProperty("totalTracks").GetInt32());
+        Assert.True(data.GetProperty("isShuffleEnabled").GetBoolean());
+        Assert.True(data.GetProperty("isRepeatEnabled").GetBoolean());
+        Assert.Equal(trackGuid.ToString("D"), data.GetProperty("track").GetProperty("id").GetString());
+    }
+
+    /// <summary>
+    /// play_album で必須項目未指定・不正 GUID・負数インデックスを指定した場合に INVALID_PARAMETER を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(null, null, null, null)]
+    [InlineData("invalid-guid", null, null, null)]
+    [InlineData("00000000-0000-0000-0000-000000000000", null, null, null)]
+    [InlineData(null, "Album", "bad-track-guid", null)]
+    [InlineData(null, "Album", null, -1)]
+    public async Task PlayAlbumAsync_不正パラメータ指定時_INVALID_PARAMETERを返す(
+        string? albumId,
+        string? albumName,
+        string? startTrackId,
+        int? startTrackIndex)
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.PlayAlbumAsync(
+            albumId: albumId,
+            albumName: albumName,
+            startTrackId: startTrackId,
+            startTrackIndex: startTrackIndex);
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        gateway.Verify(
+            g => g.PlayAlbumAsync(
+                It.IsAny<AlbumId?>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<TrackId?>(),
+                It.IsAny<int?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// play_playlist で playlistName・startTrackId・shuffle を指定した場合、ゲートウェイへ渡され統一 JSON 応答が返ることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlayPlaylistAsync_有効なパラメータ指定時_コレクション再生結果JSONを返す()
+    {
+        // Arrange
+        var playlistGuid = Guid.NewGuid();
+        var startTrackGuid = Guid.NewGuid();
+        var expected = new PlayCollectionResponse(
+            SourceType: "playlist",
+            SourceId: playlistGuid,
+            SourceName: "Drive Mix",
+            PlaybackState: "playing",
+            TotalTracks: 5,
+            IsShuffleEnabled: true,
+            IsRepeatEnabled: false,
+            Track: new PlayedTrackDto(
+                Id: startTrackGuid,
+                Title: "Highway Star",
+                Artist: "Synth Wave",
+                Album: "Neon",
+                DurationSeconds: 210.0,
+                DurationString: "03:30",
+                FilePath: @"C:\Music\Drive\01.flac"));
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.PlayPlaylistAsync(
+                null,
+                "Drive Mix",
+                It.Is<TrackId?>(id => id.HasValue && id.Value.Value == startTrackGuid),
+                null,
+                true,
+                false,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlayCollectionResponse>.Success(expected));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.PlayPlaylistAsync(
+            playlistName: "  Drive Mix  ",
+            startTrackId: startTrackGuid.ToString("D"),
+            shuffle: true,
+            repeat: false);
+
+        // Assert
+        Assert.False(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal("playlist", data.GetProperty("sourceType").GetString());
+        Assert.Equal(playlistGuid.ToString("D"), data.GetProperty("sourceId").GetString());
+        Assert.Equal("Drive Mix", data.GetProperty("sourceName").GetString());
+        Assert.Equal(5, data.GetProperty("totalTracks").GetInt32());
+        Assert.True(data.GetProperty("isShuffleEnabled").GetBoolean());
+        Assert.False(data.GetProperty("isRepeatEnabled").GetBoolean());
+    }
+
+    /// <summary>
+    /// play_playlist で必須項目未指定・不正 GUID・負数インデックスを指定した場合に INVALID_PARAMETER を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(null, null, null, null)]
+    [InlineData("invalid-guid", null, null, null)]
+    [InlineData("00000000-0000-0000-0000-000000000000", null, null, null)]
+    [InlineData(null, "Drive Mix", "bad-track-guid", null)]
+    [InlineData(null, "Drive Mix", null, -1)]
+    public async Task PlayPlaylistAsync_不正パラメータ指定時_INVALID_PARAMETERを返す(
+        string? playlistId,
+        string? playlistName,
+        string? startTrackId,
+        int? startTrackIndex)
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.PlayPlaylistAsync(
+            playlistId: playlistId,
+            playlistName: playlistName,
+            startTrackId: startTrackId,
+            startTrackIndex: startTrackIndex);
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        gateway.Verify(
+            g => g.PlayPlaylistAsync(
+                It.IsAny<PlaylistId?>(),
+                It.IsAny<string?>(),
+                It.IsAny<TrackId?>(),
+                It.IsAny<int?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// play_album / play_playlist でゲートウェイが WPF_APP_NOT_RUNNING / IPC_CONNECTION_FAILED を返した場合に対応するエラーコードを返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(McpErrorCodes.WPF_APP_NOT_RUNNING)]
+    [InlineData(McpErrorCodes.IPC_CONNECTION_FAILED)]
+    public async Task PlayAlbumとPlayPlaylist_ゲートウェイ失敗時_対応するエラーコードを返す(string errorCode)
+    {
+        // Arrange
+        var failure = PlaybackControlResult<PlayCollectionResponse>.Failure(
+            errorCode,
+            McpErrorMapper.GetPublicMessage(errorCode));
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.PlayAlbumAsync(
+                It.IsAny<AlbumId?>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<TrackId?>(),
+                It.IsAny<int?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(failure);
+        gateway
+            .Setup(g => g.PlayPlaylistAsync(
+                It.IsAny<PlaylistId?>(),
+                It.IsAny<string?>(),
+                It.IsAny<TrackId?>(),
+                It.IsAny<int?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(failure);
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult albumResult = await sut.PlayAlbumAsync(albumName: "Album");
+        CallToolResult playlistResult = await sut.PlayPlaylistAsync(playlistName: "Playlist");
+
+        // Assert
+        Assert.True(albumResult.IsError);
+        Assert.True(playlistResult.IsError);
+        using JsonDocument albumDoc = ParsePayload(albumResult);
+        using JsonDocument playlistDoc = ParsePayload(playlistResult);
+        Assert.Equal(errorCode, albumDoc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(errorCode, playlistDoc.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    /// <summary>
+    /// play_album および play_playlist ツールの Description 属性に launch_app 案内が含まれることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(PlaybackTools.PlayAlbumAsync))]
+    [InlineData(nameof(PlaybackTools.PlayPlaylistAsync))]
+    public void PlayAlbumとPlayPlaylist_ツール説明属性_launch_app案内が含まれる(string methodName)
+    {
+        // Arrange
+        MethodInfo? method = typeof(PlaybackTools).GetMethod(methodName);
+        Assert.NotNull(method);
+
+        // Act
+        DescriptionAttribute? description = method.GetCustomAttribute<DescriptionAttribute>();
+
+        // Assert
+        Assert.NotNull(description);
+        Assert.Contains("launch_app", description.Description, StringComparison.Ordinal);
+    }
+
     private static JsonDocument ParsePayload(CallToolResult result)
     {
         var textBlock = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));

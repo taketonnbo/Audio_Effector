@@ -492,6 +492,319 @@ public sealed class PlaybackIpcCommandHandlerTests
         audioService.Verify(a => a.PlayTrackAsync(It.IsAny<Track>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    /// <summary>
+    /// play_album で albumId・shuffle・repeat を指定した場合、トラック番号順かつ存在するファイルのみを PlayPlaylistAsync へ渡しコレクション再生結果を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_play_albumでalbumId指定時_欠損ファイルをスキップしトラック番号順で再生開始する()
+    {
+        // Arrange
+        var albumId = AlbumId.New();
+        var track2 = CreateTrack(TrackId.New(), @"C:\Music\Alb\02.flac", "Track 02", "Miles Trio", "Midnight Sessions", trackNumber: 2, albumId: albumId);
+        var track1 = CreateTrack(TrackId.New(), @"C:\Music\Alb\01.flac", "Track 01", "Miles Trio", "Midnight Sessions", trackNumber: 1, albumId: albumId);
+        var missingTrack = CreateTrack(TrackId.New(), @"C:\Music\Alb\03_missing.flac", "Track 03", "Miles Trio", "Midnight Sessions", trackNumber: 3, albumId: albumId);
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track2, missingTrack, track1]);
+
+        var audioService = new Mock<IAudioService>();
+        IReadOnlyList<Track>? capturedTracks = null;
+        audioService
+            .Setup(a => a.PlayPlaylistAsync(
+                It.IsAny<IReadOnlyList<Track>>(),
+                null,
+                true,
+                true,
+                It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<Track>, Track?, bool?, bool?, CancellationToken>((tracks, _, _, _, _) => capturedTracks = tracks)
+            .ReturnsAsync(track1);
+        audioService.SetupGet(a => a.IsShuffleEnabled).Returns(true);
+        audioService.SetupGet(a => a.IsRepeatEnabled).Returns(true);
+
+        var recordingDispatcher = new RecordingUiDispatcher();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: p => !p.Contains("missing", StringComparison.OrdinalIgnoreCase));
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_PLAY_ALBUM,
+            AlbumId: albumId.Value.ToString("D"),
+            Shuffle: true,
+            Repeat: true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.SOURCE_TYPE_ALBUM, response.SourceType);
+        Assert.Equal(albumId.Value, response.SourceId);
+        Assert.Equal("Midnight Sessions", response.SourceName);
+        Assert.Equal(PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, response.PlaybackState);
+        Assert.Equal(2, response.TotalTracks);
+        Assert.True(response.IsShuffleEnabled);
+        Assert.True(response.IsRepeatEnabled);
+        Assert.NotNull(response.Track);
+        Assert.Equal(track1.Id.Value, response.Track.Id);
+        Assert.Equal(1, recordingDispatcher.InvokeCount);
+        Assert.NotNull(capturedTracks);
+        Assert.Equal([track1.Id, track2.Id], capturedTracks.Select(t => t.Id).ToArray());
+    }
+
+    /// <summary>
+    /// play_album で albumName のみ指定し同名アルバムが複数アーティストに跨る場合、INVALID_PARAMETER（曖昧性エラー）を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_play_albumで同名アルバムが複数存在する場合_INVALID_PARAMETERを返す()
+    {
+        // Arrange
+        var trackA = CreateTrack(TrackId.New(), @"C:\Music\A\01.flac", "Song A", "Artist A", "Greatest Hits", trackNumber: 1, albumId: AlbumId.New());
+        var trackB = CreateTrack(TrackId.New(), @"C:\Music\B\01.flac", "Song B", "Artist B", "Greatest Hits", trackNumber: 1, albumId: AlbumId.New());
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([trackA, trackB]);
+
+        var audioService = new Mock<IAudioService>();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_PLAY_ALBUM,
+            AlbumName: "greatest hits");
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.INVALID_PARAMETER, response.ErrorCode);
+        Assert.Contains("artist", response.Error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// play_album で albumName と artist および startTrackIndex を指定した場合、一意に特定されたアルバムの指定曲から再生開始されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_play_albumでalbumNameとartistおよびstartTrackIndex指定時_一意に特定して開始曲から再生する()
+    {
+        // Arrange
+        var albumIdA = AlbumId.New();
+        var albumIdB = AlbumId.New();
+        var trackA1 = CreateTrack(TrackId.New(), @"C:\Music\A\01.flac", "A1", "Artist A", "Greatest Hits", trackNumber: 1, albumId: albumIdA);
+        var trackB1 = CreateTrack(TrackId.New(), @"C:\Music\B\01.flac", "B1", "Artist B", "Greatest Hits", trackNumber: 1, albumId: albumIdB);
+        var trackB2 = CreateTrack(TrackId.New(), @"C:\Music\B\02.flac", "B2", "Artist B", "Greatest Hits", trackNumber: 2, albumId: albumIdB);
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([trackA1, trackB1, trackB2]);
+
+        var audioService = new Mock<IAudioService>();
+        audioService
+            .Setup(a => a.PlayPlaylistAsync(
+                It.IsAny<IReadOnlyList<Track>>(),
+                trackB2,
+                null,
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(trackB2);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_PLAY_ALBUM,
+            AlbumName: "Greatest Hits",
+            Artist: "artist b",
+            StartTrackIndex: 1);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(albumIdB.Value, response.SourceId);
+        Assert.Equal(trackB2.Id.Value, response.Track!.Id);
+        Assert.Equal(2, response.TotalTracks);
+    }
+
+    /// <summary>
+    /// play_playlist で playlistName を指定した場合、プレイリストの収録順を保ち欠損ファイルをスキップして再生開始することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_play_playlistでplaylistName指定時_欠損ファイルをスキップして再生開始する()
+    {
+        // Arrange
+        var track1 = CreateTrack(TrackId.New(), @"C:\Music\P\01.flac", "Drive 1", "Artist", "Album");
+        var missingTrack = CreateTrack(TrackId.New(), @"C:\Music\P\missing.flac", "Drive Missing", "Artist", "Album");
+        var track2 = CreateTrack(TrackId.New(), @"C:\Music\P\02.flac", "Drive 2", "Artist", "Album");
+
+        var playlist = new UserPlaylist(PlaylistId.New(), "Drive Mix", [track2.Id, missingTrack.Id, track1.Id]);
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track1, missingTrack, track2]);
+
+        var playlistRepo = new Mock<IPlaylistRepository>();
+        playlistRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([playlist]);
+
+        var playlistService = new PlaylistApplicationService(playlistRepo.Object, trackRepo.Object, new Mock<IEventBus>().Object);
+        var audioService = new Mock<IAudioService>();
+        IReadOnlyList<Track>? capturedTracks = null;
+        audioService
+            .Setup(a => a.PlayPlaylistAsync(
+                It.IsAny<IReadOnlyList<Track>>(),
+                null,
+                false,
+                true,
+                It.IsAny<CancellationToken>()))
+            .Callback<IReadOnlyList<Track>, Track?, bool?, bool?, CancellationToken>((tracks, _, _, _, _) => capturedTracks = tracks)
+            .ReturnsAsync(track2);
+        audioService.SetupGet(a => a.IsShuffleEnabled).Returns(false);
+        audioService.SetupGet(a => a.IsRepeatEnabled).Returns(true);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: p => !p.Contains("missing", StringComparison.OrdinalIgnoreCase),
+            playlistService: playlistService);
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_PLAY_PLAYLIST,
+            PlaylistName: "drive mix",
+            Shuffle: false,
+            Repeat: true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.SOURCE_TYPE_PLAYLIST, response.SourceType);
+        Assert.Equal(playlist.Id.Value, response.SourceId);
+        Assert.Equal("Drive Mix", response.SourceName);
+        Assert.Equal(2, response.TotalTracks);
+        Assert.False(response.IsShuffleEnabled);
+        Assert.True(response.IsRepeatEnabled);
+        Assert.Equal(track2.Id.Value, response.Track!.Id);
+        Assert.NotNull(capturedTracks);
+        Assert.Equal([track2.Id, track1.Id], capturedTracks.Select(t => t.Id).ToArray());
+    }
+
+    /// <summary>
+    /// play_playlist で空のプレイリストを指定した場合に NOT_FOUND を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_play_playlistで空プレイリスト指定時_NOT_FOUNDを返す()
+    {
+        // Arrange
+        var emptyPlaylist = new UserPlaylist(PlaylistId.New(), "Empty List");
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Track>());
+
+        var playlistRepo = new Mock<IPlaylistRepository>();
+        playlistRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([emptyPlaylist]);
+
+        var playlistService = new PlaylistApplicationService(playlistRepo.Object, trackRepo.Object, new Mock<IEventBus>().Object);
+        var audioService = new Mock<IAudioService>();
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true,
+            playlistService: playlistService);
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_PLAY_PLAYLIST,
+            PlaylistId: emptyPlaylist.Id.Value.ToString("D"));
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.NOT_FOUND, response.ErrorCode);
+    }
+
+    /// <summary>
+    /// play_album で Invoke 待機中に DeadlineUtc を超過した場合、再生を開始せず OperationCanceledException を送出することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_play_albumでInvoke待機中に期限超過時_再生を開始せずキャンセルされる()
+    {
+        // Arrange
+        var albumId = AlbumId.New();
+        var track = CreateTrack(TrackId.New(), @"C:\Music\LateAlb\01.flac", "Late 1", "Artist", "Late Album", trackNumber: 1, albumId: albumId);
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track]);
+
+        var audioService = new Mock<IAudioService>();
+        DateTimeOffset now = new(2026, 11, 26, 12, 0, 0, TimeSpan.Zero);
+        DateTimeOffset deadline = now.AddSeconds(3);
+
+        var dispatcher = new Mock<IUiDispatcher>();
+        dispatcher
+            .Setup(d => d.Invoke(It.IsAny<Action>()))
+            .Callback<Action>(action =>
+            {
+                now = deadline.AddMilliseconds(10);
+                action();
+            });
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            dispatcher.Object,
+            fileExists: _ => true,
+            utcNow: () => now);
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_PLAY_ALBUM,
+            AlbumId: albumId.Value.ToString("D"),
+            DeadlineUtc: deadline);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<OperationCanceledException>(() => sut.HandleAsync(request));
+        audioService.Verify(
+            a => a.PlayPlaylistAsync(
+                It.IsAny<IReadOnlyList<Track>>(),
+                It.IsAny<Track?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<bool?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     private static LibraryApplicationService CreateLibraryService(
         ITrackRepository trackRepository,
         IMetadataExtractor? metadataExtractor = null)
@@ -502,7 +815,14 @@ public sealed class PlaybackIpcCommandHandlerTests
         return new LibraryApplicationService(trackRepository, favoriteRepo.Object, extractor, eventBus.Object);
     }
 
-    private static Track CreateTrack(TrackId id, string filePath, string title, string artist, string album)
+    private static Track CreateTrack(
+        TrackId id,
+        string filePath,
+        string title,
+        string artist,
+        string album,
+        uint trackNumber = 1,
+        AlbumId? albumId = null)
     {
         return new Track(
             id: id,
@@ -512,12 +832,13 @@ public sealed class PlaybackIpcCommandHandlerTests
             album: album,
             duration: TimeSpan.FromSeconds(225.5),
             year: 2024,
-            trackNumber: 1,
+            trackNumber: trackNumber,
             bitrate: 1411,
             sampleRate: 96000,
             bitsPerSample: 24,
             format: "FLAC",
-            genre: "Jazz");
+            genre: "Jazz",
+            albumId: albumId);
     }
 
     private sealed class RecordingUiDispatcher : IUiDispatcher
