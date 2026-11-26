@@ -700,6 +700,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             Artist: "ALPHA",
             Genre: "jazz",
             Year: 2024,
+            IncludeTracks: true,
             Limit: 1,
             Offset: 1));
 
@@ -738,5 +739,33 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         // Act & Assert
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => sut.SearchAlbumsAsync(new AlbumSearchQuery(Year: year, Limit: limit, Offset: offset)));
+    }
+
+    /// <summary>
+    /// SearchAlbumsAsync で IncludeTracks=false（既定値）を指定した場合、IFavoriteRepository へアクセスせずにアルバム概要を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchAlbumsAsync_IncludeTracks無効指定_お気に入りリポジトリを参照せずアルバム概要を返すこと()
+    {
+        // Arrange
+        var t1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\only.flac"), title: "T1", artist: "Artist A", album: "Album A", duration: TimeSpan.FromSeconds(180), year: 2024, trackNumber: 1, genre: "Jazz");
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([t1]);
+
+        var mockFavRepo = new Mock<IFavoriteRepository>();
+        var sut = new LibraryApplicationService(
+            mockTrackRepo.Object,
+            mockFavRepo.Object,
+            new TagLibMetadataExtractor(),
+            new Mock<IEventBus>().Object);
+
+        // Act
+        AlbumSearchResult result = await sut.SearchAlbumsAsync(new AlbumSearchQuery(IncludeTracks: false));
+
+        // Assert
+        Assert.Equal(1, result.TotalCount);
+        Assert.Single(result.Albums);
+        mockFavRepo.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

@@ -243,4 +243,74 @@ public sealed class JsonPlaylistRepositoryTests : IDisposable
         // Act & Assert
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sut.GetAllAsync(cts.Token));
     }
+
+    /// <summary>
+    /// 旧 WPF 形式（Id 欠落・Name と TrackPaths のみ）の JSON を読み込んだ場合、収録順を維持して取り込まれ、再読み込み後も同一の PlaylistId が維持されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetAllAsync_旧WPF形式JSON_収録順を保って読み込み再読み込み後も同一IDを維持すること()
+    {
+        // Arrange: WPF 旧形式（Id・TrackIds なし）の playlists.json を直接書き出す
+        const string legacyJson = """
+            [
+              {
+                "Name": "WPF 旧プレイリスト",
+                "TrackPaths": [
+                  "C:\\Music\\track2.flac",
+                  "C:\\Music\\track1.flac"
+                ]
+              }
+            ]
+            """;
+        await File.WriteAllTextAsync(_testFilePath, legacyJson);
+
+        // Act
+        PlaylistId firstLoadedId;
+        using (var firstSut = CreateSut())
+        {
+            var firstList = await firstSut.GetAllAsync();
+            var playlist = Assert.Single(firstList);
+            firstLoadedId = playlist.Id;
+            Assert.NotEqual(Guid.Empty, playlist.Id.Value);
+            Assert.Equal("WPF 旧プレイリスト", playlist.Name);
+            Assert.Equal(2, playlist.TrackCount);
+            Assert.Equal([@"C:\Music\track2.flac", @"C:\Music\track1.flac"], playlist.TrackPaths);
+        }
+
+        using var secondSut = CreateSut();
+        var secondList = await secondSut.GetAllAsync();
+        var reloaded = Assert.Single(secondList);
+
+        // Assert
+        Assert.Equal(firstLoadedId, reloaded.Id);
+        Assert.Equal([@"C:\Music\track2.flac", @"C:\Music\track1.flac"], reloaded.TrackPaths);
+    }
+
+    /// <summary>
+    /// ReplaceAllAsync で保存したプレイリスト一覧が ID と TrackPaths の順序を維持したまま再読み込みできることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ReplaceAllAsync_一覧置換保存_IDとTrackPathsの順序を維持して再読み込みできること()
+    {
+        // Arrange
+        var playlist = new UserPlaylist(PlaylistId.New(), "共通形式プレイリスト")
+        {
+            TrackPaths = [@"C:\Music\b.flac", @"C:\Music\a.flac"],
+        };
+
+        using (var writer = CreateSut())
+        {
+            // Act
+            await writer.ReplaceAllAsync([playlist]);
+        }
+
+        using var reader = CreateSut();
+        var loaded = await reader.GetAllAsync();
+
+        // Assert
+        var actual = Assert.Single(loaded);
+        Assert.Equal(playlist.Id, actual.Id);
+        Assert.Equal("共通形式プレイリスト", actual.Name);
+        Assert.Equal([@"C:\Music\b.flac", @"C:\Music\a.flac"], actual.TrackPaths);
+    }
 }
