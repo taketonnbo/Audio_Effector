@@ -313,4 +313,36 @@ public sealed class JsonPlaylistRepositoryTests : IDisposable
         Assert.Equal("共通形式プレイリスト", actual.Name);
         Assert.Equal([@"C:\Music\b.flac", @"C:\Music\a.flac"], actual.TrackPaths);
     }
+
+    /// <summary>
+    /// ReplaceAllAsync でファイル置換が失敗した場合、メモリキャッシュが未保存データで汚染されず、元の保存済み一覧を維持することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ReplaceAllAsync_ファイル置換失敗時_キャッシュが未保存データで汚染されず元の状態を維持すること()
+    {
+        // Arrange
+        var original = new UserPlaylist(PlaylistId.New(), "元のプレイリスト");
+        var unsaved = new UserPlaylist(PlaylistId.New(), "未保存プレイリスト");
+
+        using var sut = CreateSut();
+        await sut.SaveAsync(original);
+        _ = await sut.GetAllAsync();
+
+        // playlists.json を読み取り専用共有でロックし、File.Move によるファイル置換を失敗させる
+        using (var readOnlyHold = new FileStream(_testFilePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            // Act & Assert: 書き込みは失敗する
+            Exception ex = await Assert.ThrowsAnyAsync<Exception>(() => sut.ReplaceAllAsync([unsaved]));
+            Assert.True(ex is IOException or UnauthorizedAccessException, $"予期しない例外型: {ex.GetType().FullName}");
+        }
+
+        // Assert: 同一インスタンス・別インスタンスの双方で元のプレイリストが維持されている
+        var fromSameInstance = await sut.GetAllAsync();
+        using var anotherInstance = CreateSut();
+        var fromAnotherInstance = await anotherInstance.GetAllAsync();
+
+        Assert.Equal(original.Id, Assert.Single(fromSameInstance).Id);
+        Assert.Equal("元のプレイリスト", fromSameInstance[0].Name);
+        Assert.Equal(original.Id, Assert.Single(fromAnotherInstance).Id);
+    }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
@@ -139,5 +140,58 @@ public sealed class PlaylistViewModelTests
         Assert.True(sut.IsFavoritesView);
         Assert.Equal("Favorites", sut.CurrentPlaylistName);
         Assert.Contains(sut.PlaylistTracks, t => t.FilePath == favoriteTrack.FilePath);
+    }
+
+    /// <summary>
+    /// プレイリスト読み込み失敗時、HasLoadError と LastErrorMessage が設定され既存の表示一覧が消去されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void LoadPlaylists_読み込み失敗時_エラー状態が設定され既存コレクションを維持する()
+    {
+        // Arrange
+        var existing = new UserPlaylist(PlaylistId.New(), "既存");
+        _playlistRepoMock.SetupSequence(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([existing])
+            .ThrowsAsync(new IOException("Lock timeout"));
+
+        using var sut = new PlaylistViewModel(
+            _playlistAppService,
+            _libraryAppService,
+            _audioServiceMock.Object,
+            _eventBus);
+        sut.LoadPlaylists();
+
+        // Act
+        sut.LoadPlaylists();
+
+        // Assert
+        Assert.True(sut.HasLoadError);
+        Assert.False(string.IsNullOrWhiteSpace(sut.LastErrorMessage));
+        Assert.Single(sut.UserPlaylists);
+        Assert.Equal(existing.Id, sut.UserPlaylists[0].Id);
+    }
+
+    /// <summary>
+    /// CreatePlaylistCommand 実行時にリポジトリ保存が失敗した場合、LastErrorMessage が設定され UserPlaylists に追加されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void CreatePlaylistCommand_保存失敗時_エラーメッセージが設定されコレクションに追加されない()
+    {
+        // Arrange
+        _playlistRepoMock.Setup(r => r.SaveAsync(It.IsAny<UserPlaylist>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("Disk locked"));
+
+        using var sut = new PlaylistViewModel(
+            _playlistAppService,
+            _libraryAppService,
+            _audioServiceMock.Object,
+            _eventBus);
+
+        // Act
+        sut.CreatePlaylistCommand.Execute("Failed Playlist");
+
+        // Assert
+        Assert.Empty(sut.UserPlaylists);
+        Assert.False(string.IsNullOrWhiteSpace(sut.LastErrorMessage));
     }
 }
