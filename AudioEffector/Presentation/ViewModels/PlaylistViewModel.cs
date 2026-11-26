@@ -422,6 +422,12 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
 
     private async Task<IReadOnlyList<Track>> ResolveTracksAsync(UserPlaylist playlist, CancellationToken cancellationToken)
     {
+        // TrackIds が正本として存在する場合は、MCP 側と同一の ID ベース解決を使用する
+        if (playlist.TrackIds.Count > 0)
+        {
+            return await _playlistService.ResolvePlaylistTracksAsync(playlist, cancellationToken);
+        }
+
         if (playlist.TrackPaths.Count == 0)
         {
             return await _playlistService.GetPlaylistTracksAsync(playlist.Id, cancellationToken);
@@ -586,9 +592,12 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
         var previousPaths = playlist.TrackPaths.ToList();
         DateTime previousUpdatedAt = playlist.UpdatedAt;
 
-        var remainingTracks = PlaylistTracks.ToList();
-        remainingTracks.RemoveAt(index);
-        PlaylistApplicationService.SyncPlaylistTracks(playlist, remainingTracks);
+        if (!PlaylistApplicationService.RemoveTrackPreservingUnresolved(playlist, track))
+        {
+            var remainingTracks = PlaylistTracks.ToList();
+            remainingTracks.RemoveAt(index);
+            PlaylistApplicationService.SyncPlaylistTracks(playlist, remainingTracks);
+        }
 
         if (!TryPersistPlaylist(playlist))
         {

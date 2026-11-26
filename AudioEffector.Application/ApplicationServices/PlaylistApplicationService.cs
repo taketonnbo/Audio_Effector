@@ -235,6 +235,7 @@ public class PlaylistApplicationService
         if (hasExistingIds)
         {
             bool pathsAligned = hasExistingPaths && playlist.TrackPaths.Count == playlist.TrackIds.Count;
+            bool allIdsHavePath = true;
             for (int i = 0; i < playlist.TrackIds.Count; i++)
             {
                 TrackId existingId = playlist.TrackIds[i];
@@ -252,6 +253,16 @@ public class PlaylistApplicationService
                     mergedPaths.Add(playlist.TrackPaths[i]);
                     existingPathSet.Add(playlist.TrackPaths[i]);
                 }
+                else
+                {
+                    allIdsHavePath = false;
+                }
+            }
+
+            // ID が正本で全曲分のパスを確定できない場合は、不完全なパス列を残さない（TrackIds を正本として維持する）
+            if (!allIdsHavePath)
+            {
+                mergedPaths.Clear();
             }
         }
         else if (hasExistingPaths)
@@ -309,8 +320,11 @@ public class PlaylistApplicationService
             existingIdSet.Add(track.Id);
             if (!string.IsNullOrWhiteSpace(track.FilePath))
             {
-                mergedPaths.Add(track.FilePath);
                 existingPathSet.Add(track.FilePath);
+                if (keepPathAsSourceOfTruth || !hasExistingIds || mergedPaths.Count == mergedIds.Count - 1)
+                {
+                    mergedPaths.Add(track.FilePath);
+                }
             }
 
             addedTracks.Add(track);
@@ -318,10 +332,76 @@ public class PlaylistApplicationService
 
         if (addedTracks.Count > 0)
         {
+            if (hasExistingIds && mergedPaths.Count != mergedIds.Count)
+            {
+                mergedPaths.Clear();
+            }
+
             playlist.ReplaceTracks(mergedIds, mergedPaths);
         }
 
         return addedTracks;
+    }
+
+    /// <summary>
+    /// プレイリストに保存されている未解決トラック参照を保持したまま、指定された楽曲に対応する参照のみを取り除きます。
+    /// </summary>
+    /// <param name="playlist">編集対象のプレイリスト。</param>
+    /// <param name="trackToRemove">削除する楽曲。</param>
+    /// <returns>参照が削除された場合は <see langword="true"/>、一致する参照がなかった場合は <see langword="false"/>。</returns>
+    public static bool RemoveTrackPreservingUnresolved(UserPlaylist playlist, Track trackToRemove)
+    {
+        ArgumentNullException.ThrowIfNull(playlist);
+        ArgumentNullException.ThrowIfNull(trackToRemove);
+
+        var updatedIds = playlist.TrackIds.ToList();
+        var updatedPaths = playlist.TrackPaths?.ToList() ?? new List<string>();
+        bool removed = false;
+
+        if (updatedIds.Count > 0)
+        {
+            int idIndex = updatedIds.FindIndex(id => id == trackToRemove.Id);
+            if (idIndex >= 0)
+            {
+                bool pathsAligned = updatedPaths.Count == updatedIds.Count;
+                updatedIds.RemoveAt(idIndex);
+                if (pathsAligned)
+                {
+                    updatedPaths.RemoveAt(idIndex);
+                }
+                else if (!string.IsNullOrWhiteSpace(trackToRemove.FilePath))
+                {
+                    int pathIndex = updatedPaths.FindIndex(p => string.Equals(p, trackToRemove.FilePath, StringComparison.OrdinalIgnoreCase));
+                    if (pathIndex >= 0)
+                    {
+                        updatedPaths.RemoveAt(pathIndex);
+                    }
+                }
+
+                removed = true;
+            }
+        }
+        else if (updatedPaths.Count > 0 && !string.IsNullOrWhiteSpace(trackToRemove.FilePath))
+        {
+            int pathIndex = updatedPaths.FindIndex(p => string.Equals(p, trackToRemove.FilePath, StringComparison.OrdinalIgnoreCase));
+            if (pathIndex >= 0)
+            {
+                updatedPaths.RemoveAt(pathIndex);
+                removed = true;
+            }
+        }
+
+        if (removed)
+        {
+            if (updatedIds.Count > 0 && updatedPaths.Count != updatedIds.Count)
+            {
+                updatedPaths.Clear();
+            }
+
+            playlist.ReplaceTracks(updatedIds, updatedPaths);
+        }
+
+        return removed;
     }
 
     /// <summary>
