@@ -115,9 +115,9 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         {
             throw;
         }
-        catch when (!forceReload)
+        catch (JsonException) when (!forceReload)
         {
-            // 読み込みエラー時は空のまま開始
+            // JSON 構文破損時は空のまま開始（I/O エラーや共有違反は呼び出し元へ伝播させて読み込み失敗と区別する）
             _playlists.Clear();
         }
 
