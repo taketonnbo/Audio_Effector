@@ -6,7 +6,7 @@ using AudioEffector.Application.Common;
 using AudioEffector.Domain.Events;
 using Xunit;
 
-namespace AudioEffector.Tests.Application.Common;
+namespace AudioEffector.Application.Tests.Common;
 
 /// <summary>
 /// InMemoryEventBusのイベント発行、複数購読、購読解除、および例外保護を検証するテストクラス

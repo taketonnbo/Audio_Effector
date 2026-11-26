@@ -9,11 +9,10 @@ using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.ValueObjects;
-using AudioEffector.Infrastructure.Library;
 using Moq;
 using Xunit;
 
-namespace AudioEffector.Tests.Application.ApplicationServices;
+namespace AudioEffector.Application.Tests.ApplicationServices;
 
 /// <summary>
 /// LibraryApplicationServiceのフォルダスキャン、検索、アルバム集約、およびメタデータベースお気に入り管理を検証するテストクラス
@@ -73,7 +72,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         // Arrange
         var mockTrackRepo = new Mock<ITrackRepository>();
         var mockFavRepo = new Mock<IFavoriteRepository>();
-        var extractor = new TagLibMetadataExtractor();
+        var extractor = new FakeMetadataExtractor();
         var mockEventBus = new Mock<IEventBus>();
 
         // Act & Assert
@@ -93,7 +92,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         var mockTrackRepo = new Mock<ITrackRepository>();
         var mockFavRepo = new Mock<IFavoriteRepository>();
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         // Act
         var actual = await sut.ScanFolderAsync(Path.Combine(_tempDirectory, "non_existent"));
@@ -120,7 +119,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
 
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         // Act
         var actual = await sut.ScanFolderAsync(_tempDirectory);
@@ -148,7 +147,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
 
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         var mockProgress = new Mock<IProgress<double>>();
 
@@ -174,7 +173,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
 
         var mockFavRepo = new Mock<IFavoriteRepository>();
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         // Act
         var actual = await sut.SearchTracksAsync("jazz");
@@ -200,7 +199,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
 
         var mockFavRepo = new Mock<IFavoriteRepository>();
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         // Act
         var actual = await sut.GetTrackByPathAsync(file);
@@ -233,7 +232,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             });
 
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         // Act
         var albums = await sut.GetAllAlbumsAsync();
@@ -265,7 +264,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
 
         var mockFavRepo = new Mock<IFavoriteRepository>();
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         // Act
         var actual = await sut.ToggleFavoriteAsync(track.Id);
@@ -295,7 +294,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
 
         var mockFavRepo = new Mock<IFavoriteRepository>();
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         // Act
         var actual = await sut.ToggleFavoriteAsync(track.Id);
@@ -327,7 +326,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             });
 
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         // Act
         var favorites = await sut.GetFavoritesAsync();
@@ -366,7 +365,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             ]);
 
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         var query = new TrackSearchQuery(
             Keyword: "Artist",
@@ -405,7 +404,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         var mockTrackRepo = new Mock<ITrackRepository>();
         var mockFavRepo = new Mock<IFavoriteRepository>();
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
         var query = new TrackSearchQuery(Limit: limit, Offset: offset);
 
         // Act & Assert
@@ -456,7 +455,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             .ReturnsAsync([favoriteEntry]);
 
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         // Act
         TrackSearchResult favoritesOnly = await sut.SearchTracksAsync(new TrackSearchQuery(IsFavoriteOnly: true));
@@ -494,7 +493,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
 
         var mockEventBus = new Mock<IEventBus>();
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), mockEventBus.Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), mockEventBus.Object);
 
         // Act
         var actual = await sut.ScanFolderAsync(_tempDirectory);
@@ -528,7 +527,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
             .Callback<IEnumerable<Track>, CancellationToken>((ts, _) => replacedTracks = ts.ToList())
             .Returns(Task.CompletedTask);
 
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new FakeMetadataExtractor(), new Mock<IEventBus>().Object);
 
         // Act
         await sut.SyncLibraryTracksAsync([updatedKeepTrack, addedTrack]);
@@ -562,7 +561,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         mockFavRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
 
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), new Mock<IEventBus>().Object);
 
         // Act
         var albums = await sut.GetAllAlbumsAsync();
@@ -594,7 +593,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([t2, other, t1]);
 
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new FakeMetadataExtractor(), new Mock<IEventBus>().Object);
 
         // Act
         var actual = await sut.GetAlbumByIdAsync(targetAlbumId);
@@ -619,7 +618,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([track]);
 
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, new Mock<IFavoriteRepository>().Object, new FakeMetadataExtractor(), new Mock<IEventBus>().Object);
         var unknownAlbumId = AlbumId.New();
 
         // Act
@@ -652,7 +651,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
                 new FavoriteTrackEntry("Track 1", "Artist A", "Album Fav", 1, 180.0, @"D:\OldPath\fav1.mp3", DateTime.UtcNow)
             ]);
 
-        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new TagLibMetadataExtractor(), new Mock<IEventBus>().Object);
+        var sut = new LibraryApplicationService(mockTrackRepo.Object, mockFavRepo.Object, new FakeMetadataExtractor(), new Mock<IEventBus>().Object);
 
         // Act
         var actual = await sut.GetAlbumByIdAsync(targetAlbumId);
@@ -691,7 +690,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         var sut = new LibraryApplicationService(
             mockTrackRepo.Object,
             mockFavRepo.Object,
-            new TagLibMetadataExtractor(),
+            new FakeMetadataExtractor(),
             new Mock<IEventBus>().Object);
 
         // Act
@@ -733,7 +732,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         var sut = new LibraryApplicationService(
             new Mock<ITrackRepository>().Object,
             new Mock<IFavoriteRepository>().Object,
-            new TagLibMetadataExtractor(),
+            new FakeMetadataExtractor(),
             new Mock<IEventBus>().Object);
 
         // Act & Assert
@@ -757,7 +756,7 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         var sut = new LibraryApplicationService(
             mockTrackRepo.Object,
             mockFavRepo.Object,
-            new TagLibMetadataExtractor(),
+            new FakeMetadataExtractor(),
             new Mock<IEventBus>().Object);
 
         // Act
@@ -767,5 +766,30 @@ public sealed class LibraryApplicationServiceTests : IDisposable
         Assert.Equal(1, result.TotalCount);
         Assert.Single(result.Albums);
         mockFavRepo.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private sealed class FakeMetadataExtractor : IMetadataExtractor
+    {
+        public Task<Track?> ExtractMetadataAsync(AudioPath filePath, CancellationToken cancellationToken = default)
+        {
+            if (!File.Exists(filePath.Value))
+            {
+                return Task.FromResult<Track?>(null);
+            }
+
+            var track = new Track(
+                id: TrackId.New(),
+                filePath: filePath,
+                title: Path.GetFileName(filePath.Value),
+                artist: "Unknown Artist",
+                album: "Unknown Album",
+                duration: TimeSpan.Zero);
+            return Task.FromResult<Track?>(track);
+        }
+
+        public Task<byte[]?> ExtractAlbumArtBytesAsync(AudioPath filePath, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<byte[]?>(null);
+        }
     }
 }

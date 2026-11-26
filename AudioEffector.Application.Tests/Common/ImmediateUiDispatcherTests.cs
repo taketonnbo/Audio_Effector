@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using AudioEffector.Application.Common;
 using Xunit;
 
-namespace AudioEffector.Tests.Application.Common;
+namespace AudioEffector.Application.Tests.Common;
 
 /// <summary>
 /// <see cref="ImmediateUiDispatcher"/> の同期・非同期ディスパッチ動作を検証するテストクラス
