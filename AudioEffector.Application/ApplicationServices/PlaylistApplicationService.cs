@@ -21,6 +21,7 @@ public class PlaylistApplicationService
     private readonly ITrackRepository _trackRepository;
     private readonly IEventBus _eventBus;
     private readonly IFavoriteRepository? _favoriteRepository;
+    private bool _isLastLoadFailed;
 
     /// <summary>
     /// PlaylistApplicationServiceを初期化します
@@ -42,20 +43,64 @@ public class PlaylistApplicationService
     }
 
     /// <summary>
-    /// プレイリスト一覧をリポジトリから同期的に読み込みます
+    /// プレイリスト一覧をリポジトリから同期的に読み込み、成否を明示的に返します。
+    /// 読み込みに失敗した場合、再読み込みが成功するまで <see cref="SavePlaylists"/> による全件置換を保護します。
     /// </summary>
-    /// <returns>プレイリスト一覧</returns>
-    public List<UserPlaylist> LoadPlaylists()
+    /// <returns>読み込み結果（成功時はプレイリスト一覧、失敗時はエラーメッセージ）。</returns>
+    public Result<List<UserPlaylist>> TryLoadPlaylists()
     {
         try
         {
             IReadOnlyList<UserPlaylist> playlists = _playlistRepository.GetAllAsync().GetAwaiter().GetResult()
                 ?? Array.Empty<UserPlaylist>();
-            return playlists.ToList();
+            _isLastLoadFailed = false;
+            return Result.Success(playlists.ToList());
         }
-        catch
+        catch (Exception ex)
         {
-            return new List<UserPlaylist>();
+            _isLastLoadFailed = true;
+            return Result.Failure<List<UserPlaylist>>($"プレイリストの読み込みに失敗しました: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// プレイリスト一覧をリポジトリから同期的に読み込みます
+    /// </summary>
+    /// <returns>プレイリスト一覧（読み込み失敗時は空リスト）</returns>
+    public List<UserPlaylist> LoadPlaylists()
+    {
+        Result<List<UserPlaylist>> result = TryLoadPlaylists();
+        return result.IsSuccess && result.Value is not null
+            ? result.Value
+            : new List<UserPlaylist>();
+    }
+
+    /// <summary>
+    /// プレイリスト一覧をリポジトリへ同期的に一括保存し、成否を返します。
+    /// 直近の読み込みが失敗している場合は、既存プレイリスト消失を防ぐため全件置換を実行せず失敗を返します。
+    /// </summary>
+    /// <param name="playlists">保存するプレイリスト一覧</param>
+    /// <returns>保存結果。</returns>
+    public Result TrySavePlaylists(List<UserPlaylist> playlists)
+    {
+        if (playlists == null)
+        {
+            return Result.Failure("保存対象のプレイリスト一覧が指定されていません。");
+        }
+
+        if (_isLastLoadFailed)
+        {
+            return Result.Failure("直近のプレイリスト読み込みに失敗しているため、既存データ保護のため全件保存を中止しました。再読み込み後に再試行してください。");
+        }
+
+        try
+        {
+            _playlistRepository.ReplaceAllAsync(playlists).GetAwaiter().GetResult();
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure($"プレイリストの保存に失敗しました: {ex.Message}");
         }
     }
 
@@ -65,19 +110,140 @@ public class PlaylistApplicationService
     /// <param name="playlists">保存するプレイリスト一覧</param>
     public void SavePlaylists(List<UserPlaylist> playlists)
     {
-        if (playlists == null)
+        _ = TrySavePlaylists(playlists);
+    }
+
+    /// <summary>
+    /// 単一のプレイリストをリポジトリへ同期的に保存し、成否を返します。
+    /// ディスク上の最新状態へ対象 ID のみマージするため、他プレイリストを消失させません。
+    /// </summary>
+    /// <param name="playlist">保存対象のプレイリスト。</param>
+    /// <returns>保存結果。</returns>
+    public Result TrySavePlaylist(UserPlaylist playlist)
+    {
+        if (playlist == null)
         {
-            return;
+            return Result.Failure("保存対象のプレイリストが指定されていません。");
         }
 
         try
         {
-            _playlistRepository.ReplaceAllAsync(playlists).GetAwaiter().GetResult();
+            _playlistRepository.SaveAsync(playlist).GetAwaiter().GetResult();
+            return Result.Success();
         }
-        catch
+        catch (Exception ex)
         {
-            // Silent fail
+            return Result.Failure($"プレイリストの保存に失敗しました: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// 指定された ID のプレイリストをリポジトリから同期的に削除し、成否を返します。
+    /// </summary>
+    /// <param name="playlistId">削除対象のプレイリスト ID。</param>
+    /// <returns>削除結果。</returns>
+    public Result TryDeletePlaylist(PlaylistId playlistId)
+    {
+        try
+        {
+            _playlistRepository.DeleteAsync(playlistId).GetAwaiter().GetResult();
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure($"プレイリストの削除に失敗しました: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// プレイリストの既存収録曲（<see cref="UserPlaylist.TrackIds"/> および <see cref="UserPlaylist.TrackPaths"/>）の順序を保持したまま、
+    /// 指定された楽曲を重複なく末尾へ追加し、<see cref="UserPlaylist.TrackIds"/> と <see cref="UserPlaylist.TrackPaths"/> を共通の一覧へ同期します。
+    /// </summary>
+    /// <param name="playlist">編集対象のプレイリスト。</param>
+    /// <param name="tracksToAdd">追加する楽曲一覧。</param>
+    /// <returns>実際に追加された楽曲の読み取り専用リスト。</returns>
+    public IReadOnlyList<Track> AddTracksPreservingOrder(UserPlaylist playlist, IEnumerable<Track> tracksToAdd)
+    {
+        ArgumentNullException.ThrowIfNull(playlist);
+        ArgumentNullException.ThrowIfNull(tracksToAdd);
+
+        List<Track> existingTracks = ResolvePlaylistTracksAsync(playlist).GetAwaiter().GetResult().ToList();
+        var mergedIds = new List<TrackId>(existingTracks.Count);
+        var mergedPaths = new List<string>(existingTracks.Count);
+        var existingIdSet = new HashSet<TrackId>();
+        var existingPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (Track track in existingTracks)
+        {
+            mergedIds.Add(track.Id);
+            existingIdSet.Add(track.Id);
+            if (!string.IsNullOrWhiteSpace(track.FilePath))
+            {
+                mergedPaths.Add(track.FilePath);
+                existingPathSet.Add(track.FilePath);
+            }
+        }
+
+        // ライブラリ未解決のまま残っている旧トラックパスがある場合は欠落させない
+        if (existingTracks.Count == 0 && playlist.TrackPaths is { Count: > 0 })
+        {
+            foreach (string rawPath in playlist.TrackPaths)
+            {
+                if (!string.IsNullOrWhiteSpace(rawPath) && existingPathSet.Add(rawPath))
+                {
+                    mergedPaths.Add(rawPath);
+                }
+            }
+        }
+
+        var addedTracks = new List<Track>();
+        foreach (Track track in tracksToAdd)
+        {
+            if (track == null)
+            {
+                continue;
+            }
+
+            bool duplicateById = existingIdSet.Contains(track.Id);
+            bool duplicateByPath = !string.IsNullOrWhiteSpace(track.FilePath) && existingPathSet.Contains(track.FilePath);
+            if (duplicateById || duplicateByPath)
+            {
+                continue;
+            }
+
+            mergedIds.Add(track.Id);
+            existingIdSet.Add(track.Id);
+            if (!string.IsNullOrWhiteSpace(track.FilePath))
+            {
+                mergedPaths.Add(track.FilePath);
+                existingPathSet.Add(track.FilePath);
+            }
+
+            addedTracks.Add(track);
+        }
+
+        if (addedTracks.Count > 0)
+        {
+            playlist.ReplaceTracks(mergedIds, mergedPaths);
+        }
+
+        return addedTracks;
+    }
+
+    /// <summary>
+    /// 指定された楽曲一覧からプレイリストの <see cref="UserPlaylist.TrackIds"/> と <see cref="UserPlaylist.TrackPaths"/> を順序通りに同期更新します。
+    /// </summary>
+    /// <param name="playlist">更新対象のプレイリスト。</param>
+    /// <param name="tracks">確定済みの収録楽曲一覧。</param>
+    public static void SyncPlaylistTracks(UserPlaylist playlist, IEnumerable<Track> tracks)
+    {
+        ArgumentNullException.ThrowIfNull(playlist);
+        ArgumentNullException.ThrowIfNull(tracks);
+
+        var trackList = tracks.Where(t => t != null).ToList();
+        playlist.ReplaceTracks(
+            trackList.Select(t => t.Id),
+            trackList.Where(t => !string.IsNullOrWhiteSpace(t.FilePath)).Select(t => t.FilePath));
     }
 
     /// <summary>

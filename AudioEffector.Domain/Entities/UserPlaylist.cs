@@ -244,6 +244,27 @@ public class UserPlaylist : INotifyPropertyChanged, IEquatable<UserPlaylist>
     public void Clear()
     {
         _trackIds.Clear();
+        TrackPaths.Clear();
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// プレイリスト内の収録トラック ID およびファイルパス一覧を順序を保って一括置換します
+    /// </summary>
+    /// <param name="trackIds">新しいトラック ID 一覧</param>
+    /// <param name="trackPaths">新しいファイルパス一覧</param>
+    public void ReplaceTracks(IEnumerable<TrackId> trackIds, IEnumerable<string> trackPaths)
+    {
+        ArgumentNullException.ThrowIfNull(trackIds);
+        ArgumentNullException.ThrowIfNull(trackPaths);
+
+        _trackIds.Clear();
+        _trackIds.AddRange(trackIds);
+
+        TrackPaths = trackPaths is List<string> list
+            ? new List<string>(list)
+            : new List<string>(trackPaths);
+
         UpdatedAt = DateTime.UtcNow;
     }
 
