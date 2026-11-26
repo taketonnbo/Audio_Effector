@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.Common;
@@ -185,6 +186,67 @@ public class PlaylistApplicationService
     }
 
     /// <summary>
+    /// キーワードおよびページネーションを指定してプレイリストを検索します。
+    /// </summary>
+    /// <param name="query">検索条件およびページネーション指定。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>一致総件数およびページ適用後のプレイリスト一覧を含む検索結果。</returns>
+    public async Task<PlaylistSearchResult> SearchPlaylistsAsync(
+        PlaylistSearchQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (query.Limit < PlaylistSearchQuery.MIN_LIMIT || query.Limit > PlaylistSearchQuery.MAX_LIMIT)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(query),
+                query.Limit,
+                $"limit は {PlaylistSearchQuery.MIN_LIMIT}〜{PlaylistSearchQuery.MAX_LIMIT} の範囲で指定してください。");
+        }
+
+        if (query.Offset < PlaylistSearchQuery.DEFAULT_OFFSET)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(query),
+                query.Offset,
+                $"offset は {PlaylistSearchQuery.DEFAULT_OFFSET} 以上で指定してください。");
+        }
+
+        string? trimmedKeyword = string.IsNullOrWhiteSpace(query.Keyword) ? null : query.Keyword.Trim();
+
+        IReadOnlyList<UserPlaylist> allPlaylists = await _playlistRepository
+            .GetAllAsync(cancellationToken)
+            .ConfigureAwait(false)
+            ?? Array.Empty<UserPlaylist>();
+
+        if (allPlaylists.Count == 0)
+        {
+            return new PlaylistSearchResult(Array.Empty<UserPlaylist>(), 0, query.Offset, query.Limit);
+        }
+
+        IEnumerable<UserPlaylist> filtered = allPlaylists;
+
+        if (trimmedKeyword is not null)
+        {
+            filtered = filtered.Where(p => p.Name.Contains(trimmedKeyword, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var ordered = filtered
+            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(p => p.Id.Value)
+            .ToList();
+
+        int totalCount = ordered.Count;
+        var paged = ordered
+            .Skip(query.Offset)
+            .Take(query.Limit)
+            .ToList();
+
+        return new PlaylistSearchResult(paged, totalCount, query.Offset, query.Limit);
+    }
+
+    /// <summary>
     /// プレイリストに属するトラックエンティティのリストを順序通りに取得します
     /// </summary>
     /// <param name="playlistId">プレイリストID</param>
@@ -192,17 +254,92 @@ public class PlaylistApplicationService
     /// <returns>トラックエンティティのリスト</returns>
     public async Task<IReadOnlyList<Track>> GetPlaylistTracksAsync(PlaylistId playlistId, CancellationToken cancellationToken = default)
     {
-        var playlist = await _playlistRepository.GetByIdAsync(playlistId, cancellationToken);
+        var playlist = await _playlistRepository.GetByIdAsync(playlistId, cancellationToken).ConfigureAwait(false);
         if (playlist == null) return Array.Empty<Track>();
 
-        var result = new List<Track>();
-        foreach (var trackId in playlist.TrackIds)
+        return await ResolvePlaylistTracksAsync(playlist, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 指定されたプレイリストの <see cref="UserPlaylist.TrackIds"/>（未設定時は旧互換 <see cref="UserPlaylist.TrackPaths"/>）から収録トラック詳細を順序通りに解決します。
+    /// </summary>
+    /// <param name="playlist">対象のプレイリスト。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>解決されたトラックエンティティの読み取り専用リスト。</returns>
+    public async Task<IReadOnlyList<Track>> ResolvePlaylistTracksAsync(
+        UserPlaylist playlist,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(playlist);
+
+        IReadOnlyDictionary<PlaylistId, IReadOnlyList<Track>> map = await ResolvePlaylistTracksMapAsync(
+            [playlist],
+            cancellationToken).ConfigureAwait(false);
+
+        return map.TryGetValue(playlist.Id, out IReadOnlyList<Track>? tracks)
+            ? tracks
+            : Array.Empty<Track>();
+    }
+
+    /// <summary>
+    /// 複数のプレイリストに対して収録トラック詳細を一括解決し、プレイリスト ID ごとのマップを返します。
+    /// </summary>
+    /// <param name="playlists">対象のプレイリスト一覧。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>プレイリスト ID をキー、解決されたトラック一覧を値とする読み取り専用辞書。</returns>
+    public async Task<IReadOnlyDictionary<PlaylistId, IReadOnlyList<Track>>> ResolvePlaylistTracksMapAsync(
+        IReadOnlyList<UserPlaylist> playlists,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(playlists);
+
+        var result = new Dictionary<PlaylistId, IReadOnlyList<Track>>(playlists.Count);
+        if (playlists.Count == 0)
         {
-            var track = await _trackRepository.GetByIdAsync(trackId, cancellationToken);
-            if (track != null)
+            return result;
+        }
+
+        IReadOnlyList<Track> allTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)
+            ?? Array.Empty<Track>();
+
+        var tracksById = new Dictionary<TrackId, Track>(allTracks.Count);
+        var tracksByPath = new Dictionary<string, Track>(allTracks.Count, StringComparer.OrdinalIgnoreCase);
+
+        foreach (Track track in allTracks)
+        {
+            tracksById.TryAdd(track.Id, track);
+            if (!string.IsNullOrWhiteSpace(track.FilePath))
             {
-                result.Add(track);
+                tracksByPath.TryAdd(track.FilePath, track);
             }
+        }
+
+        foreach (UserPlaylist playlist in playlists)
+        {
+            var resolved = new List<Track>();
+
+            if (playlist.TrackIds.Count > 0)
+            {
+                foreach (TrackId trackId in playlist.TrackIds)
+                {
+                    if (tracksById.TryGetValue(trackId, out Track? track))
+                    {
+                        resolved.Add(track);
+                    }
+                }
+            }
+            else if (playlist.TrackPaths is { Count: > 0 })
+            {
+                foreach (string trackPath in playlist.TrackPaths)
+                {
+                    if (!string.IsNullOrWhiteSpace(trackPath) && tracksByPath.TryGetValue(trackPath, out Track? track))
+                    {
+                        resolved.Add(track);
+                    }
+                }
+            }
+
+            result[playlist.Id] = resolved;
         }
 
         return result;
