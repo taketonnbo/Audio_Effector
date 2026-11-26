@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
@@ -9,6 +11,7 @@ using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Infrastructure.Library;
+using AudioEffector.Infrastructure.Repository;
 using AudioEffector.Presentation.ViewModels;
 using Moq;
 using Xunit;
@@ -139,5 +142,159 @@ public sealed class PlaylistViewModelTests
         Assert.True(sut.IsFavoritesView);
         Assert.Equal("Favorites", sut.CurrentPlaylistName);
         Assert.Contains(sut.PlaylistTracks, t => t.FilePath == favoriteTrack.FilePath);
+    }
+
+    /// <summary>
+    /// プレイリスト読み込み失敗時、HasLoadError と LastErrorMessage が設定され既存の表示一覧が消去されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void LoadPlaylists_読み込み失敗時_エラー状態が設定され既存コレクションを維持する()
+    {
+        // Arrange
+        var existing = new UserPlaylist(PlaylistId.New(), "既存");
+        _playlistRepoMock.SetupSequence(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([existing])
+            .ThrowsAsync(new IOException("Lock timeout"));
+
+        using var sut = new PlaylistViewModel(
+            _playlistAppService,
+            _libraryAppService,
+            _audioServiceMock.Object,
+            _eventBus);
+        sut.LoadPlaylists();
+
+        // Act
+        sut.LoadPlaylists();
+
+        // Assert
+        Assert.True(sut.HasLoadError);
+        Assert.False(string.IsNullOrWhiteSpace(sut.LastErrorMessage));
+        Assert.Single(sut.UserPlaylists);
+        Assert.Equal(existing.Id, sut.UserPlaylists[0].Id);
+    }
+
+    /// <summary>
+    /// CreatePlaylistCommand 実行時にリポジトリ保存が失敗した場合、LastErrorMessage が設定され UserPlaylists に追加されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void CreatePlaylistCommand_保存失敗時_エラーメッセージが設定されコレクションに追加されない()
+    {
+        // Arrange
+        _playlistRepoMock.Setup(r => r.SaveAsync(It.IsAny<UserPlaylist>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("Disk locked"));
+
+        using var sut = new PlaylistViewModel(
+            _playlistAppService,
+            _libraryAppService,
+            _audioServiceMock.Object,
+            _eventBus);
+
+        // Act
+        sut.CreatePlaylistCommand.Execute("Failed Playlist");
+
+        // Assert
+        Assert.Empty(sut.UserPlaylists);
+        Assert.False(string.IsNullOrWhiteSpace(sut.LastErrorMessage));
+    }
+
+    /// <summary>
+    /// ID 形式のプレイリスト [A, X]（X は未登録）に対して B の追記、X の再登録、および別曲 A の削除を行った場合、WPF（SelectPlaylistAsync）と MCP（ResolvePlaylistTracksAsync）の双方で曲順が完全に一致することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SelectPlaylistAsync_ID形式で未登録曲を含む追記と削除と再登録_WPFとMCPの曲順が一致する()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorWpfMcpIdParity_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string playlistsPath = Path.Combine(tempDir, "playlists.json");
+            string tracksPath = Path.Combine(tempDir, "tracks.json");
+            string favoritesPath = Path.Combine(tempDir, "favorites.json");
+
+            var trackA = new Track(TrackId.New(), AudioPath.Create(Path.Combine(tempDir, "a.flac")), title: "Track A", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(180));
+            var trackX = new Track(TrackId.New(), AudioPath.Create(Path.Combine(tempDir, "x.flac")), title: "Track X", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(190));
+            var trackB = new Track(TrackId.New(), AudioPath.Create(Path.Combine(tempDir, "b.flac")), title: "Track B", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(200));
+
+            // ライブラリには A, B のみ登録（X は未登録）、プレイリストは ID 形式で [A, X]
+            using (var seedTrackRepo = new JsonTrackRepository(tracksPath))
+            using (var seedPlaylistRepo = new JsonPlaylistRepository(playlistsPath))
+            {
+                await seedTrackRepo.SaveRangeAsync([trackA, trackB]);
+                await seedPlaylistRepo.SaveAsync(new UserPlaylist(PlaylistId.New(), "ID形式リスト", [trackA.Id, trackX.Id]));
+            }
+
+            // Act 1: X 未登録の間に B を追記して保存
+            using (var editTrackRepo = new JsonTrackRepository(tracksPath))
+            using (var editPlaylistRepo = new JsonPlaylistRepository(playlistsPath))
+            {
+                var editService = new PlaylistApplicationService(editPlaylistRepo, editTrackRepo, new InMemoryEventBus());
+                UserPlaylist loaded = Assert.Single(editService.LoadPlaylists());
+                Result<IReadOnlyList<Track>> addResult = editService.TryAddTracksPreservingOrder(loaded, [trackB]);
+                Assert.True(addResult.IsSuccess);
+                Assert.True(editService.TrySavePlaylist(loaded).IsSuccess);
+            }
+
+            // Act 2: X を同じ ID で再登録し、別リポジトリから WPF と MCP の両方で曲順を確認
+            using (var reregisterTrackRepo = new JsonTrackRepository(tracksPath))
+            {
+                await reregisterTrackRepo.SaveAsync(trackX);
+            }
+
+            using (var verifyTrackRepo = new JsonTrackRepository(tracksPath))
+            using (var verifyPlaylistRepo = new JsonPlaylistRepository(playlistsPath))
+            using (var verifyFavRepo = new JsonFavoriteRepository(favoritesPath))
+            {
+                var eventBus = new InMemoryEventBus();
+                var playlistService = new PlaylistApplicationService(verifyPlaylistRepo, verifyTrackRepo, eventBus, verifyFavRepo);
+                var libraryService = new LibraryApplicationService(verifyTrackRepo, verifyFavRepo, _metadataExtractor, eventBus);
+                using var sut = new PlaylistViewModel(playlistService, libraryService, _audioServiceMock.Object, eventBus);
+
+                sut.LoadPlaylists();
+                UserPlaylist reloaded = Assert.Single(sut.UserPlaylists);
+                await sut.SelectPlaylistAsync(reloaded);
+                IReadOnlyList<Track> mcpResolved = await playlistService.ResolvePlaylistTracksAsync(reloaded);
+
+                // Assert 1: WPF・MCP ともに [A, X, B] で完全一致
+                Assert.Equal([trackA.Id, trackX.Id, trackB.Id], sut.PlaylistTracks.Select(t => t.Id).ToArray());
+                Assert.Equal([trackA.Id, trackX.Id, trackB.Id], mcpResolved.Select(t => t.Id).ToArray());
+            }
+
+            // Act 3: 再度 X が未登録の状態を想定し、A のみ削除しても X の ID が保持されることを検証
+            using (var deleteTrackRepo = new JsonTrackRepository(tracksPath))
+            using (var deletePlaylistRepo = new JsonPlaylistRepository(playlistsPath))
+            {
+                var deleteService = new PlaylistApplicationService(deletePlaylistRepo, deleteTrackRepo, new InMemoryEventBus());
+                UserPlaylist loadedForDelete = Assert.Single(deleteService.LoadPlaylists());
+                Assert.True(PlaylistApplicationService.RemoveTrackPreservingUnresolved(loadedForDelete, trackA));
+                Assert.True(deleteService.TrySavePlaylist(loadedForDelete).IsSuccess);
+            }
+
+            using (var finalTrackRepo = new JsonTrackRepository(tracksPath))
+            using (var finalPlaylistRepo = new JsonPlaylistRepository(playlistsPath))
+            using (var finalFavRepo = new JsonFavoriteRepository(favoritesPath))
+            {
+                var eventBus = new InMemoryEventBus();
+                var playlistService = new PlaylistApplicationService(finalPlaylistRepo, finalTrackRepo, eventBus, finalFavRepo);
+                var libraryService = new LibraryApplicationService(finalTrackRepo, finalFavRepo, _metadataExtractor, eventBus);
+                using var sut = new PlaylistViewModel(playlistService, libraryService, _audioServiceMock.Object, eventBus);
+
+                sut.LoadPlaylists();
+                UserPlaylist finalPlaylist = Assert.Single(sut.UserPlaylists);
+                await sut.SelectPlaylistAsync(finalPlaylist);
+                IReadOnlyList<Track> finalMcpResolved = await playlistService.ResolvePlaylistTracksAsync(finalPlaylist);
+
+                // Assert 2: 削除後も WPF・MCP ともに [X, B] で完全一致
+                Assert.Equal([trackX.Id, trackB.Id], sut.PlaylistTracks.Select(t => t.Id).ToArray());
+                Assert.Equal([trackX.Id, trackB.Id], finalMcpResolved.Select(t => t.Id).ToArray());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
     }
 }

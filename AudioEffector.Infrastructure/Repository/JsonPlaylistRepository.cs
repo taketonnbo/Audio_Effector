@@ -1,7 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,7 +19,13 @@ namespace AudioEffector.Infrastructure.Repository;
 /// </summary>
 public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
 {
-    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    private static readonly string _legacyPlaylistIdNamespace = "AudioEffector.Playlist.Legacy.v1";
     private readonly string _filePath;
     private readonly IJsonFileLockHelper _fileLockHelper;
     private readonly Dictionary<PlaylistId, UserPlaylist> _playlists = new();
@@ -82,13 +90,23 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         try
         {
             string json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
-            var dtos = JsonSerializer.Deserialize<List<PlaylistDto>>(json);
+            var dtos = JsonSerializer.Deserialize<List<PlaylistDto>>(json, _jsonOptions);
             _playlists.Clear();
             if (dtos != null)
             {
+                DateTime fallbackTimestampUtc = currentMetadata.LastWriteTimeUtc > DateTime.MinValue
+                    ? DateTime.SpecifyKind(currentMetadata.LastWriteTimeUtc, DateTimeKind.Utc)
+                    : DateTime.UtcNow;
+                var legacyFingerprintCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+
                 foreach (var dto in dtos)
                 {
-                    var playlist = dto.ToEntity();
+                    if (dto == null)
+                    {
+                        continue;
+                    }
+
+                    var playlist = dto.ToEntity(fallbackTimestampUtc, legacyFingerprintCounts);
                     _playlists[playlist.Id] = playlist;
                 }
             }
@@ -97,9 +115,9 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         {
             throw;
         }
-        catch when (!forceReload)
+        catch (JsonException) when (!forceReload)
         {
-            // 読み込みエラー時は空のまま開始
+            // JSON 構文破損時は空のまま開始（I/O エラーや共有違反は呼び出し元へ伝播させて読み込み失敗と区別する）
             _playlists.Clear();
         }
 
@@ -107,13 +125,26 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         _isLoaded = true;
     }
 
-    private async Task SaveToFileCoreAsync(CancellationToken cancellationToken)
+    private async Task<FileMetadataSnapshot> WritePlaylistsAtomicCoreAsync(
+        IEnumerable<UserPlaylist> candidatePlaylists,
+        CancellationToken cancellationToken)
     {
-        var dtos = _playlists.Values.Select(PlaylistDto.FromEntity).ToList();
+        var dtos = candidatePlaylists.Select(PlaylistDto.FromEntity).ToList();
         string json = JsonSerializer.Serialize(dtos, _jsonOptions);
 
         await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
-        _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+        return _fileLockHelper.GetFileMetadata(_filePath);
+    }
+
+    private void CommitCache(Dictionary<PlaylistId, UserPlaylist> candidate, FileMetadataSnapshot updatedMetadata)
+    {
+        _playlists.Clear();
+        foreach (KeyValuePair<PlaylistId, UserPlaylist> pair in candidate)
+        {
+            _playlists[pair.Key] = pair.Value;
+        }
+
+        _lastLoadedMetadata = updatedMetadata;
         _isLoaded = true;
     }
 
@@ -174,8 +205,48 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
                 .ConfigureAwait(false);
 
             await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
-            _playlists[playlist.Id] = playlist;
-            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            var candidate = new Dictionary<PlaylistId, UserPlaylist>(_playlists)
+            {
+                [playlist.Id] = playlist,
+            };
+
+            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
+            CommitCache(candidate, updatedMetadata);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// すべてのプレイリストを指定された一覧で原子的に置き換えます
+    /// </summary>
+    /// <param name="playlists">保存対象のプレイリスト一覧</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>非同期タスク</returns>
+    public async Task ReplaceAllAsync(IReadOnlyList<UserPlaylist> playlists, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(playlists);
+
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using IDisposable fileLock = await _fileLockHelper
+                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            var candidate = new Dictionary<PlaylistId, UserPlaylist>(playlists.Count);
+            foreach (UserPlaylist playlist in playlists)
+            {
+                if (playlist != null)
+                {
+                    candidate[playlist.Id] = playlist;
+                }
+            }
+
+            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
+            CommitCache(candidate, updatedMetadata);
         }
         finally
         {
@@ -199,9 +270,11 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
                 .ConfigureAwait(false);
 
             await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
-            if (_playlists.Remove(id))
+            var candidate = new Dictionary<PlaylistId, UserPlaylist>(_playlists);
+            if (candidate.Remove(id))
             {
-                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+                FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
+                CommitCache(candidate, updatedMetadata);
             }
         }
         finally
@@ -225,9 +298,22 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
 
             if (update(playlist))
             {
-                _isLoaded = false;
-                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(_playlists.Values, cancellationToken).ConfigureAwait(false);
+                    _lastLoadedMetadata = updatedMetadata;
+                    _isLoaded = true;
+                }
+                catch
+                {
+                    // update デリゲートがインメモリインスタンスを変更済みの可能性があるため、キャッシュを破棄して次回必ずディスクから再読込させる
+                    _playlists.Clear();
+                    _lastLoadedMetadata = FileMetadataSnapshot.Missing;
+                    _isLoaded = false;
+                    throw;
+                }
             }
+
             return playlist;
         }
         finally
@@ -266,7 +352,8 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
     {
         public Guid Id { get; set; }
         public string Name { get; set; } = string.Empty;
-        public List<Guid> TrackIds { get; set; } = [];
+        public List<Guid>? TrackIds { get; set; } = [];
+        public List<string>? TrackPaths { get; set; } = [];
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
 
@@ -275,15 +362,65 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
             Id = entity.Id.Value,
             Name = entity.Name,
             TrackIds = entity.TrackIds.Select(t => t.Value).ToList(),
+            TrackPaths = entity.TrackPaths?.Where(p => !string.IsNullOrWhiteSpace(p)).ToList() ?? [],
             CreatedAt = entity.CreatedAt,
-            UpdatedAt = entity.UpdatedAt
+            UpdatedAt = entity.UpdatedAt,
         };
 
-        public UserPlaylist ToEntity() => new(
-            id: PlaylistId.From(Id),
-            name: Name,
-            trackIds: TrackIds.Select(TrackId.From),
-            createdAt: CreatedAt,
-            updatedAt: UpdatedAt);
+        public UserPlaylist ToEntity(DateTime fallbackTimestampUtc, Dictionary<string, int> legacyFingerprintCounts)
+        {
+            List<string> normalizedPaths = TrackPaths?
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToList() ?? [];
+            List<TrackId> normalizedTrackIds = TrackIds?
+                .Where(g => g != Guid.Empty)
+                .Select(TrackId.From)
+                .ToList() ?? [];
+
+            PlaylistId playlistId = Id != Guid.Empty
+                ? PlaylistId.From(Id)
+                : CreateDeterministicLegacyId(Name, normalizedPaths, legacyFingerprintCounts);
+
+            DateTime createdAt = CreatedAt == default ? fallbackTimestampUtc : CreatedAt;
+            DateTime updatedAt = UpdatedAt == default ? createdAt : UpdatedAt;
+
+            var playlist = new UserPlaylist(
+                id: playlistId,
+                name: Name,
+                trackIds: normalizedTrackIds,
+                createdAt: createdAt,
+                updatedAt: updatedAt)
+            {
+                TrackPaths = normalizedPaths,
+            };
+
+            return playlist;
+        }
+
+        private static PlaylistId CreateDeterministicLegacyId(
+            string? name,
+            IReadOnlyList<string> trackPaths,
+            Dictionary<string, int> legacyFingerprintCounts)
+        {
+            string normalizedName = string.IsNullOrWhiteSpace(name) ? "New Playlist" : name.Trim();
+            string baseKey = string.Join(
+                "\n",
+                [_legacyPlaylistIdNamespace, normalizedName, .. trackPaths.Select(p => p.Trim())]);
+
+            legacyFingerprintCounts.TryGetValue(baseKey, out int occurrence);
+            legacyFingerprintCounts[baseKey] = occurrence + 1;
+
+            string uniqueKey = occurrence == 0 ? baseKey : $"{baseKey}\n#{occurrence}";
+            byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(uniqueKey));
+            byte[] guidBytes = new byte[16];
+            Array.Copy(hash, guidBytes, 16);
+
+            // RFC 4122 Version 5 / Variant 1 準拠ビットを設定
+            guidBytes[6] = (byte)((guidBytes[6] & 0x0F) | 0x50);
+            guidBytes[8] = (byte)((guidBytes[8] & 0x3F) | 0x80);
+
+            var guid = new Guid(guidBytes);
+            return PlaylistId.From(guid);
+        }
     }
 }

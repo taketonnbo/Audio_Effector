@@ -115,4 +115,99 @@ public sealed class LibraryTools
             return McpResponseFormatter.FromException(ex, _logger);
         }
     }
+
+    /// <summary>
+    /// 楽曲ライブラリからキーワード・アーティスト・ジャンル・リリース年およびページネーション条件でアルバム一覧を検索します。
+    /// </summary>
+    /// <param name="keyword">アルバム名またはアーティスト名を対象とした部分一致キーワード（大文字・小文字を区別しない、省略可）。</param>
+    /// <param name="artist">アーティスト名での部分一致絞り込みフィルタ（大文字・小文字を区別しない、省略可）。</param>
+    /// <param name="genre">収録楽曲のジャンル名での部分一致絞り込みフィルタ（大文字・小文字を区別しない、省略可）。</param>
+    /// <param name="year">リリース年での絞り込み条件（0 以上、省略可）。</param>
+    /// <param name="includeTracks"><see langword="true"/> の場合、各アルバムの収録トラック一覧を含めます（既定値: <see langword="false"/>）。</param>
+    /// <param name="limit">返却する最大件数（1〜200、既定値: 50）。</param>
+    /// <param name="offset">ページネーション用の取得開始位置（0 以上、既定値: 0）。</param>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>一致したアルバム一覧およびページネーション情報を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "search_albums")]
+    [Description("楽曲ライブラリをキーワード・アーティスト・ジャンル・リリース年で検索し、一致したアルバム一覧（任意で収録トラック一覧付き）を取得します。")]
+    public async Task<CallToolResult> SearchAlbumsAsync(
+        [Description("アルバム名またはアーティスト名を対象とした部分一致キーワード（大文字・小文字を区別しない、省略可）")] string? keyword = null,
+        [Description("アーティスト名での部分一致絞り込みフィルタ（大文字・小文字を区別しない、省略可）")] string? artist = null,
+        [Description("収録楽曲のジャンル名での部分一致絞り込みフィルタ（大文字・小文字を区別しない、省略可）")] string? genre = null,
+        [Description("リリース年での絞り込み条件（0 以上、省略可）")] int? year = null,
+        [Description("true の場合、各アルバムの収録トラック一覧を含めます（既定値: false）")] bool includeTracks = false,
+        [Description("返却する最大件数（1〜200、既定値: 50）")] int limit = AlbumSearchQuery.DEFAULT_LIMIT,
+        [Description("ページネーション用の取得開始位置（0 以上、既定値: 0）")] int offset = AlbumSearchQuery.DEFAULT_OFFSET,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit < AlbumSearchQuery.MIN_LIMIT || limit > AlbumSearchQuery.MAX_LIMIT)
+        {
+            return McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                $"limit は {AlbumSearchQuery.MIN_LIMIT}〜{AlbumSearchQuery.MAX_LIMIT} の範囲で指定してください。",
+                new
+                {
+                    parameter = "limit",
+                    min = AlbumSearchQuery.MIN_LIMIT,
+                    max = AlbumSearchQuery.MAX_LIMIT,
+                });
+        }
+
+        if (offset < AlbumSearchQuery.DEFAULT_OFFSET)
+        {
+            return McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                $"offset は {AlbumSearchQuery.DEFAULT_OFFSET} 以上で指定してください。",
+                new
+                {
+                    parameter = "offset",
+                    min = AlbumSearchQuery.DEFAULT_OFFSET,
+                });
+        }
+
+        if (year.HasValue && year.Value < AlbumSearchQuery.MIN_YEAR)
+        {
+            return McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                $"year は {AlbumSearchQuery.MIN_YEAR} 以上で指定してください。",
+                new
+                {
+                    parameter = "year",
+                    min = AlbumSearchQuery.MIN_YEAR,
+                });
+        }
+
+        try
+        {
+            var query = new AlbumSearchQuery(
+                Keyword: keyword,
+                Artist: artist,
+                Genre: genre,
+                Year: year,
+                IncludeTracks: includeTracks,
+                Limit: limit,
+                Offset: offset);
+
+            AlbumSearchResult searchResult = await _libraryService
+                .SearchAlbumsAsync(query, cancellationToken)
+                .ConfigureAwait(false);
+
+            var albumDtos = searchResult.Albums
+                .Select(album => AlbumSummaryDto.FromEntity(album, includeTracks))
+                .ToList();
+
+            var response = new SearchAlbumsResponse(
+                TotalCount: searchResult.TotalCount,
+                Count: albumDtos.Count,
+                Offset: searchResult.Offset,
+                Limit: searchResult.Limit,
+                Albums: albumDtos);
+
+            return McpResponseFormatter.Success(response);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
 }

@@ -495,27 +495,103 @@ public class LibraryApplicationService
     {
         var tracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
         await ReconcileFavoritesAsync(tracks, cancellationToken).ConfigureAwait(false);
-        var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(tracks);
+        return AggregateAlbums(tracks);
+    }
 
-        var grouped = tracks
-            .GroupBy(t => t.AlbumId)
-            .Select(g =>
-            {
-                var orderedTracks = g.OrderBy(t => t.TrackNumber).ToList();
-                var representative = orderedTracks[0];
-                string albumArtist = resolvedIdentities.TryGetValue(representative.Id, out var identity)
-                    ? identity.AlbumArtist
-                    : representative.Artist;
-                return new Album(
-                    name: representative.Album,
-                    artist: albumArtist,
-                    year: 0,
-                    tracks: orderedTracks,
-                    id: g.Key);
-            })
+    /// <summary>
+    /// キーワード・アーティスト・ジャンル・リリース年およびページネーションを指定してライブラリ内のアルバムを検索します。
+    /// お気に入りリポジトリとの最新照合（読み取り専用）を行い、収録トラックの <see cref="Track.IsFavorite"/> を反映します。
+    /// </summary>
+    /// <param name="query">複合検索条件およびページネーション指定。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>一致総件数およびページ適用後のアルバム一覧を含む検索結果。</returns>
+    public async Task<AlbumSearchResult> SearchAlbumsAsync(
+        AlbumSearchQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (query.Limit < AlbumSearchQuery.MIN_LIMIT || query.Limit > AlbumSearchQuery.MAX_LIMIT)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(query),
+                query.Limit,
+                $"limit は {AlbumSearchQuery.MIN_LIMIT}〜{AlbumSearchQuery.MAX_LIMIT} の範囲で指定してください。");
+        }
+
+        if (query.Offset < AlbumSearchQuery.DEFAULT_OFFSET)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(query),
+                query.Offset,
+                $"offset は {AlbumSearchQuery.DEFAULT_OFFSET} 以上で指定してください。");
+        }
+
+        if (query.Year.HasValue && query.Year.Value < AlbumSearchQuery.MIN_YEAR)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(query),
+                query.Year.Value,
+                $"year は {AlbumSearchQuery.MIN_YEAR} 以上で指定してください。");
+        }
+
+        string? trimmedKeyword = string.IsNullOrWhiteSpace(query.Keyword) ? null : query.Keyword.Trim();
+        string? trimmedArtist = string.IsNullOrWhiteSpace(query.Artist) ? null : query.Artist.Trim();
+        string? trimmedGenre = string.IsNullOrWhiteSpace(query.Genre) ? null : query.Genre.Trim();
+
+        IReadOnlyList<Track> allTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        if (allTracks.Count == 0)
+        {
+            return new AlbumSearchResult(Array.Empty<Album>(), 0, query.Offset, query.Limit);
+        }
+
+        // 収録トラック詳細を返す場合のみ、お気に入り永続化データ（favorites.json）を正本として全曲で読み取り専用照合を行う
+        // 概要のみの取得時は favorites.json のロック・I/O から独立させる
+        if (query.IncludeTracks)
+        {
+            var favoriteEntries = await GetFavoriteEntriesAsync(cancellationToken).ConfigureAwait(false);
+            FavoriteTrackMatcher.Reconcile(favoriteEntries, allTracks);
+        }
+
+        IEnumerable<Album> filtered = AggregateAlbums(allTracks);
+
+        if (trimmedKeyword is not null)
+        {
+            filtered = filtered.Where(a =>
+                a.Name.Contains(trimmedKeyword, StringComparison.OrdinalIgnoreCase) ||
+                a.Artist.Contains(trimmedKeyword, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (trimmedArtist is not null)
+        {
+            filtered = filtered.Where(a => a.Artist.Contains(trimmedArtist, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (trimmedGenre is not null)
+        {
+            filtered = filtered.Where(a =>
+                a.Tracks.Any(t => t.Genre.Contains(trimmedGenre, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        if (query.Year.HasValue)
+        {
+            uint targetYear = (uint)query.Year.Value;
+            filtered = filtered.Where(a => a.Year == targetYear);
+        }
+
+        var ordered = filtered
+            .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(a => a.Artist, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(a => a.Id.Value)
             .ToList();
 
-        return grouped;
+        int totalCount = ordered.Count;
+        var paged = ordered
+            .Skip(query.Offset)
+            .Take(query.Limit)
+            .ToList();
+
+        return new AlbumSearchResult(paged, totalCount, query.Offset, query.Limit);
     }
 
     /// <summary>
@@ -541,6 +617,8 @@ public class LibraryApplicationService
         var matchingTracks = tracks
             .Where(t => t.AlbumId == albumId)
             .OrderBy(t => t.TrackNumber)
+            .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(t => t.Id.Value)
             .ToList();
 
         if (matchingTracks.Count == 0)
@@ -555,9 +633,47 @@ public class LibraryApplicationService
         return new Album(
             name: representative.Album,
             artist: albumArtist,
-            year: 0,
+            year: ResolveRepresentativeYear(matchingTracks),
             tracks: matchingTracks,
             id: albumId);
+    }
+
+    private static List<Album> AggregateAlbums(IReadOnlyList<Track> tracks)
+    {
+        var resolvedIdentities = AlbumGroupingResolver.ResolveAndApply(tracks);
+
+        return tracks
+            .GroupBy(t => t.AlbumId)
+            .Select(g =>
+            {
+                var orderedTracks = g
+                    .OrderBy(t => t.TrackNumber)
+                    .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(t => t.Id.Value)
+                    .ToList();
+                var representative = orderedTracks[0];
+                string albumArtist = resolvedIdentities.TryGetValue(representative.Id, out var identity)
+                    ? identity.AlbumArtist
+                    : representative.Artist;
+                return new Album(
+                    name: representative.Album,
+                    artist: albumArtist,
+                    year: ResolveRepresentativeYear(orderedTracks),
+                    tracks: orderedTracks,
+                    id: g.Key);
+            })
+            .ToList();
+    }
+
+    private static uint ResolveRepresentativeYear(IReadOnlyList<Track> tracks)
+    {
+        return tracks
+            .Where(t => t.Year > 0)
+            .GroupBy(t => t.Year)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key)
+            .Select(g => g.Key)
+            .FirstOrDefault();
     }
 
     /// <summary>

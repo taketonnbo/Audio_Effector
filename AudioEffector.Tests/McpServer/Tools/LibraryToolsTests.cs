@@ -588,6 +588,257 @@ public sealed class LibraryToolsTests
         }
     }
 
+    /// <summary>
+    /// search_albums ツールで複合条件フィルタおよび includeTracks=true を指定した場合、決定論的 AlbumId と収録トラック一覧を含む JSON を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchAlbumsAsync_複合条件とincludeTracks有効_アルバムサマリと収録トラック一覧を返す()
+    {
+        // Arrange
+        var track1 = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\Midnight\01.flac"),
+            title: "Opening",
+            artist: "Miles Trio",
+            album: "Midnight Sessions",
+            duration: TimeSpan.FromSeconds(180),
+            year: 2024,
+            trackNumber: 1,
+            bitrate: 1411,
+            sampleRate: 96000,
+            bitsPerSample: 24,
+            format: "FLAC",
+            genre: "Jazz",
+            isFavorite: false,
+            isLossless: true,
+            isHiRes: true);
+        var track2 = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\Midnight\02.flac"),
+            title: "Blue Note",
+            artist: "Miles Trio",
+            album: "Midnight Sessions",
+            duration: TimeSpan.FromSeconds(240),
+            year: 2024,
+            trackNumber: 2,
+            bitrate: 1411,
+            sampleRate: 44100,
+            bitsPerSample: 16,
+            format: "FLAC",
+            genre: "Jazz",
+            isFavorite: false,
+            isLossless: true,
+            isHiRes: false);
+        var otherAlbumTrack = CreateTrack("Rock Anthem", "Other Band", "Loud Album", "Rock");
+
+        var sut = CreateSut(out Mock<ITrackRepository> trackRepoMock, out Mock<IFavoriteRepository> favRepoMock, out _);
+        trackRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track2, otherAlbumTrack, track1]);
+        favRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([FavoriteTrackEntry.FromTrack(track1)]);
+
+        // Act
+        CallToolResult result = await sut.SearchAlbumsAsync(
+            keyword: "midnight",
+            artist: "miles",
+            genre: "jazz",
+            year: 2024,
+            includeTracks: true);
+
+        // Assert
+        Assert.False(result.IsError ?? false);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal(1, data.GetProperty("totalCount").GetInt32());
+        Assert.Equal(1, data.GetProperty("count").GetInt32());
+        Assert.Equal(0, data.GetProperty("offset").GetInt32());
+        Assert.Equal(AlbumSearchQuery.DEFAULT_LIMIT, data.GetProperty("limit").GetInt32());
+
+        JsonElement albumJson = Assert.Single(data.GetProperty("albums").EnumerateArray());
+        Assert.NotEqual(Guid.Empty, albumJson.GetProperty("id").GetGuid());
+        Assert.Equal("Midnight Sessions", albumJson.GetProperty("name").GetString());
+        Assert.Equal("Miles Trio", albumJson.GetProperty("artist").GetString());
+        Assert.Equal(2024u, albumJson.GetProperty("year").GetUInt32());
+        Assert.Equal(2, albumJson.GetProperty("trackCount").GetInt32());
+        Assert.Equal(420.0, albumJson.GetProperty("totalDurationSeconds").GetDouble());
+        Assert.Equal("07:00", albumJson.GetProperty("totalDurationString").GetString());
+        Assert.True(albumJson.GetProperty("containsHiRes").GetBoolean());
+        Assert.True(albumJson.GetProperty("containsLossless").GetBoolean());
+
+        List<JsonElement> tracks = albumJson.GetProperty("tracks").EnumerateArray().ToList();
+        Assert.Equal(2, tracks.Count);
+        Assert.Equal("Opening", tracks[0].GetProperty("title").GetString());
+        Assert.True(tracks[0].GetProperty("isFavorite").GetBoolean());
+        Assert.Equal("Blue Note", tracks[1].GetProperty("title").GetString());
+        Assert.False(tracks[1].GetProperty("isFavorite").GetBoolean());
+    }
+
+    /// <summary>
+    /// search_albums ツールで includeTracks=false（既定値）を指定した場合、JSON 応答に tracks プロパティが含まれないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchAlbumsAsync_includeTracks無効_tracksプロパティが省略される()
+    {
+        // Arrange
+        var track = CreateTrack("Song 1", "Artist A", "Album A", "Pop");
+        var sut = CreateSut(out Mock<ITrackRepository> trackRepoMock, out _, out _);
+        trackRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track]);
+
+        // Act
+        CallToolResult result = await sut.SearchAlbumsAsync();
+
+        // Assert
+        Assert.False(result.IsError ?? false);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        JsonElement albumJson = Assert.Single(doc.RootElement.GetProperty("data").GetProperty("albums").EnumerateArray());
+        Assert.False(albumJson.TryGetProperty("tracks", out _));
+    }
+
+    /// <summary>
+    /// search_albums ツールで検索結果が 0 件の場合、空配列と totalCount=0 の正常応答を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchAlbumsAsync_検索結果0件_空配列とtotalCount0の正常応答を返す()
+    {
+        // Arrange
+        var sut = CreateSut(out Mock<ITrackRepository> trackRepoMock, out _, out _);
+        trackRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Track>());
+
+        // Act
+        CallToolResult result = await sut.SearchAlbumsAsync(keyword: "存在しないアルバム");
+
+        // Assert
+        Assert.False(result.IsError ?? false);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal(0, data.GetProperty("totalCount").GetInt32());
+        Assert.Equal(0, data.GetProperty("count").GetInt32());
+        Assert.Empty(data.GetProperty("albums").EnumerateArray());
+    }
+
+    /// <summary>
+    /// search_albums ツールで limit・offset・year に範囲外の値を指定した場合、INVALID_PARAMETER エラーを返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0, null, "limit")]
+    [InlineData(201, 0, null, "limit")]
+    [InlineData(50, -1, null, "offset")]
+    [InlineData(50, 0, -1, "year")]
+    public async Task SearchAlbumsAsync_範囲外パラメータ指定_INVALID_PARAMETERエラーを返す(
+        int limit,
+        int offset,
+        int? year,
+        string expectedParam)
+    {
+        // Arrange
+        var sut = CreateSut(out Mock<ITrackRepository> trackRepoMock, out _, out _);
+
+        // Act
+        CallToolResult result = await sut.SearchAlbumsAsync(year: year, limit: limit, offset: offset);
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(McpErrorCodes.INVALID_PARAMETER, error.GetProperty("code").GetString());
+        Assert.Equal(expectedParam, error.GetProperty("details").GetProperty("parameter").GetString());
+
+        trackRepoMock.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// search_albums 実行中に未捕捉例外が発生した場合、INTERNAL_ERROR に変換され内部詳細が露出しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchAlbumsAsync_リポジトリ例外発生時_INTERNAL_ERRORを返し内部詳細を露出しない()
+    {
+        // Arrange
+        var sut = CreateSut(out Mock<ITrackRepository> trackRepoMock, out _, out Mock<ILogger<LibraryTools>> loggerMock);
+        trackRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("SECRET_ALBUM_ERROR"));
+
+        // Act
+        CallToolResult result = await sut.SearchAlbumsAsync();
+        string text = GetSingleText(result);
+
+        // Assert
+        Assert.True(result.IsError);
+        Assert.DoesNotContain("SECRET_ALBUM_ERROR", text, StringComparison.Ordinal);
+        using JsonDocument doc = JsonDocument.Parse(text);
+        Assert.Equal(McpErrorCodes.INTERNAL_ERROR, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+
+        loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<InvalidOperationException>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// 実リポジトリ環境で favorites.json.lock が他プロセスにより保持されている状態でも、includeTracks=false の search_albums がロック競合せずアルバム概要を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SearchAlbumsAsync_includeTracks無効かつお気に入りロック保持中_ロック競合せずアルバム概要を返す()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorAlbumLockTest_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string tracksPath = Path.Combine(tempDir, "tracks.json");
+            string favoritesPath = Path.Combine(tempDir, "favorites.json");
+            string favoritesLockPath = $"{favoritesPath}.lock";
+
+            using var trackRepo = new JsonTrackRepository(tracksPath);
+            using var favRepo = new JsonFavoriteRepository(favoritesPath);
+            var track = CreateTrack("Song 1", "Artist A", "Album Lock Test", "Jazz", filePath: Path.Combine(tempDir, "song1.flac"));
+            await trackRepo.SaveAsync(track);
+
+            var libraryService = new LibraryApplicationService(
+                trackRepo,
+                favRepo,
+                new Mock<IMetadataExtractor>().Object,
+                new Mock<IEventBus>().Object);
+            var sut = new LibraryTools(libraryService, new Mock<ILogger<LibraryTools>>().Object);
+
+            // favorites.json.lock を排他保持した状態で概要検索を実行
+            using var favLockStream = new FileStream(favoritesLockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+
+            // Act
+            CallToolResult result = await sut.SearchAlbumsAsync(includeTracks: false);
+
+            // Assert
+            Assert.False(result.IsError ?? false);
+            using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            JsonElement data = doc.RootElement.GetProperty("data");
+            Assert.Equal(1, data.GetProperty("totalCount").GetInt32());
+            JsonElement albumJson = Assert.Single(data.GetProperty("albums").EnumerateArray());
+            Assert.Equal("Album Lock Test", albumJson.GetProperty("name").GetString());
+            Assert.False(albumJson.TryGetProperty("tracks", out _));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static void CreateTaggedMp4File(string filePath, string title, string artist, string album)
     {
         byte[] ftyp = CreateIsoBox("ftyp", [
