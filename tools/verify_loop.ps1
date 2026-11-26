@@ -306,6 +306,107 @@ function Get-ChangedFiles {
     }
 }
 
+function Get-BaseXamlIndexerKeyCounts {
+    param(
+        [Parameter(Mandatory = $true)][string]$BaseCommit,
+        [Parameter(Mandatory = $true)][string[]]$RelativePaths
+    )
+
+    $counts = @{}
+    if ($RelativePaths.Count -eq 0) {
+        return [PSCustomObject]@{ Success = $true; Counts = $counts; Error = "" }
+    }
+
+    $tempBaseDir = Join-Path ([System.IO.Path]::GetTempPath()) ("verify_base_xaml_{0}_{1}" -f $PID, ([Guid]::NewGuid().ToString("N").Substring(0, 8)))
+    try {
+        New-Item -ItemType Directory -Path $tempBaseDir -Force | Out-Null
+        $manifest = @()
+
+        foreach ($rel in $RelativePaths) {
+            $normRel = $rel.Replace("\", "/")
+            $showRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("show", "${BaseCommit}:${normRel}") -WorkingDirectory $repoRoot -TimeoutSeconds 30
+            if ($showRes.StartFailed) {
+                return [PSCustomObject]@{
+                    Success = $false
+                    Counts  = $counts
+                    Error   = "コマンド '$($showRes.FilePath)' の起動に失敗しました: $($showRes.StartError)"
+                }
+            }
+            if ($showRes.ExitCode -ne 0) {
+                # 比較元に存在しない新規 XAML ファイルはベース側 0 件として扱う
+                continue
+            }
+
+            $outFile = Join-Path $tempBaseDir (([Guid]::NewGuid().ToString("N")) + ".xaml")
+            $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText($outFile, $showRes.StdOut, $utf8NoBom)
+            $manifest += [PSCustomObject]@{
+                rel_path  = $normRel
+                temp_path = $outFile
+            }
+        }
+
+        if ($manifest.Count -eq 0) {
+            return [PSCustomObject]@{ Success = $true; Counts = $counts; Error = "" }
+        }
+
+        $manifestPath = Join-Path $tempBaseDir "manifest.json"
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($manifestPath, (ConvertTo-Json -InputObject @($manifest) -Depth 4), $utf8NoBom)
+
+        $pyCode = @"
+import json, re, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "tools"))
+from check_equivalence import XamlParser
+manifest = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+if isinstance(manifest, dict):
+    manifest = [manifest]
+pat = re.compile(r"\[(\d+)\]")
+counts = {}
+for entry in manifest:
+    rel = entry["rel_path"].replace("\\", "/").lower()
+    for b in XamlParser.parse_file(Path(entry["temp_path"])):
+        if pat.search(b.path):
+            key = f"{rel}|{b.path} ({b.target_property})|{b.raw_binding}"
+            counts[key] = counts.get(key, 0) + 1
+print(json.dumps(counts, ensure_ascii=False))
+"@
+
+        $pyRes = Invoke-ExternalCommand -FilePath "python" -ArgumentList @("-c", $pyCode, $repoRoot, $manifestPath) -WorkingDirectory $repoRoot -TimeoutSeconds 30
+        if ($pyRes.StartFailed) {
+            return [PSCustomObject]@{
+                Success = $false
+                Counts  = $counts
+                Error   = "コマンド '$($pyRes.FilePath)' の起動に失敗しました: $($pyRes.StartError)"
+            }
+        }
+        if ($pyRes.ExitCode -ne 0) {
+            return [PSCustomObject]@{
+                Success = $false
+                Counts  = $counts
+                Error   = "比較元 XAML のインデクサ解析に失敗しました: $(($pyRes.StdErr + ' ' + $pyRes.StdOut).Trim())"
+            }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($pyRes.StdOut)) {
+            $parsed = $pyRes.StdOut | ConvertFrom-Json
+            if ($null -ne $parsed) {
+                foreach ($prop in $parsed.PSObject.Properties) {
+                    $counts[$prop.Name] = [int]$prop.Value
+                }
+            }
+        }
+
+        return [PSCustomObject]@{ Success = $true; Counts = $counts; Error = "" }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempBaseDir) {
+            Remove-Item -Recurse -Force -LiteralPath $tempBaseDir -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Remove-AgentBuildDir {
     param(
         [string]$RunDirToRemove,
@@ -513,6 +614,14 @@ try {
         $failedTests = @($testLines | Where-Object { $_ -match '^\s*(失敗|Failed)\s+' } | Select-Object -First 20)
         $summaryMatches = @($testLines | Where-Object { $_ -match '(成功!|合格!|失敗!|Passed!|Failed!)\s*-' })
 
+        $totalExecutedTests = 0
+        foreach ($sm in $summaryMatches) {
+            if ($sm -match '(?:合計|Total)\s*:\s*(\d+)') {
+                $totalExecutedTests += [int]$Matches[1]
+            }
+        }
+        $noTestMatched = ($testCombined -match 'No test matches the given testcase filter|指定されたテストケース\s*フィルターに一致するテストがありません|テストが見つかりません|No test is available')
+
         if ($testExec.StartFailed) {
             $overallPassed = $false
             $msg = "コマンド '$($testExec.FilePath)' の起動に失敗しました: $($testExec.StartError)"
@@ -539,9 +648,18 @@ try {
             foreach ($d in $detailLines) { Write-Host "    $d" -ForegroundColor Red }
             $gateResults.Add((New-GateResult -Name "test" -Status "FAILED" -DurationSeconds $testExec.DurationSeconds -ErrorCount ([Math]::Max($failedTests.Count, 1)) -Summary $msg -Details $detailLines))
         }
+        elseif ($totalExecutedTests -eq 0 -or $noTestMatched) {
+            $overallPassed = $false
+            $filterNote = if (-not [string]::IsNullOrWhiteSpace($TestFilter)) { " (フィルタ: $TestFilter)" } else { "" }
+            $msg = "実行された単体テストが 0 件でした${filterNote}。テストフィルタの誤記やテスト未検出を確認してください。"
+            Write-Host "  [FAIL] $msg" -ForegroundColor Red
+            $detailLines = @($testLines | Where-Object { $_.Trim() -ne "" } | Select-Object -Last 15)
+            foreach ($d in $detailLines) { Write-Host "    $d" -ForegroundColor Red }
+            $gateResults.Add((New-GateResult -Name "test" -Status "FAILED" -DurationSeconds $testExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details $detailLines))
+        }
         else {
-            $summaryText = if ($summaryMatches.Count -gt 0) { ($summaryMatches -join " / ").Trim() } else { "全テスト合格" }
-            $msg = "単体テスト合格 ($summaryText, 所要: $($testExec.DurationSeconds)秒)。"
+            $summaryText = ($summaryMatches -join " / ").Trim()
+            $msg = "単体テスト合格 (実行合計: ${totalExecutedTests}件 | $summaryText, 所要: $($testExec.DurationSeconds)秒)。"
             Write-Host "  [PASS] $msg" -ForegroundColor Green
             $gateResults.Add((New-GateResult -Name "test" -Status "PASSED" -DurationSeconds $testExec.DurationSeconds -Summary $msg -Details $summaryMatches))
         }
@@ -683,29 +801,63 @@ try {
                 $bindingWarns = @($equivItems | Where-Object { $_.status -eq "WARN" -and $_.category -ne "XAML Indexer Boundary" })
                 $indexerWarns = @($equivItems | Where-Object { $_.status -eq "WARN" -and $_.category -eq "XAML Indexer Boundary" })
 
-                # 変更された XAML ファイル内のインデクサ警告は新規/変更箇所リスクとして失敗扱い
+                # 変更された XAML ファイル内のインデクサ警告は、比較元と (ファイル, バインディング式, 出現件数) で照合し
+                # 既存の式の行移動は許容しつつ、新たに増加した警告のみ失敗扱いとする
                 $newIndexerWarns = @()
-                foreach ($iw in $indexerWarns) {
-                    $relPath = ""
-                    if (-not [string]::IsNullOrWhiteSpace($iw.file_path)) {
-                        $normFull = $iw.file_path.Replace("\", "/")
-                        $normRoot = $repoRoot.Replace("\", "/").TrimEnd("/") + "/"
-                        if ($normFull.StartsWith($normRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-                            $relPath = $normFull.Substring($normRoot.Length)
-                        }
-                        else {
-                            $relPath = $normFull
-                        }
+                $baseCompareError = ""
+                if ($changedXamlFiles.Count -gt 0 -and $indexerWarns.Count -gt 0) {
+                    $baseCountsRes = Get-BaseXamlIndexerKeyCounts -BaseCommit $resolvedBaseCommit -RelativePaths $changedXamlFiles
+                    if (-not $baseCountsRes.Success) {
+                        $baseCompareError = $baseCountsRes.Error
                     }
-                    if ($changedXamlFiles -contains $relPath) {
-                        $newIndexerWarns += $iw
+                    else {
+                        $remainingBaseCounts = @{}
+                        foreach ($k in $baseCountsRes.Counts.Keys) {
+                            $remainingBaseCounts[$k] = [int]$baseCountsRes.Counts[$k]
+                        }
+
+                        foreach ($iw in $indexerWarns) {
+                            $relPath = ""
+                            if (-not [string]::IsNullOrWhiteSpace($iw.file_path)) {
+                                $normFull = $iw.file_path.Replace("\", "/")
+                                $normRoot = $repoRoot.Replace("\", "/").TrimEnd("/") + "/"
+                                if ($normFull.StartsWith($normRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                                    $relPath = $normFull.Substring($normRoot.Length)
+                                }
+                                else {
+                                    $relPath = $normFull
+                                }
+                            }
+                            if ($changedXamlFiles -contains $relPath) {
+                                $rawBinding = ""
+                                foreach ($d in @($iw.details)) {
+                                    if ($d -match '^バインディング式:\s*(.+)$') {
+                                        $rawBinding = $Matches[1].Trim()
+                                        break
+                                    }
+                                }
+                                $key = "{0}|{1}|{2}" -f $relPath.ToLowerInvariant(), $iw.item_name, $rawBinding
+                                if ($remainingBaseCounts.ContainsKey($key) -and $remainingBaseCounts[$key] -gt 0) {
+                                    $remainingBaseCounts[$key] = $remainingBaseCounts[$key] - 1
+                                }
+                                else {
+                                    $newIndexerWarns += $iw
+                                }
+                            }
+                        }
                     }
                 }
 
                 $blockingCount = $failItems.Count + $bindingWarns.Count + $newIndexerWarns.Count
-                if ($equivExec.ExitCode -ne 0 -or $blockingCount -gt 0) {
+                if (-not [string]::IsNullOrWhiteSpace($baseCompareError)) {
                     $overallPassed = $false
-                    $msg = "XAML バインディング検証で問題が検出されました (FAIL: $($failItems.Count), Binding WARN: $($bindingWarns.Count), 変更ファイル内 Indexer WARN: $($newIndexerWarns.Count))。"
+                    $msg = "比較元 XAML 警告の照合に失敗しました: $baseCompareError"
+                    Write-Host "  [FAIL] $msg" -ForegroundColor Red
+                    $gateResults.Add((New-GateResult -Name "xaml_equivalence" -Status "FAILED" -DurationSeconds $equivExec.DurationSeconds -ErrorCount 1 -Summary $msg))
+                }
+                elseif ($equivExec.ExitCode -ne 0 -or $blockingCount -gt 0) {
+                    $overallPassed = $false
+                    $msg = "XAML バインディング検証で問題が検出されました (FAIL: $($failItems.Count), Binding WARN: $($bindingWarns.Count), 新規 Indexer WARN: $($newIndexerWarns.Count))。"
                     Write-Host "  [FAIL] $msg" -ForegroundColor Red
                     $detailLines = @()
                     foreach ($item in ($failItems + $bindingWarns + $newIndexerWarns)) {
@@ -717,7 +869,7 @@ try {
                 }
                 else {
                     $existingIndexerCount = $indexerWarns.Count
-                    $msg = "XAML バインディング検証合格 (FAIL: 0, Binding WARN: 0, 未変更既存 Indexer WARN: ${existingIndexerCount}件, 所要: $($equivExec.DurationSeconds)秒)。"
+                    $msg = "XAML バインディング検証合格 (FAIL: 0, Binding WARN: 0, 既存 Indexer WARN: ${existingIndexerCount}件, 所要: $($equivExec.DurationSeconds)秒)。"
                     Write-Host "  [PASS] $msg" -ForegroundColor Green
                     $gateResults.Add((New-GateResult -Name "xaml_equivalence" -Status "PASSED" -DurationSeconds $equivExec.DurationSeconds -WarningCount $existingIndexerCount -ErrorCount 0 -Summary $msg))
                 }
