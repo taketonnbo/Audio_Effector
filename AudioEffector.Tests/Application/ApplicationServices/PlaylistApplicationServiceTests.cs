@@ -478,4 +478,196 @@ public sealed class PlaylistApplicationServiceTests
             }
         }
     }
+
+    /// <summary>
+    /// 旧 WPF 形式のプレイリストにライブラリ未登録のトラック X を含む状態で曲 B を追記しても X が消失せず、再起動・X 再登録後にも [A, X, B] の順序で復元できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task AddTracksPreservingOrder_旧形式に未解決トラックを含む場合_未解決参照を保持し再登録後にA_X_B順で復元できること()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorPlaylistUnresolvedKeep_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string playlistsPath = Path.Combine(tempDir, "playlists.json");
+            string tracksPath = Path.Combine(tempDir, "tracks.json");
+
+            string pathA = Path.Combine(tempDir, "a.flac");
+            string pathX = Path.Combine(tempDir, "x.flac");
+            string pathB = Path.Combine(tempDir, "b.flac");
+
+            var trackA = new Track(TrackId.New(), AudioPath.Create(pathA), title: "Track A", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(180));
+            var trackB = new Track(TrackId.New(), AudioPath.Create(pathB), title: "Track B", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(190));
+            var trackX = new Track(TrackId.New(), AudioPath.Create(pathX), title: "Track X", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(200));
+
+            // ライブラリには A と B のみ登録（X は未登録）
+            using (var seedTrackRepo = new JsonTrackRepository(tracksPath))
+            {
+                await seedTrackRepo.SaveRangeAsync([trackA, trackB]);
+            }
+
+            // 旧 WPF 形式で [A, X] を保存
+            string legacyJson = System.Text.Json.JsonSerializer.Serialize(new[]
+            {
+                new { Name = "Legacy Partial", TrackPaths = new[] { pathA, pathX } },
+            });
+            await File.WriteAllTextAsync(playlistsPath, legacyJson);
+
+            // Act 1: B を追記して保存
+            using (var editTrackRepo = new JsonTrackRepository(tracksPath))
+            using (var editPlaylistRepo = new JsonPlaylistRepository(playlistsPath))
+            {
+                var editService = new PlaylistApplicationService(editPlaylistRepo, editTrackRepo, new Mock<IEventBus>().Object);
+                UserPlaylist loaded = Assert.Single(editService.LoadPlaylists());
+                Result<IReadOnlyList<Track>> addResult = editService.TryAddTracksPreservingOrder(loaded, [trackB]);
+                Assert.True(addResult.IsSuccess);
+                Assert.Single(addResult.Value);
+                Assert.True(editService.TrySavePlaylist(loaded).IsSuccess);
+            }
+
+            // Assert 1: 再起動相当（別インスタンス）で読み直しても TrackPaths は [A, X, B] を保持している
+            using (var checkPlaylistRepo = new JsonPlaylistRepository(playlistsPath))
+            {
+                UserPlaylist reloaded = Assert.Single(await checkPlaylistRepo.GetAllAsync());
+                Assert.Equal([pathA, pathX, pathB], reloaded.TrackPaths);
+                Assert.Empty(reloaded.TrackIds);
+            }
+
+            // Act 2: 後から X をライブラリへ再登録し、別インスタンスで収録曲を解決
+            using (var reregisterTrackRepo = new JsonTrackRepository(tracksPath))
+            {
+                await reregisterTrackRepo.SaveAsync(trackX);
+            }
+
+            using var finalTrackRepo = new JsonTrackRepository(tracksPath);
+            using var finalPlaylistRepo = new JsonPlaylistRepository(playlistsPath);
+            var finalService = new PlaylistApplicationService(finalPlaylistRepo, finalTrackRepo, new Mock<IEventBus>().Object);
+            UserPlaylist finalPlaylist = Assert.Single(await finalService.GetAllPlaylistsAsync());
+            IReadOnlyList<Track> resolved = await finalService.ResolvePlaylistTracksAsync(finalPlaylist);
+
+            // Assert 2: [A, X, B] の収録順が完全に復元される
+            Assert.Equal([trackA.Id, trackX.Id, trackB.Id], resolved.Select(t => t.Id).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// playlists.json 本体が共有違反（FileShare.None）で読み込めない場合、TryLoadPlaylists が失敗を返し、ハンドル解放後の TrySavePlaylists 全件置換が拒否されて既存プレイリストが保護されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TryLoadPlaylistsおよびTrySavePlaylists_JSON本体共有違反時_読み込み失敗となり全件置換が拒否されること()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorPlaylistShareViolation_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string playlistsPath = Path.Combine(tempDir, "playlists.json");
+            var existing = new UserPlaylist(PlaylistId.New(), "既存プレイリスト");
+            using (var seedRepo = new JsonPlaylistRepository(playlistsPath))
+            {
+                await seedRepo.SaveAsync(existing);
+            }
+
+            using var wpfRepo = new JsonPlaylistRepository(playlistsPath);
+            var sut = new PlaylistApplicationService(wpfRepo, new Mock<ITrackRepository>().Object, new Mock<IEventBus>().Object);
+
+            // Act 1: playlists.json 本体を排他オープンした状態で読み込む
+            Result<List<UserPlaylist>> loadResult;
+            using (var exclusiveHold = new FileStream(playlistsPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                loadResult = sut.TryLoadPlaylists();
+            }
+
+            // Act 2: ハンドル解放後に新規 1 件だけで全件保存を試みる
+            var added = new UserPlaylist(PlaylistId.New(), "新規プレイリスト");
+            Result saveResult = sut.TrySavePlaylists([added]);
+
+            // Assert: 読み込み失敗と全件置換拒否が成立し、ディスク上の既存 1 件が保護されている
+            Assert.True(loadResult.IsFailure);
+            Assert.True(saveResult.IsFailure);
+            using var verifyRepo = new JsonPlaylistRepository(playlistsPath);
+            var persisted = await verifyRepo.GetAllAsync();
+            Assert.Equal(existing.Id, Assert.Single(persisted).Id);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// favorites.json.lock が保持されている状態でも TryAddTracksPreservingOrder がロック待ちせず成功し、トラックリポジトリ読み取り失敗時は例外を送出せず Result.Failure を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TryAddTracksPreservingOrder_お気に入りロック保持中およびトラック読み取り失敗時_ロック非依存で成功し読み取り失敗時はFailureを返すこと()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorPlaylistFavLockIndependent_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string playlistsPath = Path.Combine(tempDir, "playlists.json");
+            string tracksPath = Path.Combine(tempDir, "tracks.json");
+            string favoritesPath = Path.Combine(tempDir, "favorites.json");
+            string favoritesLockPath = $"{favoritesPath}.lock";
+            var shortTimeoutHelper = new JsonFileLockHelper(TimeSpan.FromMilliseconds(100));
+
+            var track1 = new Track(TrackId.New(), AudioPath.Create(Path.Combine(tempDir, "1.flac")), title: "T1", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(180));
+            var track2 = new Track(TrackId.New(), AudioPath.Create(Path.Combine(tempDir, "2.flac")), title: "T2", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(180));
+
+            using var playlistRepo = new JsonPlaylistRepository(playlistsPath, shortTimeoutHelper);
+            using var trackRepo = new JsonTrackRepository(tracksPath, shortTimeoutHelper);
+            using var favRepo = new JsonFavoriteRepository(favoritesPath, shortTimeoutHelper);
+            await trackRepo.SaveRangeAsync([track1, track2]);
+
+            var sut = new PlaylistApplicationService(playlistRepo, trackRepo, new Mock<IEventBus>().Object, favRepo);
+            var emptyPlaylist = new UserPlaylist(PlaylistId.New(), "空プレイリスト");
+            var existingPlaylist = new UserPlaylist(PlaylistId.New(), "既存あり", [track1.Id]);
+
+            // Act 1: favorites.json.lock を排他保持した状態で曲追加を実行
+            Result<IReadOnlyList<Track>> emptyAddResult;
+            Result<IReadOnlyList<Track>> existingAddResult;
+            using (var favLockHold = new FileStream(favoritesLockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                emptyAddResult = sut.TryAddTracksPreservingOrder(emptyPlaylist, [track1]);
+                existingAddResult = sut.TryAddTracksPreservingOrder(existingPlaylist, [track2]);
+            }
+
+            // Assert 1: お気に入りロックに影響されず両方成功
+            Assert.True(emptyAddResult.IsSuccess);
+            Assert.Equal([track1.Id], emptyPlaylist.TrackIds);
+            Assert.True(existingAddResult.IsSuccess);
+            Assert.Equal([track1.Id, track2.Id], existingPlaylist.TrackIds);
+
+            // Act 2: トラック読み取り自体がロックタイムアウトした場合は未処理例外にならず Failure を返す
+            var failingTrackRepo = new Mock<ITrackRepository>();
+            failingTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new FileLockTimeoutException(tracksPath, TimeSpan.FromMilliseconds(100)));
+            var failingSut = new PlaylistApplicationService(playlistRepo, failingTrackRepo.Object, new Mock<IEventBus>().Object, favRepo);
+
+            Result<IReadOnlyList<Track>> failedResult = failingSut.TryAddTracksPreservingOrder(existingPlaylist, [track2]);
+
+            // Assert 2
+            Assert.True(failedResult.IsFailure);
+            Assert.False(string.IsNullOrWhiteSpace(failedResult.ErrorMessage));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
 }
