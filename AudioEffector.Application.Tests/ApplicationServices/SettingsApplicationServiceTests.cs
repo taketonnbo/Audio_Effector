@@ -9,7 +9,7 @@ using AudioEffector.Domain.Repositories;
 using Moq;
 using Xunit;
 
-namespace AudioEffector.Tests.Application.ApplicationServices;
+namespace AudioEffector.Application.Tests.ApplicationServices;
 
 /// <summary>
 /// SettingsApplicationServiceの設定読み込み、型シリアライズ保存、デフォルト値フォールバックを検証するテストクラス

@@ -12,7 +12,7 @@ using AudioEffector.Domain.ValueObjects;
 using Moq;
 using Xunit;
 
-namespace AudioEffector.Tests.Application.ApplicationServices;
+namespace AudioEffector.Application.Tests.ApplicationServices;
 
 /// <summary>
 /// AudioApplicationServiceの再生制御、キュー管理、シーク、音量・ミュート、戦略遷移、イベント発行を検証するテストクラス

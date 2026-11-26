@@ -10,7 +10,7 @@ using AudioEffector.Domain.ValueObjects;
 using Moq;
 using Xunit;
 
-namespace AudioEffector.Tests.Application.ApplicationServices;
+namespace AudioEffector.Application.Tests.ApplicationServices;
 
 /// <summary>
 /// DataTransferApplicationServiceのデバイス接続確認、ファイル転送、進捗通知、削除を検証するテストクラス
