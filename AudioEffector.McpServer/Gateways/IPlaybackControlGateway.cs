@@ -17,6 +17,46 @@ public interface IPlaybackControlGateway
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 起動中の Audio Effector 本体の再生を一時停止します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>一時停止後の再生状態または標準エラーコードを含む処理結果。</returns>
+    Task<PlaybackControlResult<PlaybackActionResponse>> PausePlaybackAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 起動中の Audio Effector 本体の一時停止中の再生を再開します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>再開後の再生状態または標準エラーコードを含む処理結果。</returns>
+    Task<PlaybackControlResult<PlaybackActionResponse>> ResumePlaybackAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 起動中の Audio Effector 本体の再生を停止します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>停止後の再生状態または標準エラーコードを含む処理結果。</returns>
+    Task<PlaybackControlResult<PlaybackActionResponse>> StopPlaybackAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 起動中の Audio Effector 本体で次の楽曲へ移動します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>移動後の再生状態およびトラック情報、または標準エラーコードを含む処理結果。</returns>
+    Task<PlaybackControlResult<PlaybackActionResponse>> NextTrackAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 起動中の Audio Effector 本体で前の楽曲（または現在曲の先頭）へ戻ります。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>移動後の再生状態およびトラック情報、または標準エラーコードを含む処理結果。</returns>
+    Task<PlaybackControlResult<PlaybackActionResponse>> PreviousTrackAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 指定されたトラック ID または音声ファイルパスの楽曲を Audio Effector 本体で再生開始します。
     /// </summary>
     /// <param name="trackId">再生対象トラックの ID（省略可）。</param>
