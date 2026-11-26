@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -7,6 +7,7 @@ using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Events;
 using AudioEffector.Domain.Repositories;
+using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
 
 namespace AudioEffector.Application.ApplicationServices;
@@ -16,11 +17,10 @@ namespace AudioEffector.Application.ApplicationServices;
 /// </summary>
 public class PlaylistApplicationService
 {
-    private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly IPlaylistRepository _playlistRepository;
     private readonly ITrackRepository _trackRepository;
     private readonly IEventBus _eventBus;
-    private readonly string _playlistsFilePath;
+    private readonly IFavoriteRepository? _favoriteRepository;
 
     /// <summary>
     /// PlaylistApplicationServiceを初期化します
@@ -28,35 +28,30 @@ public class PlaylistApplicationService
     /// <param name="playlistRepository">プレイリストリポジトリ</param>
     /// <param name="trackRepository">トラックリポジトリ</param>
     /// <param name="eventBus">イベントバス</param>
+    /// <param name="favoriteRepository">お気に入りリポジトリ（収録トラック詳細取得時にお気に入り状態を最新化する場合に指定）</param>
     public PlaylistApplicationService(
         IPlaylistRepository playlistRepository,
         ITrackRepository trackRepository,
-        IEventBus eventBus)
+        IEventBus eventBus,
+        IFavoriteRepository? favoriteRepository = null)
     {
         _playlistRepository = playlistRepository ?? throw new ArgumentNullException(nameof(playlistRepository));
         _trackRepository = trackRepository ?? throw new ArgumentNullException(nameof(trackRepository));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
-
-        var appDataPath = System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "AudioEffector");
-        System.IO.Directory.CreateDirectory(appDataPath);
-        _playlistsFilePath = System.IO.Path.Combine(appDataPath, "playlists.json");
+        _favoriteRepository = favoriteRepository;
     }
 
     /// <summary>
-    /// プレイリスト一覧をローカルJSONファイルから読み込みます
+    /// プレイリスト一覧をリポジトリから同期的に読み込みます
     /// </summary>
-    /// <returns></returns>
+    /// <returns>プレイリスト一覧</returns>
     public List<UserPlaylist> LoadPlaylists()
     {
-        if (!System.IO.File.Exists(_playlistsFilePath))
-            return new List<UserPlaylist>();
-
         try
         {
-            var json = System.IO.File.ReadAllText(_playlistsFilePath);
-            return System.Text.Json.JsonSerializer.Deserialize<List<UserPlaylist>>(json) ?? new List<UserPlaylist>();
+            IReadOnlyList<UserPlaylist> playlists = _playlistRepository.GetAllAsync().GetAwaiter().GetResult()
+                ?? Array.Empty<UserPlaylist>();
+            return playlists.ToList();
         }
         catch
         {
@@ -65,15 +60,19 @@ public class PlaylistApplicationService
     }
 
     /// <summary>
-    /// プレイリスト一覧をローカルJSONファイルへ保存します
+    /// プレイリスト一覧をリポジトリへ同期的に一括保存します
     /// </summary>
     /// <param name="playlists">保存するプレイリスト一覧</param>
     public void SavePlaylists(List<UserPlaylist> playlists)
     {
+        if (playlists == null)
+        {
+            return;
+        }
+
         try
         {
-            var json = System.Text.Json.JsonSerializer.Serialize(playlists, _jsonOptions);
-            System.IO.File.WriteAllText(_playlistsFilePath, json);
+            _playlistRepository.ReplaceAllAsync(playlists).GetAwaiter().GetResult();
         }
         catch
         {
@@ -301,6 +300,16 @@ public class PlaylistApplicationService
 
         IReadOnlyList<Track> allTracks = await _trackRepository.GetAllAsync(cancellationToken).ConfigureAwait(false)
             ?? Array.Empty<Track>();
+
+        // お気に入り永続化データ（favorites.json）を正本として全曲で読み取り専用照合を行い、収録トラックの IsFavorite を最新化する
+        if (_favoriteRepository is not null && allTracks.Count > 0)
+        {
+            IReadOnlyList<FavoriteTrackEntry> favoriteEntries = await _favoriteRepository
+                .GetAllAsync(cancellationToken)
+                .ConfigureAwait(false)
+                ?? Array.Empty<FavoriteTrackEntry>();
+            FavoriteTrackMatcher.Reconcile(favoriteEntries, allTracks);
+        }
 
         var tracksById = new Dictionary<TrackId, Track>(allTracks.Count);
         var tracksByPath = new Dictionary<string, Track>(allTracks.Count, StringComparer.OrdinalIgnoreCase);

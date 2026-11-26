@@ -36,6 +36,14 @@ public interface IPlaylistRepository
     Task SaveAsync(UserPlaylist playlist, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// すべてのプレイリストを指定された一覧で原子的に置き換えます
+    /// </summary>
+    /// <param name="playlists">保存対象のプレイリスト一覧</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>非同期タスク</returns>
+    Task ReplaceAllAsync(IReadOnlyList<UserPlaylist> playlists, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 指定されたIDのプレイリストを削除します
     /// </summary>
     /// <param name="id">削除対象のプレイリストID</param>

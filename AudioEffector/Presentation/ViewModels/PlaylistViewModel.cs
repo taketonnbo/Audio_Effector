@@ -469,6 +469,7 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
         }
 
         playlist.Name = inputBox.InputText.Trim();
+        playlist.UpdatedAt = DateTime.UtcNow;
         int index = UserPlaylists.IndexOf(playlist);
         if (index >= 0)
         {
@@ -533,6 +534,7 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
 
         PlaylistTracks.RemoveAt(index);
         playlist.TrackPaths = PlaylistTracks.Select(item => item.FilePath).ToList();
+        playlist.UpdatedAt = DateTime.UtcNow;
         UpdatePlaylistThumbnails(playlist);
         SavePlaylists();
         await Task.CompletedTask;
@@ -616,6 +618,7 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
 
         if (addedCount > 0)
         {
+            playlist.UpdatedAt = DateTime.UtcNow;
             UpdatePlaylistThumbnails(playlist);
             SavePlaylists();
         }
