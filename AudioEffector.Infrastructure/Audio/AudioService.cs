@@ -633,10 +633,14 @@ public class AudioService : IAudioService
     {
         lock (_lock)
         {
+            bool selectedFinalTrack = _finalTrackOfQueue != null &&
+                string.Equals(track.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+
             _currentlyPlayingTrack = track;
             _userQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
             _albumQueue.RemoveAll(t => string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase));
             _playlist = _userQueue.Concat(_albumQueue).ToList();
+            _isCurrentlyPlayingFinalTrack = selectedFinalTrack || _playlist.Count == 0;
         }
 
         PlaylistChanged?.Invoke(new List<Track>(_playlist));
@@ -1076,12 +1080,16 @@ public class AudioService : IAudioService
                             _playedTrackPaths.Add(_currentlyPlayingTrack.FilePath);
                         }
 
+                        bool selectedFinalTrack = _finalTrackOfQueue != null &&
+                            string.Equals(trackToPlay.FilePath, _finalTrackOfQueue.FilePath, StringComparison.OrdinalIgnoreCase);
+
                         _currentlyPlayingTrack = trackToPlay;
                         _lastPlayingTrack = trackToPlay;
                         _currentTrackReportedAsEnded = false;
                         _userQueue.RemoveAll(t => string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase));
                         _albumQueue.RemoveAll(t => string.Equals(t.FilePath, trackToPlay.FilePath, StringComparison.OrdinalIgnoreCase));
                         _playlist = _userQueue.Concat(_albumQueue).ToList();
+                        _isCurrentlyPlayingFinalTrack = selectedFinalTrack || _playlist.Count == 0;
                         changedPlaylist = new List<Track>(_playlist);
                     }
 
