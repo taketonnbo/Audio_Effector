@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Audio Effector ループエンジニアリング用 統合検証ハーネス (Verifier)
 
@@ -597,6 +597,14 @@ try {
     $buildExec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $buildArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
 
     $buildCombined = ($buildExec.StdOut + "`n" + $buildExec.StdErr)
+    # ソリューション構成変更直後などに WPF の .g.resources 生成で並列ノード間ファイルロック競合 (RG1000) が発生した場合、
+    # 単一ノード (-m:1) で 1 回のみ安全リトライする（警告 0・エラー 0 の判定基準は一切緩和しない）
+    if ($buildExec.ExitCode -ne 0 -and -not $buildExec.StartFailed -and -not $buildExec.TimedOut -and $buildCombined -match 'error\s+RG1000:.*used by another process') {
+        Write-Host "  [WARN] 並列ビルドで WPF リソースロック (RG1000) を検出しました。単一ノード (-m:1) でリトライします..." -ForegroundColor Yellow
+        $retryArgs = @("build", $solutionPath, "-p:OutDir=$agentBuildOutDir", "-m:1", "--nologo")
+        $buildExec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $retryArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
+        $buildCombined = ($buildExec.StdOut + "`n" + $buildExec.StdErr)
+    }
     $buildLines = $buildCombined -split "`r?`n"
 
     $warningLines = @($buildLines | Where-Object { $_ -match ':\s*warning\s+[A-Za-z]+\d+:' } | Select-Object -Unique)
