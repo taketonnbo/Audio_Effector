@@ -52,7 +52,7 @@ flowchart TD
      - **自動**: 実装セッションとは**完全に独立したコンテキストの新規サブエージェント**を起動して `review-pr` を実行する（実装コンテキストを共有しない）。
    - **マージ方針**:
      - **手動マージ（既定）**: レビュー完了後、ユーザーが GitHub 上で `develop` へマージする。
-     - **条件付き自動マージ**: ユーザーが明示承認した場合のみ、未解決レビュー指摘 0 件かつ `tools/verify_loop.ps1 -Full` 合格済みの PR を `develop` へマージする。
+     - **条件付き自動マージ**: ユーザーが明示承認した場合のみ、**独立コンテキストでの `review-pr` 完了済み**、かつ未解決レビュー指摘 0 件、かつ `tools/verify_loop.ps1 -Full` 合格済みの PR を `develop` へマージする。
 3. Epic 本文の依存関係に循環依存や不明な外部依存の警告が出ている場合は、着手前にユーザーへ確認する。
 
 ### Phase 1: 次タスク選定・ディスパッチ
@@ -77,7 +77,7 @@ flowchart TD
 
 ### Phase 3: マージ反映・次サイクル遷移
 1. 子 Issue の PR が `develop` へマージされたら、以下を実施する：
-   - ローカルの `develop` を最新化する（`git checkout develop; git pull origin develop`）。
+   - 未コミット差分がないことを確認したうえで、ローカルの `develop` を最新化する（`git checkout develop; if ($?) { git pull origin develop }`）。
    - 並列実行で作成した一時ワークツリーや不要な `.agent_build/` が残っていれば必ずクリーンアップする（`git worktree remove <path>; git worktree prune`）。
    - `python tools/epic_tracker.py --epic <Epic番号>` を再実行して依存解消された次の子 Issue を確認し、Phase 1 へ戻る。
 2. 子 Issue が Inner Loop の停止条件に到達し `blocked` となった場合：
