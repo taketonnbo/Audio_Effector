@@ -1,7 +1,7 @@
 using AudioEffector.Domain.ValueObjects;
 using Xunit;
 
-namespace AudioEffector.Tests.Domain.ValueObjects;
+namespace AudioEffector.Domain.Tests.ValueObjects;
 
 public class VolumeTests
 {

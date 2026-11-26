@@ -4,7 +4,7 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.ValueObjects;
 using Xunit;
 
-namespace AudioEffector.Tests.Domain.Entities;
+namespace AudioEffector.Domain.Tests.Entities;
 
 /// <summary>
 /// AlbumエンティティのID・等価性・代表トラックパス取得などドメインロジックを検証するテストクラス

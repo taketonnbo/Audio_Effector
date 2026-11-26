@@ -2,7 +2,7 @@ using System;
 using AudioEffector.Domain.ValueObjects;
 using Xunit;
 
-namespace AudioEffector.Tests.Domain.ValueObjects;
+namespace AudioEffector.Domain.Tests.ValueObjects;
 
 /// <summary>
 /// AlbumId値オブジェクトの生成・バリデーション・等価性を検証するテストクラス

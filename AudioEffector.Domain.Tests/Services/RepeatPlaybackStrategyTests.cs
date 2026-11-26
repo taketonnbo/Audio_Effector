@@ -1,7 +1,7 @@
 using AudioEffector.Domain.Services;
 using Xunit;
 
-namespace AudioEffector.Tests.Domain.Services;
+namespace AudioEffector.Domain.Tests.Services;
 
 public class RepeatPlaybackStrategyTests
 {

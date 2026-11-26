@@ -4,7 +4,7 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.ValueObjects;
 using Xunit;
 
-namespace AudioEffector.Tests.Domain.Entities;
+namespace AudioEffector.Domain.Tests.Entities;
 
 public class UserPlaylistTests
 {
