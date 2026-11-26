@@ -7,7 +7,7 @@ using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.DataTransfer;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.DataTransfer;
+namespace AudioEffector.Infrastructure.Tests.DataTransfer;
 
 /// <summary>
 /// MtpDataTransferAdapterのファイル転送・削除・進捗通知・デバイススキャン処理を検証するテストクラス

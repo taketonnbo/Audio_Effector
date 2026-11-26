@@ -13,7 +13,7 @@ using AudioEffector.Infrastructure.Repository;
 using Moq;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Repository;
+namespace AudioEffector.Infrastructure.Tests.Repository;
 
 /// <summary>
 /// <see cref="PlaylistApplicationService"/> と JSON リポジトリ実装（ロック・共有違反・再読み込み整合性）の結合動作を検証するテストクラス

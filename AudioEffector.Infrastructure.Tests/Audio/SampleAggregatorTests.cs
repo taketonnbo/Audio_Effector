@@ -4,7 +4,7 @@ using AudioEffector.Infrastructure.Audio;
 using NAudio.Wave;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Audio;
+namespace AudioEffector.Infrastructure.Tests.Audio;
 
 /// <summary>
 /// SampleAggregatorのサンプル集計、バッファリング、FFTイベント発火を検証するテストクラス

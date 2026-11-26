@@ -5,7 +5,7 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Infrastructure.Audio;
 using Xunit;
 
-namespace AudioEffector.Tests.Infrastructure.Audio;
+namespace AudioEffector.Infrastructure.Tests.Audio;
 
 /// <summary>
 /// <see cref="AudioService"/> のプレイリスト管理、シャッフル有効化/無効化時のイベント発火および順序連動を検証するテストクラス。

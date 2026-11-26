@@ -13,7 +13,7 @@ using Moq;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
-namespace AudioEffector.Tests.Infrastructure.Audio;
+namespace AudioEffector.Infrastructure.Tests.Audio;
 
 public sealed class AudioServicePlayTrackAsyncTests : IDisposable
 {
