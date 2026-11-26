@@ -648,7 +648,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 }
 ```
 
-- `includeTracks: false` の場合、`tracks` プロパティは `null` となり `McpJsonOptions.Default` により JSON 出力から省略されます。
+- `includeTracks: false` の場合、`tracks` プロパティは `null` となり `McpJsonOptions.Default` により JSON 出力から省略されます。また、概要のみの取得時は `favorites.json` の読み込み・お気に入り照合を行わず、お気に入りファイルのロックから独立して動作します（`includeTracks: true` の場合のみ全曲を対象とした読み取り専用のお気に入り照合を行い、`tracks[].isFavorite` に最新状態を反映します）。
 - **集約・代表年算出・ソート順**: `AlbumGroupingResolver.ResolveAndApply` で決定論的 `AlbumId` とアルバムアーティストを確定し、収録トラックの `Year > 0` の最頻値（同数時は最小の年、すべて 0 の場合は 0）を代表リリース年として `Album.Year` に反映します。フィルタ適用後は `Name` → `Artist` → `Id` 順で安定ソートします。
 
 #### 5.8.2 プレイリスト検索ツール（`search_playlists`）
@@ -703,8 +703,9 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 }
 ```
 
-- `includeTracks: false` の場合は `ITrackRepository` へアクセスせず、`tracks` プロパティを省略します。
-- `includeTracks: true` の場合は `UserPlaylist.TrackIds`（未設定時は旧互換 `UserPlaylist.TrackPaths`）を `ITrackRepository.GetAllAsync` から一括解決し、プレイリスト内の順序を維持して返却します。
+- `includeTracks: false` の場合は `ITrackRepository` および `IFavoriteRepository` へアクセスせず、`tracks` プロパティを省略します。
+- `includeTracks: true` の場合は `UserPlaylist.TrackIds`（未設定時は旧互換 `UserPlaylist.TrackPaths`）を `ITrackRepository.GetAllAsync` から一括解決し、全曲を対象に `IFavoriteRepository` との読み取り専用お気に入り照合を行って最新の `isFavorite` を反映したうえで、プレイリスト内の順序を維持して返却します。
+- **WPF・MCP 間の永続化形式共通化**: `PlaylistApplicationService.LoadPlaylists` / `SavePlaylists` も `IPlaylistRepository`（`JsonPlaylistRepository`）経由で `Id` / `Name` / `TrackIds` / `TrackPaths` / `CreatedAt` / `UpdatedAt` を読み書きします。旧 WPF 形式（`Name` と `TrackPaths` のみ、`Id` 欠落）の `playlists.json` についても、収録順を保って読み込み、決定論的 ID を付与することで再読み込み・再起動後も同一のプレイリスト ID を維持します。
 - **ソート順・エラーケース**: フィルタ適用後は `Name` → `Id` 順で安定ソートします。`limit` / `offset` / `year` 範囲外は `INVALID_PARAMETER`、ファイルロックタイムアウトは `CONFLICT_LOCK_TIMEOUT`、キャンセルは `OPERATION_CANCELLED`、その他例外は `INTERNAL_ERROR` へ変換します。
 
 ### 5.9 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
