@@ -148,6 +148,132 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
             requestFilePath = localTrack.FilePath;
         }
 
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_PLAY_TRACK,
+            TrackId: requestTrackId,
+            FilePath: requestFilePath,
+            DeadlineUtc: DateTimeOffset.UtcNow + _commandTimeout);
+
+        return await SendCommandAsync(
+            request,
+            response =>
+            {
+                if (string.IsNullOrWhiteSpace(response.PlaybackState) || response.Track is null)
+                {
+                    LogIpcCommunicationFailedDelegate(_logger, _pipeName, null);
+                    return PlaybackControlResult<PlayTrackResponse>.Failure(
+                        McpErrorCodes.IPC_CONNECTION_FAILED,
+                        McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
+                }
+
+                PlayedTrackDto trackDto = PlayedTrackDto.FromIpcTrackInfo(response.Track);
+                if (resolvedLocalTrackId.HasValue)
+                {
+                    trackDto = trackDto with { Id = resolvedLocalTrackId.Value };
+                }
+
+                var dto = new PlayTrackResponse(
+                    PlaybackState: response.PlaybackState,
+                    Track: trackDto);
+
+                return PlaybackControlResult<PlayTrackResponse>.Success(dto);
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<PlaybackControlResult<PlayCollectionResponse>> PlayAlbumAsync(
+        AlbumId? albumId,
+        string? albumName,
+        string? artist,
+        TrackId? startTrackId,
+        int? startTrackIndex,
+        bool? shuffle,
+        bool? repeat,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_PLAY_ALBUM,
+            DeadlineUtc: DateTimeOffset.UtcNow + _commandTimeout,
+            AlbumId: albumId?.Value.ToString("D"),
+            AlbumName: string.IsNullOrWhiteSpace(albumName) ? null : albumName.Trim(),
+            Artist: string.IsNullOrWhiteSpace(artist) ? null : artist.Trim(),
+            StartTrackId: startTrackId?.Value.ToString("D"),
+            StartTrackIndex: startTrackIndex,
+            Shuffle: shuffle,
+            Repeat: repeat);
+
+        return await SendCommandAsync(
+            request,
+            MapCollectionSuccessResponse,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<PlaybackControlResult<PlayCollectionResponse>> PlayPlaylistAsync(
+        PlaylistId? playlistId,
+        string? playlistName,
+        TrackId? startTrackId,
+        int? startTrackIndex,
+        bool? shuffle,
+        bool? repeat,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_PLAY_PLAYLIST,
+            DeadlineUtc: DateTimeOffset.UtcNow + _commandTimeout,
+            PlaylistId: playlistId?.Value.ToString("D"),
+            PlaylistName: string.IsNullOrWhiteSpace(playlistName) ? null : playlistName.Trim(),
+            StartTrackId: startTrackId?.Value.ToString("D"),
+            StartTrackIndex: startTrackIndex,
+            Shuffle: shuffle,
+            Repeat: repeat);
+
+        return await SendCommandAsync(
+            request,
+            MapCollectionSuccessResponse,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private PlaybackControlResult<PlayCollectionResponse> MapCollectionSuccessResponse(AppIpcResponse response)
+    {
+        if (string.IsNullOrWhiteSpace(response.PlaybackState)
+            || response.Track is null
+            || string.IsNullOrWhiteSpace(response.SourceType)
+            || !response.SourceId.HasValue
+            || string.IsNullOrWhiteSpace(response.SourceName)
+            || !response.TotalTracks.HasValue
+            || !response.IsShuffleEnabled.HasValue
+            || !response.IsRepeatEnabled.HasValue)
+        {
+            LogIpcCommunicationFailedDelegate(_logger, _pipeName, null);
+            return PlaybackControlResult<PlayCollectionResponse>.Failure(
+                McpErrorCodes.IPC_CONNECTION_FAILED,
+                McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
+        }
+
+        var dto = new PlayCollectionResponse(
+            SourceType: response.SourceType,
+            SourceId: response.SourceId.Value,
+            SourceName: response.SourceName,
+            PlaybackState: response.PlaybackState,
+            TotalTracks: response.TotalTracks.Value,
+            IsShuffleEnabled: response.IsShuffleEnabled.Value,
+            IsRepeatEnabled: response.IsRepeatEnabled.Value,
+            Track: PlayedTrackDto.FromIpcTrackInfo(response.Track));
+
+        return PlaybackControlResult<PlayCollectionResponse>.Success(dto);
+    }
+
+    private async Task<PlaybackControlResult<T>> SendCommandAsync<T>(
+        AppIpcRequest request,
+        Func<AppIpcResponse, PlaybackControlResult<T>> onSuccess,
+        CancellationToken cancellationToken)
+    {
         await using var client = new NamedPipeClientStream(
             ".",
             _pipeName,
@@ -168,26 +294,20 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
         catch (Exception ex) when (ex is OperationCanceledException or TimeoutException or FileNotFoundException)
         {
             LogWpfNotRunningDelegate(_logger, _pipeName, ex);
-            return PlaybackControlResult<PlayTrackResponse>.Failure(
+            return PlaybackControlResult<T>.Failure(
                 McpErrorCodes.WPF_APP_NOT_RUNNING,
                 McpErrorMapper.GetPublicMessage(McpErrorCodes.WPF_APP_NOT_RUNNING));
         }
         catch (IOException ex)
         {
             LogIpcCommunicationFailedDelegate(_logger, _pipeName, ex);
-            return PlaybackControlResult<PlayTrackResponse>.Failure(
+            return PlaybackControlResult<T>.Failure(
                 McpErrorCodes.IPC_CONNECTION_FAILED,
                 McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
         }
 
-        // 2. コマンド送信および応答受信（クライアント側有効期限を WPF 側へ伝播する）
-        DateTimeOffset deadlineUtc = DateTimeOffset.UtcNow + _commandTimeout;
-        var request = new AppIpcRequest(
-            Command: AppIpcServer.COMMAND_PLAY_TRACK,
-            TrackId: requestTrackId,
-            FilePath: requestFilePath,
-            DeadlineUtc: deadlineUtc);
-
+        // 2. コマンド送信および応答受信（接続完了後の最新時刻で有効期限を再算出する）
+        AppIpcRequest timedRequest = request with { DeadlineUtc = DateTimeOffset.UtcNow + _commandTimeout };
         AppIpcResponse? response;
         try
         {
@@ -197,14 +317,14 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
             using var writer = new StreamWriter(client, Utf8NoBom, bufferSize: 1024, leaveOpen: true) { AutoFlush = true };
             using var reader = new StreamReader(client, Utf8NoBom, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
 
-            string requestJson = JsonSerializer.Serialize(request, IpcJsonOptions);
+            string requestJson = JsonSerializer.Serialize(timedRequest, IpcJsonOptions);
             await writer.WriteLineAsync(requestJson.AsMemory(), ioTimeoutCts.Token).ConfigureAwait(false);
 
             string? responseLine = await reader.ReadLineAsync(ioTimeoutCts.Token).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(responseLine))
             {
                 LogIpcCommunicationFailedDelegate(_logger, _pipeName, null);
-                return PlaybackControlResult<PlayTrackResponse>.Failure(
+                return PlaybackControlResult<T>.Failure(
                     McpErrorCodes.IPC_CONNECTION_FAILED,
                     McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
             }
@@ -218,7 +338,7 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
         catch (Exception ex) when (ex is OperationCanceledException or TimeoutException or IOException or JsonException)
         {
             LogIpcCommunicationFailedDelegate(_logger, _pipeName, ex);
-            return PlaybackControlResult<PlayTrackResponse>.Failure(
+            return PlaybackControlResult<T>.Failure(
                 McpErrorCodes.IPC_CONNECTION_FAILED,
                 McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
         }
@@ -226,39 +346,21 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
         if (response is null)
         {
             LogIpcCommunicationFailedDelegate(_logger, _pipeName, null);
-            return PlaybackControlResult<PlayTrackResponse>.Failure(
+            return PlaybackControlResult<T>.Failure(
                 McpErrorCodes.IPC_CONNECTION_FAILED,
                 McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
         }
 
         if (response.Ok)
         {
-            if (string.IsNullOrWhiteSpace(response.PlaybackState) || response.Track is null)
-            {
-                LogIpcCommunicationFailedDelegate(_logger, _pipeName, null);
-                return PlaybackControlResult<PlayTrackResponse>.Failure(
-                    McpErrorCodes.IPC_CONNECTION_FAILED,
-                    McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
-            }
-
-            PlayedTrackDto trackDto = PlayedTrackDto.FromIpcTrackInfo(response.Track);
-            if (resolvedLocalTrackId.HasValue)
-            {
-                trackDto = trackDto with { Id = resolvedLocalTrackId.Value };
-            }
-
-            var dto = new PlayTrackResponse(
-                PlaybackState: response.PlaybackState,
-                Track: trackDto);
-
-            return PlaybackControlResult<PlayTrackResponse>.Success(dto);
+            return onSuccess(response);
         }
 
         string mappedErrorCode = MapIpcErrorCode(response.ErrorCode);
         string diagnostic = string.IsNullOrWhiteSpace(response.Error) ? "(詳細なし)" : response.Error;
         LogIpcErrorResponseDelegate(_logger, mappedErrorCode, diagnostic, null);
 
-        return PlaybackControlResult<PlayTrackResponse>.Failure(
+        return PlaybackControlResult<T>.Failure(
             mappedErrorCode,
             McpErrorMapper.GetPublicMessage(mappedErrorCode));
     }

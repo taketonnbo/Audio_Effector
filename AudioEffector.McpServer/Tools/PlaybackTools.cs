@@ -16,6 +16,8 @@ namespace AudioEffector.McpServer.Tools;
 public sealed class PlaybackTools
 {
     private static readonly string[] RequiredTrackParameters = ["trackId", "filePath"];
+    private static readonly string[] RequiredAlbumParameters = ["albumId", "albumName"];
+    private static readonly string[] RequiredPlaylistParameters = ["playlistId", "playlistName"];
 
     private readonly IPlaybackControlGateway _playbackGateway;
     private readonly ILogger<PlaybackTools> _logger;
@@ -90,23 +92,217 @@ public sealed class PlaybackTools
                 .PlayTrackAsync(parsedTrackId, normalizedFilePath, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (result.IsSuccess && result.Value is not null)
-            {
-                return McpResponseFormatter.Success(result.Value);
-            }
-
-            string errorCode = string.IsNullOrWhiteSpace(result.ErrorCode)
-                ? McpErrorCodes.INTERNAL_ERROR
-                : result.ErrorCode;
-            string errorMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
-                ? McpErrorMapper.GetPublicMessage(errorCode)
-                : result.ErrorMessage;
-
-            return McpResponseFormatter.Error(errorCode, errorMessage, result.Details);
+            return FormatGatewayResult(result);
         }
         catch (Exception ex)
         {
             return McpResponseFormatter.FromException(ex, _logger);
         }
+    }
+
+    /// <summary>
+    /// 起動中の Audio Effector で指定されたアルバム全体の再生を開始し、残りの収録曲を再生キューへ展開します。
+    /// </summary>
+    /// <param name="albumId">再生対象アルバムの ID（GUID 文字列。<paramref name="albumName"/> 未指定時は必須。両方指定時は優先）。</param>
+    /// <param name="albumName">再生対象のアルバム名（<paramref name="albumId"/> 未指定時は必須）。</param>
+    /// <param name="artist"><paramref name="albumName"/> 指定時の同名アルバム絞り込み用アーティスト名（任意）。</param>
+    /// <param name="startTrackId">途中曲から再生する場合の開始トラック ID（GUID 文字列、任意）。</param>
+    /// <param name="startTrackIndex">途中曲から再生する場合の 0 始まりインデックス（<paramref name="startTrackId"/> 優先、任意）。</param>
+    /// <param name="shuffle">シャッフル再生の有効／無効（省略時は現在の本体設定を維持）。</param>
+    /// <param name="repeat">リピート再生の有効／無効（省略時は現在の本体設定を維持）。</param>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>アルバム再生開始結果および開始トラック情報を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "play_album")]
+    [Description("起動中の Audio Effector で指定したアルバム（albumId または albumName）全体の再生を開始し、残りの収録曲をキューへ展開します。シャッフル・リピート・途中曲開始に対応します。Audio Effector 本体が未起動の場合は、先に launch_app（例: mode: \"mini_player\"）で起動してから再実行してください。")]
+    public async Task<CallToolResult> PlayAlbumAsync(
+        [Description("再生対象アルバムの AlbumId（GUID 文字列。albumName 未指定時は必須、両方指定時は albumId 優先）")] string? albumId = null,
+        [Description("再生対象のアルバム名（albumId 未指定時は必須）")] string? albumName = null,
+        [Description("albumName 指定時の同名アルバム絞り込み用アーティスト名（任意）")] string? artist = null,
+        [Description("途中曲から再生する場合の開始トラック ID（GUID 文字列、任意）")] string? startTrackId = null,
+        [Description("途中曲から再生する場合の 0 始まりインデックス（startTrackId 優先、0 以上、任意）")] int? startTrackIndex = null,
+        [Description("シャッフル再生の有効／無効（省略時は現在設定を維持）")] bool? shuffle = null,
+        [Description("リピート再生の有効／無効（省略時は現在設定を維持）")] bool? repeat = null,
+        CancellationToken cancellationToken = default)
+    {
+        bool hasAlbumId = !string.IsNullOrWhiteSpace(albumId);
+        bool hasAlbumName = !string.IsNullOrWhiteSpace(albumName);
+
+        if (!hasAlbumId && !hasAlbumName)
+        {
+            return McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                "albumId または albumName のいずれかを指定してください。",
+                new { parameters = RequiredAlbumParameters });
+        }
+
+        AlbumId? parsedAlbumId = null;
+        if (hasAlbumId)
+        {
+            if (!Guid.TryParse(albumId!.Trim(), out Guid parsedGuid) || parsedGuid == Guid.Empty)
+            {
+                return McpResponseFormatter.Error(
+                    McpErrorCodes.INVALID_PARAMETER,
+                    "albumId には有効な GUID 文字列を指定してください。",
+                    new { parameter = "albumId" });
+            }
+
+            parsedAlbumId = AlbumId.From(parsedGuid);
+        }
+
+        if (!TryValidateStartTrackParameters(startTrackId, startTrackIndex, out TrackId? parsedStartTrackId, out CallToolResult? startParamError))
+        {
+            return startParamError!;
+        }
+
+        string? normalizedAlbumName = hasAlbumName ? albumName!.Trim() : null;
+        string? normalizedArtist = string.IsNullOrWhiteSpace(artist) ? null : artist.Trim();
+
+        try
+        {
+            PlaybackControlResult<PlayCollectionResponse> result = await _playbackGateway
+                .PlayAlbumAsync(
+                    parsedAlbumId,
+                    normalizedAlbumName,
+                    normalizedArtist,
+                    parsedStartTrackId,
+                    startTrackIndex,
+                    shuffle,
+                    repeat,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return FormatGatewayResult(result);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
+    /// <summary>
+    /// 起動中の Audio Effector で指定されたユーザー作成プレイリストの再生を開始し、残りの収録曲を再生キューへ展開します。
+    /// </summary>
+    /// <param name="playlistId">再生対象プレイリストの ID（GUID 文字列。<paramref name="playlistName"/> 未指定時は必須。両方指定時は優先）。</param>
+    /// <param name="playlistName">再生対象のプレイリスト名（<paramref name="playlistId"/> 未指定時は必須）。</param>
+    /// <param name="startTrackId">途中曲から再生する場合の開始トラック ID（GUID 文字列、任意）。</param>
+    /// <param name="startTrackIndex">途中曲から再生する場合の 0 始まりインデックス（<paramref name="startTrackId"/> 優先、任意）。</param>
+    /// <param name="shuffle">シャッフル再生の有効／無効（省略時は現在の本体設定を維持）。</param>
+    /// <param name="repeat">リピート再生の有効／無効（省略時は現在の本体設定を維持）。</param>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>プレイリスト再生開始結果および開始トラック情報を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "play_playlist")]
+    [Description("起動中の Audio Effector で指定したユーザー作成プレイリスト（playlistId または playlistName）の再生を開始し、残りの収録曲をキューへ展開します。シャッフル・リピート・途中曲開始に対応します。Audio Effector 本体が未起動の場合は、先に launch_app（例: mode: \"mini_player\"）で起動してから再実行してください。")]
+    public async Task<CallToolResult> PlayPlaylistAsync(
+        [Description("再生対象プレイリストの PlaylistId（GUID 文字列。playlistName 未指定時は必須、両方指定時は playlistId 優先）")] string? playlistId = null,
+        [Description("再生対象のプレイリスト名（playlistId 未指定時は必須）")] string? playlistName = null,
+        [Description("途中曲から再生する場合の開始トラック ID（GUID 文字列、任意）")] string? startTrackId = null,
+        [Description("途中曲から再生する場合の 0 始まりインデックス（startTrackId 優先、0 以上、任意）")] int? startTrackIndex = null,
+        [Description("シャッフル再生の有効／無効（省略時は現在設定を維持）")] bool? shuffle = null,
+        [Description("リピート再生の有効／無効（省略時は現在設定を維持）")] bool? repeat = null,
+        CancellationToken cancellationToken = default)
+    {
+        bool hasPlaylistId = !string.IsNullOrWhiteSpace(playlistId);
+        bool hasPlaylistName = !string.IsNullOrWhiteSpace(playlistName);
+
+        if (!hasPlaylistId && !hasPlaylistName)
+        {
+            return McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                "playlistId または playlistName のいずれかを指定してください。",
+                new { parameters = RequiredPlaylistParameters });
+        }
+
+        PlaylistId? parsedPlaylistId = null;
+        if (hasPlaylistId)
+        {
+            if (!Guid.TryParse(playlistId!.Trim(), out Guid parsedGuid) || parsedGuid == Guid.Empty)
+            {
+                return McpResponseFormatter.Error(
+                    McpErrorCodes.INVALID_PARAMETER,
+                    "playlistId には有効な GUID 文字列を指定してください。",
+                    new { parameter = "playlistId" });
+            }
+
+            parsedPlaylistId = PlaylistId.From(parsedGuid);
+        }
+
+        if (!TryValidateStartTrackParameters(startTrackId, startTrackIndex, out TrackId? parsedStartTrackId, out CallToolResult? startParamError))
+        {
+            return startParamError!;
+        }
+
+        string? normalizedPlaylistName = hasPlaylistName ? playlistName!.Trim() : null;
+
+        try
+        {
+            PlaybackControlResult<PlayCollectionResponse> result = await _playbackGateway
+                .PlayPlaylistAsync(
+                    parsedPlaylistId,
+                    normalizedPlaylistName,
+                    parsedStartTrackId,
+                    startTrackIndex,
+                    shuffle,
+                    repeat,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return FormatGatewayResult(result);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
+    private static bool TryValidateStartTrackParameters(
+        string? startTrackId,
+        int? startTrackIndex,
+        out TrackId? parsedStartTrackId,
+        out CallToolResult? errorResult)
+    {
+        parsedStartTrackId = null;
+        errorResult = null;
+
+        if (!string.IsNullOrWhiteSpace(startTrackId))
+        {
+            if (!Guid.TryParse(startTrackId.Trim(), out Guid parsedGuid) || parsedGuid == Guid.Empty)
+            {
+                errorResult = McpResponseFormatter.Error(
+                    McpErrorCodes.INVALID_PARAMETER,
+                    "startTrackId には有効な GUID 文字列を指定してください。",
+                    new { parameter = "startTrackId" });
+                return false;
+            }
+
+            parsedStartTrackId = TrackId.From(parsedGuid);
+        }
+
+        if (startTrackIndex.HasValue && startTrackIndex.Value < 0)
+        {
+            errorResult = McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                "startTrackIndex には 0 以上の整数を指定してください。",
+                new { parameter = "startTrackIndex", min = 0 });
+            return false;
+        }
+
+        return true;
+    }
+
+    private static CallToolResult FormatGatewayResult<T>(PlaybackControlResult<T> result)
+    {
+        if (result.IsSuccess && result.Value is not null)
+        {
+            return McpResponseFormatter.Success(result.Value);
+        }
+
+        string errorCode = string.IsNullOrWhiteSpace(result.ErrorCode)
+            ? McpErrorCodes.INTERNAL_ERROR
+            : result.ErrorCode;
+        string errorMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
+            ? McpErrorMapper.GetPublicMessage(errorCode)
+            : result.ErrorMessage;
+
+        return McpResponseFormatter.Error(errorCode, errorMessage, result.Details);
     }
 }

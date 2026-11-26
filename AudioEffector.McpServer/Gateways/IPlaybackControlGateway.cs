@@ -19,6 +19,48 @@ public interface IPlaybackControlGateway
         TrackId? trackId,
         string? filePath,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 指定されたアルバムを Audio Effector 本体で再生開始し、残りの収録曲をキューへ展開します。
+    /// </summary>
+    /// <param name="albumId">再生対象アルバムの ID（省略可。<paramref name="albumName"/> と両方指定時は優先）。</param>
+    /// <param name="albumName">再生対象アルバム名（<paramref name="albumId"/> 未指定時に使用）。</param>
+    /// <param name="artist">同名アルバム絞り込み用アーティスト名（省略可）。</param>
+    /// <param name="startTrackId">開始トラック ID（省略可。<paramref name="startTrackIndex"/> より優先）。</param>
+    /// <param name="startTrackIndex">開始トラックの 0 始まりインデックス（省略可）。</param>
+    /// <param name="shuffle">シャッフル再生の有効／無効（省略時は現在設定を維持）。</param>
+    /// <param name="repeat">リピート再生の有効／無効（省略時は現在設定を維持）。</param>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>コレクション再生開始結果または標準エラーコードを含む処理結果。</returns>
+    Task<PlaybackControlResult<PlayCollectionResponse>> PlayAlbumAsync(
+        AlbumId? albumId,
+        string? albumName,
+        string? artist,
+        TrackId? startTrackId,
+        int? startTrackIndex,
+        bool? shuffle,
+        bool? repeat,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 指定されたユーザー作成プレイリストを Audio Effector 本体で再生開始し、残りの収録曲をキューへ展開します。
+    /// </summary>
+    /// <param name="playlistId">再生対象プレイリストの ID（省略可。<paramref name="playlistName"/> と両方指定時は優先）。</param>
+    /// <param name="playlistName">再生対象プレイリスト名（<paramref name="playlistId"/> 未指定時に使用）。</param>
+    /// <param name="startTrackId">開始トラック ID（省略可。<paramref name="startTrackIndex"/> より優先）。</param>
+    /// <param name="startTrackIndex">開始トラックの 0 始まりインデックス（省略可）。</param>
+    /// <param name="shuffle">シャッフル再生の有効／無効（省略時は現在設定を維持）。</param>
+    /// <param name="repeat">リピート再生の有効／無効（省略時は現在設定を維持）。</param>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>コレクション再生開始結果または標準エラーコードを含む処理結果。</returns>
+    Task<PlaybackControlResult<PlayCollectionResponse>> PlayPlaylistAsync(
+        PlaylistId? playlistId,
+        string? playlistName,
+        TrackId? startTrackId,
+        int? startTrackIndex,
+        bool? shuffle,
+        bool? repeat,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
