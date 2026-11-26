@@ -250,9 +250,46 @@ public class AudioService : IAudioService
     public float[] Frequencies { get; } = { 31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
 
     /// <summary>
+    /// 現在ロード・再生対象のトラックを取得します（未選択・完全停止時は null）
+    /// </summary>
+    public Track? CurrentTrack
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _currentlyPlayingTrack;
+            }
+        }
+    }
+
+    /// <summary>
     /// 現在再生中かどうかを取得します
     /// </summary>
-    public bool IsPlaying => _outputDevice?.PlaybackState == NAudio.Wave.PlaybackState.Playing;
+    public bool IsPlaying
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _outputDevice?.PlaybackState == NAudio.Wave.PlaybackState.Playing;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 現在一時停止中かどうかを取得します
+    /// </summary>
+    public bool IsPaused
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _outputDevice?.PlaybackState == NAudio.Wave.PlaybackState.Paused;
+            }
+        }
+    }
 
     /// <summary>
     /// シャッフル再生が有効かどうかを取得または設定します

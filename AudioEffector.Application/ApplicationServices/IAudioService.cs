@@ -108,9 +108,19 @@ public interface IAudioService : IDisposable
     void MoveAlbumQueueItemToUserQueue(int fromAlbumIndex, int toUserIndex);
 
     /// <summary>
+    /// 現在ロード・再生対象のトラック（未選択・完全停止時は null）
+    /// </summary>
+    Track? CurrentTrack { get; }
+
+    /// <summary>
     /// 現在再生中かどうか
     /// </summary>
     bool IsPlaying { get; }
+
+    /// <summary>
+    /// 現在一時停止中かどうか
+    /// </summary>
+    bool IsPaused { get; }
 
     /// <summary>
     /// シャッフル再生が有効かどうか
