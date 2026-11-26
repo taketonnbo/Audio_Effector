@@ -177,7 +177,8 @@ classDiagram
 | `McpJsonOptions` / `McpErrorCodes` | `Protocol/McpJsonOptions.cs`, `Protocol/McpErrorCodes.cs` | 共通 `JsonSerializerOptions`（`camelCase` / `null` 省略 / `JsonStringEnumConverter` / 日本語非エスケープ）および標準エラーコード定数を定義。 |
 | `McpResponseFormatter` / `McpErrorMapper` | `Protocol/McpResponseFormatter.cs`, `Protocol/McpErrorMapper.cs` | 正常応答 JSON のシリアライズ、`Result` / `Result<T>` 失敗および例外の統一エラーコード変換・機密詳細の非露出とログ記録を担当。 |
 | `SystemTools` / `SystemDtos` | `Tools/SystemTools.cs`, `Dtos/SystemDtos.cs` | Phase 1 の疎通確認用リファレンス実装（`ping`, `get_server_info`）および応答 DTO。 |
-| `LibraryTools` / `LibraryDtos` | `Tools/LibraryTools.cs`, `Dtos/LibraryDtos.cs` | Phase 2 の楽曲ライブラリ検索ツール（`search_tracks`）および応答 DTO（`SearchTracksResponse`, `TrackSummaryDto`）。 |
+| `LibraryTools` / `LibraryDtos` | `Tools/LibraryTools.cs`, `Dtos/LibraryDtos.cs` | Phase 2 の楽曲・アルバム検索ツール（`search_tracks`, `search_albums`）および応答 DTO（`SearchTracksResponse`, `TrackSummaryDto`, `SearchAlbumsResponse`, `AlbumSummaryDto`）。 |
+| `PlaylistTools` / `PlaylistDtos` | `Tools/PlaylistTools.cs`, `Dtos/PlaylistDtos.cs` | Phase 2 のプレイリスト検索ツール（`search_playlists`）および応答 DTO（`SearchPlaylistsResponse`, `PlaylistSummaryDto`）。 |
 | `AppTools` / `AppDtos` | `Tools/AppTools.cs`, `Dtos/AppDtos.cs` | Phase 2 のアプリ起動ツール（`launch_app`）および応答 DTO（`LaunchAppResponse`）。 |
 | `IAppLauncher` / `WpfAppLauncher` | `Gateways/IAppLauncher.cs`, `Gateways/WpfAppLauncher.cs` | WPF 本体の実行ファイルパス解決・多重起動防止確認・起動中プロセス追跡・IPC 待受準備完了待機を担う起動ゲートウェイ。 |
 | `IAppLaunchCoordinator` / `SessionFileAppLaunchCoordinator` | `Gateways/IAppLaunchCoordinator.cs`, `Gateways/SessionFileAppLaunchCoordinator.cs` | Windows セッション単位の OS ファイルロックと共有状態ファイルにより、複数の独立 MCP プロセス間の WPF 起動を調停するコーディネータ。 |
@@ -586,15 +587,135 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 - キャンセル要求（`OperationCanceledException`）→ `OPERATION_CANCELLED`
 - その他の未捕捉例外 → `INTERNAL_ERROR`（内部診断・ファイルパス非露出、詳細は `ILogger` へ記録）
 
-### 5.8 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
+### 5.8 アルバム・プレイリスト検索ツール仕様（Phase 2 #331 実装）
+
+#### 5.8.1 アルバム検索ツール（`search_albums`）
+
+`LibraryTools`（`AudioEffector.McpServer/Tools/LibraryTools.cs`）に、楽曲ライブラリからアルバム単位で検索する **`search_albums`** ツールを実装します。業務ロジック（集約・代表年算出・フィルタ・ページネーション）は `LibraryApplicationService.SearchAlbumsAsync(AlbumSearchQuery, CancellationToken)` へ集約します。
+
+##### 入力パラメータ
+
+| パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
+| :--- | :--- | :---: | :---: | :--- |
+| `keyword` | `string?` | 任意 | `null` | アルバム名・アーティスト名を対象とした部分一致キーワード（大文字・小文字区別なし、前後空白トリム）。 |
+| `artist` | `string?` | 任意 | `null` | アーティスト名での部分一致絞り込み（大文字・小文字区別なし）。 |
+| `genre` | `string?` | 任意 | `null` | 収録楽曲のジャンル名での部分一致絞り込み（大文字・小文字区別なし）。 |
+| `year` | `int?` | 任意 | `null` | 代表リリース年での一致絞り込み（`0` 以上）。負数は `INVALID_PARAMETER` エラー。 |
+| `includeTracks` | `bool` | 任意 | `false` | `true` の場合、各アルバムの収録トラック一覧（`TrackSummaryDto` 配列）を含める。 |
+| `limit` | `int` | 任意 | `50` | 返却する最大件数（`1〜200`）。範囲外は `INVALID_PARAMETER` エラー。 |
+| `offset` | `int` | 任意 | `0` | ページネーション用の取得開始位置（`0` 以上）。負数は `INVALID_PARAMETER` エラー。 |
+
+##### 出力（`data`）JSON スキーマ
+
+```json
+{
+  "totalCount": 3,
+  "count": 1,
+  "offset": 0,
+  "limit": 50,
+  "albums": [
+    {
+      "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "name": "Midnight Sessions",
+      "artist": "Miles Trio",
+      "year": 2024,
+      "trackCount": 2,
+      "totalDurationSeconds": 420.0,
+      "totalDurationString": "07:00",
+      "containsHiRes": true,
+      "containsLossless": true,
+      "tracks": [
+        {
+          "id": "11111111-2222-3333-4444-555555555555",
+          "title": "Opening",
+          "artist": "Miles Trio",
+          "album": "Midnight Sessions",
+          "durationSeconds": 180.0,
+          "durationString": "03:00",
+          "trackNumber": 1,
+          "year": 2024,
+          "genre": "Jazz",
+          "format": "FLAC",
+          "bitrate": 1411,
+          "sampleRate": 96000,
+          "bitsPerSample": 24,
+          "isFavorite": true,
+          "filePath": "C:\\Music\\Midnight\\01.flac"
+        }
+      ]
+    }
+  ]
+}
+```
+
+- `includeTracks: false` の場合、`tracks` プロパティは `null` となり `McpJsonOptions.Default` により JSON 出力から省略されます。
+- **集約・代表年算出・ソート順**: `AlbumGroupingResolver.ResolveAndApply` で決定論的 `AlbumId` とアルバムアーティストを確定し、収録トラックの `Year > 0` の最頻値（同数時は最小の年、すべて 0 の場合は 0）を代表リリース年として `Album.Year` に反映します。フィルタ適用後は `Name` → `Artist` → `Id` 順で安定ソートします。
+
+#### 5.8.2 プレイリスト検索ツール（`search_playlists`）
+
+`PlaylistTools`（`AudioEffector.McpServer/Tools/PlaylistTools.cs`）を新設し、ユーザー作成プレイリストを検索する **`search_playlists`** ツールを実装します。検索および収録トラック解決ロジックは `PlaylistApplicationService.SearchPlaylistsAsync` / `ResolvePlaylistTracksMapAsync` へ集約します。
+
+##### 入力パラメータ
+
+| パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
+| :--- | :--- | :---: | :---: | :--- |
+| `keyword` | `string?` | 任意 | `null` | プレイリスト名を対象とした部分一致キーワード（大文字・小文字区別なし、前後空白トリム）。 |
+| `includeTracks` | `bool` | 任意 | `false` | `true` の場合、各プレイリストの収録トラック一覧（`TrackSummaryDto` 配列）を順序通りに含める。 |
+| `limit` | `int` | 任意 | `50` | 返却する最大件数（`1〜200`）。範囲外は `INVALID_PARAMETER` エラー。 |
+| `offset` | `int` | 任意 | `0` | ページネーション用の取得開始位置（`0` 以上）。負数は `INVALID_PARAMETER` エラー。 |
+
+##### 出力（`data`）JSON スキーマ
+
+```json
+{
+  "totalCount": 2,
+  "count": 1,
+  "offset": 0,
+  "limit": 50,
+  "playlists": [
+    {
+      "id": "99999999-8888-7777-6666-555555555555",
+      "name": "Night Jazz",
+      "trackCount": 1,
+      "createdAt": "2026-11-01T10:00:00Z",
+      "updatedAt": "2026-11-20T15:30:00Z",
+      "tracks": [
+        {
+          "id": "11111111-2222-3333-4444-555555555555",
+          "title": "Blue Note",
+          "artist": "Miles Trio",
+          "album": "Midnight Sessions",
+          "durationSeconds": 200.0,
+          "durationString": "03:20",
+          "trackNumber": 1,
+          "year": 2024,
+          "genre": "Jazz",
+          "format": "FLAC",
+          "bitrate": 1411,
+          "sampleRate": 44100,
+          "bitsPerSample": 16,
+          "isFavorite": false,
+          "filePath": "C:\\Music\\blue.flac"
+        }
+      ]
+    }
+  ]
+}
+```
+
+- `includeTracks: false` の場合は `ITrackRepository` へアクセスせず、`tracks` プロパティを省略します。
+- `includeTracks: true` の場合は `UserPlaylist.TrackIds`（未設定時は旧互換 `UserPlaylist.TrackPaths`）を `ITrackRepository.GetAllAsync` から一括解決し、プレイリスト内の順序を維持して返却します。
+- **ソート順・エラーケース**: フィルタ適用後は `Name` → `Id` 順で安定ソートします。`limit` / `offset` / `year` 範囲外は `INVALID_PARAMETER`、ファイルロックタイムアウトは `CONFLICT_LOCK_TIMEOUT`、キャンセルは `OPERATION_CANCELLED`、その他例外は `INTERNAL_ERROR` へ変換します。
+
+### 5.9 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
 
 個別ツールの詳細スキーマ・バリデーション・実装仕様は Phase 2 親 Issue（#301）配下の各子 Issue にて順次策定し、実装に合わせて本設計書および機能仕様書へ追記します。
 
 | カテゴリ | 想定ツール / リソース例 | 主な接続先 | 関連子 Issue |
 | :--- | :--- | :--- | :--- |
 | **アプリ起動・ライフサイクル** | `launch_app` | `IAppLauncher` → WPF `AudioEffector.exe` | #316（アプリの起動） |
-| **楽曲ライブラリ参照・検索** | `search_tracks`, `get_track`, `list_albums`, `list_artists`, `list_favorites`, `list_recent_tracks` | `LibraryApplicationService` | #305（曲の検索）ほか |
-| **プレイリスト管理** | `list_playlists`, `get_playlist`, `create_playlist`, `add_tracks_to_playlist`, `remove_track_from_playlist` | `PlaylistApplicationService` | 順次起票 |
+| **楽曲ライブラリ参照・検索** | `search_tracks`, `search_albums`, `get_track`, `list_artists`, `list_favorites`, `list_recent_tracks` | `LibraryApplicationService` | #305（曲の検索）, #331（アルバム・プレイリスト検索）ほか |
+| **プレイリスト管理** | `search_playlists`, `get_playlist`, `create_playlist`, `add_tracks_to_playlist`, `remove_track_from_playlist` | `PlaylistApplicationService` | #331（アルバム・プレイリスト検索）ほか |
 | **イコライザー・プリセット** | `list_equalizer_presets`, `get_equalizer_settings`, `apply_equalizer_preset` | `EqualizerApplicationService` | 順次起票 |
 | **アプリ設定** | `get_settings`, `update_settings` | `SettingsApplicationService` / `ISettingsService` | 順次起票 |
 | **再生制御・再生キュー連携** | `play_track`, `get_playback_status`, `pause_playback`, `next_track`, `enqueue_tracks` | `IPlaybackControlGateway` → WPF `IAudioService` / `AudioApplicationService` | #306（曲の再生）ほか |
@@ -626,4 +747,4 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - [インフラストラクチャ層詳細設計書](アーキテクチャ/インフラストラクチャ層詳細設計書.md)
   - [プレゼンテーション層詳細設計書](アーキテクチャ/プレゼンテーション層詳細設計書.md)
   - [テスト方針書](テスト仕様/テスト方針書.md)
-- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316)
+- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)
