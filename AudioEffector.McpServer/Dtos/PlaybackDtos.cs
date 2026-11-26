@@ -1,14 +1,42 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 using AudioEffector.Infrastructure.Ipc;
 
 namespace AudioEffector.McpServer.Dtos;
+
+/// <summary>
+/// <c>get_playback_state</c> ツールの応答データ DTO です。
+/// </summary>
+/// <param name="PlaybackState">現在の再生状態（<c>playing</c> / <c>paused</c> / <c>stopped</c>）。</param>
+/// <param name="Track">再生中または一時停止中のトラック情報（停止・未選択時は <see langword="null"/>）。</param>
+/// <param name="PositionSeconds">現在再生位置（秒）。</param>
+/// <param name="PositionString">フォーマット済み現在再生位置文字列（例: <c>01:23</c>）。</param>
+/// <param name="DurationSeconds">総再生時間（秒）。</param>
+/// <param name="DurationString">フォーマット済み総再生時間文字列（例: <c>03:45</c>）。</param>
+/// <param name="Volume">現在の音量（0.0〜1.0）。</param>
+/// <param name="IsShuffleEnabled">シャッフル再生の有効状態。</param>
+/// <param name="IsRepeatEnabled">リピート再生の有効状態。</param>
+/// <param name="UserQueueCount">予約キューの件数。</param>
+/// <param name="AlbumQueueCount">アルバム残り曲キューの件数。</param>
+[SuppressMessage("StyleCop.CSharp.DocumentationRules", "SA1649:File name should match first type name", Justification = "カテゴリ単位の DTO 集約ファイル規約（MCPサーバ詳細設計書 5.1 準拠）")]
+public sealed record PlaybackStateResponse(
+    string PlaybackState,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] PlayedTrackDto? Track,
+    double PositionSeconds,
+    string PositionString,
+    double DurationSeconds,
+    string DurationString,
+    double Volume,
+    bool IsShuffleEnabled,
+    bool IsRepeatEnabled,
+    int UserQueueCount,
+    int AlbumQueueCount);
 
 /// <summary>
 /// <c>play_track</c> ツールの応答データ DTO です。
 /// </summary>
 /// <param name="PlaybackState">現在の再生状態（例: <c>playing</c>）。</param>
 /// <param name="Track">再生を開始した楽曲情報。</param>
-[SuppressMessage("StyleCop.CSharp.DocumentationRules", "SA1649:File name should match first type name", Justification = "カテゴリ単位の DTO 集約ファイル規約（MCPサーバ詳細設計書 5.1 準拠）")]
 public sealed record PlayTrackResponse(
     string PlaybackState,
     PlayedTrackDto Track);

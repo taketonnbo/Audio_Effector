@@ -9,6 +9,14 @@ namespace AudioEffector.McpServer.Gateways;
 public interface IPlaybackControlGateway
 {
     /// <summary>
+    /// 起動中の Audio Effector 本体から現在の再生状態スナップショットを取得します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>現在の再生状態または標準エラーコードを含む処理結果。</returns>
+    Task<PlaybackControlResult<PlaybackStateResponse>> GetPlaybackStateAsync(
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 指定されたトラック ID または音声ファイルパスの楽曲を Audio Effector 本体で再生開始します。
     /// </summary>
     /// <param name="trackId">再生対象トラックの ID（省略可）。</param>
