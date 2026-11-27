@@ -70,6 +70,7 @@ PR_ISSUE_REF_RE = re.compile(
     re.IGNORECASE,
 )
 BRANCH_ISSUE_RE = re.compile(r"(?:^|/)(\d+)(?:[-_]|$)")
+WORKTREE_ISSUE_RE = re.compile(r"(?:^|/)issue-(\d+)(?:$|/)", re.IGNORECASE)
 REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 CODE_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 
@@ -523,7 +524,7 @@ def fetch_pull_requests(repo: Optional[str], timeout: int) -> List[Dict[str, Any
         "--limit",
         "100",
         "--json",
-        "number,title,body,state,isDraft,headRefName,baseRefName,url,mergedAt,reviewDecision,statusCheckRollup",
+        "number,title,body,state,isDraft,headRefName,baseRefName,url,mergedAt,reviewDecision,statusCheckRollup,mergeable,mergeStateStatus",
     ]
     if repo:
         cmd.extend(["--repo", repo])
@@ -624,6 +625,78 @@ def fetch_local_branches(timeout: int = 10) -> Set[int]:
     return found
 
 
+def parse_worktree_porcelain(porcelain_output: str) -> Dict[int, Dict[str, str]]:
+    """`git worktree list --porcelain` の出力から `.agent_worktrees/` 配下の稼働中ワークツリーを抽出する。"""
+    worktrees: Dict[int, Dict[str, str]] = {}
+    current_path: Optional[str] = None
+    current_branch: str = ""
+
+    def flush_entry() -> None:
+        nonlocal current_path, current_branch
+        if not current_path:
+            return
+        normalized = current_path.replace("\\", "/")
+        if "/.agent_worktrees/" in normalized or normalized.startswith(".agent_worktrees/"):
+            issue_num: Optional[int] = None
+            m_path = WORKTREE_ISSUE_RE.search(normalized)
+            if m_path:
+                issue_num = int(m_path.group(1))
+            elif current_branch:
+                m_branch = BRANCH_ISSUE_RE.search(current_branch)
+                if m_branch:
+                    issue_num = int(m_branch.group(1))
+            if issue_num is not None:
+                worktrees[issue_num] = {
+                    "path": current_path,
+                    "branch": current_branch,
+                }
+        current_path = None
+        current_branch = ""
+
+    for raw_line in porcelain_output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            flush_entry()
+            continue
+        if line.startswith("worktree "):
+            flush_entry()
+            current_path = line[len("worktree "):].strip()
+        elif line.startswith("branch "):
+            ref = line[len("branch "):].strip()
+            if ref.startswith("refs/heads/"):
+                current_branch = ref[len("refs/heads/"):]
+            else:
+                current_branch = ref
+        elif line == "detached":
+            current_branch = ""
+
+    flush_entry()
+    return worktrees
+
+
+def fetch_active_worktrees(timeout: int = 10) -> Dict[int, Dict[str, str]]:
+    """`git worktree list --porcelain` を実行し、`.agent_worktrees/` 配下のワークツリー一覧を Issue 番号キーで返す。"""
+    rc, out, _ = run_command(["git", "worktree", "list", "--porcelain"], timeout=timeout)
+    if rc != 0 or not out.strip():
+        return {}
+    return parse_worktree_porcelain(out)
+
+
+def collect_worktree_warnings(children: Sequence[Dict[str, Any]]) -> List[str]:
+    """`merged` 状態にもかかわらず `.agent_worktrees/` にワークツリーが残留している子 Issue の警告を生成する。"""
+    warnings: List[str] = []
+    for c in children:
+        if c.get("status") == "merged" and c.get("worktree"):
+            wt = c["worktree"]
+            wt_path = wt.get("path", "")
+            num = c["number"]
+            warnings.append(
+                f"子 Issue #{num} は merged 状態ですがワークツリーが残留しています ({wt_path})。"
+                f"`.\\tools\\worktree_manager.ps1 -Action remove -IssueNumber {num}` でクリーンアップしてください。"
+            )
+    return warnings
+
+
 def match_pr_to_issue_numbers(pr: Dict[str, Any]) -> Set[int]:
     """PR のブランチ名・タイトル・本文から紐づく Issue 番号集合を抽出する。"""
     matched: Set[int] = set()
@@ -683,9 +756,11 @@ def classify_child_statuses(
     unresolved_threads_by_pr: Dict[int, int],
     local_branch_issues: Set[int],
     blocked_overrides: Dict[int, Dict[str, Any]],
+    active_worktrees: Optional[Dict[int, Dict[str, str]]] = None,
 ) -> List[Dict[str, Any]]:
     """全子 Issue の状態を分類し、構造化レコード一覧を返す。"""
     preliminary: Dict[int, Dict[str, Any]] = {}
+    worktrees_map = active_worktrees or {}
 
     # 1st pass: 依存関係以外の状態（merged / blocked / fixing_review / in_review / implementing）を判定
     for spec in specs:
@@ -700,20 +775,41 @@ def classify_child_statuses(
         if pr is not None:
             pr_num = int(pr.get("number") or 0)
             pr_state = str(pr.get("state") or "").upper()
+            is_draft = bool(pr.get("isDraft", False))
             unresolved = unresolved_threads_by_pr.get(pr_num, 0)
             ci_state = summarize_ci_state(pr.get("statusCheckRollup"))
+            mergeable = str(pr.get("mergeable") or "").upper()
+            merge_state_status = str(pr.get("mergeStateStatus") or "").upper()
+            is_open_ready = pr_state == "OPEN" and not is_draft
+            has_conflict = is_open_ready and (
+                mergeable == "CONFLICTING" or merge_state_status == "DIRTY"
+            )
+            needs_sync = is_open_ready and (
+                has_conflict or merge_state_status == "BEHIND"
+            )
             pr_info = {
                 "number": pr_num,
                 "title": pr.get("title", ""),
                 "state": pr_state,
-                "is_draft": bool(pr.get("isDraft", False)),
+                "is_draft": is_draft,
                 "head_branch": pr.get("headRefName", ""),
                 "base_branch": pr.get("baseRefName", ""),
                 "url": pr.get("url", ""),
                 "review_decision": pr.get("reviewDecision") or "",
                 "unresolved_review_threads": unresolved,
                 "ci_state": ci_state,
+                "mergeable": mergeable,
+                "merge_state_status": merge_state_status,
+                "has_conflict": has_conflict,
+                "needs_sync": needs_sync,
             }
+
+        wt_raw = worktrees_map.get(spec.number)
+        worktree_info: Optional[Dict[str, str]] = (
+            {"path": wt_raw["path"], "branch": wt_raw.get("branch", "")}
+            if wt_raw is not None
+            else None
+        )
 
         has_blocked_label = any("blocked" in lbl.lower() for lbl in labels)
         override = blocked_overrides.get(spec.number)
@@ -743,13 +839,22 @@ def classify_child_statuses(
                     reasons.append("CHANGES_REQUESTED")
                 if pr_info["ci_state"] == "FAIL":
                     reasons.append("CI 失敗")
+                if pr_info["has_conflict"]:
+                    reasons.append("コンフリクトあり")
+                elif pr_info["needs_sync"]:
+                    reasons.append("ベース追従同期必要(BEHIND)")
                 status_reason = f"PR #{pr_info['number']}: " + " / ".join(reasons)
             else:
                 status = "in_review"
-                status_reason = f"PR #{pr_info['number']} レビュー待ち／マージ確認待ち"
-        elif spec.number in local_branch_issues:
+                if pr_info["has_conflict"]:
+                    status_reason = f"PR #{pr_info['number']} コンフリクトあり（sync_branch 必須）"
+                elif pr_info["needs_sync"]:
+                    status_reason = f"PR #{pr_info['number']} ベース追従同期が必要（BEHIND）"
+                else:
+                    status_reason = f"PR #{pr_info['number']} レビュー待ち／マージ確認待ち"
+        elif spec.number in local_branch_issues or worktree_info is not None:
             status = "implementing"
-            status_reason = "ローカル作業ブランチが存在"
+            status_reason = "稼働中ワークツリーが存在" if worktree_info is not None else "ローカル作業ブランチが存在"
 
         preliminary[spec.number] = {
             "number": spec.number,
@@ -765,6 +870,7 @@ def classify_child_statuses(
             "status_reason": status_reason,
             "blocked_reason": status_reason if status == "blocked" else "",
             "pr": pr_info,
+            "worktree": worktree_info,
         }
 
     # 2nd pass: pending のうち未完了依存があるものを waiting_deps へ分類
@@ -1055,6 +1161,7 @@ def build_state(
 
     unresolved_by_pr = fetch_unresolved_review_threads(open_pr_numbers, repo, timeout)
     local_branch_issues = fetch_local_branches(timeout=min(timeout, 15))
+    active_worktrees = fetch_active_worktrees(timeout=min(timeout, 15))
 
     children = classify_child_statuses(
         specs=specs,
@@ -1063,7 +1170,9 @@ def build_state(
         unresolved_threads_by_pr=unresolved_by_pr,
         local_branch_issues=local_branch_issues,
         blocked_overrides=blocked_overrides,
+        active_worktrees=active_worktrees,
     )
+    warnings.extend(collect_worktree_warnings(children))
 
     # マージ済みになった Issue の古い blocked_override は自動クリア
     for c in children:
