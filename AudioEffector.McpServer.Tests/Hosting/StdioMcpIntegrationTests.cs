@@ -98,6 +98,7 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Contains("search_tracks", toolNames);
                 Assert.Contains("search_albums", toolNames);
                 Assert.Contains("search_playlists", toolNames);
+                Assert.Contains("create_playlist", toolNames);
                 Assert.Contains("launch_app", toolNames);
                 Assert.Contains("get_playback_state", toolNames);
                 Assert.Contains("get_playback_queue", toolNames);
@@ -155,6 +156,7 @@ public sealed class StdioMcpIntegrationTests : IDisposable
             }
 
             // Act & Assert 4b: tools/call (search_tracks)
+            string firstTrackId;
             await SendJsonLineAsync(
                 sut.StandardInput,
                 """{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"search_tracks","arguments":{"keyword":"統合テスト曲 1","limit":10,"offset":0}}}""",
@@ -173,8 +175,84 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Equal(1, data.GetProperty("totalCount").GetInt32());
                 Assert.Equal(1, data.GetProperty("count").GetInt32());
                 JsonElement track = Assert.Single(data.GetProperty("tracks").EnumerateArray());
+                firstTrackId = track.GetProperty("id").GetString()!;
                 Assert.Equal("統合テスト曲 1", track.GetProperty("title").GetString());
                 Assert.Equal("テストアーティスト", track.GetProperty("artist").GetString());
+            }
+
+            // Act & Assert 4b-1b: tools/call (create_playlist → search_playlists で作成済みプレイリストを取得できること)
+            string createPlaylistRequest = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                id = 403,
+                method = "tools/call",
+                @params = new
+                {
+                    name = "create_playlist",
+                    arguments = new
+                    {
+                        name = "stdio統合プレイリスト",
+                        trackIds = new[] { firstTrackId },
+                    },
+                },
+            });
+            await SendJsonLineAsync(sut.StandardInput, createPlaylistRequest, timeoutCts.Token);
+
+            Guid createdPlaylistId;
+            string createPlaylistLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument createPlaylistDoc = JsonDocument.Parse(createPlaylistLine))
+            {
+                JsonElement result = createPlaylistDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                JsonElement data = payloadDoc.RootElement.GetProperty("data");
+                Assert.Equal(1, data.GetProperty("addedCount").GetInt32());
+                JsonElement playlist = data.GetProperty("playlist");
+                createdPlaylistId = playlist.GetProperty("id").GetGuid();
+                Assert.NotEqual(Guid.Empty, createdPlaylistId);
+                Assert.Equal("stdio統合プレイリスト", playlist.GetProperty("name").GetString());
+                Assert.Equal(1, playlist.GetProperty("trackCount").GetInt32());
+            }
+
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":404,"method":"tools/call","params":{"name":"search_playlists","arguments":{"keyword":"stdio統合プレイリスト","includeTracks":true,"limit":10,"offset":0}}}""",
+                timeoutCts.Token);
+
+            string verifyCreatedPlaylistLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument verifyCreatedDoc = JsonDocument.Parse(verifyCreatedPlaylistLine))
+            {
+                JsonElement result = verifyCreatedDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                JsonElement playlist = Assert.Single(payloadDoc.RootElement.GetProperty("data").GetProperty("playlists").EnumerateArray());
+                Assert.Equal(createdPlaylistId, playlist.GetProperty("id").GetGuid());
+                JsonElement singleTrack = Assert.Single(playlist.GetProperty("tracks").EnumerateArray());
+                Assert.Equal("統合テスト曲 1", singleTrack.GetProperty("title").GetString());
+            }
+
+            // Act & Assert 4b-1c: tools/call (create_playlist 空名バリデーションエラーでも stdout 非汚染)
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":405,"method":"tools/call","params":{"name":"create_playlist","arguments":{"name":"   "}}}""",
+                timeoutCts.Token);
+
+            string createErrLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument createErrDoc = JsonDocument.Parse(createErrLine))
+            {
+                JsonElement result = createErrDoc.RootElement.GetProperty("result");
+                Assert.True(result.GetProperty("isError").GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.False(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                Assert.Equal("INVALID_PARAMETER", payloadDoc.RootElement.GetProperty("error").GetProperty("code").GetString());
             }
 
             // Act & Assert 4b-2: tools/call (search_playlists を search_albums より先に呼び、旧WPF形式と最新お気に入り反映を検証)
