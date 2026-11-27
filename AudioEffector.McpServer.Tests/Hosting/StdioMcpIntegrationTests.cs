@@ -103,6 +103,7 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Contains("remove_tracks_from_playlist", toolNames);
                 Assert.Contains("reorder_playlist_track", toolNames);
                 Assert.Contains("rename_playlist", toolNames);
+                Assert.Contains("delete_playlist", toolNames);
                 Assert.Contains("launch_app", toolNames);
                 Assert.Contains("get_playback_state", toolNames);
                 Assert.Contains("get_playback_queue", toolNames);
@@ -372,6 +373,70 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
                 Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
                 Assert.Equal(1, payloadDoc.RootElement.GetProperty("data").GetProperty("playlist").GetProperty("trackCount").GetInt32());
+            }
+
+            // Act & Assert 4b-1e: tools/call (delete_playlist → search_playlists で削除が反映されること、および引数未指定エラーで stdout 非汚染)
+            string deletePlaylistRequest = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                id = 410,
+                method = "tools/call",
+                @params = new
+                {
+                    name = "delete_playlist",
+                    arguments = new
+                    {
+                        playlistId = createdPlaylistId.ToString(),
+                    },
+                },
+            });
+            await SendJsonLineAsync(sut.StandardInput, deletePlaylistRequest, timeoutCts.Token);
+
+            string deletePlaylistLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument deletePlaylistDoc = JsonDocument.Parse(deletePlaylistLine))
+            {
+                JsonElement result = deletePlaylistDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                JsonElement data = payloadDoc.RootElement.GetProperty("data");
+                Assert.True(data.GetProperty("deleted").GetBoolean());
+                Assert.Equal(createdPlaylistId, data.GetProperty("deletedPlaylistId").GetGuid());
+                Assert.Equal("stdio編集済みプレイリスト", data.GetProperty("deletedPlaylistName").GetString());
+                Assert.Equal(1, data.GetProperty("deletedTrackCount").GetInt32());
+            }
+
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":411,"method":"tools/call","params":{"name":"search_playlists","arguments":{"keyword":"stdio編集済みプレイリスト","limit":10,"offset":0}}}""",
+                timeoutCts.Token);
+
+            string verifyDeletedLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument verifyDeletedDoc = JsonDocument.Parse(verifyDeletedLine))
+            {
+                JsonElement result = verifyDeletedDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                Assert.Equal(0, payloadDoc.RootElement.GetProperty("data").GetProperty("totalCount").GetInt32());
+            }
+
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":412,"method":"tools/call","params":{"name":"delete_playlist","arguments":{}}}""",
+                timeoutCts.Token);
+
+            string deleteErrLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument deleteErrDoc = JsonDocument.Parse(deleteErrLine))
+            {
+                JsonElement result = deleteErrDoc.RootElement.GetProperty("result");
+                Assert.True(result.GetProperty("isError").GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.False(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                Assert.Equal("INVALID_PARAMETER", payloadDoc.RootElement.GetProperty("error").GetProperty("code").GetString());
             }
 
             // Act & Assert 4b-2: tools/call (search_playlists を search_albums より先に呼び、旧WPF形式と最新お気に入り反映を検証)

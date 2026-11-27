@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -180,6 +180,86 @@ public sealed class JsonPlaylistRepositoryTests : IDisposable
 
         // Assert
         Assert.Null(exception);
+    }
+
+    /// <summary>
+    /// DeleteAndReturnAsync で存在するプレイリスト ID を指定した場合、削除前エンティティを返し永続ファイルからも削除されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeleteAndReturnAsync_存在するプレイリストID_削除前エンティティを返し永続的に削除されること()
+    {
+        // Arrange
+        using var sut = CreateSut();
+        var playlist = new UserPlaylist(PlaylistId.New(), "削除前確認プレイリスト", [TrackId.New(), TrackId.New()]);
+        await sut.SaveAsync(playlist);
+
+        // Act
+        UserPlaylist? removed = await sut.DeleteAndReturnAsync(playlist.Id);
+
+        // Assert
+        Assert.NotNull(removed);
+        Assert.Equal(playlist.Id, removed.Id);
+        Assert.Equal("削除前確認プレイリスト", removed.Name);
+        Assert.Equal(2, removed.TrackCount);
+        Assert.Null(await sut.GetByIdAsync(playlist.Id));
+
+        using var anotherInstance = CreateSut();
+        Assert.Empty(await anotherInstance.GetAllAsync());
+    }
+
+    /// <summary>
+    /// DeleteAndReturnAsync で存在しないプレイリスト ID を指定した場合、null を返しファイル書き込みを行わないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeleteAndReturnAsync_存在しないプレイリストID_nullを返しファイル書き込みを行わないこと()
+    {
+        // Arrange
+        using var sut = CreateSut();
+        var nonExistentId = PlaylistId.New();
+
+        // Act
+        UserPlaylist? removed = await sut.DeleteAndReturnAsync(nonExistentId);
+
+        // Assert
+        Assert.Null(removed);
+        Assert.False(File.Exists(_testFilePath));
+    }
+
+    /// <summary>
+    /// DeleteAndReturnAsync が単一ロック区間内で最新状態を再読込するため、別インスタンスでの並行編集後の最新メタデータを返し、並行削除済みであれば null を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeleteAndReturnAsync_別インスタンスによる並行編集および並行削除後_最新状態に基づき処理されること()
+    {
+        // Arrange
+        var updatedTarget = new UserPlaylist(PlaylistId.New(), "初期名", [TrackId.New()]);
+        var alreadyDeletedTarget = new UserPlaylist(PlaylistId.New(), "並行削除対象", [TrackId.New()]);
+
+        using var sut = CreateSut();
+        using var otherInstance = CreateSut();
+        await sut.SaveAsync(updatedTarget);
+        await sut.SaveAsync(alreadyDeletedTarget);
+        _ = await sut.GetAllAsync();
+
+        // 別インスタンスで片方をリネーム＋トラック追加、もう片方を削除する
+        await otherInstance.UpdateAsync(updatedTarget.Id, p =>
+        {
+            p.Rename("別プロセス更新後名");
+            p.AddTrack(TrackId.New());
+            return true;
+        });
+        await otherInstance.DeleteAsync(alreadyDeletedTarget.Id);
+
+        // Act
+        UserPlaylist? removedUpdated = await sut.DeleteAndReturnAsync(updatedTarget.Id);
+        UserPlaylist? removedAlreadyDeleted = await sut.DeleteAndReturnAsync(alreadyDeletedTarget.Id);
+
+        // Assert
+        Assert.NotNull(removedUpdated);
+        Assert.Equal("別プロセス更新後名", removedUpdated.Name);
+        Assert.Equal(2, removedUpdated.TrackCount);
+        Assert.Null(removedAlreadyDeleted);
+        Assert.Empty(await sut.GetAllAsync());
     }
 
     /// <summary>

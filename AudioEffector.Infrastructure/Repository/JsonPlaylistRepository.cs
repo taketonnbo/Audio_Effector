@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -262,6 +262,12 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
     /// <returns>非同期タスク</returns>
     public async Task DeleteAsync(PlaylistId id, CancellationToken cancellationToken = default)
     {
+        _ = await DeleteAndReturnAsync(id, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<UserPlaylist?> DeleteAndReturnAsync(PlaylistId id, CancellationToken cancellationToken = default)
+    {
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -271,11 +277,14 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
 
             await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
             var candidate = new Dictionary<PlaylistId, UserPlaylist>(_playlists);
-            if (candidate.Remove(id))
+            if (!candidate.Remove(id, out UserPlaylist? removed))
             {
-                FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
-                CommitCache(candidate, updatedMetadata);
+                return null;
             }
+
+            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
+            CommitCache(candidate, updatedMetadata);
+            return removed;
         }
         finally
         {

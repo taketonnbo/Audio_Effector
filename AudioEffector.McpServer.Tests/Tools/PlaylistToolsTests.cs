@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
@@ -1054,6 +1054,320 @@ public sealed class PlaylistToolsTests
             // [t1, t2, t3] -> reorder(2->0): [t3, t1, t2] -> remove(1): [t3, t2]
             Assert.Equal([t3.Id, t2.Id], loaded.TrackIds.ToArray());
             Assert.Equal([t3.FilePath, t2.FilePath], loaded.TrackPaths.ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// delete_playlist ツールで playlistId を指定した場合、対象プレイリストが削除され削除結果 JSON が返ることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistAsync_playlistId指定_プレイリストを削除し削除結果JSONを返す()
+    {
+        // Arrange
+        var playlist = new UserPlaylist(PlaylistId.New(), "Night Drive", [TrackId.New(), TrackId.New()]);
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
+        playlistRepoMock
+            .Setup(r => r.DeleteAndReturnAsync(playlist.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(playlist);
+
+        // Act
+        CallToolResult result = await sut.DeletePlaylistAsync(playlistId: playlist.Id.ToString());
+
+        // Assert
+        Assert.False(result.IsError ?? false);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.True(data.GetProperty("deleted").GetBoolean());
+        Assert.Equal(playlist.Id.Value, data.GetProperty("deletedPlaylistId").GetGuid());
+        Assert.Equal("Night Drive", data.GetProperty("deletedPlaylistName").GetString());
+        Assert.Equal(2, data.GetProperty("deletedTrackCount").GetInt32());
+
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(playlist.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// delete_playlist ツールで playlistId と playlistName の両方を指定した場合、playlistId が優先して削除されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistAsync_playlistIdとplaylistName両方指定_playlistIdを優先して削除する()
+    {
+        // Arrange
+        var playlistById = new UserPlaylist(PlaylistId.New(), "Target By ID", [TrackId.New()]);
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
+        playlistRepoMock
+            .Setup(r => r.DeleteAndReturnAsync(playlistById.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(playlistById);
+
+        // Act
+        CallToolResult result = await sut.DeletePlaylistAsync(
+            playlistId: playlistById.Id.ToString(),
+            playlistName: "Different Name");
+
+        // Assert
+        Assert.False(result.IsError ?? false);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal(playlistById.Id.Value, data.GetProperty("deletedPlaylistId").GetGuid());
+        Assert.Equal("Target By ID", data.GetProperty("deletedPlaylistName").GetString());
+        playlistRepoMock.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(playlistById.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// delete_playlist ツールで playlistName を指定し一意に一致した場合（大文字・小文字区別なし）、対象プレイリストを削除することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistAsync_playlistName一意一致_大文字小文字区別なしで削除し削除結果JSONを返す()
+    {
+        // Arrange
+        var target = new UserPlaylist(PlaylistId.New(), "Morning Jazz", [TrackId.New(), TrackId.New(), TrackId.New()]);
+        var other = new UserPlaylist(PlaylistId.New(), "Evening Rock", [TrackId.New()]);
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
+        playlistRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([target, other]);
+        playlistRepoMock
+            .Setup(r => r.DeleteAndReturnAsync(target.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(target);
+
+        // Act
+        CallToolResult result = await sut.DeletePlaylistAsync(playlistName: "  morning jazz  ");
+
+        // Assert
+        Assert.False(result.IsError ?? false);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.True(data.GetProperty("deleted").GetBoolean());
+        Assert.Equal(target.Id.Value, data.GetProperty("deletedPlaylistId").GetGuid());
+        Assert.Equal("Morning Jazz", data.GetProperty("deletedPlaylistName").GetString());
+        Assert.Equal(3, data.GetProperty("deletedTrackCount").GetInt32());
+
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(target.Id, It.IsAny<CancellationToken>()), Times.Once);
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(other.Id, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// delete_playlist ツールで playlistName のみ指定した際に同名のプレイリストが複数存在する場合、誤削除を防ぐため削除を実行せず INVALID_PARAMETER を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistAsync_同名プレイリスト複数存在_削除を実行せずINVALID_PARAMETERを返す()
+    {
+        // Arrange
+        var dup1 = new UserPlaylist(PlaylistId.New(), "Drive Mix", [TrackId.New()]);
+        var dup2 = new UserPlaylist(PlaylistId.New(), "drive mix", [TrackId.New()]);
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
+        playlistRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([dup1, dup2]);
+
+        // Act
+        CallToolResult result = await sut.DeletePlaylistAsync(playlistName: "Drive Mix");
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(McpErrorCodes.INVALID_PARAMETER, error.GetProperty("code").GetString());
+        Assert.Contains("playlistId", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Equal("playlistName", error.GetProperty("details").GetProperty("parameter").GetString());
+        Assert.Equal(2, error.GetProperty("details").GetProperty("matchCount").GetInt32());
+
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(It.IsAny<PlaylistId>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// delete_playlist ツールで不正な GUID の playlistId と有効な playlistName を同時指定した場合、playlistName へフォールバックせず即座に INVALID_PARAMETER を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistAsync_不正playlistIdと有効playlistName同時指定_playlistNameへフォールバックせずINVALID_PARAMETERを返す()
+    {
+        // Arrange
+        var existing = new UserPlaylist(PlaylistId.New(), "Existing", [TrackId.New()]);
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
+        playlistRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([existing]);
+
+        // Act
+        CallToolResult result = await sut.DeletePlaylistAsync(playlistId: "not-a-guid", playlistName: "Existing");
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(McpErrorCodes.INVALID_PARAMETER, error.GetProperty("code").GetString());
+        Assert.Equal("playlistId", error.GetProperty("details").GetProperty("parameter").GetString());
+
+        playlistRepoMock.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(It.IsAny<PlaylistId>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// delete_playlist ツールで両方未指定・不正 GUID・存在しない対象を指定した場合に適切なエラーコードを返し削除を実行しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistAsync_異常系パラメータおよび未存在対象_適切なエラーコードを返す()
+    {
+        // Arrange
+        var missingId = PlaylistId.New();
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
+        playlistRepoMock
+            .Setup(r => r.DeleteAndReturnAsync(missingId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((UserPlaylist?)null);
+        playlistRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<UserPlaylist>());
+
+        // Act
+        CallToolResult bothMissingResult = await sut.DeletePlaylistAsync();
+        CallToolResult bothWhitespaceResult = await sut.DeletePlaylistAsync(playlistId: "   ", playlistName: "   ");
+        CallToolResult badGuidResult = await sut.DeletePlaylistAsync(playlistId: "not-a-guid");
+        CallToolResult emptyGuidResult = await sut.DeletePlaylistAsync(playlistId: Guid.Empty.ToString());
+        CallToolResult notFoundByIdResult = await sut.DeletePlaylistAsync(playlistId: missingId.ToString());
+        CallToolResult notFoundByNameResult = await sut.DeletePlaylistAsync(playlistName: "NonExistent");
+
+        // Assert
+        foreach (CallToolResult res in new[] { bothMissingResult, bothWhitespaceResult, badGuidResult, emptyGuidResult })
+        {
+            Assert.True(res.IsError);
+            using JsonDocument doc = JsonDocument.Parse(GetSingleText(res));
+            Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        foreach (CallToolResult res in new[] { notFoundByIdResult, notFoundByNameResult })
+        {
+            Assert.True(res.IsError);
+            using JsonDocument doc = JsonDocument.Parse(GetSingleText(res));
+            Assert.Equal(McpErrorCodes.NOT_FOUND, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(missingId, It.IsAny<CancellationToken>()), Times.Once);
+        playlistRepoMock.Verify(r => r.DeleteAsync(It.IsAny<PlaylistId>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// delete_playlist 実行中にリポジトリ例外やファイルロックタイムアウトが発生した場合、適切なエラーコードへ変換され内部詳細が露出しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistAsync_リポジトリ例外またはロックタイムアウト発生時_適切なエラーコードを返し内部詳細を露出しない()
+    {
+        // Arrange
+        var playlist = new UserPlaylist(PlaylistId.New(), "Error Target");
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out Mock<ILogger<PlaylistTools>> loggerMock);
+        playlistRepoMock
+            .SetupSequence(r => r.DeleteAndReturnAsync(playlist.Id, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new FileLockTimeoutException(@"C:\SecretDir\playlists.json", TimeSpan.FromSeconds(5)))
+            .ThrowsAsync(new InvalidOperationException("SECRET_DELETE_ERROR"));
+
+        // Act
+        CallToolResult timeoutResult = await sut.DeletePlaylistAsync(playlistId: playlist.Id.ToString());
+        CallToolResult internalResult = await sut.DeletePlaylistAsync(playlistId: playlist.Id.ToString());
+
+        // Assert
+        Assert.True(timeoutResult.IsError);
+        string timeoutText = GetSingleText(timeoutResult);
+        Assert.DoesNotContain("SecretDir", timeoutText, StringComparison.Ordinal);
+        using (JsonDocument doc = JsonDocument.Parse(timeoutText))
+        {
+            Assert.Equal(McpErrorCodes.CONFLICT_LOCK_TIMEOUT, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        Assert.True(internalResult.IsError);
+        string internalText = GetSingleText(internalResult);
+        Assert.DoesNotContain("SECRET_DELETE_ERROR", internalText, StringComparison.Ordinal);
+        using (JsonDocument doc = JsonDocument.Parse(internalText))
+        {
+            Assert.Equal(McpErrorCodes.INTERNAL_ERROR, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        loggerMock.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<InvalidOperationException>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    /// <summary>
+    /// 実 JsonPlaylistRepository を用いて delete_playlist で削除したプレイリストが playlists.json から永続的に削除され、別インスタンス（WPF 相当）および search_playlists に反映され、ライブラリ楽曲データへ副作用がないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistAsync_実リポジトリ使用時_削除が永続化され別インスタンスとsearch_playlistsに反映される()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorDeletePlaylist_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string playlistsPath = Path.Combine(tempDir, "playlists.json");
+            string tracksPath = Path.Combine(tempDir, "tracks.json");
+            var t1 = CreateTrack("Track 1", "Artist", "Album", Path.Combine(tempDir, "t1.flac"));
+
+            using (var seedTrackRepo = new JsonTrackRepository(tracksPath))
+            {
+                await seedTrackRepo.SaveRangeAsync([t1]);
+            }
+
+            using var mcpPlaylistRepo = new JsonPlaylistRepository(playlistsPath);
+            using var mcpTrackRepo = new JsonTrackRepository(tracksPath);
+            var mcpService = new PlaylistApplicationService(mcpPlaylistRepo, mcpTrackRepo, new Mock<IEventBus>().Object);
+            var sut = new PlaylistTools(mcpService, new Mock<ILogger<PlaylistTools>>().Object);
+
+            CallToolResult createRes1 = await sut.CreatePlaylistAsync("To Be Deleted", [t1.Id.ToString()]);
+            CallToolResult createRes2 = await sut.CreatePlaylistAsync("Keep Me", [t1.Id.ToString()]);
+            Assert.False(createRes1.IsError ?? false);
+            Assert.False(createRes2.IsError ?? false);
+
+            Guid deleteTargetId;
+            using (JsonDocument doc = JsonDocument.Parse(GetSingleText(createRes1)))
+            {
+                deleteTargetId = doc.RootElement.GetProperty("data").GetProperty("playlist").GetProperty("id").GetGuid();
+            }
+
+            // Act
+            CallToolResult deleteRes = await sut.DeletePlaylistAsync(playlistId: deleteTargetId.ToString());
+
+            // Assert 1: 削除応答の検証
+            Assert.False(deleteRes.IsError ?? false);
+            using (JsonDocument deleteDoc = JsonDocument.Parse(GetSingleText(deleteRes)))
+            {
+                JsonElement data = deleteDoc.RootElement.GetProperty("data");
+                Assert.True(data.GetProperty("deleted").GetBoolean());
+                Assert.Equal(deleteTargetId, data.GetProperty("deletedPlaylistId").GetGuid());
+                Assert.Equal("To Be Deleted", data.GetProperty("deletedPlaylistName").GetString());
+                Assert.Equal(1, data.GetProperty("deletedTrackCount").GetInt32());
+            }
+
+            // Assert 2: 同一 MCP インスタンスの search_playlists で残存 1 件のみとなること
+            CallToolResult searchRes = await sut.SearchPlaylistsAsync();
+            Assert.False(searchRes.IsError ?? false);
+            using (JsonDocument searchDoc = JsonDocument.Parse(GetSingleText(searchRes)))
+            {
+                JsonElement remaining = Assert.Single(searchDoc.RootElement.GetProperty("data").GetProperty("playlists").EnumerateArray());
+                Assert.Equal("Keep Me", remaining.GetProperty("name").GetString());
+            }
+
+            // Assert 3: 別インスタンス（WPF 本体相当）からも削除が反映され、ライブラリ楽曲データへ副作用がないこと
+            using var wpfPlaylistRepo = new JsonPlaylistRepository(playlistsPath);
+            using var wpfTrackRepo = new JsonTrackRepository(tracksPath);
+            var wpfService = new PlaylistApplicationService(wpfPlaylistRepo, wpfTrackRepo, new Mock<IEventBus>().Object);
+            UserPlaylist wpfRemaining = Assert.Single(wpfService.LoadPlaylists());
+            Assert.Equal("Keep Me", wpfRemaining.Name);
+
+            Track remainingTrack = Assert.Single(await wpfTrackRepo.GetAllAsync());
+            Assert.Equal(t1.Id, remainingTrack.Id);
         }
         finally
         {

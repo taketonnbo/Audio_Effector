@@ -51,6 +51,14 @@ public interface IPlaylistRepository
     /// <returns>非同期タスク</returns>
     Task DeleteAsync(PlaylistId id, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 単一ロック区間内で最新状態を読み込み、指定されたIDのプレイリストが存在する場合は削除・永続化して削除前のエンティティを返します
+    /// </summary>
+    /// <param name="id">削除対象のプレイリストID</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>削除前のプレイリストエンティティ（対象が存在しない場合は書き込みを行わずnull）</returns>
+    Task<UserPlaylist?> DeleteAndReturnAsync(PlaylistId id, CancellationToken cancellationToken = default);
+
     /// <summary>最新のプレイリストに変更を適用し、変更があれば保存します</summary>
     /// <param name="id">対象のプレイリストID</param>
     /// <param name="update">変更の有無を返す更新処理</param>
