@@ -1420,4 +1420,229 @@ public sealed class IpcPlaybackControlGatewayTests : IDisposable
         Assert.False(result.IsSuccess);
         Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, result.ErrorCode);
     }
+
+    /// <summary>
+    /// 起動中の AppIpcServer へ enqueue_tracks（trackIds + playNext: true）を送信し、EnqueueTracksResponse が返却されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_IPCサーバ起動中でtrackIds指定時_キューに追加されEnqueueTracksResponseを返す()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.EnqueueTest.{Guid.NewGuid():N}";
+        string audioPath1 = CreateExistingAudioFile("Enqueue1.flac");
+        string audioPath2 = CreateExistingAudioFile("Enqueue2.flac");
+        var trackId1 = TrackId.New();
+        var trackId2 = TrackId.New();
+        var track1 = new Track(trackId1, AudioPath.Create(audioPath1), "Enqueue 1", "Artist A", "Album A", TimeSpan.FromSeconds(180), 2025, 1, 1000, 48000, 24, "FLAC", "Jazz");
+        var track2 = new Track(trackId2, AudioPath.Create(audioPath2), "Enqueue 2", "Artist A", "Album A", TimeSpan.FromSeconds(200), 2025, 2, 1000, 48000, 24, "FLAC", "Jazz");
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo.Setup(r => r.GetByIdAsync(trackId1, It.IsAny<CancellationToken>())).ReturnsAsync(track1);
+        trackRepo.Setup(r => r.GetByIdAsync(trackId2, It.IsAny<CancellationToken>())).ReturnsAsync(track2);
+
+        var libraryService = new LibraryApplicationService(
+            trackRepo.Object,
+            new Mock<IFavoriteRepository>().Object,
+            new Mock<IMetadataExtractor>().Object,
+            new Mock<IEventBus>().Object);
+
+        var userQueue = new List<Track>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.UserQueue).Returns(() => userQueue);
+        audioService.SetupGet(a => a.AlbumQueue).Returns(Array.Empty<Track>());
+        audioService
+            .Setup(a => a.EnqueueTracks(It.IsAny<IReadOnlyList<Track>>(), true))
+            .Callback<IReadOnlyList<Track>, bool>((tracks, _) => userQueue.InsertRange(0, tracks));
+
+        var uiDispatcher = new Mock<IUiDispatcher>();
+        uiDispatcher.Setup(d => d.Invoke(It.IsAny<Action>())).Callback<Action>(action => action());
+
+        var handler = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            libraryService,
+            audioService.Object,
+            uiDispatcher.Object);
+
+        using var server = new AppIpcServer(pipeName, handler);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<EnqueueTracksResponse> result = await sut.EnqueueTracksAsync(
+            trackIds: [trackId1, trackId2],
+            filePaths: null,
+            albumId: null,
+            playNext: true);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value);
+        Assert.Equal("next", result.Value.Position);
+        Assert.Equal(2, result.Value.AddedCount);
+        Assert.Equal(2, result.Value.UserQueueCount);
+        Assert.Equal(0, result.Value.AlbumQueueCount);
+        Assert.Equal(new[] { "Enqueue 1", "Enqueue 2" }, result.Value.AddedTracks.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// --data-dir カスタムディレクトリ使用時に trackIds を MCP 側リポジトリで filePaths へ解決して送信し、応答の TrackId にローカル ID が復元されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_カスタムデータディレクトリでtrackIds指定時_filePathsへ解決して送信しローカルTrackIdを維持する()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.CustomEnqueue.{Guid.NewGuid():N}";
+        string audioPath = CreateExistingAudioFile("CustomTrack.flac");
+        var localTrackId = TrackId.New();
+        var wpfTrackId = TrackId.New();
+        var localTrack = new Track(localTrackId, AudioPath.Create(audioPath), "Custom Song", "Custom Artist", "Custom Album", TimeSpan.FromSeconds(150), 2025, 1, 1000, 48000, 24, "FLAC", "Pop");
+
+        var dataDirProvider = new Mock<IDataDirectoryProvider>();
+        dataDirProvider.SetupGet(d => d.IsCustomDirectory).Returns(true);
+
+        var localTrackRepo = new Mock<ITrackRepository>();
+        localTrackRepo.Setup(r => r.GetByIdAsync(localTrackId, It.IsAny<CancellationToken>())).ReturnsAsync(localTrack);
+
+        AppIpcRequest? capturedRequest = null;
+        var handler = new Mock<IAppIpcCommandHandler>();
+        handler
+            .Setup(h => h.HandleAsync(It.IsAny<AppIpcRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<AppIpcRequest, CancellationToken>((req, _) => capturedRequest = req)
+            .ReturnsAsync(AppIpcResponse.SuccessEnqueueTracks(
+                position: "last",
+                addedCount: 1,
+                userQueueCount: 1,
+                albumQueueCount: 0,
+                addedTracks: [new AppIpcTrackInfo(wpfTrackId.Value, "Custom Song", "Custom Artist", "Custom Album", 150.0, "02:30", audioPath)]));
+
+        using var server = new AppIpcServer(pipeName, handler.Object);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance,
+            dataDirectoryProvider: dataDirProvider.Object,
+            trackRepository: localTrackRepo.Object);
+
+        // Act
+        PlaybackControlResult<EnqueueTracksResponse> result = await sut.EnqueueTracksAsync(
+            trackIds: [localTrackId],
+            filePaths: null,
+            albumId: null,
+            playNext: false);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value);
+        Assert.NotNull(capturedRequest);
+        Assert.Null(capturedRequest.TrackIds);
+        Assert.NotNull(capturedRequest.FilePaths);
+        Assert.Equal(audioPath, Assert.Single(capturedRequest.FilePaths));
+        Assert.Equal(localTrackId.Value, Assert.Single(result.Value.AddedTracks).Id);
+    }
+
+    /// <summary>
+    /// enqueue_tracks 実行時に IPC サーバが未起動の場合、WPF_APP_NOT_RUNNING と launch_app 案内を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_IPCサーバ未起動時_WPF_APP_NOT_RUNNINGとlaunch_app案内を返す()
+    {
+        // Arrange
+        var sut = new IpcPlaybackControlGateway(
+            $"AudioEffector.Ipc.MissingEnqueue.{Guid.NewGuid():N}",
+            commandTimeout: TimeSpan.FromMilliseconds(300),
+            connectTimeout: TimeSpan.FromMilliseconds(100),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<EnqueueTracksResponse> result = await sut.EnqueueTracksAsync(
+            trackIds: [TrackId.New()],
+            filePaths: null,
+            albumId: null,
+            playNext: false);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.WPF_APP_NOT_RUNNING, result.ErrorCode);
+        Assert.Contains("launch_app", result.ErrorMessage ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// enqueue_tracks の IPC 応答がタイムアウトした場合に IPC_CONNECTION_FAILED を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_IPC応答タイムアウト時_IPC_CONNECTION_FAILEDを返す()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.EnqueueTimeout.{Guid.NewGuid():N}";
+        var slowHandler = new Mock<IAppIpcCommandHandler>();
+        slowHandler
+            .Setup(h => h.HandleAsync(It.IsAny<AppIpcRequest>(), It.IsAny<CancellationToken>()))
+            .Returns(async (AppIpcRequest _, CancellationToken ct) =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                return AppIpcResponse.SuccessPing();
+            });
+
+        using var server = new AppIpcServer(pipeName, slowHandler.Object);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromMilliseconds(150),
+            connectTimeout: TimeSpan.FromMilliseconds(150),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<EnqueueTracksResponse> result = await sut.EnqueueTracksAsync(
+            trackIds: [TrackId.New()],
+            filePaths: null,
+            albumId: null,
+            playNext: false);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, result.ErrorCode);
+    }
+
+    /// <summary>
+    /// enqueue_tracks の IPC 成功応答で必須フィールド（addedTracks / position 等）が欠損している場合に IPC_CONNECTION_FAILED を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_IPC成功応答の必須フィールド欠損時_IPC_CONNECTION_FAILEDを返す()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.MalformedEnqueue.{Guid.NewGuid():N}";
+        var handler = new Mock<IAppIpcCommandHandler>();
+        handler
+            .Setup(h => h.HandleAsync(It.IsAny<AppIpcRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppIpcResponse(Ok: true, Position: "last", AddedCount: 1, UserQueueCount: 1, AlbumQueueCount: 0, AddedTracks: null));
+
+        using var server = new AppIpcServer(pipeName, handler.Object);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<EnqueueTracksResponse> result = await sut.EnqueueTracksAsync(
+            trackIds: [TrackId.New()],
+            filePaths: null,
+            albumId: null,
+            playNext: false);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, result.ErrorCode);
+    }
 }

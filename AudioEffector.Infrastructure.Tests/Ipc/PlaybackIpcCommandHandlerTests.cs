@@ -1563,6 +1563,309 @@ public sealed class PlaybackIpcCommandHandlerTests
         Assert.Equal(0, recordingDispatcher.InvokeCount);
     }
 
+    /// <summary>
+    /// enqueue_tracks コマンドで trackIds（複数曲）と playNext: true を指定した場合、IUiDispatcher 経由で IAudioService.EnqueueTracks(tracks, true) が実行され成功応答を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_enqueue_tracks_trackIds指定でplayNextTrue時_UiDispatcher経由でEnqueueTracksを実行し成功応答を返す()
+    {
+        // Arrange
+        var trackId1 = TrackId.New();
+        var trackId2 = TrackId.New();
+        var track1 = CreateTrack(trackId1, @"C:\Music\Jazz\Track1.flac", "Track 1", "Artist A", "Album A", trackNumber: 1);
+        var track2 = CreateTrack(trackId2, @"C:\Music\Jazz\Track2.flac", "Track 2", "Artist A", "Album A", trackNumber: 2);
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo.Setup(r => r.GetByIdAsync(trackId1, It.IsAny<CancellationToken>())).ReturnsAsync(track1);
+        trackRepo.Setup(r => r.GetByIdAsync(trackId2, It.IsAny<CancellationToken>())).ReturnsAsync(track2);
+
+        var userQueue = new List<Track>();
+        var albumQueue = new List<Track> { CreateTrack(TrackId.New(), @"C:\Music\Jazz\AlbumRemain.flac", "Remain", "Artist A", "Album A", trackNumber: 3) };
+
+        IReadOnlyList<Track>? enqueuedTracks = null;
+        bool? enqueuedPlayNext = null;
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.UserQueue).Returns(() => userQueue);
+        audioService.SetupGet(a => a.AlbumQueue).Returns(() => albumQueue);
+        audioService
+            .Setup(a => a.EnqueueTracks(It.IsAny<IReadOnlyList<Track>>(), It.IsAny<bool>()))
+            .Callback<IReadOnlyList<Track>, bool>((tracks, playNext) =>
+            {
+                enqueuedTracks = tracks;
+                enqueuedPlayNext = playNext;
+                userQueue.InsertRange(0, tracks);
+            });
+
+        var recordingDispatcher = new RecordingUiDispatcher();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_ENQUEUE_TRACKS,
+            TrackIds: [trackId1.Value.ToString("D"), trackId2.Value.ToString("D")],
+            PlayNext: true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.QUEUE_POSITION_NEXT, response.Position);
+        Assert.Equal(2, response.AddedCount);
+        Assert.Equal(2, response.UserQueueCount);
+        Assert.Equal(1, response.AlbumQueueCount);
+        Assert.NotNull(response.AddedTracks);
+        Assert.Equal(new[] { trackId1.Value, trackId2.Value }, response.AddedTracks.Select(t => t.Id).ToArray());
+        Assert.Equal(1, recordingDispatcher.InvokeCount);
+        Assert.True(enqueuedPlayNext);
+        Assert.NotNull(enqueuedTracks);
+        Assert.Equal(2, enqueuedTracks.Count);
+    }
+
+    /// <summary>
+    /// enqueue_tracks コマンドで filePaths と playNext: false を指定した場合、メタデータ解決してキュー末尾に追加し成功応答を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_enqueue_tracks_filePaths指定でplayNextFalse時_メタデータ解決してキュー末尾に追加する()
+    {
+        // Arrange
+        const string filePath = @"C:\Music\Rock\LastSong.flac";
+        var extractedTrack = CreateTrack(TrackId.New(), filePath, "Last Song", "Rock Band", "Rock Album");
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetByPathAsync(It.IsAny<AudioPath>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Track?)null);
+
+        var metadataExtractor = new Mock<IMetadataExtractor>();
+        metadataExtractor
+            .Setup(m => m.ExtractMetadataAsync(It.Is<AudioPath>(p => p.Value == filePath), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(extractedTrack);
+
+        var userQueue = new List<Track>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.UserQueue).Returns(() => userQueue);
+        audioService.SetupGet(a => a.AlbumQueue).Returns(Array.Empty<Track>());
+        audioService
+            .Setup(a => a.EnqueueTracks(It.IsAny<IReadOnlyList<Track>>(), false))
+            .Callback<IReadOnlyList<Track>, bool>((tracks, _) => userQueue.AddRange(tracks));
+
+        var recordingDispatcher = new RecordingUiDispatcher();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object, metadataExtractor.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: p => string.Equals(p, filePath, StringComparison.OrdinalIgnoreCase));
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_ENQUEUE_TRACKS,
+            FilePaths: [$"  {filePath}  "],
+            PlayNext: false);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.QUEUE_POSITION_LAST, response.Position);
+        Assert.Equal(1, response.AddedCount);
+        Assert.Equal(1, response.UserQueueCount);
+        Assert.Equal(0, response.AlbumQueueCount);
+        Assert.NotNull(response.AddedTracks);
+        Assert.Equal("Last Song", Assert.Single(response.AddedTracks).Title);
+        Assert.Equal(1, recordingDispatcher.InvokeCount);
+        audioService.Verify(a => a.EnqueueTracks(It.Is<IReadOnlyList<Track>>(t => t.Count == 1 && t[0] == extractedTrack), false), Times.Once);
+    }
+
+    /// <summary>
+    /// enqueue_tracks コマンドで albumId を指定した場合、アルバム収録曲がトラック番号順に解決されて EnqueueTracks へ渡されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_enqueue_tracks_albumId指定時_トラック番号順でキューに追加する()
+    {
+        // Arrange
+        var albumId = AlbumId.New();
+        var track2 = CreateTrack(TrackId.New(), @"C:\Music\Jazz\02.flac", "Second", "Miles Trio", "Midnight Sessions", trackNumber: 2, albumId: albumId);
+        var track1 = CreateTrack(TrackId.New(), @"C:\Music\Jazz\01.flac", "First", "Miles Trio", "Midnight Sessions", trackNumber: 1, albumId: albumId);
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { track2, track1 });
+
+        IReadOnlyList<Track>? enqueuedTracks = null;
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.UserQueue).Returns(() => enqueuedTracks ?? Array.Empty<Track>());
+        audioService.SetupGet(a => a.AlbumQueue).Returns(Array.Empty<Track>());
+        audioService
+            .Setup(a => a.EnqueueTracks(It.IsAny<IReadOnlyList<Track>>(), true))
+            .Callback<IReadOnlyList<Track>, bool>((tracks, _) => enqueuedTracks = tracks);
+
+        var recordingDispatcher = new RecordingUiDispatcher();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_ENQUEUE_TRACKS,
+            AlbumId: albumId.Value.ToString("D"),
+            PlayNext: true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(PlaybackIpcCommandHandler.QUEUE_POSITION_NEXT, response.Position);
+        Assert.Equal(2, response.AddedCount);
+        Assert.NotNull(response.AddedTracks);
+        Assert.Equal(new[] { "First", "Second" }, response.AddedTracks.Select(t => t.Title).ToArray());
+        Assert.NotNull(enqueuedTracks);
+        Assert.Equal(new[] { "First", "Second" }, enqueuedTracks.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// enqueue_tracks コマンドで trackIds・filePaths・albumId がすべて未指定の場合に INVALID_PARAMETER を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_enqueue_tracks_対象全未指定時_INVALID_PARAMETERを返す()
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        var recordingDispatcher = new RecordingUiDispatcher();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_ENQUEUE_TRACKS, PlayNext: false);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.INVALID_PARAMETER, response.ErrorCode);
+        Assert.Equal(0, recordingDispatcher.InvokeCount);
+    }
+
+    /// <summary>
+    /// enqueue_tracks コマンドで存在しない trackId を指定した場合に NOT_FOUND を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_enqueue_tracks_存在しないtrackId指定時_NOT_FOUNDを返す()
+    {
+        // Arrange
+        var missingId = TrackId.New();
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetByIdAsync(missingId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Track?)null);
+
+        var audioService = new Mock<IAudioService>();
+        var recordingDispatcher = new RecordingUiDispatcher();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_ENQUEUE_TRACKS,
+            TrackIds: [missingId.Value.ToString("D")],
+            PlayNext: false);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.NOT_FOUND, response.ErrorCode);
+        Assert.Equal(0, recordingDispatcher.InvokeCount);
+    }
+
+    /// <summary>
+    /// enqueue_tracks コマンドで対象トラックの音声ファイルがディスク上に存在しない場合に FILE_NOT_FOUND を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_enqueue_tracks_音声ファイル欠損時_FILE_NOT_FOUNDを返す()
+    {
+        // Arrange
+        var trackId = TrackId.New();
+        var track = CreateTrack(trackId, @"C:\Music\Missing\Gone.flac", "Gone", "Artist", "Album");
+
+        var trackRepo = new Mock<ITrackRepository>();
+        trackRepo
+            .Setup(r => r.GetByIdAsync(trackId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(track);
+
+        var audioService = new Mock<IAudioService>();
+        var recordingDispatcher = new RecordingUiDispatcher();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: _ => false);
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_ENQUEUE_TRACKS,
+            TrackIds: [trackId.Value.ToString("D")],
+            PlayNext: true);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.FILE_NOT_FOUND, response.ErrorCode);
+        Assert.Equal(0, recordingDispatcher.InvokeCount);
+    }
+
+    /// <summary>
+    /// enqueue_tracks コマンドで DeadlineUtc が超過している場合に OperationCanceledException を送出することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_enqueue_tracks_期限超過時_OperationCanceledExceptionを送出する()
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        DateTimeOffset now = new(2026, 11, 27, 12, 0, 5, TimeSpan.Zero);
+        DateTimeOffset expiredDeadline = new(2026, 11, 27, 12, 0, 0, TimeSpan.Zero);
+        var recordingDispatcher = new RecordingUiDispatcher();
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: _ => true,
+            utcNow: () => now);
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_ENQUEUE_TRACKS,
+            TrackIds: [Guid.NewGuid().ToString("D")],
+            PlayNext: false,
+            DeadlineUtc: expiredDeadline);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<OperationCanceledException>(() => sut.HandleAsync(request));
+        Assert.Equal(0, recordingDispatcher.InvokeCount);
+    }
+
     private static LibraryApplicationService CreateLibraryService(
         ITrackRepository trackRepository,
         IMetadataExtractor? metadataExtractor = null)

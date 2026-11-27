@@ -1113,6 +1113,285 @@ public sealed class PlaybackToolsTests
         Assert.Contains("launch_app", description.Description, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// enqueue_tracks で複数の trackIds と position: "next" を指定した場合、playNext: true でゲートウェイが呼び出され統一 JSON 応答が返ることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_複数trackIdsとposition_next指定時_playNextTrueで呼び出され統一JSONを返す()
+    {
+        // Arrange
+        var id1 = Guid.NewGuid();
+        var id2 = Guid.NewGuid();
+        var expectedResponse = new EnqueueTracksResponse(
+            Position: "next",
+            AddedCount: 2,
+            UserQueueCount: 3,
+            AlbumQueueCount: 1,
+            AddedTracks:
+            [
+                new PlayedTrackDto(id1, "Song 1", "Artist A", "Album A", 180.0, "03:00", @"C:\Music\Song1.flac"),
+                new PlayedTrackDto(id2, "Song 2", "Artist A", "Album A", 210.0, "03:30", @"C:\Music\Song2.flac"),
+            ]);
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.EnqueueTracksAsync(
+                It.Is<IReadOnlyList<TrackId>?>(ids => ids != null && ids.Count == 2 && ids[0].Value == id1 && ids[1].Value == id2),
+                null,
+                null,
+                true,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<EnqueueTracksResponse>.Success(expectedResponse));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.EnqueueTracksAsync(
+            trackIds: [id1.ToString("D"), id2.ToString("D")],
+            position: "next");
+
+        // Assert
+        Assert.False(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal("next", data.GetProperty("position").GetString());
+        Assert.Equal(2, data.GetProperty("addedCount").GetInt32());
+        Assert.Equal(3, data.GetProperty("userQueueCount").GetInt32());
+        Assert.Equal(1, data.GetProperty("albumQueueCount").GetInt32());
+        Assert.Equal(2, data.GetProperty("addedTracks").GetArrayLength());
+    }
+
+    /// <summary>
+    /// enqueue_tracks で filePaths を指定し position を省略した場合、既定の playNext: false でゲートウェイが呼び出され統一 JSON 応答が返ることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_filePaths指定でposition省略時_既定のplayNextFalseで呼び出され統一JSONを返す()
+    {
+        // Arrange
+        const string filePath = @"C:\Music\Jazz\Song.flac";
+        var expectedResponse = new EnqueueTracksResponse(
+            Position: "last",
+            AddedCount: 1,
+            UserQueueCount: 1,
+            AlbumQueueCount: 0,
+            AddedTracks: [new PlayedTrackDto(Guid.NewGuid(), "Song", "Artist", "Album", 200.0, "03:20", filePath)]);
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.EnqueueTracksAsync(
+                null,
+                It.Is<IReadOnlyList<string>?>(paths => paths != null && paths.Count == 1 && paths[0] == filePath),
+                null,
+                false,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<EnqueueTracksResponse>.Success(expectedResponse));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.EnqueueTracksAsync(filePaths: [$"  {filePath}  "]);
+
+        // Assert
+        Assert.False(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal("last", doc.RootElement.GetProperty("data").GetProperty("position").GetString());
+    }
+
+    /// <summary>
+    /// enqueue_tracks で albumId を指定した場合、AlbumId がゲートウェイへ渡され統一 JSON 応答が返ることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_albumId指定時_AlbumIdが渡され統一JSONを返す()
+    {
+        // Arrange
+        var albumGuid = Guid.NewGuid();
+        var expectedResponse = new EnqueueTracksResponse(
+            Position: "last",
+            AddedCount: 1,
+            UserQueueCount: 1,
+            AlbumQueueCount: 0,
+            AddedTracks: [new PlayedTrackDto(Guid.NewGuid(), "Track 1", "Artist", "Album", 190.0, "03:10", @"C:\Music\01.flac")]);
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.EnqueueTracksAsync(
+                null,
+                null,
+                It.Is<AlbumId?>(id => id.HasValue && id.Value.Value == albumGuid),
+                false,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<EnqueueTracksResponse>.Success(expectedResponse));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.EnqueueTracksAsync(albumId: albumGuid.ToString("D"));
+
+        // Assert
+        Assert.False(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(1, doc.RootElement.GetProperty("data").GetProperty("addedCount").GetInt32());
+    }
+
+    /// <summary>
+    /// enqueue_tracks で trackIds・filePaths・albumId がすべて未指定または空配列の場合に INVALID_PARAMETER を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_対象全未指定または空配列時_INVALID_PARAMETERを返す()
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult resultNull = await sut.EnqueueTracksAsync();
+        CallToolResult resultEmpty = await sut.EnqueueTracksAsync(trackIds: [], filePaths: [], albumId: "   ");
+
+        // Assert
+        foreach (CallToolResult result in new[] { resultNull, resultEmpty })
+        {
+            Assert.True(result.IsError);
+            using JsonDocument doc = ParsePayload(result);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        gateway.Verify(
+            g => g.EnqueueTracksAsync(
+                It.IsAny<IReadOnlyList<TrackId>?>(),
+                It.IsAny<IReadOnlyList<string>?>(),
+                It.IsAny<AlbumId?>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// enqueue_tracks で不正な GUID・不正な position・相対パスを指定した場合に INVALID_PARAMETER を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_不正パラメータ指定時_INVALID_PARAMETERを返す()
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult invalidTrackId = await sut.EnqueueTracksAsync(trackIds: ["not-a-guid"]);
+        CallToolResult invalidAlbumId = await sut.EnqueueTracksAsync(albumId: "not-a-guid");
+        CallToolResult relativePath = await sut.EnqueueTracksAsync(filePaths: [@"relative\song.flac"]);
+        CallToolResult invalidPosition = await sut.EnqueueTracksAsync(trackIds: [Guid.NewGuid().ToString("D")], position: "middle");
+
+        // Assert
+        foreach (CallToolResult result in new[] { invalidTrackId, invalidAlbumId, relativePath, invalidPosition })
+        {
+            Assert.True(result.IsError);
+            using JsonDocument doc = ParsePayload(result);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        gateway.Verify(
+            g => g.EnqueueTracksAsync(
+                It.IsAny<IReadOnlyList<TrackId>?>(),
+                It.IsAny<IReadOnlyList<string>?>(),
+                It.IsAny<AlbumId?>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    /// <summary>
+    /// enqueue_tracks でゲートウェイが WPF_APP_NOT_RUNNING や IPC_CONNECTION_FAILED 等のエラーを返した場合に対応するエラーコードを返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(McpErrorCodes.WPF_APP_NOT_RUNNING)]
+    [InlineData(McpErrorCodes.IPC_CONNECTION_FAILED)]
+    [InlineData(McpErrorCodes.NOT_FOUND)]
+    [InlineData(McpErrorCodes.FILE_NOT_FOUND)]
+    public async Task EnqueueTracksAsync_ゲートウェイ失敗時_対応するエラーコードを返す(string errorCode)
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.EnqueueTracksAsync(
+                It.IsAny<IReadOnlyList<TrackId>?>(),
+                It.IsAny<IReadOnlyList<string>?>(),
+                It.IsAny<AlbumId?>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<EnqueueTracksResponse>.Failure(
+                errorCode,
+                McpErrorMapper.GetPublicMessage(errorCode)));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.EnqueueTracksAsync(trackIds: [Guid.NewGuid().ToString("D")]);
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(errorCode, error.GetProperty("code").GetString());
+        if (errorCode == McpErrorCodes.WPF_APP_NOT_RUNNING)
+        {
+            Assert.Contains("launch_app", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// enqueue_tracks 実行中に予期しない例外が発生した場合、INTERNAL_ERROR に変換され機密詳細が露出しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task EnqueueTracksAsync_予期しない例外発生時_INTERNAL_ERRORを返し機密詳細を露出しない()
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.EnqueueTracksAsync(
+                It.IsAny<IReadOnlyList<TrackId>?>(),
+                It.IsAny<IReadOnlyList<string>?>(),
+                It.IsAny<AlbumId?>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException(@"secret diagnostic C:\private\enqueue"));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.EnqueueTracksAsync(trackIds: [Guid.NewGuid().ToString("D")]);
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(McpErrorCodes.INTERNAL_ERROR, error.GetProperty("code").GetString());
+        Assert.DoesNotContain("secret", error.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// enqueue_tracks ツールの Description 属性に現在再生を中断しない旨および launch_app 案内が含まれることを検証します。
+    /// </summary>
+    [Fact]
+    public void EnqueueTracksAsync_ツール説明属性_再生継続とlaunch_app案内が含まれる()
+    {
+        // Arrange
+        MethodInfo? method = typeof(PlaybackTools).GetMethod(nameof(PlaybackTools.EnqueueTracksAsync));
+        Assert.NotNull(method);
+
+        // Act
+        DescriptionAttribute? description = method.GetCustomAttribute<DescriptionAttribute>();
+
+        // Assert
+        Assert.NotNull(description);
+        Assert.Contains("中断", description.Description, StringComparison.Ordinal);
+        Assert.Contains("launch_app", description.Description, StringComparison.Ordinal);
+    }
+
     private static JsonDocument ParsePayload(CallToolResult result)
     {
         var textBlock = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));
