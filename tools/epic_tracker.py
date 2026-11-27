@@ -19,6 +19,7 @@ GitHub CLI (`gh`) を通じてライブ状態を取得・分類・永続化お�
   --unblock NUM       指定した子 Issue のローカル blocked 設定を解除する
   --reason TEXT       --mark-blocked 時のブロック理由
   --repo OWNER/NAME   対象リポジトリを明示指定する（省略時はカレントリポジトリ）
+  --max-parallel N    同時稼働させる最大並列スロット数（既定: 3、最小: 1）
   --timeout SEC       gh / git コマンドのタイムアウト秒数（既定: 30）
 """
 
@@ -896,8 +897,13 @@ def classify_child_statuses(
     return results
 
 
-def compute_next_actions(children: Sequence[Dict[str, Any]], epic_number: int) -> Dict[str, Any]:
-    """現在状態から次に実行すべきアクション一覧と Epic 停止判定を算出する。"""
+def compute_next_actions(
+    children: Sequence[Dict[str, Any]],
+    epic_number: int,
+    max_parallel: int = 3,
+) -> Dict[str, Any]:
+    """現在状態から次に実行すべきアクション一覧・並列スロット状況・Epic 停止判定を算出する。"""
+    max_parallel = max(1, int(max_parallel))
     actions: List[Dict[str, Any]] = []
 
     blocked_items = [c for c in children if c["status"] == "blocked"]
@@ -906,6 +912,16 @@ def compute_next_actions(children: Sequence[Dict[str, Any]], epic_number: int) -
     implementing_items = [c for c in children if c["status"] == "implementing"]
     pending_items = [c for c in children if c["status"] == "pending"]
     merged_items = [c for c in children if c["status"] == "merged"]
+
+    # 現在稼働中の並列スロット数を算出（implementing / in_review / fixing_review または未完了ワークツリー確保済み）
+    active_items = [
+        c
+        for c in children
+        if c["status"] in ("implementing", "in_review", "fixing_review")
+        or (c["status"] not in ("merged", "blocked") and c.get("worktree") is not None)
+    ]
+    active_slots = len(active_items)
+    available_slots = max(0, max_parallel - active_slots)
 
     # Epic レベルの停止条件チェック（連続または累計 2 件以上の blocked）
     halt_recommended = len(blocked_items) >= 2
@@ -927,11 +943,51 @@ def compute_next_actions(children: Sequence[Dict[str, Any]], epic_number: int) -
             }
         )
 
+    # コンフリクト / ベース追従同期が必要な OPEN 非 Draft PR を検知（コンフリクトありを高優先）
+    sync_target_issues: Set[int] = set()
+    for c in children:
+        if c["status"] in ("merged", "blocked"):
+            continue
+        pr = c.get("pr")
+        if not pr:
+            continue
+        pr_state = str(pr.get("state") or "OPEN").upper()
+        if pr_state != "OPEN" or pr.get("is_draft"):
+            continue
+        has_conflict = bool(pr.get("has_conflict", False))
+        needs_sync = bool(pr.get("needs_sync", False)) or has_conflict
+        if not needs_sync:
+            continue
+        sync_target_issues.add(c["number"])
+        pr_num = pr.get("number")
+        wt = c.get("worktree")
+        if wt and wt.get("path"):
+            cmd_hint = f".\\tools\\sync_branch.ps1 -WorkingDirectory \"{wt['path']}\" -Json"
+        else:
+            cmd_hint = ".\\tools\\sync_branch.ps1 -Json"
+        if has_conflict:
+            summary = f"#{c['number']} (PR #{pr_num}) にコンフリクトが発生しているため、sync_branch で最新 develop を取り込み解消する"
+            priority = 1
+        else:
+            summary = f"#{c['number']} (PR #{pr_num}) がベースブランチから遅れている（BEHIND）ため、sync_branch で追従同期する"
+            priority = 2
+        actions.append(
+            {
+                "priority": priority,
+                "action": "sync_branch",
+                "issues": [c["number"]],
+                "pr_number": pr_num,
+                "has_conflict": has_conflict,
+                "command_hint": cmd_hint,
+                "summary": summary,
+            }
+        )
+
     for c in fixing_items:
         pr_num = c["pr"]["number"] if c.get("pr") else None
         actions.append(
             {
-                "priority": 1,
+                "priority": 2,
                 "action": "fix_review",
                 "issues": [c["number"]],
                 "pr_number": pr_num,
@@ -940,11 +996,52 @@ def compute_next_actions(children: Sequence[Dict[str, Any]], epic_number: int) -
             }
         )
 
+    # 直列マージキュー候補（レビュー指摘 0 件・CI 失敗なし・CLEAN な OPEN 非 Draft PR）
+    ready_merge_candidates: List[Dict[str, Any]] = []
     for c in in_review_items:
+        pr = c.get("pr")
+        if not pr or c["number"] in sync_target_issues:
+            continue
+        if (
+            str(pr.get("merge_state_status") or "").upper() == "CLEAN"
+            and int(pr.get("unresolved_review_threads") or 0) == 0
+            and str(pr.get("review_decision") or "").upper() != "CHANGES_REQUESTED"
+            and str(pr.get("ci_state") or "").upper() != "FAIL"
+            and not pr.get("has_conflict", False)
+            and not pr.get("needs_sync", False)
+        ):
+            ready_merge_candidates.append(c)
+
+    ready_merge_candidates.sort(key=lambda c: (c.get("order", 0), c["number"]))
+    ready_merge_issue_set = {c["number"] for c in ready_merge_candidates}
+    if ready_merge_candidates:
+        head = ready_merge_candidates[0]
+        head_pr_num = head["pr"]["number"]
+        queued_prs = [c["pr"]["number"] for c in ready_merge_candidates[1:]]
+        queue_note = (
+            f"（直列マージキュー先頭 / 後続待機: {', '.join(f'PR #{p}' for p in queued_prs)}）"
+            if queued_prs
+            else "（CLEAN・指摘 0 件・CI 失敗なし）"
+        )
+        actions.append(
+            {
+                "priority": 3,
+                "action": "ready_to_merge",
+                "issues": [head["number"]],
+                "pr_number": head_pr_num,
+                "queued_prs": queued_prs,
+                "command_hint": f"gh pr merge {head_pr_num} --merge",
+                "summary": f"#{head['number']} (PR #{head_pr_num}) を直列マージする{queue_note}",
+            }
+        )
+
+    for c in in_review_items:
+        if c["number"] in sync_target_issues or c["number"] in ready_merge_issue_set:
+            continue
         pr_num = c["pr"]["number"] if c.get("pr") else None
         actions.append(
             {
-                "priority": 2,
+                "priority": 4,
                 "action": "review_pr",
                 "issues": [c["number"]],
                 "pr_number": pr_num,
@@ -956,7 +1053,7 @@ def compute_next_actions(children: Sequence[Dict[str, Any]], epic_number: int) -
     for c in implementing_items:
         actions.append(
             {
-                "priority": 3,
+                "priority": 5,
                 "action": "resume_implementing",
                 "issues": [c["number"]],
                 "command_hint": f"run-dev-loop (Issue #{c['number']})",
@@ -964,24 +1061,26 @@ def compute_next_actions(children: Sequence[Dict[str, Any]], epic_number: int) -
             }
         )
 
-    if pending_items:
-        # 最も早い並列グループに属する pending Issue 群を提案
+    if pending_items and available_slots > 0:
+        # 最も早い並列グループに属する pending Issue 群から空きスロット上限の範囲内で提案
         min_group = min(c["parallel_group"] for c in pending_items)
-        ready_batch = [c for c in pending_items if c["parallel_group"] == min_group]
+        group_candidates = [c for c in pending_items if c["parallel_group"] == min_group]
+        ready_batch = group_candidates[:available_slots]
         issue_list_str = ", ".join(f"#{c['number']}" for c in ready_batch)
-        parallel_note = (
-            "（同一順序グループのため git worktree 等で並列実行可能）"
-            if len(ready_batch) > 1
-            else ""
-        )
+        notes: List[str] = []
+        if len(ready_batch) > 1:
+            notes.append("同一順序グループのため git worktree 等で並列実行可能")
+        if len(group_candidates) > len(ready_batch):
+            notes.append(f"並列スロット上限 {active_slots}/{max_parallel} により最大 {available_slots} 件を提案")
+        note_str = f"（{' / '.join(notes)}）" if notes else ""
         actions.append(
             {
-                "priority": 4,
+                "priority": 6,
                 "action": "start_issue",
                 "issues": [c["number"] for c in ready_batch],
                 "parallel": len(ready_batch) > 1,
                 "command_hint": f"run-dev-loop (Issue {issue_list_str})",
-                "summary": f"{issue_list_str} の Inner Loop を起動する{parallel_note}",
+                "summary": f"{issue_list_str} の Inner Loop を起動する{note_str}",
             }
         )
 
@@ -989,7 +1088,7 @@ def compute_next_actions(children: Sequence[Dict[str, Any]], epic_number: int) -
         for c in blocked_items:
             actions.append(
                 {
-                    "priority": 5,
+                    "priority": 7,
                     "action": "escalate_blocked",
                     "issues": [c["number"]],
                     "command_hint": f"python tools/epic_tracker.py --epic {epic_number} --unblock {c['number']}",
@@ -1022,6 +1121,12 @@ def compute_next_actions(children: Sequence[Dict[str, Any]], epic_number: int) -
     return {
         "epic_halt_recommended": halt_recommended,
         "epic_halt_reason": halt_reason,
+        "parallel_slots": {
+            "max_parallel": max_parallel,
+            "active_slots": active_slots,
+            "available_slots": available_slots,
+            "active_issues": [c["number"] for c in active_items],
+        },
         "recommended_actions": actions,
         "primary_action": actions[0] if actions else None,
     }
@@ -1080,6 +1185,12 @@ def format_human_report(state: Dict[str, Any], next_only: bool) -> str:
         f"implementing={summary['implementing']}, in_review={summary['in_review']}, "
         f"fixing_review={summary['fixing_review']}, blocked={summary['blocked']})"
     )
+    parallel_slots = next_info.get("parallel_slots")
+    if isinstance(parallel_slots, dict):
+        lines.append(
+            f"並列スロット: {parallel_slots.get('active_slots', 0)}/{parallel_slots.get('max_parallel', 3)} 使用中 "
+            f"(空き: {parallel_slots.get('available_slots', 0)})"
+        )
     lines.append("=" * 72)
 
     if not next_only:
@@ -1087,12 +1198,27 @@ def format_human_report(state: Dict[str, Any], next_only: bool) -> str:
         lines.append("【子 Issue 一覧】")
         for c in state["children"]:
             deps = ", ".join(f"#{d}" for d in c["depends_on"]) if c["depends_on"] else "-"
-            pr_str = f"PR #{c['pr']['number']}({c['pr']['state']})" if c.get("pr") else "-"
+            pr = c.get("pr")
+            if pr:
+                pr_state = pr.get("state", "")
+                merge_tag = ""
+                if pr_state == "OPEN" and not pr.get("is_draft"):
+                    if pr.get("has_conflict"):
+                        merge_tag = "/CONFLICT"
+                    elif pr.get("merge_state_status"):
+                        merge_tag = f"/{pr['merge_state_status']}"
+                pr_str = f"PR #{pr['number']}({pr_state}{merge_tag})"
+            else:
+                pr_str = "-"
             lines.append(
-                f"  [順:{c['order']}] #{c['number']:<4} | {c['status']:<13} | 依存:{deps:<10} | {pr_str:<16} | {c['title']}"
+                f"  [順:{c['order']}] #{c['number']:<4} | {c['status']:<13} | 依存:{deps:<10} | {pr_str:<22} | {c['title']}"
             )
             if c.get("status_reason"):
                 lines.append(f"           └─ {c['status_reason']}")
+            wt = c.get("worktree")
+            if wt:
+                branch_str = wt.get("branch") or "(detached)"
+                lines.append(f"           └─ worktree: {wt.get('path', '')} (branch: {branch_str})")
 
     if state.get("warnings"):
         lines.append("")
@@ -1124,6 +1250,7 @@ def build_state(
     mark_blocked: Optional[int],
     unblock: Optional[int],
     reason: str,
+    max_parallel: int = 3,
 ) -> Dict[str, Any]:
     """GitHub からライブ情報を取得し、完全な Epic 状態辞書を構築する。"""
     existing_state = load_existing_state(state_path)
@@ -1183,7 +1310,7 @@ def build_state(
     for st in VALID_STATUSES:
         summary[st] = sum(1 for c in children if c["status"] == st)
 
-    next_info = compute_next_actions(children, epic_number=epic_number)
+    next_info = compute_next_actions(children, epic_number=epic_number, max_parallel=max_parallel)
 
     try:
         rel_state_file = str(state_path.relative_to(REPO_ROOT)).replace("\\", "/")
@@ -1222,6 +1349,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--unblock", type=int, default=None, help="指定した子 Issue のローカル blocked を解除する")
     parser.add_argument("--reason", type=str, default="", help="--mark-blocked 時の理由")
     parser.add_argument("--repo", type=str, default=None, help="対象リポジトリ (owner/name)")
+    parser.add_argument("--max-parallel", type=int, default=3, help="同時稼働させる最大並列スロット数 (既定: 3、最小: 1)")
     parser.add_argument("--timeout", type=int, default=30, help="外部コマンドのタイムアウト秒数 (既定: 30)")
     return parser.parse_args(argv)
 
@@ -1231,6 +1359,7 @@ def apply_offline_block_updates(
     mark_blocked: Optional[int],
     unblock: Optional[int],
     reason: str,
+    max_parallel: int = 3,
 ) -> Dict[str, Any]:
     """オフライン状態スナップショットに対してローカルの blocked 記録・解除を反映する。"""
     if mark_blocked is None and unblock is None:
@@ -1291,13 +1420,19 @@ def apply_offline_block_updates(
     epic_num = int((state.get("epic") or {}).get("number") or 0)
     state["updated_at"] = now_iso
     state["summary"] = summary
-    state["next"] = compute_next_actions(children, epic_number=epic_num)
+    state["next"] = compute_next_actions(children, epic_number=epic_num, max_parallel=max_parallel)
     state["blocked_overrides"] = {str(k): v for k, v in blocked_overrides.items()}
     return state
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
+    if args.max_parallel < 1:
+        print(
+            f"[ERROR] --max-parallel には 1 以上の整数を指定してください（指定値: {args.max_parallel}）。",
+            file=sys.stderr,
+        )
+        return 1
     if args.mark_blocked is not None and args.unblock is not None and args.mark_blocked == args.unblock:
         print(
             f"[ERROR] --mark-blocked と --unblock に同一の Issue 番号 (#{args.mark_blocked}) を同時指定することはできません。",
@@ -1324,6 +1459,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 mark_blocked=args.mark_blocked,
                 unblock=args.unblock,
                 reason=args.reason,
+                max_parallel=args.max_parallel,
             )
             if not args.no_save:
                 save_state(state_path, state)
@@ -1337,6 +1473,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 mark_blocked=args.mark_blocked,
                 unblock=args.unblock,
                 reason=args.reason,
+                max_parallel=args.max_parallel,
             )
         except RuntimeError as exc:
             print(f"[ERROR] {exc}", file=sys.stderr)
