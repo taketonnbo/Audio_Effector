@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Infrastructure.Repository;
@@ -218,5 +221,165 @@ public sealed class JsonSettingsRepositoryTests : IDisposable
 
         // Assert
         Assert.Empty(actual);
+    }
+
+    /// <summary>
+    /// 同一ファイルを共有する複数インスタンスから同一キーへ並行して要素追加を行った場合、ロストアップデートせずに全要素が保持されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task UpdateValueAsync_複数インスタンスから同一キーへ並行追加_全要素がロストアップデートせず保持されること()
+    {
+        // Arrange
+        const string key = "CustomPresets";
+        const int workerCount = 6;
+        string[] expectedItems = Enumerable.Range(0, workerCount)
+            .Select(i => $"Preset-{i}")
+            .ToArray();
+
+        // Act
+        Task<bool>[] tasks = expectedItems.Select(item => Task.Run(async () =>
+        {
+            using var sut = CreateSut();
+            return await sut.UpdateValueAsync(key, previous =>
+            {
+                List<string> items = DeserializeList(previous);
+                items.Add(item);
+                return JsonSerializer.Serialize(items);
+            });
+        })).ToArray();
+
+        bool[] results = await Task.WhenAll(tasks);
+
+        using var verifierSut = CreateSut();
+        string? rawAfter = await verifierSut.GetValueAsync(key);
+        List<string> actualItems = DeserializeList(rawAfter);
+
+        // Assert
+        Assert.All(results, Assert.True);
+        Assert.Equal(workerCount, actualItems.Count);
+        foreach (string expectedItem in expectedItems)
+        {
+            Assert.Contains(expectedItem, actualItems);
+        }
+    }
+
+    /// <summary>
+    /// 同一ファイルを共有する複数インスタンスから並行して要素削除と別要素追加を行った場合、削除対象のみが除去され別要素の変更が維持されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task UpdateValueAsync_複数インスタンスから並行して要素追加と要素削除を実行_削除対象のみ除去され別要素の変更が維持されること()
+    {
+        // Arrange
+        const string key = "CustomPresets";
+        using (var initialSut = CreateSut())
+        {
+            await initialSut.SetValueAsync(key, JsonSerializer.Serialize(new[] { "PresetA", "PresetB" }));
+        }
+
+        // Act
+        Task<bool> deleteTask = Task.Run(async () =>
+        {
+            using var sut = CreateSut();
+            return await sut.UpdateValueAsync(key, previous =>
+            {
+                List<string> items = DeserializeList(previous);
+                items.Remove("PresetA");
+                return JsonSerializer.Serialize(items);
+            });
+        });
+
+        Task<bool> addTask1 = Task.Run(async () =>
+        {
+            using var sut = CreateSut();
+            return await sut.UpdateValueAsync(key, previous =>
+            {
+                List<string> items = DeserializeList(previous);
+                items.Add("PresetC");
+                return JsonSerializer.Serialize(items);
+            });
+        });
+
+        Task<bool> addTask2 = Task.Run(async () =>
+        {
+            using var sut = CreateSut();
+            return await sut.UpdateValueAsync(key, previous =>
+            {
+                List<string> items = DeserializeList(previous);
+                items.Add("PresetD");
+                return JsonSerializer.Serialize(items);
+            });
+        });
+
+        bool[] results = await Task.WhenAll(deleteTask, addTask1, addTask2);
+
+        using var verifierSut = CreateSut();
+        List<string> actualItems = DeserializeList(await verifierSut.GetValueAsync(key));
+
+        // Assert
+        Assert.All(results, Assert.True);
+        Assert.DoesNotContain("PresetA", actualItems);
+        Assert.Equal(3, actualItems.Count);
+        Assert.Contains("PresetB", actualItems);
+        Assert.Contains("PresetC", actualItems);
+        Assert.Contains("PresetD", actualItems);
+    }
+
+    /// <summary>
+    /// UpdateValueAsyncのコールバックが現在値と同一の値を返した場合、falseを返しディスク上の設定値が変更されないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task UpdateValueAsync_コールバックが変更なしを返す場合_falseを返しディスク上の設定値を維持すること()
+    {
+        // Arrange
+        using var sut = CreateSut();
+        await sut.SetValueAsync("Theme", "Dark");
+
+        // Act
+        bool unchangedExistingResult = await sut.UpdateValueAsync("Theme", previous => previous);
+        bool unchangedMissingResult = await sut.UpdateValueAsync("MissingKey", previous => previous);
+
+        using var verifierSut = CreateSut();
+        string? themeAfter = await verifierSut.GetValueAsync("Theme");
+        string? missingAfter = await verifierSut.GetValueAsync("MissingKey");
+
+        // Assert
+        Assert.False(unchangedExistingResult);
+        Assert.False(unchangedMissingResult);
+        Assert.Equal("Dark", themeAfter);
+        Assert.Null(missingAfter);
+    }
+
+    /// <summary>
+    /// UpdateValueAsyncのコールバックがnullを返した場合、trueを返し対象キーのみがディスクから削除されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task UpdateValueAsync_コールバックがnullを返す場合_trueを返し対象キーのみディスクから削除されること()
+    {
+        // Arrange
+        using var sut = CreateSut();
+        await sut.SetValueAsync("TargetKey", "ValueToRemove");
+        await sut.SetValueAsync("KeepKey", "ValueToKeep");
+
+        // Act
+        bool deletedResult = await sut.UpdateValueAsync("TargetKey", _ => null);
+
+        using var verifierSut = CreateSut();
+        string? targetAfter = await verifierSut.GetValueAsync("TargetKey");
+        string? keepAfter = await verifierSut.GetValueAsync("KeepKey");
+
+        // Assert
+        Assert.True(deletedResult);
+        Assert.Null(targetAfter);
+        Assert.Equal("ValueToKeep", keepAfter);
+    }
+
+    private static List<string> DeserializeList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        return JsonSerializer.Deserialize<List<string>>(json) ?? [];
     }
 }
