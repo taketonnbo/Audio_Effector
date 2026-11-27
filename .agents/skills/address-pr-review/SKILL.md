@@ -43,22 +43,17 @@ description: PRのレビュー指摘コメントを取得し、コードベー�
   - WPF の STA スレッドテストでは、必ず `finally` 句で `Dispatcher.CurrentDispatcher.InvokeShutdown()` を実行し、必要に応じて `DispatcherSynchronizationContext` を設定して非同期継続によるテストホストクラッシュを防止します。
   - XAML ビューの変更を含む場合は、`BindingErrorTraceListener` によるビュー実体のバインディングエラー 0 件テストや `ThemeResourceTests` の追加を検討します。
 
-### 4. 隔離ビルドおよび検証（`.agents/rules/build_rules.md` 厳守）
-- ユーザーのデバッグ実行を阻害しないよう、必ず隔離出力ディレクトリ（`.agent_build/`）を指定してビルドと全単体テストを実行します。
+### 4. 統合検証ハーネスによる隔離ビルド・テスト検証（`.agents/rules/build_rules.md` / `loop_engineering_rules.md` 厳守）
+- ユーザーのデバッグ実行および他並列ワークツリーを阻害しないよう、原則として統合検証ハーネス **`tools/verify_loop.ps1 -Full`** を用いて隔離ビルド・全単体テスト・仕様書同期・XAML バインディング等価性・Python ツール単体テストの全 5 ゲートを一括検証します。
   ```powershell
-  $outDir = "$(Get-Location)\.agent_build\"
-  dotnet build AudioEffector.sln -p:OutDir="$outDir" --nologo
-  if ($LASTEXITCODE -eq 0) {
-      dotnet test AudioEffector.Tests\AudioEffector.Tests.csproj -p:OutDir="$outDir" --no-build --nologo
-  }
-  $rc = $LASTEXITCODE
-  Remove-Item -Recurse -Force -Path '.agent_build' -ErrorAction SilentlyContinue
-  exit $rc
+  .\tools\verify_loop.ps1 -Full -JsonOut ".agent_logs\verify_review.json"
   ```
-- XAML や ViewModel を変更した場合は、`python tools/check_equivalence.py --xaml` も実行し、バインディングエラー・警告が 0 件であることを確認します。
-- 仕様書の更新漏れがないか確認するため、`python tools/check_spec_sync.py --base develop` を実行し、未更新の主要仕様書（Primary）がないか検証します。
-- **警告 0・エラー 0・全テスト合格** になるまで修正を繰り返します（StyleCop / CA 警告もすべて解消します）。
-- ビルド・テスト実行後は `.agent_build` ディレクトリが残っていないことを必ず確認します。
+  - 並列ワークツリー（`.agent_worktrees/issue-<番号>`）内で実行する場合は、`origin/develop` が比較ベースとして自動優先され、Gate 1 ビルド工程は名前付き Mutex により安全に直列化されます（明示的に最新比較したい場合は `-PreferOriginBase -FetchBase` を併用）。
+- **レビュー対応中に `origin/develop` が進んだ場合（`BEHIND` / `CONFLICTING` 対応）**:
+  - 履歴書き換え（`rebase` / `--force`）は禁止のため、未コミット変更をコミットした後に `.\tools\sync_branch.ps1 -Json` で非破壊追従マージを実行します。
+  - `CONFLICT`（終了コード `2`）発生時は `.agents/rules/loop_engineering_rules.md` Section 4 の基準に従い、自動解消可能な独立衝突のみ解消して `.\tools\verify_loop.ps1 -Full` を再実行し、ロジック衝突や再検証連続 2 回失敗時は `.\tools\sync_branch.ps1 -Abort -Json` でロールバックしてユーザーへ報告します。
+- **警告 0・エラー 0・全テスト合格（終了コード `0`）** になるまで修正を繰り返します（StyleCop / CA 警告もすべて解消します）。
+- ビルド・テスト実行後は `.agent_build/` ディレクトリが残っていないことを必ず確認します。
 
 ### 5. コミット分割とプッシュ（`.agents/rules/git_operation_rules.md` 厳守）
 - `git status` で不要・一時ファイルが含まれていないことを確認します。
