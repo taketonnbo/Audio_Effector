@@ -1,4 +1,4 @@
-param([string]$Renderer = '.agent_build/MockupRenderer.exe')
+﻿param([string]$Renderer = '.agent_build/MockupRenderer.exe')
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Push-Location $repoRoot
