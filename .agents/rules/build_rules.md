@@ -6,13 +6,15 @@ description: ユーザーのデバッグ実行セッションを阻害しない�
 
 エージェントがコードの構文チェック、コンパイル確認、テスト検証のために `dotnet build` を実行する際は、**ユーザーがエディタ上でアプリをデバッグ実行中であってもセッションを強制終了・ファイルロック競合させない** よう、以下の規則を厳守してください。
 
-## 1. 隔離ビルド（-p:OutDir の使用）
+## 1. 隔離ビルド（`-p:UseArtifactsOutput=true` / `-p:OutDir` の使用）
 - 通常の `dotnet build` はデフォルトで `bin\Debug\` 配下のファイルを上書きしようとするため、デバッグ実行中のプロセスロック（`MSB3026`）やデバッグ中断を引き起こします。
 - エージェントがビルド検証を行う際は、**必ず専用の一時出力先ディレクトリ（`.agent_build/`）を指定** してください。
-- コマンド例:
+- **ソリューション全体（`AudioEffector.sln`）をビルド・テストする場合**は、プロジェクト間の依存パッケージバージョン差による DLL 上書き競合を防ぐため、プロジェクトごとに出力先を分離できる **Artifacts Output Layout** を使用してください。
   ```powershell
-  dotnet build AudioEffector.sln -p:OutDir="$(Get-Location)\.agent_build\"
+  dotnet build AudioEffector.sln -p:UseArtifactsOutput=true -p:ArtifactsPath="$(Get-Location)\.agent_build"
+  dotnet test AudioEffector.sln -p:UseArtifactsOutput=true -p:ArtifactsPath="$(Get-Location)\.agent_build" --no-build
   ```
+- **単一プロジェクトのみ**をビルド・テストする場合は、`-p:OutDir="$(Get-Location)\.agent_build\"` の利用も可能です。
 
 ## 2. 一時ディレクトリのクリーンアップ
 - ビルド検証が完了した後は、作業ディレクトリをクリーンに保つため、`.agent_build` ディレクトリを削除してください。
