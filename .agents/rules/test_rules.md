@@ -1,5 +1,5 @@
 ---
-description: 本プロジェクトにおける単体テストコード作成ルール（5テストプロジェクト1対1対称配置、名前空間規則、sut命名、テストメソッド命名規則、日本語XMLコメント付与、モック・非同期方針）
+description: 本プロジェクトにおける単体テストコード作成ルール（5テストプロジェクト1対1対称配置、名前空間規則、sut命名、テストメソッド命名規則、日本語XMLコメント付与、モック・WPFアニメーション/非同期待機パターン・フレーク対策方針）
 ---
 
 # テストコード作成ルール
@@ -150,6 +150,31 @@ public void IsHiRes判定_サンプリングレートとビット深度の組み
    - **STAスレッド終了時のDispatcherシャットダウン必須化**:
      STAスレッド内で `System.Windows.Application` を生成・使用した場合、スレッド終了時に必ず `finally` 句で `System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();` を呼び出してDispatcherリソースを明示的に解放・シャットダウンすること。
      これを怠ると、プロセス内に生存しないスレッドに紐づく `Application.Current` / `Dispatcher` が残留し、後続テストでの `dispatcher.Invoke()` が完了せず永久ハング・デッドロックを引き起こします。
+   - **WPF アニメーション（`AnimationClock` / `Storyboard`）の一時停止・状態反映検証**:
+     - **アンチパターン**: `Thread.Sleep` のみや固定間隔ポーリングで「プロパティ値が複数回変化しなかったこと」をもって一時停止完了・静止とみなす手法。並列テスト実行時などの CPU 高負荷下では WPF `TimeManager` ティックが遅延し、`AnimationClock.Controller.Pause()` 適用前の同一フレーム値を複数回読み取って誤判定（フレーク）します。
+     - **推奨パターン**: `CompositionTarget.Rendering` イベントを購読して WPF レンダリングフレーム（`TimeManager` ティック）を確実に跨ぐ待機ヘルパーを用います。
+       - 必ず `try / finally` で `CompositionTarget.Rendering -= OnRendering;` による購読解除を行うこと。
+       - 待機ヘルパーはタイムアウト成否を `bool` で返し、呼び出し側で `Assert.True(...)` により戻り値を検証してサイレント通過を防ぐこと。
+       - **参照実装**: `AudioEffector.Tests\Presentation\Views\MiniPlayerWindowTests.cs` の `WaitForRenderFrames(int frameCount, int timeoutMs = 3000)`。
+       ```csharp
+       private static bool WaitForRenderFrames(int frameCount, int timeoutMs = 3000)
+       {
+           int observedFrames = 0;
+           void OnRendering(object? sender, EventArgs e) => observedFrames++;
+
+           CompositionTarget.Rendering += OnRendering;
+           try
+           {
+               WaitUntil(() => observedFrames >= frameCount, timeoutMs);
+               return observedFrames >= frameCount;
+           }
+           finally
+           {
+               CompositionTarget.Rendering -= OnRendering;
+           }
+       }
+       ```
+     - **Verifier 保護・プロダクションコード非改変との整合**: テスト検証のためだけにプロダクションコードへ安易にテスト専用状態やフックを追加せず、まず `CompositionTarget.Rendering` 等の WPF 標準イベントによるテスト側同期手段を検討すること（[loop_engineering_rules.md](loop_engineering_rules.md) 準拠）。
 
 ---
 
@@ -158,3 +183,40 @@ public void IsHiRes判定_サンプリングレートとビット深度の組み
 1. **戻り値**: 非同期処理をテストするメソッドは、必ず **`async Task`** とします（`async void` は禁止）。
 2. **競合・遅延の検証**:
    - レースコンディションや最新状態の整合性を検証する際は、`TaskCompletionSource` などを利用して非同期完了タイミングを制御したスタブを用います。
+3. **バックグラウンド起動する IPC サーバ・非同期サービスの起動／停止遷移検証**:
+   - **アンチパターン**: `Task.Run` 等でバックグラウンド待受を開始するサーバ（例: `AppIpcServer.Start()`）の起動直後や、`Dispose()` 直後の OS リソース（Named Pipe ハンドル等）解放待ちに対して、短い固定タイムアウト（例: 150ms）でプローブを待機なしに 1 回だけ呼び出すこと。並列テスト実行時などの高 CPU 負荷下では、スレッドプール遅延・初回 JSON シリアライズ遅延・OS ハンドル解放遅延により間欠的に失敗（フレーク）します。
+   - **推奨パターン**:
+     - 1 回あたりのプローブタイムアウトは実運用相当（例: `NamedPipeIpcReadinessProbe.DefaultConnectTimeout` 相当の `300ms`）とします。
+     - 起動中（`true`）および停止後（`false`）への状態遷移は、上限時間付き・短間隔ポーリング（例: 上限 3 秒・25ms 間隔）で期待状態になるまで待機します。通常時は初回一致で即座に返却されるため、テスト総実行時間を悪化させません。
+     - **参照実装**: `AudioEffector.McpServer.Tests\Gateways\NamedPipeIpcReadinessProbeTests.cs` の `WaitForReadinessAsync(NamedPipeIpcReadinessProbe probe, bool expected, TimeSpan timeout)`。
+     ```csharp
+     private static async Task<bool> WaitForReadinessAsync(
+         NamedPipeIpcReadinessProbe probe,
+         bool expected,
+         TimeSpan timeout)
+     {
+         var sw = Stopwatch.StartNew();
+         bool lastResult;
+         do
+         {
+             lastResult = await probe.IsReadyAsync();
+             if (lastResult == expected)
+             {
+                 return lastResult;
+             }
+
+             if (sw.Elapsed >= timeout)
+             {
+                 break;
+             }
+
+             await Task.Delay(PollInterval);
+         }
+         while (sw.Elapsed < timeout);
+
+         return lastResult;
+     }
+     ```
+4. **フレーク修正時の Verifier 保護と再現確認（必須厳守）**:
+   - フレーク解消を目的とした **テストケースの削除、`Skip` 属性の付与、アサーション条件の弱体化・コメントアウトは一切禁止** します（[loop_engineering_rules.md](loop_engineering_rules.md) の Verifier 保護に準拠）。
+   - 修正後は、対象テストの **単独連続実行** および **`.\tools\verify_loop.ps1 -Full` によるソリューション全体の並列実行** の両方で安定合格することを確認してください。
