@@ -20,6 +20,17 @@ public sealed record SearchPlaylistsResponse(
     IReadOnlyList<PlaylistSummaryDto> Playlists);
 
 /// <summary>
+/// <c>create_playlist</c> ツールの応答データ DTO です。
+/// </summary>
+/// <param name="Playlist">作成されたプレイリストのサマリ情報（収録トラック一覧を含む）。</param>
+/// <param name="AddedCount">プレイリストへ初期登録されたトラック件数。</param>
+/// <param name="SkippedItems">重複指定により登録をスキップしたトラック識別子の一覧。</param>
+public sealed record CreatePlaylistResponse(
+    PlaylistSummaryDto Playlist,
+    int AddedCount,
+    IReadOnlyList<string> SkippedItems);
+
+/// <summary>
 /// MCP 応答で返却するプレイリストのサマリ DTO です。
 /// </summary>
 /// <param name="Id">一意のプレイリスト ID（GUID）。</param>
