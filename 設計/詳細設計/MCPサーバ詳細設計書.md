@@ -1,4 +1,4 @@
-# MCPサーバ詳細設計書
+﻿# MCPサーバ詳細設計書
 
 ## 1. 概要
 
@@ -1200,7 +1200,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 
 ### 5.16 プレイリスト削除ツール仕様（Phase 2 #337 実装）
 
-`PlaylistTools`（`AudioEffector.McpServer/Tools/PlaylistTools.cs`）に、指定したユーザープレイリストを安全に削除・永続化する **`delete_playlist`** ツールを実装します。業務ロジックは `PlaylistApplicationService.DeletePlaylistWithResultAsync(PlaylistId, CancellationToken)` へ集約し、Audio Effector（WPF 本体）が未起動の状態でも `IPlaylistRepository.DeleteAsync`（`JsonPlaylistRepository` の `.lock` 排他＋原子的書き込み基盤）経由で安全に削除し、`PlaylistUpdatedEvent` を発行します。
+`PlaylistTools`（`AudioEffector.McpServer/Tools/PlaylistTools.cs`）に、指定したユーザープレイリストを安全に削除・永続化する **`delete_playlist`** ツールを実装します。業務ロジックは `PlaylistApplicationService.DeletePlaylistWithResultAsync(PlaylistId, CancellationToken)` へ集約し、Audio Effector（WPF 本体）が未起動の状態でも `IPlaylistRepository.DeleteAndReturnAsync`（`JsonPlaylistRepository` の単一 `.lock` 排他区間内での最新読み込み・存在確認＆削除・原子的書き込み）経由で TOCTOU 競合なく安全に削除し、実際に削除された場合のみ `PlaylistUpdatedEvent` を発行します。
 
 #### 入力パラメータ
 
