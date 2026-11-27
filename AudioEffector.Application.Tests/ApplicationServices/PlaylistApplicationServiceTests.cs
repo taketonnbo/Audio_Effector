@@ -244,6 +244,61 @@ public sealed class PlaylistApplicationServiceTests
     }
 
     /// <summary>
+    /// DeletePlaylistWithResultAsync で登録済みのプレイリスト ID を指定した場合、削除が実行されイベント発行後に削除前エンティティを返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistWithResultAsync_登録済みプレイリストID_削除されたプレイリストを返しイベント発行すること()
+    {
+        // Arrange
+        var playlistId = PlaylistId.New();
+        var playlist = new UserPlaylist(playlistId, "削除対象", [TrackId.New(), TrackId.New()]);
+
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.GetByIdAsync(playlistId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(playlist);
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act
+        UserPlaylist? actual = await sut.DeletePlaylistWithResultAsync(playlistId);
+
+        // Assert
+        Assert.NotNull(actual);
+        Assert.Equal(playlistId, actual.Id);
+        Assert.Equal("削除対象", actual.Name);
+        Assert.Equal(2, actual.TrackCount);
+        mockPlaylistRepo.Verify(r => r.DeleteAsync(playlistId, It.IsAny<CancellationToken>()), Times.Once);
+        mockEventBus.Verify(b => b.PublishAsync(It.Is<PlaylistUpdatedEvent>(e => e.Playlist == playlist), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// DeletePlaylistWithResultAsync で存在しないプレイリスト ID を指定した場合、null を返し削除処理とイベント発行を行わないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistWithResultAsync_存在しないプレイリストID_nullを返し削除とイベント発行を行わないこと()
+    {
+        // Arrange
+        var playlistId = PlaylistId.New();
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.GetByIdAsync(playlistId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((UserPlaylist?)null);
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act
+        UserPlaylist? actual = await sut.DeletePlaylistWithResultAsync(playlistId);
+
+        // Assert
+        Assert.Null(actual);
+        mockPlaylistRepo.Verify(r => r.DeleteAsync(It.IsAny<PlaylistId>(), It.IsAny<CancellationToken>()), Times.Never);
+        mockEventBus.Verify(b => b.PublishAsync(It.IsAny<PlaylistUpdatedEvent>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
     /// 存在するプレイリストにトラックを追加した際、トラックが追加されて保存されイベントが発行されるかを検証します。
     /// </summary>
     [Fact]
