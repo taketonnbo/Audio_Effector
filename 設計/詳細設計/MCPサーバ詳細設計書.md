@@ -178,7 +178,7 @@ classDiagram
 | `McpResponseFormatter` / `McpErrorMapper` | `Protocol/McpResponseFormatter.cs`, `Protocol/McpErrorMapper.cs` | 正常応答 JSON のシリアライズ、`Result` / `Result<T>` 失敗および例外の統一エラーコード変換・機密詳細の非露出とログ記録を担当。 |
 | `SystemTools` / `SystemDtos` | `Tools/SystemTools.cs`, `Dtos/SystemDtos.cs` | Phase 1 の疎通確認用リファレンス実装（`ping`, `get_server_info`）および応答 DTO。 |
 | `LibraryTools` / `LibraryDtos` | `Tools/LibraryTools.cs`, `Dtos/LibraryDtos.cs` | Phase 2 の楽曲・アルバム検索ツール（`search_tracks`, `search_albums`）および応答 DTO（`SearchTracksResponse`, `TrackSummaryDto`, `SearchAlbumsResponse`, `AlbumSummaryDto`）。 |
-| `PlaylistTools` / `PlaylistDtos` | `Tools/PlaylistTools.cs`, `Dtos/PlaylistDtos.cs` | Phase 2 のプレイリスト検索ツール（`search_playlists`）および応答 DTO（`SearchPlaylistsResponse`, `PlaylistSummaryDto`）。 |
+| `PlaylistTools` / `PlaylistDtos` | `Tools/PlaylistTools.cs`, `Dtos/PlaylistDtos.cs` | Phase 2 のプレイリスト検索・作成ツール（`search_playlists`, `create_playlist`）および応答 DTO（`SearchPlaylistsResponse`, `CreatePlaylistResponse`, `PlaylistSummaryDto`）。 |
 | `AppTools` / `AppDtos` | `Tools/AppTools.cs`, `Dtos/AppDtos.cs` | Phase 2 のアプリ起動ツール（`launch_app`）および応答 DTO（`LaunchAppResponse`）。 |
 | `IAppLauncher` / `WpfAppLauncher` | `Gateways/IAppLauncher.cs`, `Gateways/WpfAppLauncher.cs` | WPF 本体の実行ファイルパス解決・多重起動防止確認・起動中プロセス追跡・IPC 待受準備完了待機を担う起動ゲートウェイ。 |
 | `IAppLaunchCoordinator` / `SessionFileAppLaunchCoordinator` | `Gateways/IAppLaunchCoordinator.cs`, `Gateways/SessionFileAppLaunchCoordinator.cs` | Windows セッション単位の OS ファイルロックと共有状態ファイルにより、複数の独立 MCP プロセス間の WPF 起動を調停するコーディネータ。 |
@@ -1048,7 +1048,71 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - 期限超過（`deadlineUtc`）またはキャンセル要求 → `OPERATION_CANCELLED`
   - その他の未捕捉例外 → `INTERNAL_ERROR`（内部診断非露出、詳細は `ILogger` へ記録）
 
-### 5.14 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
+### 5.14 プレイリスト自動作成ツール仕様（Phase 2 #335 実装）
+
+`PlaylistTools`（`AudioEffector.McpServer/Tools/PlaylistTools.cs`）に、指定したプレイリスト名および任意の初期トラック一覧（`trackIds` / `filePaths`）から新しいユーザープレイリストを作成・永続化する **`create_playlist`** ツールを実装します。業務ロジックは `PlaylistApplicationService.CreatePlaylistWithTracksAsync`（および `CreatePlaylistAsync(string, IReadOnlyList<TrackId>?, CancellationToken)`）へ集約し、Audio Effector（WPF 本体）が未起動の状態でも `JsonPlaylistRepository` のプロセス間ファイルロック・原子的書き込み基盤（#309）経由で安全に永続化します。
+
+#### 入力パラメータ
+
+| パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
+| :--- | :--- | :---: | :---: | :--- |
+| `name` | `string` | 必須 | — | 作成するプレイリスト名（前後空白トリム、1〜200 文字）。空・空白のみ、または 200 文字超過は `INVALID_PARAMETER` エラー。同名プレイリストは WPF 本体仕様に合わせ許可し、`PlaylistId`（GUID）で一意に識別する。 |
+| `trackIds` | `string[]?` | 任意 | `null` | 初期登録するトラック ID（GUID 文字列）の一覧（`search_tracks` の結果をそのまま指定可能）。空要素・不正 GUID・`Guid.Empty` は `INVALID_PARAMETER` エラー。 |
+| `filePaths` | `string[]?` | 任意 | `null` | 初期登録する音声ファイルの絶対パス一覧。空要素・相対パスは `INVALID_PARAMETER` エラー。`trackIds` と併用時は `trackIds` → `filePaths` の順に解決して結合する。 |
+
+#### 出力（`data`）JSON スキーマ（`CreatePlaylistResponse`）
+
+```json
+{
+  "playlist": {
+    "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "name": "Night Drive Jazz",
+    "trackCount": 2,
+    "createdAt": "2026-11-27T00:30:00Z",
+    "updatedAt": "2026-11-27T00:30:00Z",
+    "tracks": [
+      {
+        "id": "11111111-2222-3333-4444-555555555555",
+        "title": "Blue Note Morning",
+        "artist": "Miles Trio",
+        "album": "Midnight Sessions",
+        "durationSeconds": 225.5,
+        "durationString": "03:45",
+        "trackNumber": 3,
+        "year": 2024,
+        "genre": "Jazz",
+        "format": "FLAC",
+        "bitrate": 1411,
+        "sampleRate": 96000,
+        "bitsPerSample": 24,
+        "isFavorite": true,
+        "filePath": "C:\\Music\\Jazz\\BlueNote.flac"
+      }
+    ]
+  },
+  "addedCount": 2,
+  "skippedItems": []
+}
+```
+
+#### 実装詳細・整合性・エラーケース
+
+- **厳格なトラック解決と不完全データ防止**:
+  - `trackIds` / `filePaths` が 1 件以上指定された場合、`ITrackRepository.GetAllAsync` で最新ライブラリを取得し、`IFavoriteRepository` が登録されている場合は `FavoriteTrackMatcher.Reconcile` で `IsFavorite` を最新化する。
+  - 指定された `trackId` または `filePath`（大文字・小文字区別なし一致）が 1 件でもライブラリに存在しない場合は `KeyNotFoundException`（MCP 応答 `NOT_FOUND`）で即座に失敗させ、`IPlaylistRepository.SaveAsync` を実行しない（不完全なプレイリストの残留を防止）。
+- **重複指定の扱い**:
+  - 同一トラックが `trackIds` 内・`filePaths` 内・または双方を跨いで重複指定された場合は、初出の順序を維持して 1 回のみ収録し、重複した識別子を `skippedItems` に記録する。
+- **永続化と WPF 互換性**:
+  - 構築する `UserPlaylist` には `TrackIds` および（全曲のファイルパスが揃う場合）旧互換の `TrackPaths` の双方を順序通りに格納し、`IPlaylistRepository.SaveAsync`（`JsonPlaylistRepository` の `.lock` 排他＋原子的書き込み）で 1 回で永続化する。保存後に `PlaylistUpdatedEvent` を発行する。
+  - `trackIds` / `filePaths` ともに未指定（空プレイリスト作成）の場合は `ITrackRepository` へアクセスせず直接保存する。
+- **エラーケース**:
+  - `name` 空・空白・200 文字超過、`trackIds` 不正 GUID / 空 GUID、`filePaths` 空文字 / 相対パス → `INVALID_PARAMETER`
+  - 指定された `trackId` / `filePath` がライブラリに未登録 → `NOT_FOUND`（内部ファイルパス非露出）
+  - `FileLockTimeoutException` → `CONFLICT_LOCK_TIMEOUT`
+  - `OperationCanceledException` → `OPERATION_CANCELLED`
+  - その他の未捕捉例外 → `INTERNAL_ERROR`（内部詳細非露出、詳細は `ILogger` へ記録）
+
+### 5.15 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
 
 個別ツールの詳細スキーマ・バリデーション・実装仕様は Phase 2 親 Issue（#301）配下の各子 Issue にて順次策定し、実装に合わせて本設計書および機能仕様書へ追記します。
 
@@ -1056,7 +1120,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 | :--- | :--- | :--- | :--- |
 | **アプリ起動・ライフサイクル** | `launch_app` | `IAppLauncher` → WPF `AudioEffector.exe` | #316（アプリの起動） |
 | **楽曲ライブラリ参照・検索** | `search_tracks`, `search_albums`, `get_track`, `list_artists`, `list_favorites`, `list_recent_tracks` | `LibraryApplicationService` | #305（曲の検索）, #331（アルバム・プレイリスト検索）ほか |
-| **プレイリスト管理** | `search_playlists`, `get_playlist`, `create_playlist`, `add_tracks_to_playlist`, `remove_track_from_playlist` | `PlaylistApplicationService` | #331（アルバム・プレイリスト検索）ほか |
+| **プレイリスト管理** | `search_playlists`, `create_playlist`, `get_playlist`, `add_tracks_to_playlist`, `remove_track_from_playlist` | `PlaylistApplicationService` | #331（アルバム・プレイリスト検索）, #335（プレイリスト自動作成）ほか |
 | **イコライザー・プリセット** | `list_equalizer_presets`, `get_equalizer_settings`, `apply_equalizer_preset` | `EqualizerApplicationService` | 順次起票 |
 | **アプリ設定** | `get_settings`, `update_settings` | `SettingsApplicationService` / `ISettingsService` | 順次起票 |
 | **再生制御・再生キュー連携** | `get_playback_state`, `get_playback_queue`, `enqueue_tracks`, `pause_playback`, `resume_playback`, `stop_playback`, `next_track`, `previous_track`, `play_track`, `play_album`, `play_playlist` | `IPlaybackControlGateway` → WPF `IAudioService` / `AudioApplicationService` | #306（曲の再生）, #328（再生状態の取得）, #329（基本再生制御）, #330（アルバム・プレイリスト再生）, #333（再生キューの参照）, #334（再生キューの追加）ほか |
@@ -1088,4 +1152,4 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - [インフラストラクチャ層詳細設計書](アーキテクチャ/インフラストラクチャ層詳細設計書.md)
   - [プレゼンテーション層詳細設計書](アーキテクチャ/プレゼンテーション層詳細設計書.md)
   - [テスト方針書](テスト仕様/テスト方針書.md)
-- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#328](https://github.com/taketonnbo/Audio_Effector/issues/328), [#329](https://github.com/taketonnbo/Audio_Effector/issues/329), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)
+- **関連 Issue**: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294), [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#296](https://github.com/taketonnbo/Audio_Effector/issues/296), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#308](https://github.com/taketonnbo/Audio_Effector/issues/308), [#309](https://github.com/taketonnbo/Audio_Effector/issues/309), [#310](https://github.com/taketonnbo/Audio_Effector/issues/310), [#311](https://github.com/taketonnbo/Audio_Effector/issues/311), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#328](https://github.com/taketonnbo/Audio_Effector/issues/328), [#329](https://github.com/taketonnbo/Audio_Effector/issues/329), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331), [#333](https://github.com/taketonnbo/Audio_Effector/issues/333), [#334](https://github.com/taketonnbo/Audio_Effector/issues/334), [#335](https://github.com/taketonnbo/Audio_Effector/issues/335)
