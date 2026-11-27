@@ -31,6 +31,9 @@
 .PARAMETER SkipFetch
     create 時の git fetch origin <BaseBranch> をスキップする
 
+.PARAMETER CleanActiveBuilds
+    prune 時に稼働中ワークツリー配下の .agent_build/ も対象として安全削除を試行する（既定では並列ビルド保護のため稼働中ワークツリーの .agent_build/ は削除しない）
+
 .PARAMETER RepoRoot
     対象リポジトリのルートパス（省略時は現在の Git リポジトリから自動解決）
 
@@ -53,6 +56,7 @@ param(
     [switch]$UseExistingBranch,
     [switch]$Force,
     [switch]$SkipFetch,
+    [switch]$CleanActiveBuilds,
     [string]$RepoRoot = "",
     [switch]$Json,
     [string]$JsonOut = ""
@@ -118,11 +122,16 @@ function Invoke-Git {
     }
 }
 
+function Resolve-PSPath {
+    param([Parameter(Mandatory = $true)][string]$PathText)
+    return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PathText)
+}
+
 function Resolve-MainRepoRoot {
     param([string]$SpecifiedRoot)
 
     $baseDir = if (-not [string]::IsNullOrWhiteSpace($SpecifiedRoot)) {
-        [System.IO.Path]::GetFullPath($SpecifiedRoot)
+        Resolve-PSPath -PathText $SpecifiedRoot
     }
     else {
         (Get-Location).Path
@@ -285,12 +294,13 @@ function Write-ResultAndExit {
     $jsonText = $Payload | ConvertTo-Json -Depth 8
 
     if (-not [string]::IsNullOrWhiteSpace($JsonOut)) {
-        $outDir = Split-Path -Parent $JsonOut
+        $resolvedJsonOut = Resolve-PSPath -PathText $JsonOut
+        $outDir = Split-Path -Parent $resolvedJsonOut
         if (-not [string]::IsNullOrWhiteSpace($outDir) -and -not (Test-Path -LiteralPath $outDir)) {
             New-Item -ItemType Directory -Path $outDir -Force | Out-Null
         }
         $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-        [System.IO.File]::WriteAllText($JsonOut, $jsonText, $utf8NoBom)
+        [System.IO.File]::WriteAllText($resolvedJsonOut, $jsonText, $utf8NoBom)
     }
 
     if ($Json) {
@@ -368,14 +378,14 @@ try {
                 New-Item -ItemType Directory -Path $worktreesRoot -Force | Out-Null
             }
 
-            if (-not $SkipFetch) {
+            if (-not $UseExistingBranch -and -not $SkipFetch) {
                 $fetchRes = Invoke-Git -Arguments @("fetch", "origin", $BaseBranch) -WorkingDirectory $resolvedRepoRoot
                 if ($fetchRes.ExitCode -ne 0) {
                     throw "git fetch origin $BaseBranch に失敗しました: $($fetchRes.StdErr.Trim())"
                 }
             }
 
-            $baseRef = "origin/$BaseBranch"
+            $baseRef = if ($UseExistingBranch) { $null } else { "origin/$BaseBranch" }
             if ($UseExistingBranch) {
                 $addRes = Invoke-Git -Arguments @("worktree", "add", $targetPath, $BranchName) -WorkingDirectory $resolvedRepoRoot
             }
@@ -482,13 +492,24 @@ try {
             $managed = @(Get-ManagedWorktrees -MainRepoRoot $resolvedRepoRoot)
             $registeredKeys = @{}
             $cleanedBuilds = New-Object System.Collections.ArrayList
+            $failedCleanups = New-Object System.Collections.ArrayList
 
             foreach ($wt in $managed) {
                 $registeredKeys[(Normalize-PathKey -PathText $wt.path)] = $true
-                $wtBuildDir = Join-Path $wt.path ".agent_build"
-                if (Test-Path -LiteralPath $wtBuildDir) {
-                    if (Remove-DirectorySafe -TargetPath $wtBuildDir) {
-                        [void]$cleanedBuilds.Add($wtBuildDir)
+                if ($CleanActiveBuilds -or $wt.prunable) {
+                    $wtBuildDir = Join-Path $wt.path ".agent_build"
+                    if (Test-Path -LiteralPath $wtBuildDir) {
+                        try {
+                            if (Remove-DirectorySafe -TargetPath $wtBuildDir) {
+                                [void]$cleanedBuilds.Add($wtBuildDir)
+                            }
+                        }
+                        catch {
+                            [void]$failedCleanups.Add([ordered]@{
+                                path  = $wtBuildDir
+                                error = $_.Exception.Message
+                            })
+                        }
                     }
                 }
             }
@@ -499,8 +520,16 @@ try {
                 foreach ($dir in $dirs) {
                     $dirKey = Normalize-PathKey -PathText $dir.FullName
                     if (-not $registeredKeys.ContainsKey($dirKey)) {
-                        if (Remove-DirectorySafe -TargetPath $dir.FullName) {
-                            [void]$removedOrphans.Add($dir.FullName)
+                        try {
+                            if (Remove-DirectorySafe -TargetPath $dir.FullName) {
+                                [void]$removedOrphans.Add($dir.FullName)
+                            }
+                        }
+                        catch {
+                            [void]$failedCleanups.Add([ordered]@{
+                                path  = $dir.FullName
+                                error = $_.Exception.Message
+                            })
                         }
                     }
                 }
@@ -513,10 +542,11 @@ try {
                 repo_root           = $resolvedRepoRoot
                 removed_orphans     = @($removedOrphans.ToArray())
                 cleaned_agent_build = @($cleanedBuilds.ToArray())
+                failed_cleanups     = @($failedCleanups.ToArray())
                 max_parallel        = $MaxParallel
                 active_count        = $afterWorktrees.Count
                 available_slots     = [Math]::Max(0, $MaxParallel - $afterWorktrees.Count)
-                message             = ("ワークツリーを整理しました（孤立ディレクトリ削除: {0} 件, .agent_build 削除: {1} 件）" -f $removedOrphans.Count, $cleanedBuilds.Count)
+                message             = ("ワークツリーを整理しました（孤立ディレクトリ削除: {0} 件, .agent_build 削除: {1} 件, 削除スキップ: {2} 件）" -f $removedOrphans.Count, $cleanedBuilds.Count, $failedCleanups.Count)
             }
             Write-ResultAndExit -Payload $payload -ExitCode 0
         }
