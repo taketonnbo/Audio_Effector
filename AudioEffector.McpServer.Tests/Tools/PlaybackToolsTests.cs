@@ -904,6 +904,215 @@ public sealed class PlaybackToolsTests
         Assert.Contains("launch_app", description.Description, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// get_playback_queue を呼び出し再生中トラックおよび予約キュー・アルバム残り曲キューを受け取った場合、統一 JSON が返ることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackQueueAsync_再生中かつ両キュー存在時_再生キューJSONを返す()
+    {
+        // Arrange
+        var currentGuid = Guid.NewGuid();
+        var userGuid = Guid.NewGuid();
+        var albumGuid = Guid.NewGuid();
+        var expected = new PlaybackQueueResponse(
+            CurrentTrack: new PlayedTrackDto(
+                Id: currentGuid,
+                Title: "Current Track",
+                Artist: "Miles Trio",
+                Album: "Midnight Sessions",
+                DurationSeconds: 225.5,
+                DurationString: "03:45",
+                FilePath: @"C:\Music\01.flac"),
+            Limit: 20,
+            UserQueueCount: 1,
+            AlbumQueueCount: 2,
+            UserQueue:
+            [
+                new PlayedTrackDto(
+                    Id: userGuid,
+                    Title: "Queued Request",
+                    Artist: "Guest Artist",
+                    Album: "Single",
+                    DurationSeconds: 180.0,
+                    DurationString: "03:00",
+                    FilePath: @"C:\Music\u1.flac"),
+            ],
+            AlbumQueue:
+            [
+                new PlayedTrackDto(
+                    Id: albumGuid,
+                    Title: "Next Album Track",
+                    Artist: "Miles Trio",
+                    Album: "Midnight Sessions",
+                    DurationSeconds: 200.0,
+                    DurationString: "03:20",
+                    FilePath: @"C:\Music\02.flac"),
+            ]);
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.GetPlaybackQueueAsync(20, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackQueueResponse>.Success(expected));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.GetPlaybackQueueAsync(limit: 20);
+
+        // Assert
+        Assert.False(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal(currentGuid.ToString("D"), data.GetProperty("currentTrack").GetProperty("id").GetString());
+        Assert.Equal(20, data.GetProperty("limit").GetInt32());
+        Assert.Equal(1, data.GetProperty("userQueueCount").GetInt32());
+        Assert.Equal(2, data.GetProperty("albumQueueCount").GetInt32());
+        JsonElement userItem = Assert.Single(data.GetProperty("userQueue").EnumerateArray());
+        Assert.Equal(userGuid.ToString("D"), userItem.GetProperty("id").GetString());
+        JsonElement albumItem = Assert.Single(data.GetProperty("albumQueue").EnumerateArray());
+        Assert.Equal(albumGuid.ToString("D"), albumItem.GetProperty("id").GetString());
+    }
+
+    /// <summary>
+    /// get_playback_queue でキューが空かつ停止中の場合、currentTrack が JSON の null、両キューが空配列として正常返却されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackQueueAsync_キュー空かつ停止中時_currentTrackNullと空配列のJSONを返す()
+    {
+        // Arrange
+        var expected = new PlaybackQueueResponse(
+            CurrentTrack: null,
+            Limit: 50,
+            UserQueueCount: 0,
+            AlbumQueueCount: 0,
+            UserQueue: Array.Empty<PlayedTrackDto>(),
+            AlbumQueue: Array.Empty<PlayedTrackDto>());
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.GetPlaybackQueueAsync(50, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackQueueResponse>.Success(expected));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.GetPlaybackQueueAsync();
+
+        // Assert
+        Assert.False(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.True(data.TryGetProperty("currentTrack", out JsonElement currentTrackElement));
+        Assert.Equal(JsonValueKind.Null, currentTrackElement.ValueKind);
+        Assert.Equal(0, data.GetProperty("userQueueCount").GetInt32());
+        Assert.Equal(0, data.GetProperty("albumQueueCount").GetInt32());
+        Assert.Empty(data.GetProperty("userQueue").EnumerateArray());
+        Assert.Empty(data.GetProperty("albumQueue").EnumerateArray());
+    }
+
+    /// <summary>
+    /// get_playback_queue で 1〜200 の範囲外の limit を指定した場合、ゲートウェイを呼び出さず INVALID_PARAMETER を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(201)]
+    public async Task GetPlaybackQueueAsync_範囲外limit指定時_INVALID_PARAMETERを返す(int invalidLimit)
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.GetPlaybackQueueAsync(limit: invalidLimit);
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        gateway.Verify(g => g.GetPlaybackQueueAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// get_playback_queue でゲートウェイが WPF_APP_NOT_RUNNING または IPC_CONNECTION_FAILED を返した場合に対応するエラーコードを返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(McpErrorCodes.WPF_APP_NOT_RUNNING)]
+    [InlineData(McpErrorCodes.IPC_CONNECTION_FAILED)]
+    public async Task GetPlaybackQueueAsync_ゲートウェイ失敗時_対応するエラーコードを返す(string errorCode)
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.GetPlaybackQueueAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackQueueResponse>.Failure(
+                errorCode,
+                McpErrorMapper.GetPublicMessage(errorCode)));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.GetPlaybackQueueAsync();
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(errorCode, error.GetProperty("code").GetString());
+        if (errorCode == McpErrorCodes.WPF_APP_NOT_RUNNING)
+        {
+            Assert.Contains("launch_app", error.GetProperty("message").GetString(), StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// get_playback_queue 実行中に予期しない例外が発生した場合、INTERNAL_ERROR に変換され機密詳細が露出しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackQueueAsync_予期しない例外発生時_INTERNAL_ERRORを返し機密詳細を露出しない()
+    {
+        // Arrange
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway
+            .Setup(g => g.GetPlaybackQueueAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException(@"secret diagnostic C:\private\queue"));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = await sut.GetPlaybackQueueAsync();
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(McpErrorCodes.INTERNAL_ERROR, error.GetProperty("code").GetString());
+        Assert.DoesNotContain("secret", error.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// get_playback_queue ツールの Description 属性に userQueue・albumQueue の区別および launch_app 案内が含まれることを検証します。
+    /// </summary>
+    [Fact]
+    public void GetPlaybackQueueAsync_ツール説明属性_userQueueとalbumQueueおよびlaunch_app案内が含まれる()
+    {
+        // Arrange
+        MethodInfo? method = typeof(PlaybackTools).GetMethod(nameof(PlaybackTools.GetPlaybackQueueAsync));
+        Assert.NotNull(method);
+
+        // Act
+        DescriptionAttribute? description = method.GetCustomAttribute<DescriptionAttribute>();
+
+        // Assert
+        Assert.NotNull(description);
+        Assert.Contains("userQueue", description.Description, StringComparison.Ordinal);
+        Assert.Contains("albumQueue", description.Description, StringComparison.Ordinal);
+        Assert.Contains("launch_app", description.Description, StringComparison.Ordinal);
+    }
+
     private static JsonDocument ParsePayload(CallToolResult result)
     {
         var textBlock = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));
