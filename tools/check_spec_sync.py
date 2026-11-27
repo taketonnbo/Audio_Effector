@@ -76,8 +76,8 @@ def match_pattern(file_path: str, pattern: str) -> bool:
 
 def matches_entry(file_path: str, entry: Dict[str, Any]) -> bool:
     """ファイルパスがマッピングエントリの code_patterns に一致し、exclude_patterns に一致しないか判定する。"""
-    patterns = entry.get("code_patterns", [])
-    excludes = entry.get("exclude_patterns", [])
+    patterns = entry.get("code_patterns") or []
+    excludes = entry.get("exclude_patterns") or []
     return (
         any(match_pattern(file_path, pat) for pat in patterns)
         and not any(match_pattern(file_path, pat) for pat in excludes)
