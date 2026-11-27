@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
@@ -1074,7 +1074,7 @@ public sealed class PlaylistToolsTests
         var playlist = new UserPlaylist(PlaylistId.New(), "Night Drive", [TrackId.New(), TrackId.New()]);
         var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
         playlistRepoMock
-            .Setup(r => r.GetByIdAsync(playlist.Id, It.IsAny<CancellationToken>()))
+            .Setup(r => r.DeleteAndReturnAsync(playlist.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(playlist);
 
         // Act
@@ -1090,7 +1090,7 @@ public sealed class PlaylistToolsTests
         Assert.Equal("Night Drive", data.GetProperty("deletedPlaylistName").GetString());
         Assert.Equal(2, data.GetProperty("deletedTrackCount").GetInt32());
 
-        playlistRepoMock.Verify(r => r.DeleteAsync(playlist.Id, It.IsAny<CancellationToken>()), Times.Once);
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(playlist.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>
@@ -1103,7 +1103,7 @@ public sealed class PlaylistToolsTests
         var playlistById = new UserPlaylist(PlaylistId.New(), "Target By ID", [TrackId.New()]);
         var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
         playlistRepoMock
-            .Setup(r => r.GetByIdAsync(playlistById.Id, It.IsAny<CancellationToken>()))
+            .Setup(r => r.DeleteAndReturnAsync(playlistById.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(playlistById);
 
         // Act
@@ -1118,7 +1118,7 @@ public sealed class PlaylistToolsTests
         Assert.Equal(playlistById.Id.Value, data.GetProperty("deletedPlaylistId").GetGuid());
         Assert.Equal("Target By ID", data.GetProperty("deletedPlaylistName").GetString());
         playlistRepoMock.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
-        playlistRepoMock.Verify(r => r.DeleteAsync(playlistById.Id, It.IsAny<CancellationToken>()), Times.Once);
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(playlistById.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>
@@ -1135,7 +1135,7 @@ public sealed class PlaylistToolsTests
             .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([target, other]);
         playlistRepoMock
-            .Setup(r => r.GetByIdAsync(target.Id, It.IsAny<CancellationToken>()))
+            .Setup(r => r.DeleteAndReturnAsync(target.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(target);
 
         // Act
@@ -1150,8 +1150,8 @@ public sealed class PlaylistToolsTests
         Assert.Equal("Morning Jazz", data.GetProperty("deletedPlaylistName").GetString());
         Assert.Equal(3, data.GetProperty("deletedTrackCount").GetInt32());
 
-        playlistRepoMock.Verify(r => r.DeleteAsync(target.Id, It.IsAny<CancellationToken>()), Times.Once);
-        playlistRepoMock.Verify(r => r.DeleteAsync(other.Id, It.IsAny<CancellationToken>()), Times.Never);
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(target.Id, It.IsAny<CancellationToken>()), Times.Once);
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(other.Id, It.IsAny<CancellationToken>()), Times.Never);
     }
 
     /// <summary>
@@ -1181,7 +1181,35 @@ public sealed class PlaylistToolsTests
         Assert.Equal("playlistName", error.GetProperty("details").GetProperty("parameter").GetString());
         Assert.Equal(2, error.GetProperty("details").GetProperty("matchCount").GetInt32());
 
-        playlistRepoMock.Verify(r => r.DeleteAsync(It.IsAny<PlaylistId>(), It.IsAny<CancellationToken>()), Times.Never);
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(It.IsAny<PlaylistId>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// delete_playlist ツールで不正な GUID の playlistId と有効な playlistName を同時指定した場合、playlistName へフォールバックせず即座に INVALID_PARAMETER を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DeletePlaylistAsync_不正playlistIdと有効playlistName同時指定_playlistNameへフォールバックせずINVALID_PARAMETERを返す()
+    {
+        // Arrange
+        var existing = new UserPlaylist(PlaylistId.New(), "Existing", [TrackId.New()]);
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
+        playlistRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([existing]);
+
+        // Act
+        CallToolResult result = await sut.DeletePlaylistAsync(playlistId: "not-a-guid", playlistName: "Existing");
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(McpErrorCodes.INVALID_PARAMETER, error.GetProperty("code").GetString());
+        Assert.Equal("playlistId", error.GetProperty("details").GetProperty("parameter").GetString());
+
+        playlistRepoMock.Verify(r => r.GetAllAsync(It.IsAny<CancellationToken>()), Times.Never);
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(It.IsAny<PlaylistId>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     /// <summary>
@@ -1194,7 +1222,7 @@ public sealed class PlaylistToolsTests
         var missingId = PlaylistId.New();
         var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
         playlistRepoMock
-            .Setup(r => r.GetByIdAsync(missingId, It.IsAny<CancellationToken>()))
+            .Setup(r => r.DeleteAndReturnAsync(missingId, It.IsAny<CancellationToken>()))
             .ReturnsAsync((UserPlaylist?)null);
         playlistRepoMock
             .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
@@ -1223,6 +1251,7 @@ public sealed class PlaylistToolsTests
             Assert.Equal(McpErrorCodes.NOT_FOUND, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
         }
 
+        playlistRepoMock.Verify(r => r.DeleteAndReturnAsync(missingId, It.IsAny<CancellationToken>()), Times.Once);
         playlistRepoMock.Verify(r => r.DeleteAsync(It.IsAny<PlaylistId>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -1236,10 +1265,7 @@ public sealed class PlaylistToolsTests
         var playlist = new UserPlaylist(PlaylistId.New(), "Error Target");
         var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out Mock<ILogger<PlaylistTools>> loggerMock);
         playlistRepoMock
-            .Setup(r => r.GetByIdAsync(playlist.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(playlist);
-        playlistRepoMock
-            .SetupSequence(r => r.DeleteAsync(playlist.Id, It.IsAny<CancellationToken>()))
+            .SetupSequence(r => r.DeleteAndReturnAsync(playlist.Id, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new FileLockTimeoutException(@"C:\SecretDir\playlists.json", TimeSpan.FromSeconds(5)))
             .ThrowsAsync(new InvalidOperationException("SECRET_DELETE_ERROR"));
 
@@ -1275,7 +1301,7 @@ public sealed class PlaylistToolsTests
     }
 
     /// <summary>
-    /// 実 JsonPlaylistRepository を用いて delete_playlist で削除したプレイリストが playlists.json から永続的に削除され、別インスタンス（WPF 相当）および search_playlists に反映されることを検証します。
+    /// 実 JsonPlaylistRepository を用いて delete_playlist で削除したプレイリストが playlists.json から永続的に削除され、別インスタンス（WPF 相当）および search_playlists に反映され、ライブラリ楽曲データへ副作用がないことを検証します。
     /// </summary>
     [Fact]
     public async Task DeletePlaylistAsync_実リポジトリ使用時_削除が永続化され別インスタンスとsearch_playlistsに反映される()
@@ -1333,12 +1359,15 @@ public sealed class PlaylistToolsTests
                 Assert.Equal("Keep Me", remaining.GetProperty("name").GetString());
             }
 
-            // Assert 3: 別インスタンス（WPF 本体相当）からも削除が反映されていること
+            // Assert 3: 別インスタンス（WPF 本体相当）からも削除が反映され、ライブラリ楽曲データへ副作用がないこと
             using var wpfPlaylistRepo = new JsonPlaylistRepository(playlistsPath);
             using var wpfTrackRepo = new JsonTrackRepository(tracksPath);
             var wpfService = new PlaylistApplicationService(wpfPlaylistRepo, wpfTrackRepo, new Mock<IEventBus>().Object);
             UserPlaylist wpfRemaining = Assert.Single(wpfService.LoadPlaylists());
             Assert.Equal("Keep Me", wpfRemaining.Name);
+
+            Track remainingTrack = Assert.Single(await wpfTrackRepo.GetAllAsync());
+            Assert.Equal(t1.Id, remainingTrack.Id);
         }
         finally
         {
