@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Pipes;
 using AudioEffector.Infrastructure.Ipc;
 
@@ -5,6 +6,10 @@ namespace AudioEffector.Infrastructure.Tests.Ipc;
 
 public sealed class AppIpcServerTests
 {
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan StateTransitionTimeout = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(25);
+
     /// <summary>
     /// IpcPipeNameResolver が同一ユーザー識別子・同一セッション ID から決定的なバージョン付きパイプ名を生成することを検証します。
     /// </summary>
@@ -55,18 +60,18 @@ public sealed class AppIpcServerTests
         string pipeName = $"AudioEffector.Ipc.Test.{Guid.NewGuid():N}";
 
         // Act 1: サーバ未起動
-        bool beforeStart = await TryConnectPipeAsync(pipeName);
+        bool beforeStart = await TryConnectPipeAsync(pipeName, ConnectTimeout);
 
-        // Act 2: サーバ起動中
+        // Act 2: サーバ起動中（バックグラウンド待受開始のスケジューリング遅延を吸収して接続可能遷移を待機する）
         bool whileRunning;
         using (var sut = new AppIpcServer(pipeName))
         {
             sut.Start();
-            whileRunning = await TryConnectPipeAsync(pipeName);
+            whileRunning = await WaitForPipeConnectableAsync(pipeName, expected: true, StateTransitionTimeout);
         }
 
-        // Act 3: サーバ停止後
-        bool afterDispose = await TryConnectPipeAsync(pipeName);
+        // Act 3: サーバ停止後（OS のパイプハンドル解放遅延を吸収して接続不可遷移を待機する）
+        bool afterDispose = await WaitForPipeConnectableAsync(pipeName, expected: false, StateTransitionTimeout);
 
         // Assert
         Assert.False(beforeStart);
@@ -74,12 +79,39 @@ public sealed class AppIpcServerTests
         Assert.False(afterDispose);
     }
 
-    private static async Task<bool> TryConnectPipeAsync(string pipeName)
+    private static async Task<bool> WaitForPipeConnectableAsync(
+        string pipeName,
+        bool expected,
+        TimeSpan timeout)
+    {
+        var sw = Stopwatch.StartNew();
+        bool lastResult;
+        do
+        {
+            lastResult = await TryConnectPipeAsync(pipeName, ConnectTimeout);
+            if (lastResult == expected)
+            {
+                return lastResult;
+            }
+
+            if (sw.Elapsed >= timeout)
+            {
+                break;
+            }
+
+            await Task.Delay(PollInterval);
+        }
+        while (sw.Elapsed < timeout);
+
+        return lastResult;
+    }
+
+    private static async Task<bool> TryConnectPipeAsync(string pipeName, TimeSpan timeout)
     {
         try
         {
             using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(150));
+            using var cts = new CancellationTokenSource(timeout);
             await client.ConnectAsync(cts.Token);
             return client.IsConnected;
         }
