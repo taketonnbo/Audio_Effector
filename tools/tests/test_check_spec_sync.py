@@ -61,6 +61,33 @@ class CheckSpecSyncUnitTests(unittest.TestCase):
             )
         )
 
+    def test_matches_entry_patternsがNoneでも例外なく判定できる(self) -> None:
+        # Arrange
+        null_patterns_entry = {
+            "id": "null-patterns",
+            "code_patterns": None,
+            "exclude_patterns": None,
+        }
+        null_excludes_entry = {
+            "id": "null-excludes",
+            "code_patterns": ["AudioEffector/Presentation/**/*Sidebar*"],
+            "exclude_patterns": None,
+        }
+
+        # Act & Assert
+        self.assertFalse(
+            check_spec_sync.matches_entry(
+                "AudioEffector/Presentation/Views/SidebarControl.xaml",
+                null_patterns_entry,
+            )
+        )
+        self.assertTrue(
+            check_spec_sync.matches_entry(
+                "AudioEffector/Presentation/Views/SidebarControl.xaml",
+                null_excludes_entry,
+            )
+        )
+
 
 class SpecMapRegressionTests(unittest.TestCase):
     """実 設計/spec_map.json に対する回帰テスト。"""
@@ -102,6 +129,24 @@ class SpecMapRegressionTests(unittest.TestCase):
             "設計/画面設計/再生キュースライドパネル/再生キュースライドパネルUI仕様書.md",
             primary_specs,
         )
+
+    def test_将来の機能別IPCハンドラ追加時もmcp_serverのみマッチすること(self) -> None:
+        # Arrange
+        changed_files = [
+            "AudioEffector.Infrastructure/Ipc/PlaylistIpcCommandHandler.cs",
+            "AudioEffector.Infrastructure/Ipc/EqualizerIpcCommandHandler.cs",
+            "AudioEffector.Infrastructure/Ipc/LibraryIpcCommandHandler.cs",
+            "AudioEffector.Infrastructure/Ipc/SettingsIpcCommandHandler.cs",
+            "AudioEffector.Infrastructure/Ipc/RecentIpcCommandHandler.cs",
+        ]
+
+        # Act
+        result = check_spec_sync.analyze_changes(changed_files, self.spec_map)
+        matched_ids = [m["id"] for m in result["matched_entries"]]
+
+        # Assert
+        self.assertEqual(matched_ids, ["mcp-server"])
+        self.assertEqual(result["unmapped_code_files"], [])
 
     def test_Application層のPlaylist変更時にWPF画面UI仕様書がPrimary必須とならないこと(self) -> None:
         # Arrange
