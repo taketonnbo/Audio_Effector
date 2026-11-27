@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -618,7 +618,7 @@ public class PlaylistApplicationService
     }
 
     /// <summary>
-    /// 指定された ID のプレイリストを削除・永続化し、削除前のプレイリスト情報を返します。
+    /// 指定された ID のプレイリストを単一ロック区間内で削除・永続化し、削除前の最新プレイリスト情報を返します。
     /// 対象プレイリストが存在しない場合は削除処理およびイベント発行を行わず <see langword="null"/> を返します。
     /// </summary>
     /// <param name="id">削除対象のプレイリスト ID。</param>
@@ -626,15 +626,14 @@ public class PlaylistApplicationService
     /// <returns>削除されたプレイリストエンティティ（対象が存在しない場合は <see langword="null"/>）。</returns>
     public async Task<UserPlaylist?> DeletePlaylistWithResultAsync(PlaylistId id, CancellationToken cancellationToken = default)
     {
-        UserPlaylist? playlist = await _playlistRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
-        if (playlist is null)
+        UserPlaylist? deleted = await _playlistRepository.DeleteAndReturnAsync(id, cancellationToken).ConfigureAwait(false);
+        if (deleted is null)
         {
             return null;
         }
 
-        await _playlistRepository.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
-        await _eventBus.PublishAsync(new PlaylistUpdatedEvent(playlist), cancellationToken).ConfigureAwait(false);
-        return playlist;
+        await _eventBus.PublishAsync(new PlaylistUpdatedEvent(deleted), cancellationToken).ConfigureAwait(false);
+        return deleted;
     }
 
     /// <summary>
