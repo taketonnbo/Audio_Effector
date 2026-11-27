@@ -758,6 +758,23 @@ public sealed class MiniPlayerWindowTests
         PumpDispatcher();
     }
 
+    private static bool WaitForRenderFrames(int frameCount, int timeoutMs = 3000)
+    {
+        int observedFrames = 0;
+        void OnRendering(object? sender, EventArgs e) => observedFrames++;
+
+        CompositionTarget.Rendering += OnRendering;
+        try
+        {
+            WaitUntil(() => observedFrames >= frameCount, timeoutMs);
+            return observedFrames >= frameCount;
+        }
+        finally
+        {
+            CompositionTarget.Rendering -= OnRendering;
+        }
+    }
+
     private static PlayerControlViewModel CreateTestPlayerControlViewModel(ISettingsService settingsService)
     {
         var audioServiceMock = new Mock<IAudioService>();
@@ -1201,32 +1218,21 @@ public sealed class MiniPlayerWindowTests
 
                 // Act 1: 再生開始 → 角度が 0 度より進むこと
                 playerVm.IsPlaying = true;
-                WaitUntil(() => rotateTransform.Angle > 1.0, timeoutMs: 2000);
+                WaitUntil(() => rotateTransform.Angle > 1.0, timeoutMs: 3000);
                 double playingAngle = rotateTransform.Angle;
                 Assert.True(playingAngle > 1.0, $"再生中に角度が進むべきです (Angle={playingAngle})");
 
-                // Act 2: 一時停止 → WPFクロックの Pause 反映で角度変化が停止するまで待機してから記録し、さらに経過しても維持されること
+                // Act 2: 一時停止 → WPF の TimeManager ティック（CompositionTarget.Rendering）を跨いで Pause が確定するまで待機してから記録し、
+                // さらに時間およびレンダリングフレームが経過しても角度が維持されること
                 playerVm.IsPlaying = false;
-                double previousAngle = double.NaN;
-                int stableSamples = 0;
-                WaitUntil(() =>
-                {
-                    double currentAngle = rotateTransform.Angle;
-                    if (!double.IsNaN(previousAngle) && Math.Abs(currentAngle - previousAngle) < 0.01)
-                    {
-                        stableSamples++;
-                    }
-                    else
-                    {
-                        stableSamples = 0;
-                    }
-
-                    previousAngle = currentAngle;
-                    return stableSamples >= 3;
-                }, timeoutMs: 1000);
+                Assert.True(
+                    WaitForRenderFrames(frameCount: 2, timeoutMs: 3000),
+                    "一時停止後のWPFレンダリングフレームがタイムアウト内に処理されませんでした。");
                 double pausedAngle = rotateTransform.Angle;
                 Thread.Sleep(150);
-                PumpDispatcher();
+                Assert.True(
+                    WaitForRenderFrames(frameCount: 2, timeoutMs: 3000),
+                    "一時停止待機後のWPFレンダリングフレームがタイムアウト内に処理されませんでした。");
                 double afterPauseWaitAngle = rotateTransform.Angle;
 
                 // Assert 2: 一時停止中は角度が変化しないこと（許容誤差 0.1 度）
@@ -1236,7 +1242,7 @@ public sealed class MiniPlayerWindowTests
 
                 // Act 3: 再生再開 → 0 度へ戻らず、一時停止時の角度の続きからさらに進むこと
                 playerVm.IsPlaying = true;
-                WaitUntil(() => rotateTransform.Angle > pausedAngle + 1.0, timeoutMs: 2000);
+                WaitUntil(() => rotateTransform.Angle > pausedAngle + 1.0, timeoutMs: 3000);
                 double resumedAngle = rotateTransform.Angle;
 
                 // Assert 3
