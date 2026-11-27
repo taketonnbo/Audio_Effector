@@ -11,7 +11,7 @@ using ModelContextProtocol.Server;
 namespace AudioEffector.McpServer.Tools;
 
 /// <summary>
-/// ユーザー作成プレイリストの参照・検索・作成・編集機能を提供する MCP ツール群です。
+/// ユーザー作成プレイリストの参照・検索・作成・編集・削除機能を提供する MCP ツール群です。
 /// </summary>
 [McpServerToolType]
 public sealed class PlaylistTools
@@ -20,6 +20,8 @@ public sealed class PlaylistTools
     private const string OPERATION_REMOVE_TRACKS = "remove_tracks";
     private const string OPERATION_REORDER_TRACK = "reorder_track";
     private const string OPERATION_RENAME = "rename";
+
+    private static readonly string[] RequiredDeleteParameters = ["playlistId", "playlistName"];
 
     private readonly PlaylistApplicationService _playlistService;
     private readonly ILogger<PlaylistTools> _logger;
@@ -484,6 +486,109 @@ public sealed class PlaylistTools
         }
     }
 
+    /// <summary>
+    /// 指定された ID または名称のユーザー作成プレイリストを削除して永続化します。
+    /// </summary>
+    /// <param name="playlistId">削除対象プレイリストの ID（GUID 文字列。<paramref name="playlistName"/> 未指定時は必須。両方指定時は <paramref name="playlistId"/> 優先）。</param>
+    /// <param name="playlistName">削除対象プレイリスト名（<paramref name="playlistId"/> 未指定時の指定手段。大文字・小文字区別なし完全一致）。</param>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>削除結果および削除されたプレイリスト情報を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "delete_playlist")]
+    [Description("指定したユーザー作成プレイリストを削除して永続化します。この操作は破壊的であり取り消せません。誤削除を防ぐため、事前に search_playlists で対象プレイリストの ID を確認し、playlistId を指定して実行することを推奨します。playlistName のみ指定時に同名プレイリストが複数存在する場合は削除を実行せずエラーを返します。Audio Effector 本体が未起動の状態でも利用できます。")]
+    public async Task<CallToolResult> DeletePlaylistAsync(
+        [Description("削除対象プレイリストの ID（GUID 文字列。playlistName 未指定時は必須。両方指定時は playlistId を優先）")] string? playlistId = null,
+        [Description("削除対象プレイリスト名（playlistId 未指定時の指定手段。大文字・小文字を区別しない完全一致。同名プレイリストが複数存在する場合は誤削除防止のためエラー）")] string? playlistName = null,
+        CancellationToken cancellationToken = default)
+    {
+        bool hasPlaylistId = !string.IsNullOrWhiteSpace(playlistId);
+        bool hasPlaylistName = !string.IsNullOrWhiteSpace(playlistName);
+
+        if (!hasPlaylistId && !hasPlaylistName)
+        {
+            return McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                "playlistId または playlistName のいずれかを指定してください。",
+                new { parameters = RequiredDeleteParameters });
+        }
+
+        if (hasPlaylistId)
+        {
+            if (!TryParsePlaylistId(playlistId, out PlaylistId parsedPlaylistId, out CallToolResult? idError))
+            {
+                return idError!;
+            }
+
+            try
+            {
+                UserPlaylist? deleted = await _playlistService
+                    .DeletePlaylistWithResultAsync(parsedPlaylistId, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (deleted is null)
+                {
+                    return PlaylistNotFoundError();
+                }
+
+                return BuildDeleteResponse(deleted);
+            }
+            catch (Exception ex)
+            {
+                return McpResponseFormatter.FromException(ex, _logger);
+            }
+        }
+
+        string trimmedName = playlistName!.Trim();
+        try
+        {
+            IReadOnlyList<UserPlaylist> allPlaylists = await _playlistService
+                .GetAllPlaylistsAsync(cancellationToken)
+                .ConfigureAwait(false)
+                ?? Array.Empty<UserPlaylist>();
+
+            List<UserPlaylist> matches = allPlaylists
+                .Where(p => string.Equals(p.Name, trimmedName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (matches.Count == 0)
+            {
+                return McpResponseFormatter.Error(
+                    McpErrorCodes.NOT_FOUND,
+                    "指定されたプレイリストが見つかりません。",
+                    new { parameter = "playlistName" });
+            }
+
+            if (matches.Count > 1)
+            {
+                return McpResponseFormatter.Error(
+                    McpErrorCodes.INVALID_PARAMETER,
+                    "同名のプレイリストが複数存在するため削除を中止しました。誤削除を防ぐため、search_playlists で対象を確認のうえ playlistId を指定してください。",
+                    new
+                    {
+                        parameter = "playlistName",
+                        matchCount = matches.Count,
+                    });
+            }
+
+            UserPlaylist? deleted = await _playlistService
+                .DeletePlaylistWithResultAsync(matches[0].Id, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (deleted is null)
+            {
+                return McpResponseFormatter.Error(
+                    McpErrorCodes.NOT_FOUND,
+                    "指定されたプレイリストが見つかりません。",
+                    new { parameter = "playlistName" });
+            }
+
+            return BuildDeleteResponse(deleted);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
     private static bool TryParsePlaylistId(
         string? rawPlaylistId,
         out PlaylistId playlistId,
@@ -602,6 +707,17 @@ public sealed class PlaylistTools
             Playlist: playlistDto,
             ChangedCount: updateResult.ChangedCount,
             SkippedItems: updateResult.SkippedItems);
+
+        return McpResponseFormatter.Success(response);
+    }
+
+    private static CallToolResult BuildDeleteResponse(UserPlaylist deletedPlaylist)
+    {
+        var response = new DeletePlaylistResponse(
+            Deleted: true,
+            DeletedPlaylistId: deletedPlaylist.Id.Value,
+            DeletedPlaylistName: deletedPlaylist.Name,
+            DeletedTrackCount: deletedPlaylist.TrackCount);
 
         return McpResponseFormatter.Success(response);
     }

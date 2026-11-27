@@ -44,6 +44,19 @@ public sealed record UpdatePlaylistResponse(
     IReadOnlyList<string> SkippedItems);
 
 /// <summary>
+/// <c>delete_playlist</c> ツールの応答データ DTO です。
+/// </summary>
+/// <param name="Deleted">削除が完了したかどうか（常に <see langword="true"/>）。</param>
+/// <param name="DeletedPlaylistId">削除されたプレイリストの一意 ID（GUID）。</param>
+/// <param name="DeletedPlaylistName">削除されたプレイリストの名称。</param>
+/// <param name="DeletedTrackCount">削除されたプレイリストに収録されていたトラック件数。</param>
+public sealed record DeletePlaylistResponse(
+    bool Deleted,
+    Guid DeletedPlaylistId,
+    string DeletedPlaylistName,
+    int DeletedTrackCount);
+
+/// <summary>
 /// MCP 応答で返却するプレイリストのサマリ DTO です。
 /// </summary>
 /// <param name="Id">一意のプレイリスト ID（GUID）。</param>
