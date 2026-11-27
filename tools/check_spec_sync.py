@@ -74,6 +74,16 @@ def match_pattern(file_path: str, pattern: str) -> bool:
     return fnmatch.fnmatch(norm_path, norm_pattern)
 
 
+def matches_entry(file_path: str, entry: Dict[str, Any]) -> bool:
+    """ファイルパスがマッピングエントリの code_patterns に一致し、exclude_patterns に一致しないか判定する。"""
+    patterns = entry.get("code_patterns") or []
+    excludes = entry.get("exclude_patterns") or []
+    return (
+        any(match_pattern(file_path, pat) for pat in patterns)
+        and not any(match_pattern(file_path, pat) for pat in excludes)
+    )
+
+
 def load_spec_map(path: Path) -> Dict[str, Any]:
     """spec_map.json を読み込む。"""
     if not path.exists():
@@ -165,8 +175,7 @@ def analyze_changes(
     for code_file in code_files:
         file_matched = False
         for entry in mappings:
-            patterns = entry.get("code_patterns", [])
-            if any(match_pattern(code_file, pat) for pat in patterns):
+            if matches_entry(code_file, entry):
                 file_matched = True
                 for spec in entry.get("primary_specs", []):
                     primary_to_triggers.setdefault(normalize_path(spec), set()).add(code_file)
@@ -178,7 +187,7 @@ def analyze_changes(
     for entry in mappings:
         triggers = [
             f for f in code_files
-            if any(match_pattern(f, pat) for pat in entry.get("code_patterns", []))
+            if matches_entry(f, entry)
         ]
         if triggers:
             matched_entries.append({
