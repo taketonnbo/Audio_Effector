@@ -99,6 +99,10 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Contains("search_albums", toolNames);
                 Assert.Contains("search_playlists", toolNames);
                 Assert.Contains("create_playlist", toolNames);
+                Assert.Contains("add_tracks_to_playlist", toolNames);
+                Assert.Contains("remove_tracks_from_playlist", toolNames);
+                Assert.Contains("reorder_playlist_track", toolNames);
+                Assert.Contains("rename_playlist", toolNames);
                 Assert.Contains("launch_app", toolNames);
                 Assert.Contains("get_playback_state", toolNames);
                 Assert.Contains("get_playback_queue", toolNames);
@@ -253,6 +257,121 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
                 Assert.False(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
                 Assert.Equal("INVALID_PARAMETER", payloadDoc.RootElement.GetProperty("error").GetProperty("code").GetString());
+            }
+
+            // Act & Assert 4b-1d: tools/call (add_tracks_to_playlist → reorder_playlist_track → rename_playlist → remove_tracks_from_playlist)
+            string addTrackRequest = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                id = 406,
+                method = "tools/call",
+                @params = new
+                {
+                    name = "add_tracks_to_playlist",
+                    arguments = new
+                    {
+                        playlistId = createdPlaylistId.ToString(),
+                        filePaths = new[] { Path.Combine(_tempDataDir, "track_2.flac") },
+                    },
+                },
+            });
+            await SendJsonLineAsync(sut.StandardInput, addTrackRequest, timeoutCts.Token);
+
+            string addTrackLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument addTrackDoc = JsonDocument.Parse(addTrackLine))
+            {
+                JsonElement result = addTrackDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                Assert.Equal(2, payloadDoc.RootElement.GetProperty("data").GetProperty("playlist").GetProperty("trackCount").GetInt32());
+            }
+
+            string reorderRequest = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                id = 407,
+                method = "tools/call",
+                @params = new
+                {
+                    name = "reorder_playlist_track",
+                    arguments = new
+                    {
+                        playlistId = createdPlaylistId.ToString(),
+                        fromIndex = 1,
+                        toIndex = 0,
+                    },
+                },
+            });
+            await SendJsonLineAsync(sut.StandardInput, reorderRequest, timeoutCts.Token);
+
+            string reorderLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument reorderDoc = JsonDocument.Parse(reorderLine))
+            {
+                JsonElement result = reorderDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                JsonElement firstAfterReorder = payloadDoc.RootElement.GetProperty("data").GetProperty("playlist").GetProperty("tracks")[0];
+                Assert.Equal("統合テスト曲 2", firstAfterReorder.GetProperty("title").GetString());
+            }
+
+            string renameRequest = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                id = 408,
+                method = "tools/call",
+                @params = new
+                {
+                    name = "rename_playlist",
+                    arguments = new
+                    {
+                        playlistId = createdPlaylistId.ToString(),
+                        newName = "stdio編集済みプレイリスト",
+                    },
+                },
+            });
+            await SendJsonLineAsync(sut.StandardInput, renameRequest, timeoutCts.Token);
+
+            string renameLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument renameDoc = JsonDocument.Parse(renameLine))
+            {
+                JsonElement result = renameDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                Assert.Equal("stdio編集済みプレイリスト", payloadDoc.RootElement.GetProperty("data").GetProperty("playlist").GetProperty("name").GetString());
+            }
+
+            string removeRequest = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                id = 409,
+                method = "tools/call",
+                @params = new
+                {
+                    name = "remove_tracks_from_playlist",
+                    arguments = new
+                    {
+                        playlistId = createdPlaylistId.ToString(),
+                        indices = new[] { 0 },
+                    },
+                },
+            });
+            await SendJsonLineAsync(sut.StandardInput, removeRequest, timeoutCts.Token);
+
+            string removeLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument removeDoc = JsonDocument.Parse(removeLine))
+            {
+                JsonElement result = removeDoc.RootElement.GetProperty("result");
+                Assert.False(result.TryGetProperty("isError", out JsonElement isErr) && isErr.GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.True(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                Assert.Equal(1, payloadDoc.RootElement.GetProperty("data").GetProperty("playlist").GetProperty("trackCount").GetInt32());
             }
 
             // Act & Assert 4b-2: tools/call (search_playlists を search_albums より先に呼び、旧WPF形式と最新お気に入り反映を検証)

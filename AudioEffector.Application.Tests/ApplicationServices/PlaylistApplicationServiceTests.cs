@@ -450,4 +450,280 @@ public sealed class PlaylistApplicationServiceTests
         Assert.Equal([track2.Id, track1.Id], resolvedByIds.Select(t => t.Id).ToArray());
         Assert.Equal([track2.Id, track1.Id], resolvedByPaths.Select(t => t.Id).ToArray());
     }
+
+    /// <summary>
+    /// AddTracksAsync で複数トラック ID とファイルパスを一括追加した際、1 回の更新で重複を除外しつつ TrackIds と TrackPaths が整合して永続化されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task AddTracksAsync_複数トラックIDとファイルパス一括追加_重複スキップとTrackPaths整合性を維持すること()
+    {
+        // Arrange
+        var t1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\track1.flac"), title: "T1", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(180));
+        var t2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\track2.flac"), title: "T2", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(180));
+        var t3 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\track3.flac"), title: "T3", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(180));
+        var playlist = new UserPlaylist(PlaylistId.New(), "Drive", [t1.Id]) { TrackPaths = [t1.FilePath] };
+
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([t1, t2, t3]);
+
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act
+        PlaylistUpdateResult? actual = await sut.AddTracksAsync(
+            playlist.Id,
+            [t1.Id, t2.Id],
+            [@"c:\music\track2.flac", @"C:\Music\track3.flac"]);
+
+        // Assert
+        Assert.NotNull(actual);
+        Assert.Equal(2, actual.ChangedCount);
+        Assert.Equal([t1.Id.ToString(), @"c:\music\track2.flac"], actual.SkippedItems.ToArray());
+        Assert.Equal([t1.Id, t2.Id, t3.Id], actual.Playlist.TrackIds.ToArray());
+        Assert.Equal([t1.FilePath, t2.FilePath, t3.FilePath], actual.Playlist.TrackPaths.ToArray());
+        Assert.Equal([t1.Id, t2.Id, t3.Id], actual.Tracks.Select(t => t.Id).ToArray());
+        mockPlaylistRepo.Verify(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()), Times.Once);
+        mockEventBus.Verify(b => b.PublishAsync(It.Is<PlaylistUpdatedEvent>(e => e.Playlist == playlist), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// AddTracksAsync で存在しないトラック ID を指定した場合、KeyNotFoundException をスローしプレイリストを更新しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task AddTracksAsync_存在しないトラックID指定_KeyNotFoundExceptionをスローし更新しないこと()
+    {
+        // Arrange
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Track>());
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, new Mock<IEventBus>().Object);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => sut.AddTracksAsync(PlaylistId.New(), [TrackId.New()]));
+        mockPlaylistRepo.Verify(r => r.UpdateAsync(It.IsAny<PlaylistId>(), It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// AddTracksAsync で存在しないプレイリスト ID を指定した場合、null を返しイベントを発行しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task AddTracksAsync_存在しないプレイリストID指定_nullを返すこと()
+    {
+        // Arrange
+        var t1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\track1.flac"), title: "T1", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(180));
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(It.IsAny<PlaylistId>(), It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((UserPlaylist?)null);
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([t1]);
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act
+        PlaylistUpdateResult? actual = await sut.AddTracksAsync(PlaylistId.New(), [t1.Id]);
+
+        // Assert
+        Assert.Null(actual);
+        mockEventBus.Verify(b => b.PublishAsync(It.IsAny<PlaylistUpdatedEvent>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// RemoveTracksAsync で複数インデックスを昇順・重複混在で指定した場合でも、降順削除によりインデックスずれなく意図通りのトラックが削除されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task RemoveTracksAsync_複数インデックス同時指定_降順削除によりずれなく削除されること()
+    {
+        // Arrange
+        var t0 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\t0.flac"), title: "T0", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(100));
+        var t1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\t1.flac"), title: "T1", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(100));
+        var t2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\t2.flac"), title: "T2", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(100));
+        var t3 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\t3.flac"), title: "T3", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(100));
+        var playlist = new UserPlaylist(PlaylistId.New(), "Mix", [t0.Id, t1.Id, t2.Id, t3.Id])
+        {
+            TrackPaths = [t0.FilePath, t1.FilePath, t2.FilePath, t3.FilePath],
+        };
+
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([t0, t1, t2, t3]);
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act: 0 番目と 2 番目を同時削除（重複指定 0 を含む）
+        PlaylistUpdateResult? actual = await sut.RemoveTracksAsync(playlist.Id, [0, 2, 0], trackIds: null);
+
+        // Assert
+        Assert.NotNull(actual);
+        Assert.Equal(2, actual.ChangedCount);
+        Assert.Equal([t1.Id, t3.Id], actual.Playlist.TrackIds.ToArray());
+        Assert.Equal([t1.FilePath, t3.FilePath], actual.Playlist.TrackPaths.ToArray());
+        Assert.Equal([t1.Id, t3.Id], actual.Tracks.Select(t => t.Id).ToArray());
+        mockEventBus.Verify(b => b.PublishAsync(It.Is<PlaylistUpdatedEvent>(e => e.Playlist == playlist), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// RemoveTracksAsync で trackIds を指定した際、一致したトラックを削除し、プレイリストに含まれない ID を SkippedItems へ記録することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task RemoveTracksAsync_トラックID指定と未一致混在_一致分を削除し未一致をSkippedItemsへ返すこと()
+    {
+        // Arrange
+        var t0 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\t0.flac"), title: "T0", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(100));
+        var t1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\t1.flac"), title: "T1", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(100));
+        var absentId = TrackId.New();
+        var playlist = new UserPlaylist(PlaylistId.New(), "Mix", [t0.Id, t1.Id]) { TrackPaths = [t0.FilePath, t1.FilePath] };
+
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([t0, t1]);
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, new Mock<IEventBus>().Object);
+
+        // Act
+        PlaylistUpdateResult? actual = await sut.RemoveTracksAsync(playlist.Id, indices: null, trackIds: [t0.Id, absentId]);
+
+        // Assert
+        Assert.NotNull(actual);
+        Assert.Equal(1, actual.ChangedCount);
+        Assert.Equal([absentId.ToString()], actual.SkippedItems.ToArray());
+        Assert.Equal([t1.Id], actual.Playlist.TrackIds.ToArray());
+        Assert.Equal([t1.FilePath], actual.Playlist.TrackPaths.ToArray());
+    }
+
+    /// <summary>
+    /// RemoveTracksAsync で範囲外インデックスを指定した場合、ArgumentOutOfRangeException をスローしプレイリストを変更しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task RemoveTracksAsync_範囲外インデックス指定_ArgumentOutOfRangeExceptionをスローし変更しないこと()
+    {
+        // Arrange
+        var t0 = TrackId.New();
+        var playlist = new UserPlaylist(PlaylistId.New(), "Mix", [t0]);
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<Track>());
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, new Mock<IEventBus>().Object);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => sut.RemoveTracksAsync(playlist.Id, [0, 5], trackIds: null));
+        Assert.Single(playlist.TrackIds);
+    }
+
+    /// <summary>
+    /// ReorderPlaylistTrackAsync で有効なインデックスを指定した際、TrackIds と TrackPaths の双方が整合して並び替わることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ReorderPlaylistTrackAsync_有効インデックス指定_TrackIdsとTrackPathsが整合して並び替わること()
+    {
+        // Arrange
+        var t0 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\t0.flac"), title: "T0", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(100));
+        var t1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\t1.flac"), title: "T1", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(100));
+        var t2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\t2.flac"), title: "T2", artist: "A", album: "Al", duration: TimeSpan.FromSeconds(100));
+        var playlist = new UserPlaylist(PlaylistId.New(), "Order", [t0.Id, t1.Id, t2.Id])
+        {
+            TrackPaths = [t0.FilePath, t1.FilePath, t2.FilePath],
+        };
+
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([t0, t1, t2]);
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act: 2 番目を先頭（0 番目）へ移動
+        PlaylistUpdateResult? actual = await sut.ReorderPlaylistTrackAsync(playlist.Id, 2, 0);
+
+        // Assert
+        Assert.NotNull(actual);
+        Assert.Equal(1, actual.ChangedCount);
+        Assert.Equal([t2.Id, t0.Id, t1.Id], actual.Playlist.TrackIds.ToArray());
+        Assert.Equal([t2.FilePath, t0.FilePath, t1.FilePath], actual.Playlist.TrackPaths.ToArray());
+        mockEventBus.Verify(b => b.PublishAsync(It.Is<PlaylistUpdatedEvent>(e => e.Playlist == playlist), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// ReorderPlaylistTrackAsync で範囲外インデックスを指定した場合、ArgumentOutOfRangeException をスローすることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ReorderPlaylistTrackAsync_範囲外インデックス指定_ArgumentOutOfRangeExceptionをスローすること()
+    {
+        // Arrange
+        var playlist = new UserPlaylist(PlaylistId.New(), "Order", [TrackId.New()]);
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, new Mock<ITrackRepository>().Object, new Mock<IEventBus>().Object);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => sut.ReorderPlaylistTrackAsync(playlist.Id, 0, 2));
+    }
+
+    /// <summary>
+    /// RenamePlaylistAsync で有効な新名称を指定した際、前後空白をトリムして名称変更し PlaylistUpdatedEvent を発行することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task RenamePlaylistAsync_有効な新名称指定_トリムして名称変更しイベント発行すること()
+    {
+        // Arrange
+        var playlist = new UserPlaylist(PlaylistId.New(), "Old Name");
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Array.Empty<Track>());
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act
+        PlaylistUpdateResult? actual = await sut.RenamePlaylistAsync(playlist.Id, "  New Jazz Name  ");
+
+        // Assert
+        Assert.NotNull(actual);
+        Assert.Equal(1, actual.ChangedCount);
+        Assert.Equal("New Jazz Name", actual.Playlist.Name);
+        mockEventBus.Verify(b => b.PublishAsync(It.Is<PlaylistUpdatedEvent>(e => e.Playlist == playlist), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// RenamePlaylistAsync で存在しないプレイリスト ID を指定した場合、null を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task RenamePlaylistAsync_存在しないプレイリストID指定_nullを返すこと()
+    {
+        // Arrange
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        mockPlaylistRepo.Setup(r => r.UpdateAsync(It.IsAny<PlaylistId>(), It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((UserPlaylist?)null);
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, new Mock<ITrackRepository>().Object, mockEventBus.Object);
+
+        // Act
+        PlaylistUpdateResult? actual = await sut.RenamePlaylistAsync(PlaylistId.New(), "Renamed");
+
+        // Assert
+        Assert.Null(actual);
+        mockEventBus.Verify(b => b.PublishAsync(It.IsAny<PlaylistUpdatedEvent>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }
