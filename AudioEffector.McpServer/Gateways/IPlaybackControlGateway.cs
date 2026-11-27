@@ -17,6 +17,16 @@ public interface IPlaybackControlGateway
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 起動中の Audio Effector 本体から現在の再生キュー（現在トラック・予約キュー・アルバム残り曲キュー）を取得します。
+    /// </summary>
+    /// <param name="limit">予約キュー・アルバム残り曲キューそれぞれで返却する最大トラック件数（1〜200、既定値: 50）。</param>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>現在の再生キューまたは標準エラーコードを含む処理結果。</returns>
+    Task<PlaybackControlResult<PlaybackQueueResponse>> GetPlaybackQueueAsync(
+        int limit = 50,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 起動中の Audio Effector 本体の再生を一時停止します。
     /// </summary>
     /// <param name="cancellationToken">キャンセル要求トークン。</param>

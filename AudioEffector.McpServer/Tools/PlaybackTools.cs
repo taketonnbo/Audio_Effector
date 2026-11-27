@@ -15,6 +15,10 @@ namespace AudioEffector.McpServer.Tools;
 [McpServerToolType]
 public sealed class PlaybackTools
 {
+    private const int DEFAULT_QUEUE_LIMIT = 50;
+    private const int MIN_QUEUE_LIMIT = 1;
+    private const int MAX_QUEUE_LIMIT = 200;
+
     private static readonly string[] RequiredTrackParameters = ["trackId", "filePath"];
     private static readonly string[] RequiredAlbumParameters = ["albumId", "albumName"];
     private static readonly string[] RequiredPlaylistParameters = ["playlistId", "playlistName"];
@@ -51,6 +55,40 @@ public sealed class PlaybackTools
         {
             PlaybackControlResult<PlaybackStateResponse> result = await _playbackGateway
                 .GetPlaybackStateAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            return FormatGatewayResult(result);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
+    /// <summary>
+    /// 起動中の Audio Effector の現在の再生キュー（現在トラック・予約キュー・アルバム残り曲キュー）を取得します。
+    /// </summary>
+    /// <param name="limit">予約キュー・アルバム残り曲キューそれぞれで返却する最大トラック件数（1〜200、既定値: 50）。</param>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>現在の再生キュー情報を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "get_playback_queue")]
+    [Description("起動中の Audio Effector の現在の再生キューを取得します（読み取り専用・副作用なし）。現在再生中のトラック（currentTrack）、ユーザーが追加した予約キュー（userQueue）、アルバム／プレイリスト残り曲キュー（albumQueue）を区別し、それぞれの総件数と楽曲一覧を順序通りに返却します。Audio Effector 本体が未起動の場合は、先に launch_app（例: mode: \"mini_player\"）で起動してから再実行してください。")]
+    public async Task<CallToolResult> GetPlaybackQueueAsync(
+        [Description("userQueue / albumQueue それぞれで返却する最大トラック件数（1〜200、既定値: 50。総件数は常に全件数を返却）")] int limit = DEFAULT_QUEUE_LIMIT,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit < MIN_QUEUE_LIMIT || limit > MAX_QUEUE_LIMIT)
+        {
+            return McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                $"limit は {MIN_QUEUE_LIMIT}〜{MAX_QUEUE_LIMIT} の範囲で指定してください。",
+                new { parameter = "limit", min = MIN_QUEUE_LIMIT, max = MAX_QUEUE_LIMIT });
+        }
+
+        try
+        {
+            PlaybackControlResult<PlaybackQueueResponse> result = await _playbackGateway
+                .GetPlaybackQueueAsync(limit, cancellationToken)
                 .ConfigureAwait(false);
 
             return FormatGatewayResult(result);
