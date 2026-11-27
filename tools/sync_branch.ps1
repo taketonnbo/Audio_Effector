@@ -119,6 +119,11 @@ function Split-NonEmptyLines {
     return @($list.ToArray())
 }
 
+function Resolve-PSPath {
+    param([Parameter(Mandatory = $true)][string]$PathText)
+    return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PathText)
+}
+
 function Write-ResultAndExit {
     param(
         [Parameter(Mandatory = $true)][System.Collections.IDictionary]$Payload,
@@ -128,12 +133,13 @@ function Write-ResultAndExit {
     $jsonText = $Payload | ConvertTo-Json -Depth 8
 
     if (-not [string]::IsNullOrWhiteSpace($JsonOut)) {
-        $outDir = Split-Path -Parent $JsonOut
+        $resolvedJsonOut = Resolve-PSPath -PathText $JsonOut
+        $outDir = Split-Path -Parent $resolvedJsonOut
         if (-not [string]::IsNullOrWhiteSpace($outDir) -and -not (Test-Path -LiteralPath $outDir)) {
             New-Item -ItemType Directory -Path $outDir -Force | Out-Null
         }
         $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-        [System.IO.File]::WriteAllText($JsonOut, $jsonText, $utf8NoBom)
+        [System.IO.File]::WriteAllText($resolvedJsonOut, $jsonText, $utf8NoBom)
     }
 
     if ($Json) {
@@ -153,7 +159,7 @@ function Write-ResultAndExit {
 }
 
 $workDir = if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
-    [System.IO.Path]::GetFullPath($WorkingDirectory)
+    Resolve-PSPath -PathText $WorkingDirectory
 }
 else {
     (Get-Location).Path
@@ -264,8 +270,14 @@ try {
 
     # -DryRun 指定時はマージを行わず差分サマリ（変更ファイル重複候補含む）を出力
     if ($DryRun) {
-        $headChangedRes = Invoke-Git -Arguments @("diff", "--name-only", "$baseRef...HEAD") -WorkDir $workDir
-        $baseChangedRes = Invoke-Git -Arguments @("diff", "--name-only", "HEAD...$baseRef") -WorkDir $workDir
+        $headChangedRes = Invoke-Git -Arguments @("-c", "core.quotepath=false", "diff", "--name-only", "$baseRef...HEAD") -WorkDir $workDir
+        if ($headChangedRes.ExitCode -ne 0) {
+            throw "HEAD 側の差分ファイル取得に失敗しました: $($headChangedRes.StdErr.Trim())"
+        }
+        $baseChangedRes = Invoke-Git -Arguments @("-c", "core.quotepath=false", "diff", "--name-only", "HEAD...$baseRef") -WorkDir $workDir
+        if ($baseChangedRes.ExitCode -ne 0) {
+            throw "ベース側の差分ファイル取得に失敗しました: $($baseChangedRes.StdErr.Trim())"
+        }
 
         $headFiles = @(Split-NonEmptyLines -Text $headChangedRes.StdOut)
         $baseFiles = @(Split-NonEmptyLines -Text $baseChangedRes.StdOut)
@@ -319,7 +331,7 @@ try {
     }
 
     # コンフリクト発生判定
-    $conflictRes = Invoke-Git -Arguments @("diff", "--name-only", "--diff-filter=U") -WorkDir $workDir
+    $conflictRes = Invoke-Git -Arguments @("-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U") -WorkDir $workDir
     $conflictFiles = @(Split-NonEmptyLines -Text $conflictRes.StdOut)
 
     if ($conflictFiles.Count -gt 0) {
