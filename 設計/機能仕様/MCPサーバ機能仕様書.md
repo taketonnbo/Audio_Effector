@@ -76,7 +76,7 @@ AI エージェントが Audio Effector の楽曲ライブラリやユーザー�
     - 「Audio Effector をミニプレイヤーで起動して」
     - 「Audio Effector を通常画面で起動して」
 
-### 2.5 楽曲・アルバム・プレイリスト再生・基本再生制御および再生状態取得機能（Phase 2 #306, #328, #329, #330 提供）
+### 2.5 楽曲・アルバム・プレイリスト再生・基本再生制御および再生状態・キュー参照機能（Phase 2 #306, #328, #329, #330, #333 提供）
 
 AI エージェントが「曲の検索」（#305: `search_tracks`）や「アルバム・プレイリストの検索」（#331: `search_albums`, `search_playlists`）等で特定した楽曲・アルバム・プレイリストを、起動中の Audio Effector デスクトップアプリ本体で即座に再生開始したり、現在の再生状況の照会や一時停止・再開・停止・次曲・前曲といった基本トランスポート操作を行うための再生系ツールを提供します。
 
@@ -87,6 +87,14 @@ AI エージェントが「曲の検索」（#305: `search_tracks`）や「ア�
   - **利用例**:
     - 「今 Audio Effector で何の曲を再生しているか教えて」
     - 「現在の音量とシャッフル・リピート設定、キューに残っている曲数を確認して」
+
+- **再生キューの参照（`get_playback_queue` / #333）**:
+  - 起動中の Audio Effector デスクトップアプリ本体の現在再生中トラック（`currentTrack`）、ユーザーが手動追加した予約キュー（`userQueue`）、およびアルバム／プレイリスト残り曲キュー（`albumQueue`）を区別し、それぞれの総件数と楽曲一覧を順序通りに読み取り専用で取得できます。
+  - 各キューで返却する最大トラック件数は `limit`（既定 50 件、1〜200 件）で調整でき、総件数（`userQueueCount` / `albumQueueCount`）は常に全件数を返却します。キューが空の場合もエラーとせず空配列で正常応答します。
+  - 本ツールの呼び出しによって、WPF 本体の再生状態・再生キュー・ウィンドウ状態（通常メイン画面／ミニプレイヤー）に一切の副作用は生じません。
+  - **利用例**:
+    - 「次にどの曲が流れる予定か再生キューを見せて」
+    - 「予約キューとアルバム残り曲キューの内容を上位 10 件ずつ確認して」
 
 - **基本再生制御（トランスポート操作 / #329）**:
   - 起動中の Audio Effector デスクトップアプリ本体のウィンドウ状態（通常メイン画面／ミニプレイヤー）を維持したまま、画面上の再生バー・曲情報・再生キュー・ミニプレイヤー・スペクトラムアナライザ等とリアルタイムに同期して基本再生操作を実行できます。
@@ -136,7 +144,7 @@ Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリ
 | **プレイリスト管理** | 既存プレイリストの一覧・内容を検索・確認し（`search_playlists` 実装済み）、AI が選んだ楽曲で新しいプレイリストを作成・編集する | #331（アルバム・プレイリスト検索）ほか |
 | **イコライザー・プリセット** | 現在のイコライザー設定や登録済みプリセットを確認し、聴くジャンルに合わせてプリセットを切り替える | Phase 2 順次追加 |
 | **アプリケーション設定** | 監視フォルダや表示設定などの現在値を確認・調整する | Phase 2 順次追加 |
-| **再生制御・再生キュー連携** | 現在の再生状態・再生中トラック・位置・音量・キュー件数を照会し（`get_playback_state` 実装済み）、検索した楽曲・アルバム・プレイリストの再生開始（`play_track`, `play_album`, `play_playlist` 実装済み）および基本再生制御（`pause_playback`, `resume_playback`, `stop_playback`, `next_track`, `previous_track` 実装済み）を実行する。今後、音量・シーク・キュー操作を順次拡張 | #306（曲の再生）, #328（再生状態の取得）, #329（基本再生制御）, #330（アルバム・プレイリスト再生）ほか |
+| **再生制御・再生キュー連携** | 現在の再生状態・再生中トラック・位置・音量・キュー件数（`get_playback_state` 実装済み）および再生キュー内容（`get_playback_queue` 実装済み）を照会し、検索した楽曲・アルバム・プレイリストの再生開始（`play_track`, `play_album`, `play_playlist` 実装済み）および基本再生制御（`pause_playback`, `resume_playback`, `stop_playback`, `next_track`, `previous_track` 実装済み）を実行する。今後、音量・シーク・キュー操作を順次拡張 | #306（曲の再生）, #328（再生状態の取得）, #329（基本再生制御）, #330（アルバム・プレイリスト再生）, #333（再生キューの参照）ほか |
 
 ### 2.7 Audio Effector デスクトップアプリ本体との共存動作
 
@@ -193,4 +201,4 @@ Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリ
   - 親 Epic: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294)（C# による MCP サーバ機能の追加）
   - Phase 0（設計）: [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303)
   - Phase 1（基盤実装）: [#296](https://github.com/taketonnbo/Audio_Effector/issues/296)
-  - Phase 2（機能拡張）: [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#328](https://github.com/taketonnbo/Audio_Effector/issues/328), [#329](https://github.com/taketonnbo/Audio_Effector/issues/329), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331)
+  - Phase 2（機能拡張）: [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#328](https://github.com/taketonnbo/Audio_Effector/issues/328), [#329](https://github.com/taketonnbo/Audio_Effector/issues/329), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331), [#333](https://github.com/taketonnbo/Audio_Effector/issues/333)

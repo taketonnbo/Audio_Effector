@@ -1238,4 +1238,186 @@ public sealed class IpcPlaybackControlGatewayTests : IDisposable
         Assert.False(result.IsSuccess);
         Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, result.ErrorCode);
     }
+
+    /// <summary>
+    /// 起動中の AppIpcServer へ get_playback_queue を送信し、現在トラック・予約キュー・アルバム残り曲キューが順序保持および limit 適用で取得できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackQueueAsync_IPCサーバ起動中で両キュー存在時_順序保持とlimit適用されたPlaybackQueueResponseを返す()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.QueueTest.{Guid.NewGuid():N}";
+        var currentTrack = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\00.flac"),
+            title: "Now Playing",
+            artist: "Main Artist",
+            album: "Main Album",
+            duration: TimeSpan.FromSeconds(210.0),
+            year: 2025,
+            trackNumber: 1,
+            bitrate: 1411,
+            sampleRate: 48000,
+            bitsPerSample: 24,
+            format: "FLAC",
+            genre: "Jazz");
+        var userTracks = Enumerable.Range(1, 3)
+            .Select(i => new Track(
+                id: TrackId.New(),
+                filePath: AudioPath.Create($@"C:\Music\user_{i}.flac"),
+                title: $"User Track {i}",
+                artist: "User Artist",
+                album: "User Album",
+                duration: TimeSpan.FromSeconds(180 + i),
+                year: 2025,
+                trackNumber: (uint)i,
+                bitrate: 1000,
+                sampleRate: 44100,
+                bitsPerSample: 16,
+                format: "FLAC",
+                genre: "Pop"))
+            .ToList();
+        var albumTracks = Enumerable.Range(1, 3)
+            .Select(i => new Track(
+                id: TrackId.New(),
+                filePath: AudioPath.Create($@"C:\Music\album_{i}.flac"),
+                title: $"Album Track {i}",
+                artist: "Main Artist",
+                album: "Main Album",
+                duration: TimeSpan.FromSeconds(200 + i),
+                year: 2025,
+                trackNumber: (uint)(i + 1),
+                bitrate: 1000,
+                sampleRate: 44100,
+                bitsPerSample: 16,
+                format: "FLAC",
+                genre: "Jazz"))
+            .ToList();
+
+        var trackRepo = new Mock<ITrackRepository>();
+        var libraryService = new LibraryApplicationService(
+            trackRepo.Object,
+            new Mock<IFavoriteRepository>().Object,
+            new Mock<IMetadataExtractor>().Object,
+            new Mock<IEventBus>().Object);
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.CurrentTrack).Returns(currentTrack);
+        audioService.SetupGet(a => a.UserQueue).Returns(userTracks);
+        audioService.SetupGet(a => a.AlbumQueue).Returns(albumTracks);
+
+        var handler = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            libraryService,
+            audioService.Object,
+            ImmediateUiDispatcher.Instance);
+
+        using var server = new AppIpcServer(pipeName, handler);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackQueueResponse> result = await sut.GetPlaybackQueueAsync(limit: 2);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(result.Value);
+        Assert.NotNull(result.Value.CurrentTrack);
+        Assert.Equal(currentTrack.Id.Value, result.Value.CurrentTrack.Id);
+        Assert.Equal(2, result.Value.Limit);
+        Assert.Equal(3, result.Value.UserQueueCount);
+        Assert.Equal(3, result.Value.AlbumQueueCount);
+        Assert.Equal(new[] { "User Track 1", "User Track 2" }, result.Value.UserQueue.Select(t => t.Title).ToArray());
+        Assert.Equal(new[] { "Album Track 1", "Album Track 2" }, result.Value.AlbumQueue.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// get_playback_queue 実行時に IPC サーバが未起動の場合、WPF_APP_NOT_RUNNING と launch_app 案内を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackQueueAsync_IPCサーバ未起動時_WPF_APP_NOT_RUNNINGとlaunch_app案内を返す()
+    {
+        // Arrange
+        var sut = new IpcPlaybackControlGateway(
+            $"AudioEffector.Ipc.MissingQueue.{Guid.NewGuid():N}",
+            commandTimeout: TimeSpan.FromMilliseconds(300),
+            connectTimeout: TimeSpan.FromMilliseconds(100),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackQueueResponse> result = await sut.GetPlaybackQueueAsync();
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.WPF_APP_NOT_RUNNING, result.ErrorCode);
+        Assert.Contains("launch_app", result.ErrorMessage ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// get_playback_queue の IPC 応答がタイムアウトした場合に IPC_CONNECTION_FAILED を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackQueueAsync_IPC応答タイムアウト時_IPC_CONNECTION_FAILEDを返す()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.QueueTimeout.{Guid.NewGuid():N}";
+        var slowHandler = new Mock<IAppIpcCommandHandler>();
+        slowHandler
+            .Setup(h => h.HandleAsync(It.IsAny<AppIpcRequest>(), It.IsAny<CancellationToken>()))
+            .Returns(async (AppIpcRequest _, CancellationToken ct) =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                return AppIpcResponse.SuccessPing();
+            });
+
+        using var server = new AppIpcServer(pipeName, slowHandler.Object);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromMilliseconds(150),
+            connectTimeout: TimeSpan.FromMilliseconds(150),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackQueueResponse> result = await sut.GetPlaybackQueueAsync();
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, result.ErrorCode);
+    }
+
+    /// <summary>
+    /// get_playback_queue の IPC 成功応答で必須フィールド（userQueue / albumQueue）が欠損している場合に IPC_CONNECTION_FAILED を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GetPlaybackQueueAsync_IPC成功応答の必須フィールド欠損時_IPC_CONNECTION_FAILEDを返す()
+    {
+        // Arrange
+        string pipeName = $"AudioEffector.Ipc.MalformedQueue.{Guid.NewGuid():N}";
+        var handler = new Mock<IAppIpcCommandHandler>();
+        handler
+            .Setup(h => h.HandleAsync(It.IsAny<AppIpcRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppIpcResponse(Ok: true, UserQueueCount: 1, AlbumQueueCount: 0, UserQueue: null, AlbumQueue: null));
+
+        using var server = new AppIpcServer(pipeName, handler.Object);
+        server.Start();
+
+        var sut = new IpcPlaybackControlGateway(
+            pipeName,
+            commandTimeout: TimeSpan.FromSeconds(2),
+            connectTimeout: TimeSpan.FromMilliseconds(500),
+            NullLogger<IpcPlaybackControlGateway>.Instance);
+
+        // Act
+        PlaybackControlResult<PlaybackQueueResponse> result = await sut.GetPlaybackQueueAsync();
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpErrorCodes.IPC_CONNECTION_FAILED, result.ErrorCode);
+    }
 }

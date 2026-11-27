@@ -100,6 +100,7 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Contains("search_playlists", toolNames);
                 Assert.Contains("launch_app", toolNames);
                 Assert.Contains("get_playback_state", toolNames);
+                Assert.Contains("get_playback_queue", toolNames);
                 Assert.Contains("pause_playback", toolNames);
                 Assert.Contains("resume_playback", toolNames);
                 Assert.Contains("stop_playback", toolNames);
@@ -259,6 +260,24 @@ public sealed class StdioMcpIntegrationTests : IDisposable
             using (JsonDocument playErrDoc = JsonDocument.Parse(playErrLine))
             {
                 JsonElement result = playErrDoc.RootElement.GetProperty("result");
+                Assert.True(result.GetProperty("isError").GetBoolean());
+                string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
+
+                using JsonDocument payloadDoc = JsonDocument.Parse(payloadText);
+                Assert.False(payloadDoc.RootElement.GetProperty("ok").GetBoolean());
+                Assert.Equal("INVALID_PARAMETER", payloadDoc.RootElement.GetProperty("error").GetProperty("code").GetString());
+            }
+
+            // Act & Assert 4e: tools/call (get_playback_queue 範囲外 limit パラメータ検証)
+            await SendJsonLineAsync(
+                sut.StandardInput,
+                """{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"get_playback_queue","arguments":{"limit":0}}}""",
+                timeoutCts.Token);
+
+            string queueErrLine = await ReadStdoutLineAsync(sut.StandardOutput, allStdoutLines, timeoutCts.Token);
+            using (JsonDocument queueErrDoc = JsonDocument.Parse(queueErrLine))
+            {
+                JsonElement result = queueErrDoc.RootElement.GetProperty("result");
                 Assert.True(result.GetProperty("isError").GetBoolean());
                 string payloadText = result.GetProperty("content")[0].GetProperty("text").GetString()!;
 

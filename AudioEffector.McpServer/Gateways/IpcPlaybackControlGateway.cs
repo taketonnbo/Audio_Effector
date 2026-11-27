@@ -151,6 +151,24 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
     }
 
     /// <inheritdoc />
+    public async Task<PlaybackControlResult<PlaybackQueueResponse>> GetPlaybackQueueAsync(
+        int limit = PlaybackIpcCommandHandler.DEFAULT_QUEUE_LIMIT,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_GET_PLAYBACK_QUEUE,
+            DeadlineUtc: DateTimeOffset.UtcNow + _commandTimeout,
+            Limit: limit);
+
+        return await SendCommandAsync(
+            request,
+            response => MapPlaybackQueueSuccessResponse(limit, response),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public Task<PlaybackControlResult<PlaybackActionResponse>> PausePlaybackAsync(
         CancellationToken cancellationToken = default)
     {
@@ -633,6 +651,44 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
             AlbumQueueCount: response.AlbumQueueCount.Value);
 
         return PlaybackControlResult<PlaybackStateResponse>.Success(dto);
+    }
+
+    private PlaybackControlResult<PlaybackQueueResponse> MapPlaybackQueueSuccessResponse(
+        int limit,
+        AppIpcResponse response)
+    {
+        if (!response.UserQueueCount.HasValue
+            || !response.AlbumQueueCount.HasValue
+            || response.UserQueueCount.Value < 0
+            || response.AlbumQueueCount.Value < 0
+            || response.UserQueue is null
+            || response.AlbumQueue is null)
+        {
+            LogIpcCommunicationFailedDelegate(_logger, _pipeName, null);
+            return PlaybackControlResult<PlaybackQueueResponse>.Failure(
+                McpErrorCodes.IPC_CONNECTION_FAILED,
+                McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
+        }
+
+        PlayedTrackDto? currentTrackDto = response.Track is null
+            ? null
+            : PlayedTrackDto.FromIpcTrackInfo(response.Track);
+        List<PlayedTrackDto> userQueue = response.UserQueue
+            .Select(PlayedTrackDto.FromIpcTrackInfo)
+            .ToList();
+        List<PlayedTrackDto> albumQueue = response.AlbumQueue
+            .Select(PlayedTrackDto.FromIpcTrackInfo)
+            .ToList();
+
+        var dto = new PlaybackQueueResponse(
+            CurrentTrack: currentTrackDto,
+            Limit: limit,
+            UserQueueCount: response.UserQueueCount.Value,
+            AlbumQueueCount: response.AlbumQueueCount.Value,
+            UserQueue: userQueue,
+            AlbumQueue: albumQueue);
+
+        return PlaybackControlResult<PlaybackQueueResponse>.Success(dto);
     }
 
     private PlaybackControlResult<PlaybackActionResponse> MapPlaybackActionSuccessResponse(

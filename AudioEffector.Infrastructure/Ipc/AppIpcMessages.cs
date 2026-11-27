@@ -63,7 +63,7 @@ public static class AppIpcErrorReasons
 /// <summary>
 /// MCP サーバから Audio Effector（WPF 本体）へ送信する Named Pipe IPC リクエストを表します。
 /// </summary>
-/// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>get_playback_state</c>, <c>pause_playback</c>, <c>resume_playback</c>, <c>stop_playback</c>, <c>next_track</c>, <c>previous_track</c>, <c>play_track</c>, <c>play_album</c>, <c>play_playlist</c>）。</param>
+/// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>get_playback_state</c>, <c>get_playback_queue</c>, <c>pause_playback</c>, <c>resume_playback</c>, <c>stop_playback</c>, <c>next_track</c>, <c>previous_track</c>, <c>play_track</c>, <c>play_album</c>, <c>play_playlist</c>）。</param>
 /// <param name="TrackId">再生対象トラックの GUID 文字列（任意）。</param>
 /// <param name="FilePath">再生対象音声ファイルの絶対パス（任意）。</param>
 /// <param name="DeadlineUtc">クライアント側が設定した要求の有効期限（UTC、任意）。期限超過時は処理を実行しない。</param>
@@ -79,6 +79,7 @@ public static class AppIpcErrorReasons
 /// <param name="TrackFilePaths">カスタムデータディレクトリ使用時に MCP 側で解決済みの再生対象音声ファイルパス一覧（順序保持、任意）。</param>
 /// <param name="SourceId">解決済みコレクションのソース ID（任意）。</param>
 /// <param name="SourceName">解決済みコレクションのソース名（キュー見出し同期用、任意）。</param>
+/// <param name="Limit">再生キュー取得等の最大返却件数（任意）。</param>
 public sealed record AppIpcRequest(
     string Command,
     string? TrackId = null,
@@ -95,7 +96,8 @@ public sealed record AppIpcRequest(
     bool? Repeat = null,
     IReadOnlyList<string>? TrackFilePaths = null,
     Guid? SourceId = null,
-    string? SourceName = null);
+    string? SourceName = null,
+    int? Limit = null);
 
 /// <summary>
 /// Named Pipe IPC 応答で返却する再生中トラック情報です。
@@ -138,6 +140,8 @@ public sealed record AppIpcTrackInfo(
 /// <param name="Volume">現在の音量（0.0〜1.0）。</param>
 /// <param name="UserQueueCount">予約キューの件数。</param>
 /// <param name="AlbumQueueCount">アルバム残り曲キューの件数。</param>
+/// <param name="UserQueue">予約キューのトラック一覧（順序保持、任意）。</param>
+/// <param name="AlbumQueue">アルバム残り曲キューのトラック一覧（順序保持、任意）。</param>
 public sealed record AppIpcResponse(
     bool Ok,
     string? PlaybackState = null,
@@ -157,7 +161,9 @@ public sealed record AppIpcResponse(
     string? DurationString = null,
     double? Volume = null,
     int? UserQueueCount = null,
-    int? AlbumQueueCount = null)
+    int? AlbumQueueCount = null,
+    IReadOnlyList<AppIpcTrackInfo>? UserQueue = null,
+    IReadOnlyList<AppIpcTrackInfo>? AlbumQueue = null)
 {
     /// <summary>
     /// 疎通確認（<c>ping</c>）の成功応答を生成します。
@@ -237,6 +243,36 @@ public sealed record AppIpcResponse(
             Volume: volume,
             UserQueueCount: userQueueCount,
             AlbumQueueCount: albumQueueCount);
+    }
+
+    /// <summary>
+    /// 再生キュー取得コマンド（<c>get_playback_queue</c>）の成功応答を生成します。
+    /// </summary>
+    /// <param name="currentTrack">現在再生中または選択中のトラック情報（停止・未選択時は <see langword="null"/>）。</param>
+    /// <param name="userQueueCount">予約キューの総件数。</param>
+    /// <param name="albumQueueCount">アルバム残り曲キューの総件数。</param>
+    /// <param name="userQueue">予約キューのトラック一覧（順序保持）。</param>
+    /// <param name="albumQueue">アルバム残り曲キューのトラック一覧（順序保持）。</param>
+    /// <returns>再生キュースナップショットを表す <see cref="AppIpcResponse"/>。</returns>
+    public static AppIpcResponse SuccessPlaybackQueue(
+        AppIpcTrackInfo? currentTrack,
+        int userQueueCount,
+        int albumQueueCount,
+        IReadOnlyList<AppIpcTrackInfo> userQueue,
+        IReadOnlyList<AppIpcTrackInfo> albumQueue)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(userQueueCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(albumQueueCount);
+        ArgumentNullException.ThrowIfNull(userQueue);
+        ArgumentNullException.ThrowIfNull(albumQueue);
+
+        return new AppIpcResponse(
+            Ok: true,
+            Track: currentTrack,
+            UserQueueCount: userQueueCount,
+            AlbumQueueCount: albumQueueCount,
+            UserQueue: userQueue,
+            AlbumQueue: albumQueue);
     }
 
     /// <summary>

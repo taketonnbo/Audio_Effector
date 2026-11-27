@@ -183,7 +183,7 @@ classDiagram
 | `IAppLauncher` / `WpfAppLauncher` | `Gateways/IAppLauncher.cs`, `Gateways/WpfAppLauncher.cs` | WPF 本体の実行ファイルパス解決・多重起動防止確認・起動中プロセス追跡・IPC 待受準備完了待機を担う起動ゲートウェイ。 |
 | `IAppLaunchCoordinator` / `SessionFileAppLaunchCoordinator` | `Gateways/IAppLaunchCoordinator.cs`, `Gateways/SessionFileAppLaunchCoordinator.cs` | Windows セッション単位の OS ファイルロックと共有状態ファイルにより、複数の独立 MCP プロセス間の WPF 起動を調停するコーディネータ。 |
 | `IIpcReadinessProbe` / `NamedPipeIpcReadinessProbe` | `Gateways/IIpcReadinessProbe.cs`, `Gateways/NamedPipeIpcReadinessProbe.cs` | Named Pipe IPC（`AudioEffector.Ipc.v1.<CurrentUserSidHash>.s<SessionId>`）へ `ping` を送信し、WPF 本体の待受準備完了を確認するプローブ。 |
-| `PlaybackTools` / `PlaybackDtos` | `Tools/PlaybackTools.cs`, `Dtos/PlaybackDtos.cs` | Phase 2 の再生状態取得・再生制御ツール（`get_playback_state`, `pause_playback`, `resume_playback`, `stop_playback`, `next_track`, `previous_track`, `play_track`, `play_album`, `play_playlist`）および応答 DTO（`PlaybackStateResponse`, `PlaybackActionResponse`, `PlayTrackResponse`, `PlayCollectionResponse`, `PlayedTrackDto`）。 |
+| `PlaybackTools` / `PlaybackDtos` | `Tools/PlaybackTools.cs`, `Dtos/PlaybackDtos.cs` | Phase 2 の再生状態・キュー参照・再生制御ツール（`get_playback_state`, `get_playback_queue`, `pause_playback`, `resume_playback`, `stop_playback`, `next_track`, `previous_track`, `play_track`, `play_album`, `play_playlist`）および応答 DTO（`PlaybackStateResponse`, `PlaybackQueueResponse`, `PlaybackActionResponse`, `PlayTrackResponse`, `PlayCollectionResponse`, `PlayedTrackDto`）。 |
 | `IPlaybackControlGateway` / `IpcPlaybackControlGateway` | `Gateways/IPlaybackControlGateway.cs`, `Gateways/IpcPlaybackControlGateway.cs` | Named Pipe IPC 経由で起動中 WPF 本体へ再生制御コマンドを送信する抽象化ゲートウェイおよび実装。 |
 
 ### 3.3 CLI オプション・設定モデル（将来互換インターフェース）
@@ -901,7 +901,87 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - 期限超過（`deadlineUtc`）またはキャンセル要求 → `OPERATION_CANCELLED`
   - その他の未捕捉例外 → `INTERNAL_ERROR`（内部診断非露出、詳細は `ILogger` へ記録）
 
-### 5.12 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
+### 5.12 再生キュー参照ツール仕様（Phase 2 #333 実装）
+
+`PlaybackTools`（`AudioEffector.McpServer/Tools/PlaybackTools.cs`）に、起動中の Audio Effector（WPF 本体）の現在の再生キューを副作用なく取得する読み取り専用ツール **`get_playback_queue`** を実装します。IPC 通信は `IPlaybackControlGateway.GetPlaybackQueueAsync` / `IpcPlaybackControlGateway` へ委譲し、WPF 側の `PlaybackIpcCommandHandler` が `IUiDispatcher.Invoke` 経由で UI スレッド上の `IAudioService` からスナップショットを取得します。
+
+#### 入力パラメータ
+
+| パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
+| :--- | :--- | :---: | :---: | :--- |
+| `limit` | `int` | 任意 | `50` | `userQueue` / `albumQueue` それぞれで返却する最大トラック件数（`1〜200`）。範囲外は `INVALID_PARAMETER` エラー。総件数（`userQueueCount` / `albumQueueCount`）は常に全件数を返却。 |
+
+#### 出力（`data`）JSON スキーマ（`PlaybackQueueResponse`）
+
+- 再生中かつキューに楽曲が存在する場合：
+  ```json
+  {
+    "currentTrack": {
+      "id": "11111111-2222-3333-4444-555555555555",
+      "title": "Blue Note Morning",
+      "artist": "Miles Trio",
+      "album": "Midnight Sessions",
+      "durationSeconds": 225.5,
+      "durationString": "03:45",
+      "filePath": "C:\\Music\\Jazz\\BlueNote.flac"
+    },
+    "limit": 50,
+    "userQueueCount": 1,
+    "albumQueueCount": 2,
+    "userQueue": [
+      {
+        "id": "22222222-3333-4444-5555-666666666666",
+        "title": "Autumn Leaves",
+        "artist": "Miles Trio",
+        "album": "Standards",
+        "durationSeconds": 240.0,
+        "durationString": "04:00",
+        "filePath": "C:\\Music\\Jazz\\AutumnLeaves.flac"
+      }
+    ],
+    "albumQueue": [
+      {
+        "id": "33333333-4444-5555-6666-777777777777",
+        "title": "Midnight Walk",
+        "artist": "Miles Trio",
+        "album": "Midnight Sessions",
+        "durationSeconds": 210.0,
+        "durationString": "03:30",
+        "filePath": "C:\\Music\\Jazz\\MidnightWalk.flac"
+      }
+    ]
+  }
+  ```
+- 停止中・キュー空時：
+  ```json
+  {
+    "currentTrack": null,
+    "limit": 50,
+    "userQueueCount": 0,
+    "albumQueueCount": 0,
+    "userQueue": [],
+    "albumQueue": []
+  }
+  ```
+- `PlaybackQueueResponse.CurrentTrack` は `[JsonIgnore(Condition = JsonIgnoreCondition.Never)]` を付与し、停止・未選択時も明示的に `"currentTrack": null` を返却します。
+
+#### Named Pipe IPC プロトコル拡張および WPF 側実装詳細
+
+- **IPC コマンド定数（`AppIpcServer`）**: `COMMAND_GET_PLAYBACK_QUEUE`（`"get_playback_queue"`）。
+- **IPC メッセージ拡張（`AppIpcMessages`）**:
+  - `AppIpcRequest` に任意パラメータ `Limit`（`int?`、`WhenWritingNull` 互換）を追加。
+  - `AppIpcResponse` に `UserQueue`（`IReadOnlyList<AppIpcTrackInfo>?`）・`AlbumQueue`（`IReadOnlyList<AppIpcTrackInfo>?`）および `AppIpcResponse.SuccessPlaybackQueue(...)` を追加（現在トラックは既存 `Track`、総件数は既存 `UserQueueCount` / `AlbumQueueCount` を再利用）。
+- **スナップショット取得（`PlaybackIpcCommandHandler`）**:
+  - 入口で `DeadlineUtc`・`CancellationToken` チェックおよび `limit` の `1〜200` 検証を行う。
+  - `IUiDispatcher.Invoke` 上で期限超過・キャンセルを再確認したうえで、`IAudioService.CurrentTrack`・`UserQueue`・`AlbumQueue` を順序通りに読み取り、`userQueue` / `albumQueue` の配列は最大 `limit` 件へ切り詰めつつ、総件数（`userQueueCount` / `albumQueueCount`）は全件数を返却する（再生状態・キュー・ウィンドウ状態に対する副作用なし）。
+- **エラーケース**:
+  - `limit < 1` または `limit > 200` → `INVALID_PARAMETER`（`details: { parameter: "limit", min: 1, max: 200 }`）
+  - WPF 本体未起動（パイプ接続不可）→ `WPF_APP_NOT_RUNNING`（`launch_app` ツールでの事前起動案内付き）
+  - IPC 応答タイムアウト・切断・必須フィールド欠損（`userQueueCount` / `albumQueueCount` / `userQueue` / `albumQueue` 欠損または負数）→ `IPC_CONNECTION_FAILED`
+  - 期限超過（`deadlineUtc`）またはキャンセル要求 → `OPERATION_CANCELLED`
+  - その他の未捕捉例外 → `INTERNAL_ERROR`（内部診断非露出、詳細は `ILogger` へ記録）
+
+### 5.13 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
 
 個別ツールの詳細スキーマ・バリデーション・実装仕様は Phase 2 親 Issue（#301）配下の各子 Issue にて順次策定し、実装に合わせて本設計書および機能仕様書へ追記します。
 
@@ -912,7 +992,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 | **プレイリスト管理** | `search_playlists`, `get_playlist`, `create_playlist`, `add_tracks_to_playlist`, `remove_track_from_playlist` | `PlaylistApplicationService` | #331（アルバム・プレイリスト検索）ほか |
 | **イコライザー・プリセット** | `list_equalizer_presets`, `get_equalizer_settings`, `apply_equalizer_preset` | `EqualizerApplicationService` | 順次起票 |
 | **アプリ設定** | `get_settings`, `update_settings` | `SettingsApplicationService` / `ISettingsService` | 順次起票 |
-| **再生制御・再生キュー連携** | `get_playback_state`, `pause_playback`, `resume_playback`, `stop_playback`, `next_track`, `previous_track`, `play_track`, `play_album`, `play_playlist`, `enqueue_tracks` | `IPlaybackControlGateway` → WPF `IAudioService` / `AudioApplicationService` | #306（曲の再生）, #328（再生状態の取得）, #329（基本再生制御）, #330（アルバム・プレイリスト再生）ほか |
+| **再生制御・再生キュー連携** | `get_playback_state`, `get_playback_queue`, `pause_playback`, `resume_playback`, `stop_playback`, `next_track`, `previous_track`, `play_track`, `play_album`, `play_playlist`, `enqueue_tracks` | `IPlaybackControlGateway` → WPF `IAudioService` / `AudioApplicationService` | #306（曲の再生）, #328（再生状態の取得）, #329（基本再生制御）, #330（アルバム・プレイリスト再生）, #333（再生キューの参照）ほか |
 
 ---
 

@@ -1379,6 +1379,190 @@ public sealed class PlaybackIpcCommandHandlerTests
         audioService.Verify(a => a.PreviousAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    /// <summary>
+    /// get_playback_queue コマンドで再生中トラック・予約キュー・アルバム残り曲キューが IUiDispatcher 経由で順序通りに取得され、副作用が生じないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_get_playback_queue再生中かつ両キュー存在時_UiDispatcher経由で順序保持スナップショットを返す()
+    {
+        // Arrange
+        var currentTrack = CreateTrack(TrackId.New(), @"C:\Music\01.flac", "Current Song", "Artist A", "Album A", 1);
+        var userTrack1 = CreateTrack(TrackId.New(), @"C:\Music\u1.flac", "User Queue 1", "Artist U1", "Album U1", 1);
+        var userTrack2 = CreateTrack(TrackId.New(), @"C:\Music\u2.flac", "User Queue 2", "Artist U2", "Album U2", 2);
+        var albumTrack1 = CreateTrack(TrackId.New(), @"C:\Music\a1.flac", "Album Queue 1", "Artist A", "Album A", 2);
+        var albumTrack2 = CreateTrack(TrackId.New(), @"C:\Music\a2.flac", "Album Queue 2", "Artist A", "Album A", 3);
+
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.CurrentTrack).Returns(currentTrack);
+        audioService.SetupGet(a => a.UserQueue).Returns(new List<Track> { userTrack1, userTrack2 });
+        audioService.SetupGet(a => a.AlbumQueue).Returns(new List<Track> { albumTrack1, albumTrack2 });
+
+        var recordingDispatcher = new RecordingUiDispatcher();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_GET_PLAYBACK_QUEUE);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(1, recordingDispatcher.InvokeCount);
+        Assert.NotNull(response.Track);
+        Assert.Equal(currentTrack.Id.Value, response.Track.Id);
+        Assert.Equal(2, response.UserQueueCount);
+        Assert.Equal(2, response.AlbumQueueCount);
+        Assert.NotNull(response.UserQueue);
+        Assert.NotNull(response.AlbumQueue);
+        Assert.Equal(new[] { userTrack1.Id.Value, userTrack2.Id.Value }, response.UserQueue.Select(t => t.Id).ToArray());
+        Assert.Equal(new[] { albumTrack1.Id.Value, albumTrack2.Id.Value }, response.AlbumQueue.Select(t => t.Id).ToArray());
+        audioService.Verify(a => a.PlayTrack(It.IsAny<Track>()), Times.Never);
+        audioService.Verify(a => a.Stop(It.IsAny<bool>()), Times.Never);
+        audioService.Verify(a => a.ClearUserQueue(), Times.Never);
+    }
+
+    /// <summary>
+    /// get_playback_queue コマンドでキューが空かつ停止中の場合、エラーとせず空配列と総件数 0 の正常応答を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_get_playback_queueキュー空かつ停止中時_空配列とnullの正常応答を返す()
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.CurrentTrack).Returns((Track?)null);
+        audioService.SetupGet(a => a.UserQueue).Returns(Array.Empty<Track>());
+        audioService.SetupGet(a => a.AlbumQueue).Returns(Array.Empty<Track>());
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_GET_PLAYBACK_QUEUE);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Null(response.Track);
+        Assert.Equal(0, response.UserQueueCount);
+        Assert.Equal(0, response.AlbumQueueCount);
+        Assert.NotNull(response.UserQueue);
+        Assert.NotNull(response.AlbumQueue);
+        Assert.Empty(response.UserQueue);
+        Assert.Empty(response.AlbumQueue);
+    }
+
+    /// <summary>
+    /// get_playback_queue コマンドで limit を指定した場合、総件数は全件数を保持しつつ各キュー配列が上限件数へ切り詰められることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_get_playback_queueでlimit指定時_総件数を維持しつつ各キュー配列を上限件数に切り詰める()
+    {
+        // Arrange
+        var userTracks = Enumerable.Range(1, 3)
+            .Select(i => CreateTrack(TrackId.New(), $@"C:\Music\u{i}.flac", $"User {i}", "Artist", "Album", (uint)i))
+            .ToList();
+        var albumTracks = Enumerable.Range(1, 4)
+            .Select(i => CreateTrack(TrackId.New(), $@"C:\Music\a{i}.flac", $"Album {i}", "Artist", "Album", (uint)i))
+            .ToList();
+
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        audioService.SetupGet(a => a.UserQueue).Returns(userTracks);
+        audioService.SetupGet(a => a.AlbumQueue).Returns(albumTracks);
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            ImmediateUiDispatcher.Instance,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_GET_PLAYBACK_QUEUE, Limit: 2);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.True(response.Ok);
+        Assert.Equal(3, response.UserQueueCount);
+        Assert.Equal(4, response.AlbumQueueCount);
+        Assert.NotNull(response.UserQueue);
+        Assert.NotNull(response.AlbumQueue);
+        Assert.Equal(new[] { "User 1", "User 2" }, response.UserQueue.Select(t => t.Title).ToArray());
+        Assert.Equal(new[] { "Album 1", "Album 2" }, response.AlbumQueue.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// get_playback_queue コマンドで 1〜200 の範囲外の limit を指定した場合に INVALID_PARAMETER を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(201)]
+    public async Task HandleAsync_get_playback_queueで範囲外limit指定時_INVALID_PARAMETERを返す(int invalidLimit)
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        var recordingDispatcher = new RecordingUiDispatcher();
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: _ => true);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_GET_PLAYBACK_QUEUE, Limit: invalidLimit);
+
+        // Act
+        AppIpcResponse response = await sut.HandleAsync(request);
+
+        // Assert
+        Assert.False(response.Ok);
+        Assert.Equal(AppIpcErrorCodes.INVALID_PARAMETER, response.ErrorCode);
+        Assert.Equal(0, recordingDispatcher.InvokeCount);
+    }
+
+    /// <summary>
+    /// get_playback_queue コマンドで DeadlineUtc が超過している場合に OperationCanceledException を送出することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_get_playback_queue期限超過時_OperationCanceledExceptionを送出する()
+    {
+        // Arrange
+        var trackRepo = new Mock<ITrackRepository>();
+        var audioService = new Mock<IAudioService>();
+        DateTimeOffset now = new(2026, 11, 27, 12, 0, 5, TimeSpan.Zero);
+        DateTimeOffset expiredDeadline = new(2026, 11, 27, 12, 0, 0, TimeSpan.Zero);
+        var recordingDispatcher = new RecordingUiDispatcher();
+
+        var sut = new PlaybackIpcCommandHandler(
+            trackRepo.Object,
+            CreateLibraryService(trackRepo.Object),
+            audioService.Object,
+            recordingDispatcher,
+            fileExists: _ => true,
+            utcNow: () => now);
+
+        var request = new AppIpcRequest(AppIpcServer.COMMAND_GET_PLAYBACK_QUEUE, DeadlineUtc: expiredDeadline);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<OperationCanceledException>(() => sut.HandleAsync(request));
+        Assert.Equal(0, recordingDispatcher.InvokeCount);
+    }
+
     private static LibraryApplicationService CreateLibraryService(
         ITrackRepository trackRepository,
         IMetadataExtractor? metadataExtractor = null)

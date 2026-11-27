@@ -33,6 +33,23 @@ public sealed record PlaybackStateResponse(
     int AlbumQueueCount);
 
 /// <summary>
+/// <c>get_playback_queue</c> ツールの応答データ DTO です。
+/// </summary>
+/// <param name="CurrentTrack">現在再生中または選択中のトラック情報（停止・未選択時は <see langword="null"/>）。</param>
+/// <param name="Limit">予約キュー・アルバム残り曲キューそれぞれに適用された最大返却件数。</param>
+/// <param name="UserQueueCount">予約キューの総件数。</param>
+/// <param name="AlbumQueueCount">アルバム残り曲キューの総件数。</param>
+/// <param name="UserQueue">ユーザーが追加した予約キューのトラック一覧（順序保持）。</param>
+/// <param name="AlbumQueue">アルバム／プレイリスト残り曲キューのトラック一覧（順序保持）。</param>
+public sealed record PlaybackQueueResponse(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] PlayedTrackDto? CurrentTrack,
+    int Limit,
+    int UserQueueCount,
+    int AlbumQueueCount,
+    IReadOnlyList<PlayedTrackDto> UserQueue,
+    IReadOnlyList<PlayedTrackDto> AlbumQueue);
+
+/// <summary>
 /// 基本再生制御ツール（<c>pause_playback</c>・<c>resume_playback</c>・<c>stop_playback</c>・<c>next_track</c>・<c>previous_track</c>）の統一応答データ DTO です。
 /// </summary>
 /// <param name="Action">実行された操作名（<c>pause_playback</c> / <c>resume_playback</c> / <c>stop_playback</c> / <c>next_track</c> / <c>previous_track</c>）。</param>
