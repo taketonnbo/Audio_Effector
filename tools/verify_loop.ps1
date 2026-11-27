@@ -72,7 +72,9 @@ $solutionPath = Join-Path $repoRoot "AudioEffector.sln"
 $agentBuildRoot = Join-Path $repoRoot ".agent_build"
 $runId = "run_{0}_{1}" -f $PID, ([Guid]::NewGuid().ToString("N").Substring(0, 8))
 $agentBuildDir = Join-Path $agentBuildRoot $runId
-$agentBuildOutDir = "$agentBuildDir\"
+# プロジェクトごとの出力先 (bin/<ProjectName>, obj/<ProjectName>) を分離し、
+# ソリューション内の依存パッケージバージョン差による DLL 上書き競合を防止する
+$artifactsOutputArgs = @("-p:UseArtifactsOutput=true", "-p:ArtifactsPath=$agentBuildDir")
 $overallStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 function Stop-ProcessTree {
@@ -593,7 +595,7 @@ try {
     # ==========================================================================
     Write-GateHeader -Title "Gate 1/5: 隔離ビルド検証 (dotnet build)"
 
-    $buildArgs = @("build", $solutionPath, "-p:OutDir=$agentBuildOutDir", "--nologo")
+    $buildArgs = @("build", $solutionPath) + $artifactsOutputArgs + @("--nologo")
     $buildExec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $buildArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
 
     $buildCombined = ($buildExec.StdOut + "`n" + $buildExec.StdErr)
@@ -601,7 +603,7 @@ try {
     # 単一ノード (-m:1) で 1 回のみ安全リトライする（警告 0・エラー 0 の判定基準は一切緩和しない）
     if ($buildExec.ExitCode -ne 0 -and -not $buildExec.StartFailed -and -not $buildExec.TimedOut -and $buildCombined -match 'error\s+RG1000:.*used by another process') {
         Write-Host "  [WARN] 並列ビルドで WPF リソースロック (RG1000) を検出しました。単一ノード (-m:1) でリトライします..." -ForegroundColor Yellow
-        $retryArgs = @("build", $solutionPath, "-p:OutDir=$agentBuildOutDir", "-m:1", "--nologo")
+        $retryArgs = @("build", $solutionPath) + $artifactsOutputArgs + @("-m:1", "--nologo")
         $buildExec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $retryArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
         $buildCombined = ($buildExec.StdOut + "`n" + $buildExec.StdErr)
     }
@@ -679,7 +681,7 @@ try {
         $testResultsDir = Join-Path $agentBuildDir "TestResults"
         New-Item -ItemType Directory -Path $testResultsDir -Force | Out-Null
 
-        $testArgs = @("test", $solutionPath, "-p:OutDir=$agentBuildOutDir", "--no-build", "--nologo", "--logger", "trx", "--results-directory", $testResultsDir)
+        $testArgs = @("test", $solutionPath) + $artifactsOutputArgs + @("--no-build", "--nologo", "--logger", "trx", "--results-directory", $testResultsDir)
         if (-not [string]::IsNullOrWhiteSpace($TestFilter)) {
             $testArgs += @("--filter", $TestFilter)
         }
