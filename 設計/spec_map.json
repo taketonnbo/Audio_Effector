@@ -110,6 +110,9 @@
         "AudioEffector.Domain/**/*Recent*",
         "AudioEffector.Infrastructure/**/*Recent*"
       ],
+      "exclude_patterns": [
+        "AudioEffector.Infrastructure/Ipc/**"
+      ],
       "primary_specs": [],
       "related_specs": [
         "設計/画面設計/最近再生した曲/最近再生した曲UI仕様書.md",
@@ -164,6 +167,9 @@
         "AudioEffector.Infrastructure/Repository/JsonTrackRepository.cs",
         "AudioEffector.Infrastructure/Library/**"
       ],
+      "exclude_patterns": [
+        "AudioEffector.Infrastructure/Ipc/**"
+      ],
       "primary_specs": [],
       "related_specs": [
         "設計/画面設計/アルバム一覧/アルバム一覧UI仕様書.md",
@@ -215,6 +221,9 @@
         "AudioEffector.Domain/**/*Playlist*",
         "AudioEffector.Application/**/*Playlist*",
         "AudioEffector.Infrastructure/**/*Playlist*"
+      ],
+      "exclude_patterns": [
+        "AudioEffector.Infrastructure/Ipc/**"
       ],
       "primary_specs": [],
       "related_specs": [
@@ -313,6 +322,9 @@
         "AudioEffector.Domain/**/*Equalizer*",
         "AudioEffector.Application/**/*Equalizer*",
         "AudioEffector.Infrastructure/**/*Equalizer*"
+      ],
+      "exclude_patterns": [
+        "AudioEffector.Infrastructure/Ipc/**"
       ],
       "primary_specs": [],
       "related_specs": [
@@ -413,6 +425,9 @@
         "AudioEffector.Application/**/*Settings*",
         "AudioEffector.Infrastructure/**/*Settings*",
         "AudioEffector.Infrastructure/Windows/**"
+      ],
+      "exclude_patterns": [
+        "AudioEffector.Infrastructure/Ipc/**"
       ],
       "primary_specs": [],
       "related_specs": [
