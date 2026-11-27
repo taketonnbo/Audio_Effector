@@ -178,6 +178,70 @@ class WorktreeManagerTests(unittest.TestCase):
         self.assertEqual(prune_payload["status"], "PRUNED")
         self.assertFalse(orphan_dir.exists())
 
+    def test_UseExistingBranchとdirty時のForceなしremove拒否およびpruneの稼働中build保護が動作すること(self) -> None:
+        # Arrange: 既存ブランチをローカル作成
+        _run_git(["branch", "feat/205-existing", "develop"], cwd=self.repo_dir)
+
+        # Act: -UseExistingBranch でワークツリー作成（base_ref は null）
+        create_res = _run_ps1(
+            WORKTREE_MANAGER,
+            [
+                "-Action", "create",
+                "-IssueNumber", "205",
+                "-BranchName", "feat/205-existing",
+                "-UseExistingBranch",
+                "-Json",
+            ],
+            cwd=self.repo_dir,
+        )
+        self.assertEqual(create_res.returncode, 0, msg=create_res.stdout + "\n" + create_res.stderr)
+        create_payload = json.loads(create_res.stdout)
+        self.assertEqual(create_payload["status"], "CREATED")
+        self.assertIsNone(create_payload["base_ref"])
+
+        wt_path = Path(create_payload["worktree_path"])
+        (wt_path / "uncommitted.txt").write_text("dirty", encoding="utf-8")
+        (wt_path / ".agent_build").mkdir(parents=True, exist_ok=True)
+        (wt_path / ".agent_build" / "in_use.dll").write_text("bin", encoding="utf-8")
+
+        # Assert: 既定の prune は稼働中ワークツリーの .agent_build を削除しない
+        prune_default = _run_ps1(WORKTREE_MANAGER, ["-Action", "prune", "-Json"], cwd=self.repo_dir)
+        self.assertEqual(prune_default.returncode, 0, msg=prune_default.stdout + "\n" + prune_default.stderr)
+        self.assertTrue((wt_path / ".agent_build").exists())
+
+        # Assert: -CleanActiveBuilds 指定時は .agent_build を削除する
+        prune_clean = _run_ps1(WORKTREE_MANAGER, ["-Action", "prune", "-CleanActiveBuilds", "-Json"], cwd=self.repo_dir)
+        self.assertEqual(prune_clean.returncode, 0, msg=prune_clean.stdout + "\n" + prune_clean.stderr)
+        self.assertFalse((wt_path / ".agent_build").exists())
+
+        # Assert: dirty なワークツリーに対する -Force なし remove は拒否される
+        rm_no_force = _run_ps1(
+            WORKTREE_MANAGER,
+            ["-Action", "remove", "-IssueNumber", "205", "-Json"],
+            cwd=self.repo_dir,
+        )
+        self.assertEqual(rm_no_force.returncode, 1)
+        self.assertEqual(json.loads(rm_no_force.stdout)["status"], "ERROR")
+        self.assertTrue(wt_path.exists())
+
+    def test_SetLocation後の相対JsonOutが正常に書き出されること(self) -> None:
+        # Arrange & Act: PowerShell セッション内で Set-Location してから相対 -JsonOut で呼び出す
+        cmd = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            f"Set-Location -LiteralPath '{self.repo_dir}'; & '{WORKTREE_MANAGER}' -Action list -JsonOut 'sub/wt_out.json' -Json",
+        ]
+        res = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+        # Assert
+        self.assertEqual(res.returncode, 0, msg=res.stdout + "\n" + res.stderr)
+        out_file = self.repo_dir / "sub" / "wt_out.json"
+        self.assertTrue(out_file.is_file())
+        self.assertEqual(json.loads(out_file.read_text(encoding="utf-8"))["status"], "OK")
+
 
 class SyncBranchTests(unittest.TestCase):
     """tools/sync_branch.ps1 の UP_TO_DATE / DRY_RUN / MERGED / CONFLICT / ABORTED テスト。"""
@@ -282,6 +346,64 @@ class SyncBranchTests(unittest.TestCase):
         abort_payload = json.loads(res_abort.stdout)
         self.assertEqual(abort_payload["status"], "ABORTED")
         self.assertEqual(_run_git(["status", "--porcelain"], cwd=wt_path).stdout.strip(), "")
+
+    def test_日本語ファイルパスのDryRun重複とコンフリクトおよびSetLocation後の相対JsonOutが正常動作すること(self) -> None:
+        # Arrange: ワークツリーを作成し日本語パスファイルを作成・競合させる
+        create_res = _run_ps1(
+            WORKTREE_MANAGER,
+            ["-Action", "create", "-IssueNumber", "303", "-BranchName", "docs/303-jp-path", "-Json"],
+            cwd=self.repo_dir,
+        )
+        self.assertEqual(create_res.returncode, 0, msg=create_res.stdout + "\n" + create_res.stderr)
+        wt_path = Path(json.loads(create_res.stdout)["worktree_path"])
+
+        jp_rel = "設計/仕様書.md"
+        (wt_path / "設計").mkdir(parents=True, exist_ok=True)
+        (wt_path / jp_rel).write_text("branch version\n", encoding="utf-8")
+        _run_git(["add", jp_rel], cwd=wt_path)
+        _run_git(["commit", "-m", "docs: #303 add jp spec"], cwd=wt_path)
+
+        # origin/develop でも同一の日本語パスファイルを作成して競合させる
+        pusher = self.base_dir / "pusher_jp"
+        _run_git(["clone", "-b", "develop", str(self.origin_dir), str(pusher)], cwd=self.base_dir)
+        _run_git(["config", "user.name", "Other Dev"], cwd=pusher)
+        _run_git(["config", "user.email", "other@example.com"], cwd=pusher)
+        (pusher / "設計").mkdir(parents=True, exist_ok=True)
+        (pusher / jp_rel).write_text("develop version\n", encoding="utf-8")
+        _run_git(["add", jp_rel], cwd=pusher)
+        _run_git(["commit", "-m", "docs: develop add jp spec"], cwd=pusher)
+        _run_git(["push", "origin", "develop"], cwd=pusher)
+
+        # Act 1: Set-Location 後の相対 -JsonOut + -DryRun で日本語パスがエスケープされず出力されること
+        cmd_dry = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            f"Set-Location -LiteralPath '{wt_path}'; & '{SYNC_BRANCH}' -DryRun -JsonOut 'sub/sync_dry.json' -Json",
+        ]
+        res_dry = subprocess.run(cmd_dry, cwd=str(REPO_ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
+        self.assertEqual(res_dry.returncode, 0, msg=res_dry.stdout + "\n" + res_dry.stderr)
+        dry_file = wt_path / "sub" / "sync_dry.json"
+        self.assertTrue(dry_file.is_file())
+        dry_payload = json.loads(dry_file.read_text(encoding="utf-8"))
+        self.assertIn(jp_rel, dry_payload["overlap_files"])
+
+        # 未追跡ファイルを消してクリーンに戻す
+        (wt_path / "sub" / "sync_dry.json").unlink()
+        (wt_path / "sub").rmdir()
+
+        # Act 2: 通常マージで CONFLICT (exit 2) かつ conflict_files に日本語パスがそのまま入ること
+        res_conflict = _run_ps1(SYNC_BRANCH, ["-Json"], cwd=wt_path)
+        self.assertEqual(res_conflict.returncode, 2, msg=res_conflict.stdout + "\n" + res_conflict.stderr)
+        conflict_payload = json.loads(res_conflict.stdout)
+        self.assertEqual(conflict_payload["status"], "CONFLICT")
+        self.assertIn(jp_rel, conflict_payload["conflict_files"])
+
+        # 後片付け: -Abort
+        res_abort = _run_ps1(SYNC_BRANCH, ["-Abort", "-Json"], cwd=wt_path)
+        self.assertEqual(res_abort.returncode, 0)
 
 
 if __name__ == "__main__":
