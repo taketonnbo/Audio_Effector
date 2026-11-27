@@ -1318,6 +1318,105 @@ public class AudioService : IAudioService
     }
 
     /// <summary>
+    /// 再生を一時停止します（すでに一時停止中の場合は状態を維持して <see langword="true"/> を返します）
+    /// </summary>
+    /// <returns>一時停止状態になった、またはすでに一時停止中だった場合は <see langword="true"/>、停止中（トラック未ロード）で一時停止できない場合は <see langword="false"/></returns>
+    public bool Pause()
+    {
+        bool pausedNow = false;
+        bool alreadyPaused = false;
+        lock (_lock)
+        {
+            if (_outputDevice != null)
+            {
+                if (_outputDevice.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+                {
+                    _outputDevice.Pause();
+                    pausedNow = true;
+                }
+                else if (_outputDevice.PlaybackState == NAudio.Wave.PlaybackState.Paused)
+                {
+                    alreadyPaused = true;
+                }
+            }
+        }
+
+        if (pausedNow)
+        {
+            PlaybackStateChanged?.Invoke(false);
+            return true;
+        }
+
+        return alreadyPaused;
+    }
+
+    /// <summary>
+    /// 一時停止中の再生を再開、または待機中トラック／キュー先頭の再生を開始します（すでに再生中の場合は状態を維持して <see langword="true"/> を返します）
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン</param>
+    /// <returns>再生状態になった、またはすでに再生中だった場合は <see langword="true"/>、再開対象トラックが存在しないまたは再生開始に失敗した場合は <see langword="false"/></returns>
+    public Task<bool> ResumeAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        bool resumedNow = false;
+        bool alreadyPlaying = false;
+        Track? trackToStart = null;
+        lock (_lock)
+        {
+            if (_outputDevice != null)
+            {
+                if (_outputDevice.PlaybackState == NAudio.Wave.PlaybackState.Playing)
+                {
+                    alreadyPlaying = true;
+                }
+                else if (_outputDevice.PlaybackState == NAudio.Wave.PlaybackState.Paused)
+                {
+                    _outputDevice.Play();
+                    resumedNow = true;
+                }
+            }
+            else if (_currentlyPlayingTrack != null)
+            {
+                trackToStart = _currentlyPlayingTrack;
+            }
+            else if (_userQueue.Count > 0)
+            {
+                trackToStart = _userQueue[0];
+            }
+            else if (_albumQueue.Count > 0)
+            {
+                trackToStart = _albumQueue[0];
+            }
+        }
+
+        if (resumedNow)
+        {
+            PlaybackStateChanged?.Invoke(true);
+            return Task.FromResult(true);
+        }
+
+        if (alreadyPlaying)
+        {
+            return Task.FromResult(true);
+        }
+
+        if (trackToStart != null)
+        {
+            return PlayTrackTransactionalAsync(
+                trackToStart,
+                playlistTracks: null,
+                shuffle: null,
+                repeat: null,
+                sourceName: null,
+                startTrackIndex: null,
+                cancellationToken);
+        }
+
+        return Task.FromResult(false);
+    }
+
+    /// <summary>
     /// 次の楽曲へ進みます
     /// </summary>
     public async void Next()
@@ -1327,12 +1426,45 @@ public class AudioService : IAudioService
         PlaybackStateChanged?.Invoke(IsPlaying);
     }
 
+    /// <summary>
+    /// 次の楽曲へ進み、遷移先の再生開始完了またはキュー末尾での停止まで非同期で待機します
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン</param>
+    /// <returns>次曲遷移の結果（<see cref="NextTrackResult"/>）</returns>
+    public async Task<NextTrackResult> NextAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        (Track? nextTrack, bool delegatedToPlaylistEnded) = AdvanceToNextTrack(expectedPlaybackId: null);
+        if (delegatedToPlaylistEnded)
+        {
+            return NextTrackResult.DelegatedToPlaylistEnded;
+        }
+
+        if (nextTrack == null)
+        {
+            return NextTrackResult.StoppedAtEnd;
+        }
+
+        bool started = await PlayTrackCoreAsync(nextTrack, cancellationToken).ConfigureAwait(false);
+        return started ? NextTrackResult.Started : NextTrackResult.Failed;
+    }
+
     private void OnTrackEnded()
     {
         OnTrackEndedCore(null);
     }
 
     private void OnTrackEndedCore(Guid? expectedPlaybackId)
+    {
+        (Track? nextTrack, _) = AdvanceToNextTrack(expectedPlaybackId);
+        if (nextTrack != null)
+        {
+            PlayTrackInternal(nextTrack);
+        }
+    }
+
+    private (Track? NextTrack, bool DelegatedToPlaylistEnded) AdvanceToNextTrack(Guid? expectedPlaybackId)
     {
         Track? endedTrack = null;
         Track? nextTrack = null;
@@ -1341,8 +1473,8 @@ public class AudioService : IAudioService
 
         lock (_lock)
         {
-            if (_stopRequested) return;
-            if (expectedPlaybackId.HasValue && _currentPlaybackId != expectedPlaybackId.Value) return;
+            if (_stopRequested) return (null, false);
+            if (expectedPlaybackId.HasValue && _currentPlaybackId != expectedPlaybackId.Value) return (null, false);
 
             endedTrack = CheckAndPreparePlaybackEnded(forceEnded: true);
             bool isFinalTrackEnded;
@@ -1390,6 +1522,7 @@ public class AudioService : IAudioService
                 else
                 {
                     playlistEmpty = true;
+                    nextTrack = null;
                     StopInternal();
                     _currentlyPlayingTrack = null;
                     _finalTrackOfQueue = null;
@@ -1430,11 +1563,11 @@ public class AudioService : IAudioService
                 PlaybackStateChanged?.Invoke(false);
                 TrackChanged?.Invoke(null);
             }
+
+            return (null, hasNewPlaybackStarted);
         }
-        else if (nextTrack != null)
-        {
-            PlayTrackInternal(nextTrack);
-        }
+
+        return (nextTrack, false);
     }
 
     /// <summary>
@@ -1474,6 +1607,60 @@ public class AudioService : IAudioService
 
         await Task.Delay(100);
         PlaybackStateChanged?.Invoke(IsPlaying);
+    }
+
+    /// <summary>
+    /// 前の楽曲（または再生位置が 3 秒超の場合は現在曲の先頭）へ戻り、切り替え完了まで非同期で待機します
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン</param>
+    /// <returns>先頭シークまたは遷移先楽曲の再生開始に成功した場合は <see langword="true"/>、対象トラックが存在しないまたは再生開始に失敗した場合は <see langword="false"/></returns>
+    public async Task<bool> PreviousAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Track? trackToPlay = null;
+        bool soughtToStart = false;
+        List<Track>? changedPlaylist = null;
+        lock (_lock)
+        {
+            if (_audioFile != null && _audioFile.CurrentTime.TotalSeconds > 3.0)
+            {
+                _audioFile.CurrentTime = TimeSpan.Zero;
+                soughtToStart = true;
+            }
+            else if (IsRepeatEnabled && _originalAlbumTracks.Count > 0 &&
+                _currentlyPlayingTrack != null &&
+                string.Equals(_currentlyPlayingTrack.FilePath, _originalAlbumTracks[0].FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                // 先頭曲再生中でリピート有効の場合、末尾曲へ循環
+                trackToPlay = _originalAlbumTracks[^1];
+                _albumQueue = _originalAlbumTracks.Take(_originalAlbumTracks.Count - 1).ToList();
+                _playlist = _userQueue.Concat(_albumQueue).ToList();
+                UpdateFinalTrackMarkerLocked();
+                changedPlaylist = new List<Track>(_playlist);
+            }
+            else if (_currentlyPlayingTrack != null)
+            {
+                trackToPlay = _currentlyPlayingTrack;
+            }
+        }
+
+        if (changedPlaylist != null)
+        {
+            PlaylistChanged?.Invoke(changedPlaylist);
+        }
+
+        if (soughtToStart)
+        {
+            return true;
+        }
+
+        if (trackToPlay != null)
+        {
+            return await PlayTrackCoreAsync(trackToPlay, cancellationToken).ConfigureAwait(false);
+        }
+
+        return false;
     }
 
     /// <summary>

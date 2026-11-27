@@ -124,7 +124,317 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
             return HandleGetPlaybackState(request, cancellationToken);
         }
 
+        if (string.Equals(request.Command, AppIpcServer.COMMAND_PAUSE_PLAYBACK, StringComparison.OrdinalIgnoreCase))
+        {
+            return HandlePausePlayback(request, cancellationToken);
+        }
+
+        if (string.Equals(request.Command, AppIpcServer.COMMAND_RESUME_PLAYBACK, StringComparison.OrdinalIgnoreCase))
+        {
+            return await HandleResumePlaybackAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (string.Equals(request.Command, AppIpcServer.COMMAND_STOP_PLAYBACK, StringComparison.OrdinalIgnoreCase))
+        {
+            return HandleStopPlayback(request, cancellationToken);
+        }
+
+        if (string.Equals(request.Command, AppIpcServer.COMMAND_NEXT_TRACK, StringComparison.OrdinalIgnoreCase))
+        {
+            return await HandleNextTrackAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (string.Equals(request.Command, AppIpcServer.COMMAND_PREVIOUS_TRACK, StringComparison.OrdinalIgnoreCase))
+        {
+            return await HandlePreviousTrackAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+
         return AppIpcResponse.Failure(AppIpcErrorCodes.UNSUPPORTED_COMMAND, "unsupported_command");
+    }
+
+    private AppIpcResponse HandlePausePlayback(AppIpcRequest request, CancellationToken cancellationToken)
+    {
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        AppIpcResponse? response = null;
+        bool aborted = false;
+
+        _uiDispatcher.Invoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || IsExpired(request.DeadlineUtc))
+            {
+                aborted = true;
+                return;
+            }
+
+            Track? currentTrack = _audioService.CurrentTrack;
+            if (_audioService.IsPaused && currentTrack is not null)
+            {
+                response = AppIpcResponse.SuccessPlaybackControl(PLAYBACK_STATE_PAUSED, CreateTrackInfo(currentTrack));
+                return;
+            }
+
+            if (!_audioService.IsPlaying || currentTrack is null)
+            {
+                response = AppIpcResponse.Failure(
+                    AppIpcErrorCodes.NOT_FOUND,
+                    "現在再生中または一時停止中のトラックが存在しないため一時停止できません。",
+                    AppIpcErrorReasons.NO_ACTIVE_TRACK);
+                return;
+            }
+
+            bool paused = _audioService.Pause();
+            if (!paused)
+            {
+                response = AppIpcResponse.Failure(
+                    AppIpcErrorCodes.NOT_FOUND,
+                    "現在再生中または一時停止中のトラックが存在しないため一時停止できません。",
+                    AppIpcErrorReasons.NO_ACTIVE_TRACK);
+                return;
+            }
+
+            Track? trackAfterPause = _audioService.CurrentTrack ?? currentTrack;
+            response = AppIpcResponse.SuccessPlaybackControl(PLAYBACK_STATE_PAUSED, CreateTrackInfo(trackAfterPause));
+        });
+
+        if (aborted || response is null)
+        {
+            throw new OperationCanceledException("要求期限を超過したため一時停止処理を中止しました。", cancellationToken);
+        }
+
+        return response;
+    }
+
+    private async Task<AppIpcResponse> HandleResumePlaybackAsync(AppIpcRequest request, CancellationToken cancellationToken)
+    {
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        AppIpcResponse? immediateResponse = null;
+        Task<bool>? resumeTask = null;
+        bool aborted = false;
+
+        _uiDispatcher.Invoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || IsExpired(request.DeadlineUtc))
+            {
+                aborted = true;
+                return;
+            }
+
+            Track? currentTrack = _audioService.CurrentTrack;
+            if (_audioService.IsPlaying && currentTrack is not null)
+            {
+                immediateResponse = AppIpcResponse.SuccessPlaybackControl(PLAYBACK_STATE_PLAYING, CreateTrackInfo(currentTrack));
+                return;
+            }
+
+            bool hasQueueTracks = (_audioService.UserQueue?.Count ?? 0) > 0
+                || (_audioService.AlbumQueue?.Count ?? 0) > 0;
+            if (!_audioService.IsPaused && currentTrack is null && !hasQueueTracks)
+            {
+                immediateResponse = AppIpcResponse.Failure(
+                    AppIpcErrorCodes.NOT_FOUND,
+                    "再開対象のトラックが存在しません。",
+                    AppIpcErrorReasons.NO_ACTIVE_TRACK);
+                return;
+            }
+
+            resumeTask = _audioService.ResumeAsync(cancellationToken);
+        });
+
+        if (aborted)
+        {
+            throw new OperationCanceledException("要求期限を超過したため再生再開処理を中止しました。", cancellationToken);
+        }
+
+        if (immediateResponse is not null)
+        {
+            return immediateResponse;
+        }
+
+        if (resumeTask is null)
+        {
+            throw new OperationCanceledException("要求期限を超過したため再生再開処理を中止しました。", cancellationToken);
+        }
+
+        bool resumed = await resumeTask.ConfigureAwait(false);
+        if (!resumed)
+        {
+            ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+            return AppIpcResponse.Failure(
+                AppIpcErrorCodes.NOT_FOUND,
+                "再開対象のトラックが存在しないか、再生を再開できませんでした。",
+                AppIpcErrorReasons.NO_ACTIVE_TRACK);
+        }
+
+        return CaptureTransportResultOnUiThread(PLAYBACK_STATE_PLAYING, request.DeadlineUtc, cancellationToken);
+    }
+
+    private AppIpcResponse HandleStopPlayback(AppIpcRequest request, CancellationToken cancellationToken)
+    {
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        AppIpcResponse? response = null;
+        bool aborted = false;
+
+        _uiDispatcher.Invoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || IsExpired(request.DeadlineUtc))
+            {
+                aborted = true;
+                return;
+            }
+
+            if (_audioService.IsPlaying || _audioService.IsPaused || _audioService.CurrentTrack is not null)
+            {
+                _audioService.Stop();
+            }
+
+            response = AppIpcResponse.SuccessPlaybackControl(PLAYBACK_STATE_STOPPED, track: null);
+        });
+
+        if (aborted || response is null)
+        {
+            throw new OperationCanceledException("要求期限を超過したため停止処理を中止しました。", cancellationToken);
+        }
+
+        return response;
+    }
+
+    private async Task<AppIpcResponse> HandleNextTrackAsync(AppIpcRequest request, CancellationToken cancellationToken)
+    {
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        Task<NextTrackResult>? nextTask = null;
+        bool aborted = false;
+
+        _uiDispatcher.Invoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || IsExpired(request.DeadlineUtc))
+            {
+                aborted = true;
+                return;
+            }
+
+            nextTask = _audioService.NextAsync(cancellationToken);
+        });
+
+        if (aborted || nextTask is null)
+        {
+            throw new OperationCanceledException("要求期限を超過したため次曲移動処理を中止しました。", cancellationToken);
+        }
+
+        NextTrackResult nextResult = await nextTask.ConfigureAwait(false);
+        switch (nextResult)
+        {
+            case NextTrackResult.Started:
+            case NextTrackResult.DelegatedToPlaylistEnded:
+                return CaptureTransportResultOnUiThread(PLAYBACK_STATE_PLAYING, request.DeadlineUtc, cancellationToken);
+
+            case NextTrackResult.StoppedAtEnd:
+                ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+                return AppIpcResponse.SuccessPlaybackControl(PLAYBACK_STATE_STOPPED, track: null);
+
+            default:
+                ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+                return AppIpcResponse.Failure(
+                    AppIpcErrorCodes.INTERNAL_ERROR,
+                    "次の楽曲の再生開始に失敗しました。");
+        }
+    }
+
+    private async Task<AppIpcResponse> HandlePreviousTrackAsync(AppIpcRequest request, CancellationToken cancellationToken)
+    {
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        AppIpcResponse? immediateResponse = null;
+        Task<bool>? previousTask = null;
+        bool aborted = false;
+
+        _uiDispatcher.Invoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || IsExpired(request.DeadlineUtc))
+            {
+                aborted = true;
+                return;
+            }
+
+            if (_audioService.CurrentTrack is null)
+            {
+                immediateResponse = AppIpcResponse.Failure(
+                    AppIpcErrorCodes.NOT_FOUND,
+                    "現在再生中または一時停止中のトラックが存在しないため前の曲へ戻れません。",
+                    AppIpcErrorReasons.NO_ACTIVE_TRACK);
+                return;
+            }
+
+            previousTask = _audioService.PreviousAsync(cancellationToken);
+        });
+
+        if (aborted)
+        {
+            throw new OperationCanceledException("要求期限を超過したため前曲移動処理を中止しました。", cancellationToken);
+        }
+
+        if (immediateResponse is not null)
+        {
+            return immediateResponse;
+        }
+
+        if (previousTask is null)
+        {
+            throw new OperationCanceledException("要求期限を超過したため前曲移動処理を中止しました。", cancellationToken);
+        }
+
+        bool moved = await previousTask.ConfigureAwait(false);
+        if (!moved)
+        {
+            ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+            return AppIpcResponse.Failure(
+                AppIpcErrorCodes.INTERNAL_ERROR,
+                "前の楽曲の再生開始に失敗しました。");
+        }
+
+        return CaptureTransportResultOnUiThread(defaultActiveState: PLAYBACK_STATE_PLAYING, request.DeadlineUtc, cancellationToken);
+    }
+
+    private AppIpcResponse CaptureTransportResultOnUiThread(
+        string defaultActiveState,
+        DateTimeOffset? deadlineUtc,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfCancelledOrExpired(deadlineUtc, cancellationToken);
+
+        AppIpcResponse? response = null;
+        bool aborted = false;
+
+        _uiDispatcher.Invoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || IsExpired(deadlineUtc))
+            {
+                aborted = true;
+                return;
+            }
+
+            Track? currentTrack = _audioService.CurrentTrack;
+            if (currentTrack is null)
+            {
+                response = AppIpcResponse.SuccessPlaybackControl(PLAYBACK_STATE_STOPPED, track: null);
+                return;
+            }
+
+            string playbackState = _audioService.IsPaused && !_audioService.IsPlaying
+                ? PLAYBACK_STATE_PAUSED
+                : defaultActiveState;
+            response = AppIpcResponse.SuccessPlaybackControl(playbackState, CreateTrackInfo(currentTrack));
+        });
+
+        if (aborted || response is null)
+        {
+            throw new OperationCanceledException("要求期限を超過したため操作結果の取得を中止しました。", cancellationToken);
+        }
+
+        return response;
     }
 
     private AppIpcResponse HandleGetPlaybackState(AppIpcRequest request, CancellationToken cancellationToken)

@@ -33,6 +33,17 @@ public sealed record PlaybackStateResponse(
     int AlbumQueueCount);
 
 /// <summary>
+/// 基本再生制御ツール（<c>pause_playback</c>・<c>resume_playback</c>・<c>stop_playback</c>・<c>next_track</c>・<c>previous_track</c>）の統一応答データ DTO です。
+/// </summary>
+/// <param name="Action">実行された操作名（<c>pause_playback</c> / <c>resume_playback</c> / <c>stop_playback</c> / <c>next_track</c> / <c>previous_track</c>）。</param>
+/// <param name="PlaybackState">操作実行後の再生状態（<c>playing</c> / <c>paused</c> / <c>stopped</c>）。</param>
+/// <param name="Track">操作実行後の現在トラック情報（停止時・次曲なし時は <see langword="null"/>）。</param>
+public sealed record PlaybackActionResponse(
+    string Action,
+    string PlaybackState,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] PlayedTrackDto? Track);
+
+/// <summary>
 /// <c>play_track</c> ツールの応答データ DTO です。
 /// </summary>
 /// <param name="PlaybackState">現在の再生状態（例: <c>playing</c>）。</param>

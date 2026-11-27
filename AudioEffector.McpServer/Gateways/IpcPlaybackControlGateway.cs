@@ -151,6 +151,57 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
     }
 
     /// <inheritdoc />
+    public Task<PlaybackControlResult<PlaybackActionResponse>> PausePlaybackAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return SendPlaybackActionAsync(AppIpcServer.COMMAND_PAUSE_PLAYBACK, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<PlaybackControlResult<PlaybackActionResponse>> ResumePlaybackAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return SendPlaybackActionAsync(AppIpcServer.COMMAND_RESUME_PLAYBACK, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<PlaybackControlResult<PlaybackActionResponse>> StopPlaybackAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return SendPlaybackActionAsync(AppIpcServer.COMMAND_STOP_PLAYBACK, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<PlaybackControlResult<PlaybackActionResponse>> NextTrackAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return SendPlaybackActionAsync(AppIpcServer.COMMAND_NEXT_TRACK, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<PlaybackControlResult<PlaybackActionResponse>> PreviousTrackAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return SendPlaybackActionAsync(AppIpcServer.COMMAND_PREVIOUS_TRACK, cancellationToken);
+    }
+
+    private async Task<PlaybackControlResult<PlaybackActionResponse>> SendPlaybackActionAsync(
+        string command,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var request = new AppIpcRequest(
+            Command: command,
+            DeadlineUtc: DateTimeOffset.UtcNow + _commandTimeout);
+
+        return await SendCommandAsync(
+            request,
+            response => MapPlaybackActionSuccessResponse(command, response),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async Task<PlaybackControlResult<PlayTrackResponse>> PlayTrackAsync(
         TrackId? trackId,
         string? filePath,
@@ -584,6 +635,37 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
         return PlaybackControlResult<PlaybackStateResponse>.Success(dto);
     }
 
+    private PlaybackControlResult<PlaybackActionResponse> MapPlaybackActionSuccessResponse(
+        string action,
+        AppIpcResponse response)
+    {
+        bool isKnownState = string.Equals(response.PlaybackState, PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, StringComparison.Ordinal)
+            || string.Equals(response.PlaybackState, PlaybackIpcCommandHandler.PLAYBACK_STATE_PAUSED, StringComparison.Ordinal)
+            || string.Equals(response.PlaybackState, PlaybackIpcCommandHandler.PLAYBACK_STATE_STOPPED, StringComparison.Ordinal);
+
+        bool requiresTrack = string.Equals(response.PlaybackState, PlaybackIpcCommandHandler.PLAYBACK_STATE_PLAYING, StringComparison.Ordinal)
+            || string.Equals(response.PlaybackState, PlaybackIpcCommandHandler.PLAYBACK_STATE_PAUSED, StringComparison.Ordinal);
+
+        if (!isKnownState || (requiresTrack && response.Track is null))
+        {
+            LogIpcCommunicationFailedDelegate(_logger, _pipeName, null);
+            return PlaybackControlResult<PlaybackActionResponse>.Failure(
+                McpErrorCodes.IPC_CONNECTION_FAILED,
+                McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
+        }
+
+        PlayedTrackDto? trackDto = response.Track is null
+            ? null
+            : PlayedTrackDto.FromIpcTrackInfo(response.Track);
+
+        var dto = new PlaybackActionResponse(
+            Action: action,
+            PlaybackState: response.PlaybackState!,
+            Track: trackDto);
+
+        return PlaybackControlResult<PlaybackActionResponse>.Success(dto);
+    }
+
     private PlaybackControlResult<PlayCollectionResponse> MapCollectionSuccessResponse(
         AppIpcResponse response,
         List<Track>? localTracks)
@@ -737,6 +819,14 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
                 mappedErrorCode,
                 "同名のプレイリストが複数存在するため一意に特定できません。playlistId を指定して再試行してください。",
                 new { reason = AppIpcErrorReasons.AMBIGUOUS_PLAYLIST, parameters = AmbiguousPlaylistParameters });
+        }
+
+        if (string.Equals(errorReason, AppIpcErrorReasons.NO_ACTIVE_TRACK, StringComparison.OrdinalIgnoreCase))
+        {
+            return PlaybackControlResult<T>.Failure(
+                mappedErrorCode,
+                "現在再生中または一時停止中のトラックが存在しないため、操作を実行できません。先に play_track / play_album / play_playlist で再生を開始してから再試行してください。",
+                new { reason = AppIpcErrorReasons.NO_ACTIVE_TRACK });
         }
 
         return PlaybackControlResult<T>.Failure(

@@ -100,6 +100,11 @@ public sealed class StdioMcpIntegrationTests : IDisposable
                 Assert.Contains("search_playlists", toolNames);
                 Assert.Contains("launch_app", toolNames);
                 Assert.Contains("get_playback_state", toolNames);
+                Assert.Contains("pause_playback", toolNames);
+                Assert.Contains("resume_playback", toolNames);
+                Assert.Contains("stop_playback", toolNames);
+                Assert.Contains("next_track", toolNames);
+                Assert.Contains("previous_track", toolNames);
                 Assert.Contains("play_track", toolNames);
                 Assert.Contains("play_album", toolNames);
                 Assert.Contains("play_playlist", toolNames);

@@ -39,6 +39,31 @@ public sealed class AppIpcServer : IDisposable
     /// </summary>
     public const string COMMAND_GET_PLAYBACK_STATE = "get_playback_state";
 
+    /// <summary>
+    /// 一時停止（pause_playback）コマンド名。
+    /// </summary>
+    public const string COMMAND_PAUSE_PLAYBACK = "pause_playback";
+
+    /// <summary>
+    /// 再生再開（resume_playback）コマンド名。
+    /// </summary>
+    public const string COMMAND_RESUME_PLAYBACK = "resume_playback";
+
+    /// <summary>
+    /// 再生停止（stop_playback）コマンド名。
+    /// </summary>
+    public const string COMMAND_STOP_PLAYBACK = "stop_playback";
+
+    /// <summary>
+    /// 次の曲（next_track）コマンド名。
+    /// </summary>
+    public const string COMMAND_NEXT_TRACK = "next_track";
+
+    /// <summary>
+    /// 前の曲（previous_track）コマンド名。
+    /// </summary>
+    public const string COMMAND_PREVIOUS_TRACK = "previous_track";
+
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
     private static readonly TimeSpan ClientRequestTimeout = TimeSpan.FromSeconds(5);

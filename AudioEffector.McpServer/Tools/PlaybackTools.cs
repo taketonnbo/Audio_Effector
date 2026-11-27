@@ -62,6 +62,121 @@ public sealed class PlaybackTools
     }
 
     /// <summary>
+    /// 起動中の Audio Effector の再生を一時停止します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>一時停止後の再生状態およびトラック情報を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "pause_playback")]
+    [Description("起動中の Audio Effector の再生を一時停止します（すでに一時停止中の場合は状態を維持して paused を返します）。ウィンドウ状態は変更しません。Audio Effector 本体が未起動の場合は、先に launch_app（例: mode: \"mini_player\"）で起動してから再実行してください。")]
+    public async Task<CallToolResult> PausePlaybackAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            PlaybackControlResult<PlaybackActionResponse> result = await _playbackGateway
+                .PausePlaybackAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            return FormatGatewayResult(result);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
+    /// <summary>
+    /// 起動中の Audio Effector の一時停止中の再生を再開します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>再開後の再生状態およびトラック情報を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "resume_playback")]
+    [Description("起動中の Audio Effector の一時停止中の再生を再開します（すでに再生中の場合は状態を維持して playing を返します）。ウィンドウ状態は変更しません。Audio Effector 本体が未起動の場合は、先に launch_app（例: mode: \"mini_player\"）で起動してから再実行してください。")]
+    public async Task<CallToolResult> ResumePlaybackAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            PlaybackControlResult<PlaybackActionResponse> result = await _playbackGateway
+                .ResumePlaybackAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            return FormatGatewayResult(result);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
+    /// <summary>
+    /// 起動中の Audio Effector の再生を停止します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>停止後の再生状態を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "stop_playback")]
+    [Description("起動中の Audio Effector の再生を停止します（すでに停止中の場合は状態を維持して stopped を返します）。ウィンドウ状態は変更しません。Audio Effector 本体が未起動の場合は、先に launch_app（例: mode: \"mini_player\"）で起動してから再実行してください。")]
+    public async Task<CallToolResult> StopPlaybackAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            PlaybackControlResult<PlaybackActionResponse> result = await _playbackGateway
+                .StopPlaybackAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            return FormatGatewayResult(result);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
+    /// <summary>
+    /// 起動中の Audio Effector で次の楽曲へ移動します。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>移動後の再生状態およびトラック情報（次曲なし時は stopped / track: null）を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "next_track")]
+    [Description("起動中の Audio Effector で再生キューの次の曲へ移動します（次曲がない場合は停止状態 stopped / track: null を返します）。ウィンドウ状態は変更しません。Audio Effector 本体が未起動の場合は、先に launch_app（例: mode: \"mini_player\"）で起動してから再実行してください。")]
+    public async Task<CallToolResult> NextTrackAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            PlaybackControlResult<PlaybackActionResponse> result = await _playbackGateway
+                .NextTrackAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            return FormatGatewayResult(result);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
+    /// <summary>
+    /// 起動中の Audio Effector で前の楽曲（または現在曲の先頭）へ戻ります。
+    /// </summary>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>移動後の再生状態およびトラック情報を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "previous_track")]
+    [Description("起動中の Audio Effector で前の曲（再生位置が 3 秒超の場合は現在曲の先頭、先頭曲かつリピート有効時は末尾曲）へ戻ります。ウィンドウ状態は変更しません。Audio Effector 本体が未起動の場合は、先に launch_app（例: mode: \"mini_player\"）で起動してから再実行してください。")]
+    public async Task<CallToolResult> PreviousTrackAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            PlaybackControlResult<PlaybackActionResponse> result = await _playbackGateway
+                .PreviousTrackAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            return FormatGatewayResult(result);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
+    /// <summary>
     /// 起動中の Audio Effector で指定されたトラック ID または音声ファイルパスの楽曲再生を開始します。
     /// </summary>
     /// <param name="trackId">再生対象トラックの ID（GUID 文字列。<paramref name="filePath"/> 未指定時は必須）。</param>

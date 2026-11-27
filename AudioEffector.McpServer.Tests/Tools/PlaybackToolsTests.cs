@@ -725,6 +725,185 @@ public sealed class PlaybackToolsTests
         Assert.Contains("launch_app", description.Description, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// 基本再生制御の 5 ツールが正常終了した際、統一 JSON 応答（action / playbackState / track）を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("pause_playback", "paused", true)]
+    [InlineData("resume_playback", "playing", true)]
+    [InlineData("stop_playback", "stopped", false)]
+    [InlineData("next_track", "playing", true)]
+    [InlineData("next_track", "stopped", false)]
+    [InlineData("previous_track", "playing", true)]
+    public async Task TransportTools_正常終了時_actionとplaybackStateとtrackを含む統一JSONを返す(
+        string toolName,
+        string playbackState,
+        bool hasTrack)
+    {
+        // Arrange
+        var trackDto = hasTrack
+            ? new PlayedTrackDto(
+                Id: Guid.NewGuid(),
+                Title: "Blue Note Morning",
+                Artist: "Miles Trio",
+                Album: "Midnight Sessions",
+                DurationSeconds: 225.5,
+                DurationString: "03:45",
+                FilePath: @"C:\Music\Jazz\BlueNote.flac")
+            : null;
+        var expected = new PlaybackActionResponse(toolName, playbackState, trackDto);
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway.Setup(g => g.PausePlaybackAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackActionResponse>.Success(expected));
+        gateway.Setup(g => g.ResumePlaybackAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackActionResponse>.Success(expected));
+        gateway.Setup(g => g.StopPlaybackAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackActionResponse>.Success(expected));
+        gateway.Setup(g => g.NextTrackAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackActionResponse>.Success(expected));
+        gateway.Setup(g => g.PreviousTrackAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlaybackControlResult<PlaybackActionResponse>.Success(expected));
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = toolName switch
+        {
+            "pause_playback" => await sut.PausePlaybackAsync(),
+            "resume_playback" => await sut.ResumePlaybackAsync(),
+            "stop_playback" => await sut.StopPlaybackAsync(),
+            "next_track" => await sut.NextTrackAsync(),
+            "previous_track" => await sut.PreviousTrackAsync(),
+            _ => throw new ArgumentOutOfRangeException(nameof(toolName)),
+        };
+
+        // Assert
+        Assert.False(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal(toolName, data.GetProperty("action").GetString());
+        Assert.Equal(playbackState, data.GetProperty("playbackState").GetString());
+        Assert.True(data.TryGetProperty("track", out JsonElement trackElement));
+        if (hasTrack)
+        {
+            Assert.Equal(trackDto!.Id.ToString("D"), trackElement.GetProperty("id").GetString());
+            Assert.Equal("Blue Note Morning", trackElement.GetProperty("title").GetString());
+        }
+        else
+        {
+            Assert.Equal(JsonValueKind.Null, trackElement.ValueKind);
+        }
+    }
+
+    /// <summary>
+    /// 基本再生制御の 5 ツールでゲートウェイがエラーを返した場合、対応するエラーコードと公開メッセージを返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("pause_playback", McpErrorCodes.WPF_APP_NOT_RUNNING)]
+    [InlineData("resume_playback", McpErrorCodes.NOT_FOUND)]
+    [InlineData("stop_playback", McpErrorCodes.IPC_CONNECTION_FAILED)]
+    [InlineData("next_track", McpErrorCodes.WPF_APP_NOT_RUNNING)]
+    [InlineData("previous_track", McpErrorCodes.NOT_FOUND)]
+    public async Task TransportTools_ゲートウェイ失敗時_対応するエラーコードを返す(string toolName, string errorCode)
+    {
+        // Arrange
+        var failure = PlaybackControlResult<PlaybackActionResponse>.Failure(
+            errorCode,
+            McpErrorMapper.GetPublicMessage(errorCode));
+
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway.Setup(g => g.PausePlaybackAsync(It.IsAny<CancellationToken>())).ReturnsAsync(failure);
+        gateway.Setup(g => g.ResumePlaybackAsync(It.IsAny<CancellationToken>())).ReturnsAsync(failure);
+        gateway.Setup(g => g.StopPlaybackAsync(It.IsAny<CancellationToken>())).ReturnsAsync(failure);
+        gateway.Setup(g => g.NextTrackAsync(It.IsAny<CancellationToken>())).ReturnsAsync(failure);
+        gateway.Setup(g => g.PreviousTrackAsync(It.IsAny<CancellationToken>())).ReturnsAsync(failure);
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = toolName switch
+        {
+            "pause_playback" => await sut.PausePlaybackAsync(),
+            "resume_playback" => await sut.ResumePlaybackAsync(),
+            "stop_playback" => await sut.StopPlaybackAsync(),
+            "next_track" => await sut.NextTrackAsync(),
+            "previous_track" => await sut.PreviousTrackAsync(),
+            _ => throw new ArgumentOutOfRangeException(nameof(toolName)),
+        };
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(errorCode, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    /// <summary>
+    /// 基本再生制御ツール実行中に予期しない例外が発生した場合、INTERNAL_ERROR に変換され機密詳細が露出しないことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("pause_playback")]
+    [InlineData("resume_playback")]
+    [InlineData("stop_playback")]
+    [InlineData("next_track")]
+    [InlineData("previous_track")]
+    public async Task TransportTools_予期しない例外発生時_INTERNAL_ERRORを返し機密詳細を露出しない(string toolName)
+    {
+        // Arrange
+        var ex = new InvalidOperationException(@"secret diagnostic C:\private\token");
+        var gateway = new Mock<IPlaybackControlGateway>();
+        gateway.Setup(g => g.PausePlaybackAsync(It.IsAny<CancellationToken>())).ThrowsAsync(ex);
+        gateway.Setup(g => g.ResumePlaybackAsync(It.IsAny<CancellationToken>())).ThrowsAsync(ex);
+        gateway.Setup(g => g.StopPlaybackAsync(It.IsAny<CancellationToken>())).ThrowsAsync(ex);
+        gateway.Setup(g => g.NextTrackAsync(It.IsAny<CancellationToken>())).ThrowsAsync(ex);
+        gateway.Setup(g => g.PreviousTrackAsync(It.IsAny<CancellationToken>())).ThrowsAsync(ex);
+
+        var sut = new PlaybackTools(gateway.Object, NullLogger<PlaybackTools>.Instance);
+
+        // Act
+        CallToolResult result = toolName switch
+        {
+            "pause_playback" => await sut.PausePlaybackAsync(),
+            "resume_playback" => await sut.ResumePlaybackAsync(),
+            "stop_playback" => await sut.StopPlaybackAsync(),
+            "next_track" => await sut.NextTrackAsync(),
+            "previous_track" => await sut.PreviousTrackAsync(),
+            _ => throw new ArgumentOutOfRangeException(nameof(toolName)),
+        };
+
+        // Assert
+        Assert.True(result.IsError);
+        using JsonDocument doc = ParsePayload(result);
+        JsonElement error = doc.RootElement.GetProperty("error");
+        Assert.Equal(McpErrorCodes.INTERNAL_ERROR, error.GetProperty("code").GetString());
+        Assert.DoesNotContain("secret", error.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 基本再生制御 5 ツールの Description 属性に launch_app による事前起動案内が含まれることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(PlaybackTools.PausePlaybackAsync))]
+    [InlineData(nameof(PlaybackTools.ResumePlaybackAsync))]
+    [InlineData(nameof(PlaybackTools.StopPlaybackAsync))]
+    [InlineData(nameof(PlaybackTools.NextTrackAsync))]
+    [InlineData(nameof(PlaybackTools.PreviousTrackAsync))]
+    public void TransportTools_ツール説明属性_launch_app案内が含まれる(string methodName)
+    {
+        // Arrange
+        MethodInfo? method = typeof(PlaybackTools).GetMethod(methodName);
+        Assert.NotNull(method);
+
+        // Act
+        DescriptionAttribute? description = method.GetCustomAttribute<DescriptionAttribute>();
+
+        // Assert
+        Assert.NotNull(description);
+        Assert.Contains("launch_app", description.Description, StringComparison.Ordinal);
+    }
+
     private static JsonDocument ParsePayload(CallToolResult result)
     {
         var textBlock = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));
