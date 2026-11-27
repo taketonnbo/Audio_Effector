@@ -31,6 +31,19 @@ public sealed record CreatePlaylistResponse(
     IReadOnlyList<string> SkippedItems);
 
 /// <summary>
+/// プレイリスト編集ツール（<c>add_tracks_to_playlist</c> / <c>remove_tracks_from_playlist</c> / <c>reorder_playlist_track</c> / <c>rename_playlist</c>）の共通応答データ DTO です。
+/// </summary>
+/// <param name="Operation">実行された編集操作種別（<c>add_tracks</c> / <c>remove_tracks</c> / <c>reorder_track</c> / <c>rename</c>）。</param>
+/// <param name="Playlist">編集後のプレイリストのサマリ情報（収録トラック一覧を含む）。</param>
+/// <param name="ChangedCount">今回変更された件数（追加件数・削除件数・移動件数・名称変更件数）。</param>
+/// <param name="SkippedItems">重複指定や未一致によりスキップされた識別子の一覧。</param>
+public sealed record UpdatePlaylistResponse(
+    string Operation,
+    PlaylistSummaryDto Playlist,
+    int ChangedCount,
+    IReadOnlyList<string> SkippedItems);
+
+/// <summary>
 /// MCP 応答で返却するプレイリストのサマリ DTO です。
 /// </summary>
 /// <param name="Id">一意のプレイリスト ID（GUID）。</param>

@@ -711,6 +711,359 @@ public sealed class PlaylistToolsTests
         }
     }
 
+    /// <summary>
+    /// add_tracks_to_playlist ツールで trackIds と filePaths を併用した場合、既存曲の後に重複を除外して一括追加し統一応答を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task AddTracksToPlaylistAsync_trackIdsとfilePaths指定_一括追加と重複スキップの統一応答を返す()
+    {
+        // Arrange
+        var track1 = CreateTrack("Song 1", "Artist", "Album", @"C:\Music\s1.flac");
+        var track2 = CreateTrack("Song 2", "Artist", "Album", @"C:\Music\s2.flac");
+        var track3 = CreateTrack("Song 3", "Artist", "Album", @"C:\Music\s3.flac");
+        var playlist = new UserPlaylist(PlaylistId.New(), "Night Mix", [track1.Id]) { TrackPaths = [track1.FilePath] };
+
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out Mock<ITrackRepository> trackRepoMock, out _);
+        trackRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([track1, track2, track3]);
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+
+        // Act
+        CallToolResult result = await sut.AddTracksToPlaylistAsync(
+            playlistId: playlist.Id.ToString(),
+            trackIds: [track1.Id.ToString(), track2.Id.ToString()],
+            filePaths: [track3.FilePath]);
+
+        // Assert
+        Assert.False(result.IsError ?? false);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal("add_tracks", data.GetProperty("operation").GetString());
+        Assert.Equal(2, data.GetProperty("changedCount").GetInt32());
+        Assert.Equal(track1.Id.ToString(), Assert.Single(data.GetProperty("skippedItems").EnumerateArray()).GetString());
+
+        JsonElement pl = data.GetProperty("playlist");
+        Assert.Equal(3, pl.GetProperty("trackCount").GetInt32());
+        List<Guid> ids = pl.GetProperty("tracks").EnumerateArray().Select(t => t.GetProperty("id").GetGuid()).ToList();
+        Assert.Equal([track1.Id.Value, track2.Id.Value, track3.Id.Value], ids);
+    }
+
+    /// <summary>
+    /// add_tracks_to_playlist ツールで不正パラメータ・存在しないプレイリスト・存在しないトラックを指定した場合に適切なエラーコードを返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task AddTracksToPlaylistAsync_異常系パラメータおよび未存在対象_適切なエラーコードを返す()
+    {
+        // Arrange
+        var track1 = CreateTrack("Song 1", "Artist", "Album", @"C:\Music\s1.flac");
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out Mock<ITrackRepository> trackRepoMock, out _);
+        trackRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([track1]);
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(It.IsAny<PlaylistId>(), It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((UserPlaylist?)null);
+
+        // Act
+        CallToolResult badPlaylistId = await sut.AddTracksToPlaylistAsync("not-a-guid", trackIds: [track1.Id.ToString()]);
+        CallToolResult noTargets = await sut.AddTracksToPlaylistAsync(Guid.NewGuid().ToString());
+        CallToolResult relativePath = await sut.AddTracksToPlaylistAsync(Guid.NewGuid().ToString(), filePaths: [@"rel\a.flac"]);
+        CallToolResult missingTrack = await sut.AddTracksToPlaylistAsync(Guid.NewGuid().ToString(), trackIds: [Guid.NewGuid().ToString()]);
+        CallToolResult missingPlaylist = await sut.AddTracksToPlaylistAsync(Guid.NewGuid().ToString(), trackIds: [track1.Id.ToString()]);
+
+        // Assert
+        foreach (CallToolResult res in new[] { badPlaylistId, noTargets, relativePath })
+        {
+            Assert.True(res.IsError);
+            using JsonDocument doc = JsonDocument.Parse(GetSingleText(res));
+            Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        foreach (CallToolResult res in new[] { missingTrack, missingPlaylist })
+        {
+            Assert.True(res.IsError);
+            using JsonDocument doc = JsonDocument.Parse(GetSingleText(res));
+            Assert.Equal(McpErrorCodes.NOT_FOUND, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+    }
+
+    /// <summary>
+    /// remove_tracks_from_playlist ツールで複数インデックスを指定した際、ずれなく削除され統一応答を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task RemoveTracksFromPlaylistAsync_複数インデックス指定_ずれなく削除し統一応答を返す()
+    {
+        // Arrange
+        var t0 = CreateTrack("S0", "Artist", "Album", @"C:\Music\s0.flac");
+        var t1 = CreateTrack("S1", "Artist", "Album", @"C:\Music\s1.flac");
+        var t2 = CreateTrack("S2", "Artist", "Album", @"C:\Music\s2.flac");
+        var playlist = new UserPlaylist(PlaylistId.New(), "Edit Target", [t0.Id, t1.Id, t2.Id])
+        {
+            TrackPaths = [t0.FilePath, t1.FilePath, t2.FilePath],
+        };
+
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out Mock<ITrackRepository> trackRepoMock, out _);
+        trackRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([t0, t1, t2]);
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+
+        // Act
+        CallToolResult result = await sut.RemoveTracksFromPlaylistAsync(
+            playlistId: playlist.Id.ToString(),
+            indices: [0, 2]);
+
+        // Assert
+        Assert.False(result.IsError ?? false);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal("remove_tracks", data.GetProperty("operation").GetString());
+        Assert.Equal(2, data.GetProperty("changedCount").GetInt32());
+        JsonElement remaining = Assert.Single(data.GetProperty("playlist").GetProperty("tracks").EnumerateArray());
+        Assert.Equal(t1.Id.Value, remaining.GetProperty("id").GetGuid());
+    }
+
+    /// <summary>
+    /// remove_tracks_from_playlist ツールで対象未指定・負数/範囲外インデックス・存在しないプレイリストを指定した場合に適切なエラーコードを返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task RemoveTracksFromPlaylistAsync_異常系パラメータおよび未存在プレイリスト_適切なエラーコードを返す()
+    {
+        // Arrange
+        var playlist = new UserPlaylist(PlaylistId.New(), "Small", [TrackId.New()]);
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(It.Is<PlaylistId>(id => id != playlist.Id), It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((UserPlaylist?)null);
+
+        // Act
+        CallToolResult noTargets = await sut.RemoveTracksFromPlaylistAsync(playlist.Id.ToString());
+        CallToolResult negativeIdx = await sut.RemoveTracksFromPlaylistAsync(playlist.Id.ToString(), indices: [-1]);
+        CallToolResult outOfRangeIdx = await sut.RemoveTracksFromPlaylistAsync(playlist.Id.ToString(), indices: [3]);
+        CallToolResult missingPlaylist = await sut.RemoveTracksFromPlaylistAsync(Guid.NewGuid().ToString(), indices: [0]);
+
+        // Assert
+        foreach (CallToolResult res in new[] { noTargets, negativeIdx, outOfRangeIdx })
+        {
+            Assert.True(res.IsError);
+            using JsonDocument doc = JsonDocument.Parse(GetSingleText(res));
+            Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        Assert.True(missingPlaylist.IsError);
+        using (JsonDocument doc = JsonDocument.Parse(GetSingleText(missingPlaylist)))
+        {
+            Assert.Equal(McpErrorCodes.NOT_FOUND, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+    }
+
+    /// <summary>
+    /// reorder_playlist_track ツールで曲順を並び替えた際、変更後の順序で統一応答を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ReorderPlaylistTrackAsync_有効インデックス指定_順序変更後のプレイリストを返す()
+    {
+        // Arrange
+        var t0 = CreateTrack("S0", "Artist", "Album", @"C:\Music\s0.flac");
+        var t1 = CreateTrack("S1", "Artist", "Album", @"C:\Music\s1.flac");
+        var playlist = new UserPlaylist(PlaylistId.New(), "Reorder", [t0.Id, t1.Id]) { TrackPaths = [t0.FilePath, t1.FilePath] };
+
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out Mock<ITrackRepository> trackRepoMock, out _);
+        trackRepoMock.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([t0, t1]);
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+
+        // Act
+        CallToolResult result = await sut.ReorderPlaylistTrackAsync(playlist.Id.ToString(), fromIndex: 1, toIndex: 0);
+
+        // Assert
+        Assert.False(result.IsError ?? false);
+        using JsonDocument doc = JsonDocument.Parse(GetSingleText(result));
+        JsonElement data = doc.RootElement.GetProperty("data");
+        Assert.Equal("reorder_track", data.GetProperty("operation").GetString());
+        Assert.Equal(1, data.GetProperty("changedCount").GetInt32());
+        List<Guid> ids = data.GetProperty("playlist").GetProperty("tracks").EnumerateArray().Select(t => t.GetProperty("id").GetGuid()).ToList();
+        Assert.Equal([t1.Id.Value, t0.Id.Value], ids);
+    }
+
+    /// <summary>
+    /// reorder_playlist_track ツールで負数・範囲外インデックス・未存在プレイリストを指定した場合に適切なエラーコードを返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ReorderPlaylistTrackAsync_異常系パラメータおよび未存在プレイリスト_適切なエラーコードを返す()
+    {
+        // Arrange
+        var playlist = new UserPlaylist(PlaylistId.New(), "Reorder", [TrackId.New()]);
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(It.Is<PlaylistId>(id => id != playlist.Id), It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((UserPlaylist?)null);
+
+        // Act
+        CallToolResult negFrom = await sut.ReorderPlaylistTrackAsync(playlist.Id.ToString(), -1, 0);
+        CallToolResult negTo = await sut.ReorderPlaylistTrackAsync(playlist.Id.ToString(), 0, -1);
+        CallToolResult outOfRange = await sut.ReorderPlaylistTrackAsync(playlist.Id.ToString(), 0, 5);
+        CallToolResult missing = await sut.ReorderPlaylistTrackAsync(Guid.NewGuid().ToString(), 0, 0);
+
+        // Assert
+        foreach (CallToolResult res in new[] { negFrom, negTo, outOfRange })
+        {
+            Assert.True(res.IsError);
+            using JsonDocument doc = JsonDocument.Parse(GetSingleText(res));
+            Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        Assert.True(missing.IsError);
+        using (JsonDocument doc = JsonDocument.Parse(GetSingleText(missing)))
+        {
+            Assert.Equal(McpErrorCodes.NOT_FOUND, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+    }
+
+    /// <summary>
+    /// rename_playlist ツールで正常系・空名/長すぎ・未存在プレイリスト・内部例外発生時の応答と内部詳細非露出を検証します。
+    /// </summary>
+    [Fact]
+    public async Task RenamePlaylistAsync_正常系および異常系とサービス例外_期待通りの応答を返す()
+    {
+        // Arrange
+        var playlist = new UserPlaylist(PlaylistId.New(), "Before");
+        var sut = CreateSut(out Mock<IPlaylistRepository> playlistRepoMock, out _, out _);
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(playlist.Id, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlaylistId, Func<UserPlaylist, bool>, CancellationToken>((_, update, _) => update(playlist))
+            .ReturnsAsync(playlist);
+
+        var missingId = PlaylistId.New();
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(missingId, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((UserPlaylist?)null);
+
+        var errorId = PlaylistId.New();
+        playlistRepoMock
+            .Setup(r => r.UpdateAsync(errorId, It.IsAny<Func<UserPlaylist, bool>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("SECRET_RENAME_FAILURE"));
+
+        // Act
+        CallToolResult okResult = await sut.RenamePlaylistAsync(playlist.Id.ToString(), "  After Name  ");
+        CallToolResult emptyNameResult = await sut.RenamePlaylistAsync(playlist.Id.ToString(), "   ");
+        CallToolResult tooLongResult = await sut.RenamePlaylistAsync(playlist.Id.ToString(), new string('A', PlaylistApplicationService.MAX_PLAYLIST_NAME_LENGTH + 1));
+        CallToolResult notFoundResult = await sut.RenamePlaylistAsync(missingId.ToString(), "Valid");
+        CallToolResult internalErrorResult = await sut.RenamePlaylistAsync(errorId.ToString(), "Valid");
+
+        // Assert
+        Assert.False(okResult.IsError ?? false);
+        using (JsonDocument doc = JsonDocument.Parse(GetSingleText(okResult)))
+        {
+            JsonElement data = doc.RootElement.GetProperty("data");
+            Assert.Equal("rename", data.GetProperty("operation").GetString());
+            Assert.Equal(1, data.GetProperty("changedCount").GetInt32());
+            Assert.Equal("After Name", data.GetProperty("playlist").GetProperty("name").GetString());
+        }
+
+        foreach (CallToolResult res in new[] { emptyNameResult, tooLongResult })
+        {
+            Assert.True(res.IsError);
+            using JsonDocument doc = JsonDocument.Parse(GetSingleText(res));
+            Assert.Equal(McpErrorCodes.INVALID_PARAMETER, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        Assert.True(notFoundResult.IsError);
+        using (JsonDocument doc = JsonDocument.Parse(GetSingleText(notFoundResult)))
+        {
+            Assert.Equal(McpErrorCodes.NOT_FOUND, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        Assert.True(internalErrorResult.IsError);
+        string errText = GetSingleText(internalErrorResult);
+        Assert.DoesNotContain("SECRET_RENAME_FAILURE", errText, StringComparison.Ordinal);
+        using (JsonDocument doc = JsonDocument.Parse(errText))
+        {
+            Assert.Equal(McpErrorCodes.INTERNAL_ERROR, doc.RootElement.GetProperty("error").GetProperty("code").GetString());
+        }
+    }
+
+    /// <summary>
+    /// 実 JsonPlaylistRepository を用いて add_tracks_to_playlist → reorder_playlist_track → remove_tracks_from_playlist → rename_playlist の一連の編集が原子的に永続化され、別インスタンス（WPF 相当）から整合した状態で読み込めることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PlaylistEditTools_実リポジトリ使用時_追加並び替え削除名称変更が永続化されWPF互換読込できる()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AudioEffectorEditPlaylist_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string playlistsPath = Path.Combine(tempDir, "playlists.json");
+            string tracksPath = Path.Combine(tempDir, "tracks.json");
+            var t1 = CreateTrack("Track 1", "Artist", "Album", Path.Combine(tempDir, "t1.flac"));
+            var t2 = CreateTrack("Track 2", "Artist", "Album", Path.Combine(tempDir, "t2.flac"));
+            var t3 = CreateTrack("Track 3", "Artist", "Album", Path.Combine(tempDir, "t3.flac"));
+
+            using (var seedTrackRepo = new JsonTrackRepository(tracksPath))
+            {
+                await seedTrackRepo.SaveRangeAsync([t1, t2, t3]);
+            }
+
+            using var mcpPlaylistRepo = new JsonPlaylistRepository(playlistsPath);
+            using var mcpTrackRepo = new JsonTrackRepository(tracksPath);
+            var mcpService = new PlaylistApplicationService(mcpPlaylistRepo, mcpTrackRepo, new Mock<IEventBus>().Object);
+            var sut = new PlaylistTools(mcpService, new Mock<ILogger<PlaylistTools>>().Object);
+
+            // Act: 作成 → 追加 → 並び替え → 削除 → 名称変更
+            CallToolResult createRes = await sut.CreatePlaylistAsync("Original", [t1.Id.ToString()]);
+            Assert.False(createRes.IsError ?? false);
+            Guid playlistId;
+            using (JsonDocument doc = JsonDocument.Parse(GetSingleText(createRes)))
+            {
+                playlistId = doc.RootElement.GetProperty("data").GetProperty("playlist").GetProperty("id").GetGuid();
+            }
+
+            CallToolResult addRes = await sut.AddTracksToPlaylistAsync(playlistId.ToString(), [t2.Id.ToString(), t3.Id.ToString()]);
+            Assert.False(addRes.IsError ?? false);
+
+            CallToolResult reorderRes = await sut.ReorderPlaylistTrackAsync(playlistId.ToString(), fromIndex: 2, toIndex: 0);
+            Assert.False(reorderRes.IsError ?? false);
+
+            CallToolResult removeRes = await sut.RemoveTracksFromPlaylistAsync(playlistId.ToString(), indices: [1]);
+            Assert.False(removeRes.IsError ?? false);
+
+            CallToolResult renameRes = await sut.RenamePlaylistAsync(playlistId.ToString(), "Edited Final");
+            Assert.False(renameRes.IsError ?? false);
+
+            // Assert: 別インスタンス（WPF 本体相当）から読み込んでも TrackIds / TrackPaths / Name が完全一致すること
+            using var wpfPlaylistRepo = new JsonPlaylistRepository(playlistsPath);
+            using var wpfTrackRepo = new JsonTrackRepository(tracksPath);
+            var wpfService = new PlaylistApplicationService(wpfPlaylistRepo, wpfTrackRepo, new Mock<IEventBus>().Object);
+            UserPlaylist loaded = Assert.Single(wpfService.LoadPlaylists());
+
+            Assert.Equal(playlistId, loaded.Id.Value);
+            Assert.Equal("Edited Final", loaded.Name);
+            // [t1, t2, t3] -> reorder(2->0): [t3, t1, t2] -> remove(1): [t3, t2]
+            Assert.Equal([t3.Id, t2.Id], loaded.TrackIds.ToArray());
+            Assert.Equal([t3.FilePath, t2.FilePath], loaded.TrackPaths.ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static PlaylistTools CreateSut(
         out Mock<IPlaylistRepository> playlistRepoMock,
         out Mock<ITrackRepository> trackRepoMock,
