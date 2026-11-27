@@ -70,6 +70,14 @@ AI エージェントが Audio Effector の楽曲ライブラリやユーザー�
     1. 「夜のドライブに合うジャズのお気に入り曲を探して」（`search_tracks(genre: "Jazz", isFavoriteOnly: true)` で候補トラックの `id` を取得）
     2. 「その曲で『Night Drive Jazz』というプレイリストを作って」（`create_playlist(name: "Night Drive Jazz", trackIds: [...])` で作成・永続化）
     3. 「作成したプレイリストをシャッフルで再生して」（必要に応じて `launch_app` 後に `play_playlist(playlistId: "...", shuffle: true)`）
+- **プレイリストの自動編集（`add_tracks_to_playlist`, `remove_tracks_from_playlist`, `reorder_playlist_track`, `rename_playlist` / #336）**:
+  - 既存のユーザー作成プレイリストに対して、複数楽曲の一括追加（`add_tracks_to_playlist`：`trackIds` または `filePaths` 指定、既存収録曲との重複は自動スキップして `skippedItems` へ返却）、楽曲削除（`remove_tracks_from_playlist`：0 始まりインデックス配列 `indices` または `trackIds` 指定、複数インデックス同時削除時もずれなく削除）、曲順の並び替え（`reorder_playlist_track`：`fromIndex` → `toIndex`）、および名称変更（`rename_playlist`）を実行できます。
+  - いずれの操作もプロセス間ファイルロック付きで `playlists.json` へ原子的に永続化されるため、Audio Effector デスクトップアプリ本体が未起動の状態でも安全に利用できます。
+  - **利用例**:
+    - 「ドライブ用プレイリストにこの 2 曲を追加して」（`add_tracks_to_playlist`）
+    - 「プレイリストの 1 曲目と 3 曲目を削除して」（`remove_tracks_from_playlist`）
+    - 「プレイリストの最後の曲を先頭に移動して」（`reorder_playlist_track`）
+    - 「プレイリスト名を『深夜ドライブ Jazz』に変更して」（`rename_playlist`）
 
 ### 2.4 アプリ起動機能（Phase 2 #316 提供）
 
@@ -157,7 +165,7 @@ Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリ
 | :--- | :--- | :--- |
 | **アプリ起動・ライフサイクル** | Audio Effector 本体を通常起動またはミニプレイヤー起動し、起動済み時は既存状態を維持する（`launch_app` 実装済み） | #316（アプリの起動） |
 | **楽曲ライブラリ参照・検索** | 曲名・アーティスト・アルバム・ジャンル・リリース年・お気に入り条件でライブラリを検索し、条件に合う楽曲一覧やアルバム一覧を取得する（`search_tracks`, `search_albums` 実装済み） | #305（曲の検索）, #331（アルバム・プレイリスト検索） |
-| **プレイリスト管理** | 既存プレイリストの一覧・内容を検索・確認し（`search_playlists` 実装済み）、AI が選んだ楽曲で新しいプレイリストを自動作成・永続化する（`create_playlist` 実装済み）。今後、既存プレイリストの編集を順次拡張 | #331（アルバム・プレイリスト検索）, #335（プレイリスト自動作成）ほか |
+| **プレイリスト管理** | 既存プレイリストの一覧・内容を検索・確認し（`search_playlists` 実装済み）、AI が選んだ楽曲で新しいプレイリストを自動作成・永続化し（`create_playlist` 実装済み）、既存プレイリストの楽曲追加・削除・曲順並び替え・名称変更を行う（`add_tracks_to_playlist`, `remove_tracks_from_playlist`, `reorder_playlist_track`, `rename_playlist` 実装済み） | #331（アルバム・プレイリスト検索）, #335（プレイリスト自動作成）, #336（プレイリスト自動編集）ほか |
 | **イコライザー・プリセット** | 現在のイコライザー設定や登録済みプリセットを確認し、聴くジャンルに合わせてプリセットを切り替える | Phase 2 順次追加 |
 | **アプリケーション設定** | 監視フォルダや表示設定などの現在値を確認・調整する | Phase 2 順次追加 |
 | **再生制御・再生キュー連携** | 現在の再生状態・再生中トラック・位置・音量・キュー件数（`get_playback_state` 実装済み）および再生キュー内容（`get_playback_queue` 実装済み）を照会し、検索した楽曲・アルバム・プレイリストの再生開始（`play_track`, `play_album`, `play_playlist` 実装済み）、再生キューへの追加（`enqueue_tracks` 実装済み）、および基本再生制御（`pause_playback`, `resume_playback`, `stop_playback`, `next_track`, `previous_track` 実装済み）を実行する。今後、音量・シーク・キュー編集を順次拡張 | #306（曲の再生）, #328（再生状態の取得）, #329（基本再生制御）, #330（アルバム・プレイリスト再生）, #333（再生キューの参照）, #334（再生キューの追加）ほか |
@@ -217,4 +225,4 @@ Phase 2 では、共通の入出力規約のもとで以下の機能カテゴリ
   - 親 Epic: [#294](https://github.com/taketonnbo/Audio_Effector/issues/294)（C# による MCP サーバ機能の追加）
   - Phase 0（設計）: [#295](https://github.com/taketonnbo/Audio_Effector/issues/295), [#298](https://github.com/taketonnbo/Audio_Effector/issues/298), [#303](https://github.com/taketonnbo/Audio_Effector/issues/303)
   - Phase 1（基盤実装）: [#296](https://github.com/taketonnbo/Audio_Effector/issues/296)
-  - Phase 2（機能拡張）: [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#328](https://github.com/taketonnbo/Audio_Effector/issues/328), [#329](https://github.com/taketonnbo/Audio_Effector/issues/329), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331), [#333](https://github.com/taketonnbo/Audio_Effector/issues/333), [#334](https://github.com/taketonnbo/Audio_Effector/issues/334), [#335](https://github.com/taketonnbo/Audio_Effector/issues/335)
+  - Phase 2（機能拡張）: [#301](https://github.com/taketonnbo/Audio_Effector/issues/301), [#305](https://github.com/taketonnbo/Audio_Effector/issues/305), [#306](https://github.com/taketonnbo/Audio_Effector/issues/306), [#316](https://github.com/taketonnbo/Audio_Effector/issues/316), [#328](https://github.com/taketonnbo/Audio_Effector/issues/328), [#329](https://github.com/taketonnbo/Audio_Effector/issues/329), [#330](https://github.com/taketonnbo/Audio_Effector/issues/330), [#331](https://github.com/taketonnbo/Audio_Effector/issues/331), [#333](https://github.com/taketonnbo/Audio_Effector/issues/333), [#334](https://github.com/taketonnbo/Audio_Effector/issues/334), [#335](https://github.com/taketonnbo/Audio_Effector/issues/335), [#336](https://github.com/taketonnbo/Audio_Effector/issues/336)
