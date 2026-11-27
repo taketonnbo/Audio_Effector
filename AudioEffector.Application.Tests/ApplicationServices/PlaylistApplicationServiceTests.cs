@@ -83,6 +83,117 @@ public sealed class PlaylistApplicationServiceTests
     }
 
     /// <summary>
+    /// CreatePlaylistAsync に初期トラック ID 一覧を指定した場合、TrackIds と TrackPaths の整合性を保って保存されイベントが発行されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task CreatePlaylistAsync_初期トラックID一覧指定_順序とTrackPaths整合性を保って保存されること()
+    {
+        // Arrange
+        var track1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\track1.flac"), title: "Song 1", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(180));
+        var track2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\track2.flac"), title: "Song 2", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(200));
+
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track1, track2]);
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act
+        UserPlaylist actual = await sut.CreatePlaylistAsync("  ドライブBGM  ", [track2.Id, track1.Id]);
+
+        // Assert
+        Assert.Equal("ドライブBGM", actual.Name);
+        Assert.Equal([track2.Id, track1.Id], actual.TrackIds.ToArray());
+        Assert.Equal([track2.FilePath, track1.FilePath], actual.TrackPaths.ToArray());
+        Assert.Equal(2, actual.TrackCount);
+        mockPlaylistRepo.Verify(r => r.SaveAsync(actual, It.IsAny<CancellationToken>()), Times.Once);
+        mockEventBus.Verify(b => b.PublishAsync(It.Is<PlaylistUpdatedEvent>(e => e.Playlist == actual), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// CreatePlaylistWithTracksAsync に trackIds と filePaths を併用し重複が含まれる場合、初出順で登録され重複項目が SkippedItems に記録されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task CreatePlaylistWithTracksAsync_trackIdsとfilePaths併用かつ重複あり_初出順で登録し重複をスキップすること()
+    {
+        // Arrange
+        var track1 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\first.flac"), title: "First", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(180));
+        var track2 = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\second.flac"), title: "Second", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(210));
+
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([track1, track2]);
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act
+        PlaylistCreationResult actual = await sut.CreatePlaylistWithTracksAsync(
+            "Night Mix",
+            initialTrackIds: [track1.Id, track1.Id],
+            initialFilePaths: [@"c:\music\first.flac", @"C:\Music\second.flac"]);
+
+        // Assert
+        Assert.Equal("Night Mix", actual.Playlist.Name);
+        Assert.Equal([track1.Id, track2.Id], actual.Playlist.TrackIds.ToArray());
+        Assert.Equal([track1.FilePath, track2.FilePath], actual.Playlist.TrackPaths.ToArray());
+        Assert.Equal([track1.Id, track2.Id], actual.Tracks.Select(t => t.Id).ToArray());
+        Assert.Equal(2, actual.SkippedItems.Count);
+        Assert.Equal(track1.Id.ToString(), actual.SkippedItems[0]);
+        Assert.Equal(@"c:\music\first.flac", actual.SkippedItems[1]);
+        mockPlaylistRepo.Verify(r => r.SaveAsync(actual.Playlist, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// CreatePlaylistAsync に空名・空白名または最大長超過の名前を指定した場合、ArgumentException がスローされ保存されないことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CreatePlaylistAsync_不正なプレイリスト名指定_ArgumentExceptionをスローし保存しないこと(string invalidName)
+    {
+        // Arrange
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentException>(() => sut.CreatePlaylistAsync(invalidName));
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => sut.CreatePlaylistAsync(new string('A', PlaylistApplicationService.MAX_PLAYLIST_NAME_LENGTH + 1)));
+
+        mockPlaylistRepo.Verify(r => r.SaveAsync(It.IsAny<UserPlaylist>(), It.IsAny<CancellationToken>()), Times.Never);
+        mockEventBus.Verify(b => b.PublishAsync(It.IsAny<PlaylistUpdatedEvent>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// CreatePlaylistWithTracksAsync にライブラリ未登録の trackId または filePath を指定した場合、KeyNotFoundException をスローし不完全なプレイリストを保存しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task CreatePlaylistWithTracksAsync_存在しないトラック指定_KeyNotFoundExceptionをスローし保存しないこと()
+    {
+        // Arrange
+        var existingTrack = new Track(TrackId.New(), AudioPath.Create(@"C:\Music\exists.flac"), title: "Exists", artist: "Artist", album: "Album", duration: TimeSpan.FromSeconds(180));
+        var mockPlaylistRepo = new Mock<IPlaylistRepository>();
+        var mockTrackRepo = new Mock<ITrackRepository>();
+        mockTrackRepo.Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([existingTrack]);
+        var mockEventBus = new Mock<IEventBus>();
+        var sut = new PlaylistApplicationService(mockPlaylistRepo.Object, mockTrackRepo.Object, mockEventBus.Object);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => sut.CreatePlaylistWithTracksAsync("MissingById", initialTrackIds: [existingTrack.Id, TrackId.New()]));
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => sut.CreatePlaylistWithTracksAsync("MissingByPath", initialFilePaths: [@"C:\Music\missing.flac"]));
+
+        mockPlaylistRepo.Verify(r => r.SaveAsync(It.IsAny<UserPlaylist>(), It.IsAny<CancellationToken>()), Times.Never);
+        mockEventBus.Verify(b => b.PublishAsync(It.IsAny<PlaylistUpdatedEvent>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
     /// 登録済みのプレイリストIDを指定して削除した場合、リポジトリのDeleteAsyncが実行されイベントが発行されるかを検証します。
     /// </summary>
     [Fact]
