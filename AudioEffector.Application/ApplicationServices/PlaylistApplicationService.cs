@@ -17,6 +17,11 @@ namespace AudioEffector.Application.ApplicationServices;
 /// </summary>
 public class PlaylistApplicationService
 {
+    /// <summary>
+    /// プレイリスト名の最大文字数。
+    /// </summary>
+    public const int MAX_PLAYLIST_NAME_LENGTH = 200;
+
     private readonly IPlaylistRepository _playlistRepository;
     private readonly ITrackRepository _trackRepository;
     private readonly IEventBus _eventBus;
@@ -436,12 +441,164 @@ public class PlaylistApplicationService
     /// <param name="name">プレイリスト名</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>作成されたプレイリスト</returns>
-    public async Task<UserPlaylist> CreatePlaylistAsync(string name, CancellationToken cancellationToken = default)
+    public Task<UserPlaylist> CreatePlaylistAsync(string name, CancellationToken cancellationToken = default)
     {
-        var playlist = new UserPlaylist(PlaylistId.New(), name);
-        await _playlistRepository.SaveAsync(playlist, cancellationToken);
-        await _eventBus.PublishAsync(new PlaylistUpdatedEvent(playlist), cancellationToken);
-        return playlist;
+        return CreatePlaylistAsync(name, initialTrackIds: null, cancellationToken);
+    }
+
+    /// <summary>
+    /// 任意の初期トラック ID 一覧を含めて新しいプレイリストを作成・永続化します。
+    /// </summary>
+    /// <param name="name">プレイリスト名（前後空白はトリムされ、空文字および上限超過は <see cref="ArgumentException"/>）。</param>
+    /// <param name="initialTrackIds">初期登録するトラック ID 一覧（省略または空の場合は空のプレイリストを作成）。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>作成されたプレイリスト。</returns>
+    public async Task<UserPlaylist> CreatePlaylistAsync(
+        string name,
+        IReadOnlyList<TrackId>? initialTrackIds,
+        CancellationToken cancellationToken = default)
+    {
+        PlaylistCreationResult result = await CreatePlaylistWithTracksAsync(
+            name,
+            initialTrackIds,
+            initialFilePaths: null,
+            cancellationToken).ConfigureAwait(false);
+        return result.Playlist;
+    }
+
+    /// <summary>
+    /// 指定されたプレイリスト名および任意の初期トラック（トラック ID・ファイルパス）から新しいプレイリストを作成・永続化します。
+    /// 指定されたトラックが 1 件でもライブラリに存在しない場合は <see cref="KeyNotFoundException"/> をスローし、不完全なプレイリストを保存しません。
+    /// </summary>
+    /// <param name="name">プレイリスト名（前後空白はトリムされます）。</param>
+    /// <param name="initialTrackIds">初期登録するトラック ID 一覧（任意）。</param>
+    /// <param name="initialFilePaths">初期登録する音声ファイル絶対パス一覧（任意）。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>作成されたプレイリスト・解決済み収録トラック一覧・重複スキップ一覧を含む結果。</returns>
+    public async Task<PlaylistCreationResult> CreatePlaylistWithTracksAsync(
+        string name,
+        IReadOnlyList<TrackId>? initialTrackIds = null,
+        IReadOnlyList<string>? initialFilePaths = null,
+        CancellationToken cancellationToken = default)
+    {
+        string normalizedName = ValidateAndNormalizePlaylistName(name);
+
+        bool hasTrackIds = initialTrackIds is { Count: > 0 };
+        bool hasFilePaths = initialFilePaths is { Count: > 0 };
+
+        var resolvedTracks = new List<Track>();
+        var skippedItems = new List<string>();
+
+        if (hasTrackIds || hasFilePaths)
+        {
+            IReadOnlyList<Track> allTracks = await _trackRepository
+                .GetAllAsync(cancellationToken)
+                .ConfigureAwait(false)
+                ?? Array.Empty<Track>();
+
+            if (_favoriteRepository is not null && allTracks.Count > 0)
+            {
+                IReadOnlyList<FavoriteTrackEntry> favoriteEntries = await _favoriteRepository
+                    .GetAllAsync(cancellationToken)
+                    .ConfigureAwait(false)
+                    ?? Array.Empty<FavoriteTrackEntry>();
+                FavoriteTrackMatcher.Reconcile(favoriteEntries, allTracks);
+            }
+
+            var tracksById = new Dictionary<TrackId, Track>(allTracks.Count);
+            var tracksByPath = new Dictionary<string, Track>(allTracks.Count, StringComparer.OrdinalIgnoreCase);
+
+            foreach (Track track in allTracks)
+            {
+                tracksById.TryAdd(track.Id, track);
+                if (!string.IsNullOrWhiteSpace(track.FilePath))
+                {
+                    tracksByPath.TryAdd(track.FilePath, track);
+                }
+            }
+
+            var addedTrackIds = new HashSet<TrackId>();
+
+            if (hasTrackIds)
+            {
+                foreach (TrackId trackId in initialTrackIds!)
+                {
+                    if (!tracksById.TryGetValue(trackId, out Track? track))
+                    {
+                        throw new KeyNotFoundException($"指定されたトラック ID '{trackId}' はライブラリに存在しません。");
+                    }
+
+                    if (!addedTrackIds.Add(track.Id))
+                    {
+                        skippedItems.Add(trackId.ToString());
+                        continue;
+                    }
+
+                    resolvedTracks.Add(track);
+                }
+            }
+
+            if (hasFilePaths)
+            {
+                foreach (string rawPath in initialFilePaths!)
+                {
+                    if (string.IsNullOrWhiteSpace(rawPath))
+                    {
+                        throw new ArgumentException("初期トラックのファイルパスに空の値は指定できません。", nameof(initialFilePaths));
+                    }
+
+                    string trimmedPath = rawPath.Trim();
+                    if (!tracksByPath.TryGetValue(trimmedPath, out Track? track))
+                    {
+                        throw new KeyNotFoundException($"指定されたファイルパス '{trimmedPath}' に一致するトラックはライブラリに存在しません。");
+                    }
+
+                    if (!addedTrackIds.Add(track.Id))
+                    {
+                        skippedItems.Add(trimmedPath);
+                        continue;
+                    }
+
+                    resolvedTracks.Add(track);
+                }
+            }
+        }
+
+        DateTime nowUtc = DateTime.UtcNow;
+        var playlist = new UserPlaylist(
+            id: PlaylistId.New(),
+            name: normalizedName,
+            trackIds: resolvedTracks.Select(t => t.Id),
+            createdAt: nowUtc,
+            updatedAt: nowUtc);
+
+        if (resolvedTracks.Count > 0 && resolvedTracks.All(t => !string.IsNullOrWhiteSpace(t.FilePath)))
+        {
+            playlist.TrackPaths = resolvedTracks.Select(t => t.FilePath).ToList();
+        }
+
+        await _playlistRepository.SaveAsync(playlist, cancellationToken).ConfigureAwait(false);
+        await _eventBus.PublishAsync(new PlaylistUpdatedEvent(playlist), cancellationToken).ConfigureAwait(false);
+
+        return PlaylistCreationResult.Create(playlist, resolvedTracks, skippedItems);
+    }
+
+    private static string ValidateAndNormalizePlaylistName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("プレイリスト名を指定してください。", nameof(name));
+        }
+
+        string trimmed = name.Trim();
+        if (trimmed.Length > MAX_PLAYLIST_NAME_LENGTH)
+        {
+            throw new ArgumentException(
+                $"プレイリスト名は {MAX_PLAYLIST_NAME_LENGTH} 文字以内で指定してください。",
+                nameof(name));
+        }
+
+        return trimmed;
     }
 
     /// <summary>
