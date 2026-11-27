@@ -14,6 +14,13 @@
 .PARAMETER BaseBranch
     仕様書同期チェックおよび XAML 変更検出の比較ベースブランチ (既定: develop)
 
+.PARAMETER PreferOriginBase
+    比較元コミット解決時にローカルブランチより origin/<BaseBranch> を優先する。
+    git worktree 内での実行時は指定の有無に関わらず自動で有効になる。
+
+.PARAMETER FetchBase
+    比較元コミット解決前に git fetch origin <BaseBranch> を実行してリモート追跡ブランチを最新化する。
+
 .PARAMETER TestFilter
     dotnet test に渡す --filter 式 (途中イテレーションの絞り込み用)
 
@@ -22,6 +29,12 @@
 
 .PARAMETER BuildTimeoutSeconds
     dotnet build のタイムアウト秒数 (既定: 120)
+
+.PARAMETER BuildLockTimeoutSeconds
+    並列ワークツリー実行時のビルド競合保護用名前付き Mutex の待機タイムアウト秒数 (既定: 300)
+
+.PARAMETER NoBuildLock
+    ビルド競合保護用 Mutex を無効化する (単体デバッグ専用。通常の並列運用では使用しない)
 
 .PARAMETER SkipSpecSync
     実装途中の高速イテレーション時のみ仕様書同期検証をスキップする (最終ゲート・PR 作成前は使用禁止、-Full 指定時は無視される)
@@ -33,7 +46,8 @@
     ビルド警告が 1 件以上ある場合に失敗とする厳格モード (本ソリューションは現状警告 0 のため既定で有効)
 
 .PARAMETER JsonOut
-    構造化された検証結果 JSON の出力先ファイルパス (例: .agent_logs/verify_latest.json)
+    構造化された検証結果 JSON の出力先ファイルパス (例: .agent_logs/verify_latest.json)。
+    相対パスは PowerShell カレントディレクトリ基準で解決される。
 
 .EXAMPLE
     .\tools\verify_loop.ps1 -Full
@@ -46,9 +60,13 @@
 [CmdletBinding()]
 param(
     [string]$BaseBranch = "develop",
+    [switch]$PreferOriginBase,
+    [switch]$FetchBase,
     [string]$TestFilter = "",
     [int]$TestTimeoutSeconds = 180,
     [int]$BuildTimeoutSeconds = 120,
+    [int]$BuildLockTimeoutSeconds = 300,
+    [switch]$NoBuildLock,
     [switch]$SkipSpecSync,
     [switch]$Full,
     [switch]$StrictWarnings,
@@ -184,18 +202,207 @@ function Invoke-ExternalCommand {
     }
 }
 
-function Resolve-BaseMergeCommit {
-    param([string]$BaseRef)
+function Test-IsGitWorktree {
+    param([string]$RepoPath)
 
-    $candidates = @("$BaseRef^{commit}")
+    if ([string]::IsNullOrWhiteSpace($RepoPath)) {
+        return $false
+    }
+    $gitEntry = Join-Path $RepoPath ".git"
+    return (Test-Path -LiteralPath $gitEntry -PathType Leaf)
+}
+
+function Get-CurrentBranchName {
+    param([string]$WorkingDirectory = "")
+
+    $workDir = if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) { $WorkingDirectory } else { $repoRoot }
+    $branchRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("rev-parse", "--abbrev-ref", "HEAD") -WorkingDirectory $workDir -TimeoutSeconds 15
+    if (-not $branchRes.StartFailed -and -not $branchRes.TimedOut -and $branchRes.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($branchRes.StdOut)) {
+        return ($branchRes.StdOut -split "`r?`n")[0].Trim()
+    }
+    return ""
+}
+
+function Invoke-WithBuildLock {
+    param(
+        [Parameter(Mandatory = $true)][scriptblock]$Action,
+        [string]$MutexName = "Local\AudioEffector_VerifyLoop_BuildLock",
+        [int]$TimeoutSeconds = 300,
+        [switch]$Bypass
+    )
+
+    if ($Bypass) {
+        $lockInfo = [PSCustomObject]@{
+            WasAbandoned = $false
+            WaitSeconds  = 0.0
+        }
+        $actionResult = & $Action $lockInfo
+        return [PSCustomObject]@{
+            Acquired     = $true
+            TimedOut     = $false
+            WasAbandoned = $false
+            WaitSeconds  = 0.0
+            Error        = ""
+            Result       = $actionResult
+        }
+    }
+
+    $mutex = $null
+    $acquired = $false
+    $wasAbandoned = $false
+    $timedOut = $false
+    $waitSeconds = 0.0
+    $actionResult = $null
+    $lockError = ""
+
+    $lockSw = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        try {
+            $mutex = New-Object System.Threading.Mutex($false, $MutexName)
+            $timeoutMs = [int]([Math]::Min([double]$TimeoutSeconds * 1000.0, [double][int]::MaxValue))
+            try {
+                $acquired = $mutex.WaitOne($timeoutMs, $false)
+            }
+            catch [System.Threading.AbandonedMutexException] {
+                $acquired = $true
+                $wasAbandoned = $true
+            }
+            catch {
+                $ex = $_.Exception
+                if ($ex -is [System.Threading.AbandonedMutexException] -or ($null -ne $ex.InnerException -and $ex.InnerException -is [System.Threading.AbandonedMutexException])) {
+                    $acquired = $true
+                    $wasAbandoned = $true
+                }
+                else {
+                    throw
+                }
+            }
+        }
+        catch {
+            $lockSw.Stop()
+            $waitSeconds = [Math]::Round($lockSw.Elapsed.TotalSeconds, 2)
+            $lockError = "ビルドロック ('$MutexName') の取得中にエラーが発生しました: $($_.Exception.Message)"
+            return [PSCustomObject]@{
+                Acquired     = $false
+                TimedOut     = $false
+                WasAbandoned = $false
+                WaitSeconds  = $waitSeconds
+                Error        = $lockError
+                Result       = $null
+            }
+        }
+
+        $lockSw.Stop()
+        $waitSeconds = [Math]::Round($lockSw.Elapsed.TotalSeconds, 2)
+
+        if (-not $acquired) {
+            $timedOut = $true
+            $lockError = "ビルドロック ('$MutexName') の取得がタイムアウトしました (${TimeoutSeconds}秒超過)。他の並列ビルドが完了していないか確認してください。"
+            return [PSCustomObject]@{
+                Acquired     = $false
+                TimedOut     = $true
+                WasAbandoned = $false
+                WaitSeconds  = $waitSeconds
+                Error        = $lockError
+                Result       = $null
+            }
+        }
+
+        $lockInfo = [PSCustomObject]@{
+            WasAbandoned = $wasAbandoned
+            WaitSeconds  = $waitSeconds
+        }
+        $actionResult = & $Action $lockInfo
+        return [PSCustomObject]@{
+            Acquired     = $true
+            TimedOut     = $false
+            WasAbandoned = $wasAbandoned
+            WaitSeconds  = $waitSeconds
+            Error        = ""
+            Result       = $actionResult
+        }
+    }
+    finally {
+        if ($acquired -and $null -ne $mutex) {
+            try {
+                $mutex.ReleaseMutex()
+            }
+            catch {
+                # すでに解放済み等の例外は無視
+            }
+        }
+        if ($null -ne $mutex) {
+            try {
+                $mutex.Dispose()
+            }
+            catch {
+            }
+        }
+    }
+}
+
+function Resolve-BaseMergeCommit {
+    param(
+        [Parameter(Mandatory = $true)][string]$BaseRef,
+        [switch]$PreferOriginBase,
+        [switch]$FetchBase,
+        [string]$WorkingDirectory = ""
+    )
+
+    $workDir = if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) { $WorkingDirectory } else { $repoRoot }
+    $isWorktree = Test-IsGitWorktree -RepoPath $workDir
+    $useOriginPriority = ([bool]$PreferOriginBase) -or $isWorktree
+
+    if ($FetchBase) {
+        $fetchBranch = if ($BaseRef -match '^origin/(.+)$') { $Matches[1] } else { $BaseRef }
+        $fetchRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("fetch", "origin", $fetchBranch) -WorkingDirectory $workDir -TimeoutSeconds 60
+        if ($fetchRes.StartFailed) {
+            return [PSCustomObject]@{
+                Success     = $false
+                MergeBase   = ""
+                ResolvedRef = ""
+                Error       = "コマンド '$($fetchRes.FilePath)' の起動に失敗しました: $($fetchRes.StartError)"
+            }
+        }
+        if ($fetchRes.TimedOut) {
+            return [PSCustomObject]@{
+                Success     = $false
+                MergeBase   = ""
+                ResolvedRef = ""
+                Error       = "git fetch origin $fetchBranch がタイムアウトしました (60秒超過)。"
+            }
+        }
+        if ($fetchRes.ExitCode -ne 0) {
+            $errText = ($fetchRes.StdErr + " " + $fetchRes.StdOut).Trim()
+            return [PSCustomObject]@{
+                Success     = $false
+                MergeBase   = ""
+                ResolvedRef = ""
+                Error       = "git fetch origin $fetchBranch に失敗しました: $errText"
+            }
+        }
+    }
+
+    $candidates = @()
     if ($BaseRef -notmatch '^origin/') {
-        $candidates += "origin/$BaseRef^{commit}"
+        if ($useOriginPriority) {
+            $candidates += [PSCustomObject]@{ Name = "origin/$BaseRef"; Spec = "origin/$BaseRef^{commit}" }
+            $candidates += [PSCustomObject]@{ Name = $BaseRef; Spec = "$BaseRef^{commit}" }
+        }
+        else {
+            $candidates += [PSCustomObject]@{ Name = $BaseRef; Spec = "$BaseRef^{commit}" }
+            $candidates += [PSCustomObject]@{ Name = "origin/$BaseRef"; Spec = "origin/$BaseRef^{commit}" }
+        }
+    }
+    else {
+        $candidates += [PSCustomObject]@{ Name = $BaseRef; Spec = "$BaseRef^{commit}" }
     }
 
     $resolvedTarget = $null
+    $resolvedRefName = ""
     $lastError = ""
     foreach ($candidate in $candidates) {
-        $revRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("rev-parse", "--verify", "--quiet", $candidate) -WorkingDirectory $repoRoot -TimeoutSeconds 30
+        $revRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("rev-parse", "--verify", "--quiet", $candidate.Spec) -WorkingDirectory $workDir -TimeoutSeconds 30
         if ($revRes.StartFailed) {
             return [PSCustomObject]@{
                 Success     = $false
@@ -206,6 +413,7 @@ function Resolve-BaseMergeCommit {
         }
         if ($revRes.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($revRes.StdOut)) {
             $resolvedTarget = ($revRes.StdOut -split "`r?`n")[0].Trim()
+            $resolvedRefName = $candidate.Name
             break
         }
         $errText = ($revRes.StdErr + " " + $revRes.StdOut).Trim()
@@ -224,12 +432,12 @@ function Resolve-BaseMergeCommit {
         }
     }
 
-    $mbRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("merge-base", $resolvedTarget, "HEAD") -WorkingDirectory $repoRoot -TimeoutSeconds 30
+    $mbRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("merge-base", $resolvedTarget, "HEAD") -WorkingDirectory $workDir -TimeoutSeconds 30
     if ($mbRes.StartFailed) {
         return [PSCustomObject]@{
             Success     = $false
             MergeBase   = ""
-            ResolvedRef = $resolvedTarget
+            ResolvedRef = $resolvedRefName
             Error       = "コマンド '$($mbRes.FilePath)' の起動に失敗しました: $($mbRes.StartError)"
         }
     }
@@ -238,8 +446,8 @@ function Resolve-BaseMergeCommit {
         return [PSCustomObject]@{
             Success     = $false
             MergeBase   = ""
-            ResolvedRef = $resolvedTarget
-            Error       = "比較元 '$BaseRef' ($resolvedTarget) と HEAD のマージベースを解決できませんでした: $errText"
+            ResolvedRef = $resolvedRefName
+            Error       = "比較元 '$resolvedRefName' ($resolvedTarget) と HEAD のマージベースを解決できませんでした: $errText"
         }
     }
 
@@ -247,7 +455,7 @@ function Resolve-BaseMergeCommit {
     return [PSCustomObject]@{
         Success     = $true
         MergeBase   = $mergeBase
-        ResolvedRef = $resolvedTarget
+        ResolvedRef = $resolvedRefName
         Error       = ""
     }
 }
@@ -546,12 +754,20 @@ function New-GateResult {
 $gateResults = New-Object System.Collections.Generic.List[object]
 $overallPassed = $true
 $cleanupSucceeded = $true
+$resolvedBaseRef = ""
 $resolvedBaseCommit = ""
+$buildLockWaitSeconds = 0.0
+$branchName = Get-CurrentBranchName -WorkingDirectory $repoRoot
+$isWorktree = Test-IsGitWorktree -RepoPath $repoRoot
+$buildLockMutexName = "Local\AudioEffector_VerifyLoop_BuildLock"
 
 Write-Host "========================================================================" -ForegroundColor Cyan
 Write-Host "  Audio Effector - 統合検証ハーネス (verify_loop.ps1)" -ForegroundColor Cyan
 Write-Host "========================================================================" -ForegroundColor Cyan
-Write-Host ("  リポジトリ : {0}" -f $repoRoot)
+Write-Host ("  リポジトリ : {0}{1}" -f $repoRoot, $(if ($isWorktree) { " (worktree)" } else { "" }))
+if (-not [string]::IsNullOrWhiteSpace($branchName)) {
+    Write-Host ("  ブランチ   : {0}" -f $branchName)
+}
 Write-Host ("  比較ベース : {0}" -f $BaseBranch)
 Write-Host ("  モード     : {0}" -f $(if ($Full) { "Full (最終ゲート)" } elseif ($SkipSpecSync) { "Fast Iteration (SkipSpecSync)" } else { "Standard" }))
 if (-not [string]::IsNullOrWhiteSpace($TestFilter)) {
@@ -570,13 +786,20 @@ try {
         $preflightErrors.Add("-Full（最終ゲート）と -TestFilter の併用は禁止されています。最終ゲートでは全テストを実行してください。")
     }
 
-    $baseRes = Resolve-BaseMergeCommit -BaseRef $BaseBranch
+    if ($BuildLockTimeoutSeconds -le 0) {
+        $preflightOk = $false
+        $preflightErrors.Add("-BuildLockTimeoutSeconds には 1 以上の整数を指定してください (指定値: $BuildLockTimeoutSeconds)。")
+    }
+
+    $baseRes = Resolve-BaseMergeCommit -BaseRef $BaseBranch -PreferOriginBase:$PreferOriginBase -FetchBase:$FetchBase -WorkingDirectory $repoRoot
     if (-not $baseRes.Success) {
         $preflightOk = $false
         $preflightErrors.Add($baseRes.Error)
     }
     else {
+        $resolvedBaseRef = $baseRes.ResolvedRef
         $resolvedBaseCommit = $baseRes.MergeBase
+        Write-Host ("  比較元Ref  : {0}" -f $resolvedBaseRef)
         Write-Host ("  解決済Base : {0}" -f $resolvedBaseCommit)
     }
 
@@ -591,22 +814,52 @@ try {
 
     if ($preflightOk) {
     # ==========================================================================
-    # Gate 1: 隔離ビルド検証 (build_rules.md 準拠)
+    # Gate 1: 隔離ビルド検証 (build_rules.md 準拠・名前付き Mutex 直列化)
     # ==========================================================================
     Write-GateHeader -Title "Gate 1/5: 隔離ビルド検証 (dotnet build)"
 
-    $buildArgs = @("build", $solutionPath) + $artifactsOutputArgs + @("--nologo")
-    $buildExec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $buildArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
+    $lockRes = Invoke-WithBuildLock -MutexName $buildLockMutexName -TimeoutSeconds $BuildLockTimeoutSeconds -Bypass:$NoBuildLock -Action {
+        param($LockInfo)
 
-    $buildCombined = ($buildExec.StdOut + "`n" + $buildExec.StdErr)
-    # ソリューション構成変更直後などに WPF の .g.resources 生成で並列ノード間ファイルロック競合 (RG1000) が発生した場合、
-    # 単一ノード (-m:1) で 1 回のみ安全リトライする（警告 0・エラー 0 の判定基準は一切緩和しない）
-    if ($buildExec.ExitCode -ne 0 -and -not $buildExec.StartFailed -and -not $buildExec.TimedOut -and $buildCombined -match 'error\s+RG1000:.*used by another process') {
-        Write-Host "  [WARN] 並列ビルドで WPF リソースロック (RG1000) を検出しました。単一ノード (-m:1) でリトライします..." -ForegroundColor Yellow
-        $retryArgs = @("build", $solutionPath) + $artifactsOutputArgs + @("-m:1", "--nologo")
-        $buildExec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $retryArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
-        $buildCombined = ($buildExec.StdOut + "`n" + $buildExec.StdErr)
+        if ($null -ne $LockInfo) {
+            if ($LockInfo.WasAbandoned) {
+                Write-Host "  [WARN] 前プロセスの異常終了により放棄されたビルドロック (AbandonedMutex) を検出し、所有権を引き継ぎました。" -ForegroundColor Yellow
+            }
+            elseif ($LockInfo.WaitSeconds -ge 0.1) {
+                Write-Host ("  [INFO] 他の並列ビルド完了を待機し、ビルドロックを取得しました (待機: {0}秒)。" -f $LockInfo.WaitSeconds) -ForegroundColor DarkGray
+            }
+        }
+
+        $buildArgs = @("build", $solutionPath) + $artifactsOutputArgs + @("--nologo")
+        $exec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $buildArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
+
+        $combined = ($exec.StdOut + "`n" + $exec.StdErr)
+        # ソリューション構成変更直後などに WPF の .g.resources 生成で並列ノード間ファイルロック競合 (RG1000) が発生した場合、
+        # 単一ノード (-m:1) で 1 回のみ安全リトライする（警告 0・エラー 0 の判定基準は一切緩和しない）
+        if ($exec.ExitCode -ne 0 -and -not $exec.StartFailed -and -not $exec.TimedOut -and $combined -match 'error\s+RG1000:.*used by another process') {
+            Write-Host "  [WARN] 並列ビルドで WPF リソースロック (RG1000) を検出しました。単一ノード (-m:1) でリトライします..." -ForegroundColor Yellow
+            $retryArgs = @("build", $solutionPath) + $artifactsOutputArgs + @("-m:1", "--nologo")
+            $exec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $retryArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
+            $combined = ($exec.StdOut + "`n" + $exec.StdErr)
+        }
+
+        return [PSCustomObject]@{
+            Exec     = $exec
+            Combined = $combined
+        }
     }
+
+    $buildLockWaitSeconds = $lockRes.WaitSeconds
+
+    if (-not $lockRes.Acquired) {
+        $overallPassed = $false
+        $msg = $lockRes.Error
+        Write-Host "  [FAIL] $msg" -ForegroundColor Red
+        $gateResults.Add((New-GateResult -Name "build" -Status "FAILED" -DurationSeconds $buildLockWaitSeconds -ErrorCount 1 -Summary $msg))
+    }
+    else {
+    $buildExec = $lockRes.Result.Exec
+    $buildCombined = $lockRes.Result.Combined
     $buildLines = $buildCombined -split "`r?`n"
 
     $warningLines = @($buildLines | Where-Object { $_ -match ':\s*warning\s+[A-Za-z]+\d+:' } | Select-Object -Unique)
@@ -661,9 +914,10 @@ try {
         $gateResults.Add((New-GateResult -Name "build" -Status "FAILED" -DurationSeconds $buildExec.DurationSeconds -WarningCount $warningCount -ErrorCount 0 -Summary $msg -Details $detailLines))
     }
     else {
-        $msg = "隔離ビルド成功 (エラー: 0, 警告: $warningCount, 所要: $($buildExec.DurationSeconds)秒)。"
+        $msg = "隔離ビルド成功 (エラー: 0, 警告: $warningCount, 所要: $($buildExec.DurationSeconds)秒, ロック待機: ${buildLockWaitSeconds}秒)。"
         Write-Host "  [PASS] $msg" -ForegroundColor Green
         $gateResults.Add((New-GateResult -Name "build" -Status "PASSED" -DurationSeconds $buildExec.DurationSeconds -WarningCount $warningCount -ErrorCount 0 -Summary $msg))
+    }
     }
 
     # ==========================================================================
@@ -981,7 +1235,7 @@ try {
         }
         else {
             $pyArgs = @("-B", "-m", "unittest", "discover", "-s", "tools/tests", "-v")
-            $pyExec = Invoke-ExternalCommand -FilePath "python" -ArgumentList $pyArgs -WorkingDirectory $repoRoot -TimeoutSeconds 60
+            $pyExec = Invoke-ExternalCommand -FilePath "python" -ArgumentList $pyArgs -WorkingDirectory $repoRoot -TimeoutSeconds 120
 
             if ($pyExec.StartFailed) {
                 $overallPassed = $false
@@ -991,7 +1245,7 @@ try {
             }
             elseif ($pyExec.TimedOut) {
                 $overallPassed = $false
-                $msg = "Python ツール単体テストがタイムアウトしました (60秒)。"
+                $msg = "Python ツール単体テストがタイムアウトしました (120秒)。"
                 Write-Host "  [FAIL] $msg" -ForegroundColor Red
                 $gateResults.Add((New-GateResult -Name "python_tools_test" -Status "FAILED" -DurationSeconds $pyExec.DurationSeconds -ErrorCount 1 -Summary $msg))
             }
@@ -1064,29 +1318,28 @@ else {
 Write-Host "========================================================================" -ForegroundColor Cyan
 
 if (-not [string]::IsNullOrWhiteSpace($JsonOut)) {
-    $resolvedJsonOut = if ([System.IO.Path]::IsPathRooted($JsonOut)) {
-        $JsonOut
-    }
-    else {
-        Join-Path $repoRoot $JsonOut
-    }
+    $resolvedJsonOut = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($JsonOut)
     $jsonParent = Split-Path -Parent $resolvedJsonOut
     if (-not [string]::IsNullOrWhiteSpace($jsonParent) -and -not (Test-Path -LiteralPath $jsonParent)) {
         New-Item -ItemType Directory -Path $jsonParent -Force | Out-Null
     }
 
     $reportObj = [PSCustomObject][ordered]@{
-        timestamp              = (Get-Date).ToString("o")
-        overall_passed         = $overallPassed
-        exit_code              = $exitCode
-        base_branch            = $BaseBranch
-        resolved_base_commit   = $resolvedBaseCommit
-        full_mode              = [bool]$Full
-        skip_spec_sync         = [bool]($SkipSpecSync -and -not $Full)
-        test_filter            = $TestFilter
-        cleanup_succeeded      = $cleanupSucceeded
-        total_duration_seconds = $totalDuration
-        gates                  = @($gateResults.ToArray())
+        timestamp               = (Get-Date).ToString("o")
+        overall_passed          = $overallPassed
+        exit_code               = $exitCode
+        worktree_path           = $repoRoot
+        branch_name             = $branchName
+        base_branch             = $BaseBranch
+        resolved_base_ref       = $resolvedBaseRef
+        resolved_base_commit    = $resolvedBaseCommit
+        build_lock_wait_seconds = $buildLockWaitSeconds
+        full_mode               = [bool]$Full
+        skip_spec_sync          = [bool]($SkipSpecSync -and -not $Full)
+        test_filter             = $TestFilter
+        cleanup_succeeded       = $cleanupSucceeded
+        total_duration_seconds  = $totalDuration
+        gates                   = @($gateResults.ToArray())
     }
 
     $jsonText = $reportObj | ConvertTo-Json -Depth 6
