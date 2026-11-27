@@ -69,6 +69,10 @@ description: AI エージェントによる自律開発ループ（ループエ�
   - コンフリクトを自動解消した後は、コミット・Push 前に **必ず `.\tools\verify_loop.ps1 -Full` の全 5 ゲート合格（終了コード `0`）** を再確認します。
 - **シェル構文の互換性（Windows PowerShell 5.1 準拠）**:
   - 本環境の既定シェルは Windows PowerShell 5.1（`&&` 演算子非対応）のため、コマンド連結やスキル内手順では `&&` を使用せず、`; if ($?) { ... }` または `$LASTEXITCODE` チェックを用いて前段失敗時の連鎖実行を防止します。
+  - `tools/` 配下に `.ps1` スクリプトを追加・改修する際は、以下の Windows PowerShell 5.1 固有パターンを必須順守します（`tools/tests/test_powershell_encoding.py` で機械検証）：
+    - 文字コードは **UTF-8 (BOM 付き)**・改行コード **CRLF** で保存し、PS 5.1 パーサーで構文エラー 0 件であること。
+    - `git diff --name-only` 等でファイルパスを取得する場合は、日本語パス（`設計/` 配下等）の 8 進エスケープを防ぐため `-c core.quotepath=false` を併用すること。
+    - `[System.IO.File]::WriteAllText` や `[System.IO.Path]::GetFullPath` へ相対パス引数（`-JsonOut` 等）を渡す際は、PowerShell の `Set-Location` と .NET `CurrentDirectory` の不一致を防ぐため `$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(...)` で解決すること。
 
 ---
 
