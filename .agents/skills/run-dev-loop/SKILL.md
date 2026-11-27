@@ -53,7 +53,7 @@ flowchart TD
      - `tools/worktree_manager.ps1` を用いて `.agent_worktrees/issue-<Issue番号>` を作成し（最大 3 並列上限ガード付き）、以降の全作業・コマンド実行・検証ログ出力（`.agent_logs/verify_issue_<Issue番号>.json`）はそのワークツリー内で行う。親リポジトリ直下や他ワークツリー、および `.agent_logs/epic_<番号>_state.json` は変更しない。
      ```powershell
      .\tools\worktree_manager.ps1 -Action create -IssueNumber <Issue番号> -BranchName "<Type>/<Issue番号>-<説明>" -Json
-     Set-Location -LiteralPath ".agent_worktrees\issue-<Issue番号>"
+     if ($?) { Set-Location -LiteralPath ".agent_worktrees\issue-<Issue番号>" }
      ```
 
 ### Phase 1: 実装・単体テスト追加
@@ -91,8 +91,8 @@ flowchart TD
    - `status: "UP_TO_DATE"`（終了コード `0`）: そのまま Push・PR 作成へ進む。
    - `status: "MERGED"`（終了コード `0`）: 取り込み差分を含めて `.\tools\verify_loop.ps1 -Full -PreferOriginBase -JsonOut ".agent_logs\verify_final_<Issue番号>.json"` を再実行し、全 5 ゲート合格（終了コード `0`）を確認してから Push へ進む。
    - `status: "CONFLICT"`（終了コード `2`）: `conflict_files` を確認し、`loop_engineering_rules.md` Section 4 の基準に従って対応する：
-     - **自動解消許可範囲**（`using` 追記、`.csproj` / `spec_map.json` / DI 登録 / テストの独立追記等）であれば解消・マージコミットし、`.\tools\verify_loop.ps1 -Full -PreferOriginBase` で全 5 ゲート合格を確認する。
-     - **ロジック・設計判断衝突、または解消後の再検証が連続 2 回失敗した場合**は、直ちに `.\tools\sync_branch.ps1 -Abort -Json` でロールバックし、コンフリクトファイル一覧と論点を添えてユーザーへ安全停止・エスカレーションする。
+     - **自動解消許可範囲**（`using` 追記、`.csproj` / `spec_map.json` / DI 登録 / テストの独立追記等）であればコンフリクトを解消・ステージングし、**マージコミット確定前（`MERGE_HEAD` 保持状態）に** `.\tools\verify_loop.ps1 -Full -PreferOriginBase` を実行する。全 5 ゲート合格（終了コード `0`）を確認したうえで `git commit --no-edit` によりマージコミットを確定する。
+     - **ロジック・設計判断衝突、または解消後の再検証が連続 2 回失敗した場合**は、マージコミットを行わず直ちに `.\tools\sync_branch.ps1 -Abort -Json` でロールバックし、コンフリクトファイル一覧と論点を添えてユーザーへ安全停止・エスカレーションする。
 3. リモートへプッシュし、`gh pr create --base develop --title "[種別] ..." --body-file <一時ファイル>` で PR を作成する（使用後に一時ファイルを削除）。
    - PR 本文には `Closes #<Issue番号>`、概要、対応内容、検証結果、仕様書同期結果、スコープ差分を記載する。
 4. **独立エージェントによる公式 PR レビュー実行（コンテキスト分離の原則）**:
