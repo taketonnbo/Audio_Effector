@@ -39,6 +39,21 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
     /// </summary>
     public const string SOURCE_TYPE_PLAYLIST = "playlist";
 
+    /// <summary>
+    /// 再生キュー取得時の既定最大件数。
+    /// </summary>
+    public const int DEFAULT_QUEUE_LIMIT = 50;
+
+    /// <summary>
+    /// 再生キュー取得時の最小件数。
+    /// </summary>
+    public const int MIN_QUEUE_LIMIT = 1;
+
+    /// <summary>
+    /// 再生キュー取得時の最大件数。
+    /// </summary>
+    public const int MAX_QUEUE_LIMIT = 200;
+
     private readonly ITrackRepository _trackRepository;
     private readonly LibraryApplicationService _libraryService;
     private readonly PlaylistApplicationService? _playlistService;
@@ -122,6 +137,11 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
         if (string.Equals(request.Command, AppIpcServer.COMMAND_GET_PLAYBACK_STATE, StringComparison.OrdinalIgnoreCase))
         {
             return HandleGetPlaybackState(request, cancellationToken);
+        }
+
+        if (string.Equals(request.Command, AppIpcServer.COMMAND_GET_PLAYBACK_QUEUE, StringComparison.OrdinalIgnoreCase))
+        {
+            return HandleGetPlaybackQueue(request, cancellationToken);
         }
 
         if (string.Equals(request.Command, AppIpcServer.COMMAND_PAUSE_PLAYBACK, StringComparison.OrdinalIgnoreCase))
@@ -509,6 +529,59 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
         if (aborted || snapshot is null)
         {
             throw new OperationCanceledException("要求期限を超過したため再生状態の取得を中止しました。", cancellationToken);
+        }
+
+        return snapshot;
+    }
+
+    private AppIpcResponse HandleGetPlaybackQueue(AppIpcRequest request, CancellationToken cancellationToken)
+    {
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        int limit = request.Limit ?? DEFAULT_QUEUE_LIMIT;
+        if (limit < MIN_QUEUE_LIMIT || limit > MAX_QUEUE_LIMIT)
+        {
+            return AppIpcResponse.Failure(
+                AppIpcErrorCodes.INVALID_PARAMETER,
+                $"limit は {MIN_QUEUE_LIMIT}〜{MAX_QUEUE_LIMIT} の範囲で指定してください。");
+        }
+
+        AppIpcResponse? snapshot = null;
+        bool aborted = false;
+
+        _uiDispatcher.Invoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || IsExpired(request.DeadlineUtc))
+            {
+                aborted = true;
+                return;
+            }
+
+            Track? currentTrack = _audioService.CurrentTrack;
+            IReadOnlyList<Track> userQueueSource = _audioService.UserQueue ?? Array.Empty<Track>();
+            IReadOnlyList<Track> albumQueueSource = _audioService.AlbumQueue ?? Array.Empty<Track>();
+
+            AppIpcTrackInfo? currentTrackInfo = currentTrack is null ? null : CreateTrackInfo(currentTrack);
+            List<AppIpcTrackInfo> userQueue = userQueueSource
+                .Take(limit)
+                .Select(CreateTrackInfo)
+                .ToList();
+            List<AppIpcTrackInfo> albumQueue = albumQueueSource
+                .Take(limit)
+                .Select(CreateTrackInfo)
+                .ToList();
+
+            snapshot = AppIpcResponse.SuccessPlaybackQueue(
+                currentTrack: currentTrackInfo,
+                userQueueCount: userQueueSource.Count,
+                albumQueueCount: albumQueueSource.Count,
+                userQueue: userQueue,
+                albumQueue: albumQueue);
+        });
+
+        if (aborted || snapshot is null)
+        {
+            throw new OperationCanceledException("要求期限を超過したため再生キューの取得を中止しました。", cancellationToken);
         }
 
         return snapshot;

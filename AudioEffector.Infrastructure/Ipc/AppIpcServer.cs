@@ -40,6 +40,11 @@ public sealed class AppIpcServer : IDisposable
     public const string COMMAND_GET_PLAYBACK_STATE = "get_playback_state";
 
     /// <summary>
+    /// 再生キュー取得（get_playback_queue）コマンド名。
+    /// </summary>
+    public const string COMMAND_GET_PLAYBACK_QUEUE = "get_playback_queue";
+
+    /// <summary>
     /// 一時停止（pause_playback）コマンド名。
     /// </summary>
     public const string COMMAND_PAUSE_PLAYBACK = "pause_playback";
