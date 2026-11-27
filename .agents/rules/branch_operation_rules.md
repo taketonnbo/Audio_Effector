@@ -80,6 +80,7 @@ feat/12-effect-switching
 fix/34-playback-noise
 docs/56-update-readme
 refactor/78-audio-engine-cleanup
+test/90-add-unit-tests
 ```
 
 ---
@@ -94,6 +95,7 @@ refactor/78-audio-engine-cleanup
 | `fix/*` | バグ修正用 | `develop` から作成 |
 | `docs/*` | ドキュメント修正用 | `develop` から作成 |
 | `refactor/*` | リファクタリング用 | `develop` から作成 |
+| `test/*` | テスト追加・拡充・安定化用 | `develop` から作成 |
 | `chore/*` | 設定変更・メンテナンス用 | `develop` から作成 |
 
 > **⚠️ 注意**: 枝ブランチは必ず `develop` から作成してください。`main` から直接作成しないこと。
