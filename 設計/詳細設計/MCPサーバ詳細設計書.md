@@ -981,7 +981,74 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
   - 期限超過（`deadlineUtc`）またはキャンセル要求 → `OPERATION_CANCELLED`
   - その他の未捕捉例外 → `INTERNAL_ERROR`（内部診断非露出、詳細は `ILogger` へ記録）
 
-### 5.13 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
+### 5.13 再生キュー追加ツール仕様（Phase 2 #334 実装）
+
+`PlaybackTools`（`AudioEffector.McpServer/Tools/PlaybackTools.cs`）に、起動中の Audio Effector（WPF 本体）の再生キューへ楽曲またはアルバムを追加するツール **`enqueue_tracks`** を実装します。IPC 通信は `IPlaybackControlGateway.EnqueueTracksAsync` / `IpcPlaybackControlGateway` へ委譲し、WPF 側の `PlaybackIpcCommandHandler` が `IUiDispatcher.Invoke` 経由で UI スレッド上の `IAudioService.EnqueueTracks(tracks, playNext)` を実行します。
+
+#### 入力パラメータ
+
+| パラメータ名 | 型 | 必須 | 既定値 | 制約・説明 |
+| :--- | :--- | :---: | :---: | :--- |
+| `trackIds` | `string[]` | 任意（※） | `null` | キューへ追加するトラック ID（GUID 文字列）の一覧。空要素や不正 GUID は `INVALID_PARAMETER`。 |
+| `filePaths` | `string[]` | 任意（※） | `null` | キューへ追加する音声ファイルの絶対パス一覧。空要素や相対パスは `INVALID_PARAMETER`。 |
+| `albumId` | `string` | 任意（※） | `null` | アルバム単位でキューへ追加する場合の決定論的 `AlbumId`（GUID 文字列）。不正 GUID は `INVALID_PARAMETER`。 |
+| `position` | `string` | 任意 | `"last"` | `"next"`（次に再生、`playNext: true`）または `"last"`（キュー末尾に追加、`playNext: false`）。大文字・小文字区別なし。左記以外は `INVALID_PARAMETER`。 |
+
+※ `trackIds`・`filePaths`・`albumId` の少なくとも 1 つを 1 件以上指定する必要があります（すべて未指定または空配列の場合は `INVALID_PARAMETER`）。複数種別が同時に指定された場合は `trackIds` → `filePaths` → `albumId` の順に解決して結合します。
+
+#### 出力（`data`）JSON スキーマ（`EnqueueTracksResponse`）
+
+```json
+{
+  "position": "next",
+  "addedCount": 2,
+  "userQueueCount": 3,
+  "albumQueueCount": 1,
+  "addedTracks": [
+    {
+      "id": "11111111-2222-3333-4444-555555555555",
+      "title": "Blue Note Morning",
+      "artist": "Miles Trio",
+      "album": "Midnight Sessions",
+      "durationSeconds": 225.5,
+      "durationString": "03:45",
+      "filePath": "C:\\Music\\Jazz\\BlueNote.flac"
+    },
+    {
+      "id": "22222222-3333-4444-5555-666666666666",
+      "title": "Autumn Leaves",
+      "artist": "Miles Trio",
+      "album": "Standards",
+      "durationSeconds": 240.0,
+      "durationString": "04:00",
+      "filePath": "C:\\Music\\Jazz\\AutumnLeaves.flac"
+    }
+  ]
+}
+```
+
+#### Named Pipe IPC プロトコル拡張および WPF 側実装詳細
+
+- **IPC コマンド定数（`AppIpcServer`）**: `COMMAND_ENQUEUE_TRACKS`（`"enqueue_tracks"`）。
+- **IPC メッセージ拡張（`AppIpcMessages`）**:
+  - `AppIpcRequest` に任意パラメータ `TrackIds`（`IReadOnlyList<string>?`）・`FilePaths`（`IReadOnlyList<string>?`）・`PlayNext`（`bool?`）を追加（`AlbumId` は既存フィールドを再利用、`WhenWritingNull` 互換）。
+  - `AppIpcResponse` に `Position`（`string?`）・`AddedCount`（`int?`）・`AddedTracks`（`IReadOnlyList<AppIpcTrackInfo>?`）および `AppIpcResponse.SuccessEnqueueTracks(...)` を追加（`UserQueueCount` / `AlbumQueueCount` は既存フィールドを再利用）。
+- **カスタムデータディレクトリ（`--data-dir`）対応（`IpcPlaybackControlGateway`）**:
+  - `IDataDirectoryProvider.IsCustomDirectory == true` の場合、MCP 側の `ITrackRepository` / `LibraryApplicationService` で `trackIds` および `albumId` を音声ファイル絶対パス一覧（`filePaths`）へ事前解決してから WPF 側へ送信し、応答の `addedTracks` にローカル側の `TrackId` を復元します。
+- **対象解決と UI スレッドディスパッチ（`PlaybackIpcCommandHandler`）**:
+  - 入口および各解決ステップで `DeadlineUtc`・`CancellationToken` チェックを実施する。
+  - `trackIds` は `ITrackRepository.GetByIdAsync`、`filePaths` は `LibraryApplicationService.GetTrackByPathAsync`、`albumId` は `LibraryApplicationService.GetAlbumByIdAsync`（収録曲を `TrackNumber` → `Title` → `Id` 昇順で決定論ソート）で解決し、ファイル存在確認を行う。
+  - `IUiDispatcher.Invoke` 上で期限超過・キャンセルを再確認したうえで `IAudioService.EnqueueTracks(resolvedTracks, playNext)` を実行する。現在再生中の楽曲およびウィンドウ状態（通常メイン画面／ミニプレイヤー）は中断・変更せず、`PlaylistChanged` により再生キュースライドパネル・再生キューダイアログ等の WPF 画面をリアルタイム同期する。
+- **エラーケース**:
+  - 対象未指定・空配列・不正 GUID・相対パス・不正 `position` → `INVALID_PARAMETER`
+  - 指定された `trackId` または `albumId` がライブラリに存在しない → `NOT_FOUND`
+  - 対象の音声ファイルがディスク上に存在しない、またはアルバム内に再生可能ファイルが 0 件 → `FILE_NOT_FOUND`
+  - WPF 本体未起動（パイプ接続不可）→ `WPF_APP_NOT_RUNNING`（`launch_app` ツールでの事前起動案内付き）
+  - IPC 応答タイムアウト・切断・必須フィールド欠損（`position` / `addedCount` / `userQueueCount` / `albumQueueCount` / `addedTracks` 不正または欠損）→ `IPC_CONNECTION_FAILED`
+  - 期限超過（`deadlineUtc`）またはキャンセル要求 → `OPERATION_CANCELLED`
+  - その他の未捕捉例外 → `INTERNAL_ERROR`（内部診断非露出、詳細は `ILogger` へ記録）
+
+### 5.14 将来拡張候補カテゴリ一覧（Phase 2 以降の指針）
 
 個別ツールの詳細スキーマ・バリデーション・実装仕様は Phase 2 親 Issue（#301）配下の各子 Issue にて順次策定し、実装に合わせて本設計書および機能仕様書へ追記します。
 
@@ -992,7 +1059,7 @@ Phase 1（#296）では、MCP 基盤・DI・リポジトリ疎通・エラーハ
 | **プレイリスト管理** | `search_playlists`, `get_playlist`, `create_playlist`, `add_tracks_to_playlist`, `remove_track_from_playlist` | `PlaylistApplicationService` | #331（アルバム・プレイリスト検索）ほか |
 | **イコライザー・プリセット** | `list_equalizer_presets`, `get_equalizer_settings`, `apply_equalizer_preset` | `EqualizerApplicationService` | 順次起票 |
 | **アプリ設定** | `get_settings`, `update_settings` | `SettingsApplicationService` / `ISettingsService` | 順次起票 |
-| **再生制御・再生キュー連携** | `get_playback_state`, `get_playback_queue`, `pause_playback`, `resume_playback`, `stop_playback`, `next_track`, `previous_track`, `play_track`, `play_album`, `play_playlist`, `enqueue_tracks` | `IPlaybackControlGateway` → WPF `IAudioService` / `AudioApplicationService` | #306（曲の再生）, #328（再生状態の取得）, #329（基本再生制御）, #330（アルバム・プレイリスト再生）, #333（再生キューの参照）ほか |
+| **再生制御・再生キュー連携** | `get_playback_state`, `get_playback_queue`, `enqueue_tracks`, `pause_playback`, `resume_playback`, `stop_playback`, `next_track`, `previous_track`, `play_track`, `play_album`, `play_playlist` | `IPlaybackControlGateway` → WPF `IAudioService` / `AudioApplicationService` | #306（曲の再生）, #328（再生状態の取得）, #329（基本再生制御）, #330（アルバム・プレイリスト再生）, #333（再生キューの参照）, #334（再生キューの追加）ほか |
 
 ---
 

@@ -54,6 +54,16 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
     /// </summary>
     public const int MAX_QUEUE_LIMIT = 200;
 
+    /// <summary>
+    /// 再生キュー追加位置（次に再生）。
+    /// </summary>
+    public const string QUEUE_POSITION_NEXT = "next";
+
+    /// <summary>
+    /// 再生キュー追加位置（キュー末尾に追加）。
+    /// </summary>
+    public const string QUEUE_POSITION_LAST = "last";
+
     private readonly ITrackRepository _trackRepository;
     private readonly LibraryApplicationService _libraryService;
     private readonly PlaylistApplicationService? _playlistService;
@@ -142,6 +152,11 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
         if (string.Equals(request.Command, AppIpcServer.COMMAND_GET_PLAYBACK_QUEUE, StringComparison.OrdinalIgnoreCase))
         {
             return HandleGetPlaybackQueue(request, cancellationToken);
+        }
+
+        if (string.Equals(request.Command, AppIpcServer.COMMAND_ENQUEUE_TRACKS, StringComparison.OrdinalIgnoreCase))
+        {
+            return await HandleEnqueueTracksAsync(request, cancellationToken).ConfigureAwait(false);
         }
 
         if (string.Equals(request.Command, AppIpcServer.COMMAND_PAUSE_PLAYBACK, StringComparison.OrdinalIgnoreCase))
@@ -585,6 +600,189 @@ public sealed class PlaybackIpcCommandHandler : IAppIpcCommandHandler
         }
 
         return snapshot;
+    }
+
+    private async Task<AppIpcResponse> HandleEnqueueTracksAsync(AppIpcRequest request, CancellationToken cancellationToken)
+    {
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        bool hasTrackIds = request.TrackIds is { Count: > 0 };
+        bool hasFilePaths = request.FilePaths is { Count: > 0 };
+        bool hasAlbumId = !string.IsNullOrWhiteSpace(request.AlbumId);
+
+        if (!hasTrackIds && !hasFilePaths && !hasAlbumId)
+        {
+            return AppIpcResponse.Failure(
+                AppIpcErrorCodes.INVALID_PARAMETER,
+                "trackIds、filePaths、albumId のいずれかを 1 件以上指定してください。");
+        }
+
+        var resolvedTracks = new List<Track>();
+
+        if (hasTrackIds)
+        {
+            foreach (string rawTrackId in request.TrackIds!)
+            {
+                ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+                if (string.IsNullOrWhiteSpace(rawTrackId)
+                    || !Guid.TryParse(rawTrackId.Trim(), out Guid parsedGuid)
+                    || parsedGuid == Guid.Empty)
+                {
+                    return AppIpcResponse.Failure(
+                        AppIpcErrorCodes.INVALID_PARAMETER,
+                        "trackIds には有効な GUID 文字列を指定してください。");
+                }
+
+                Track? track = await _trackRepository
+                    .GetByIdAsync(TrackId.From(parsedGuid), cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (track is null)
+                {
+                    return AppIpcResponse.Failure(
+                        AppIpcErrorCodes.NOT_FOUND,
+                        "指定された trackId に一致するトラックが見つかりません。");
+                }
+
+                if (string.IsNullOrWhiteSpace(track.FilePath) || !_fileExists(track.FilePath))
+                {
+                    return AppIpcResponse.Failure(
+                        AppIpcErrorCodes.FILE_NOT_FOUND,
+                        "対象の音声ファイルが見つかりません。");
+                }
+
+                resolvedTracks.Add(track);
+            }
+        }
+
+        if (hasFilePaths)
+        {
+            foreach (string rawFilePath in request.FilePaths!)
+            {
+                ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+                if (string.IsNullOrWhiteSpace(rawFilePath))
+                {
+                    return AppIpcResponse.Failure(
+                        AppIpcErrorCodes.INVALID_PARAMETER,
+                        "filePaths に空のファイルパスが含まれています。");
+                }
+
+                string trimmedPath = rawFilePath.Trim();
+                if (!Path.IsPathFullyQualified(trimmedPath))
+                {
+                    return AppIpcResponse.Failure(
+                        AppIpcErrorCodes.INVALID_PARAMETER,
+                        "filePaths には絶対パスを指定してください。");
+                }
+
+                if (!_fileExists(trimmedPath))
+                {
+                    return AppIpcResponse.Failure(
+                        AppIpcErrorCodes.FILE_NOT_FOUND,
+                        "指定された音声ファイルが見つかりません。");
+                }
+
+                Track? track = await _libraryService
+                    .GetTrackByPathAsync(trimmedPath, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (track is null)
+                {
+                    return AppIpcResponse.Failure(
+                        AppIpcErrorCodes.INTERNAL_ERROR,
+                        "指定された音声ファイルのメタデータを解決できませんでした。");
+                }
+
+                resolvedTracks.Add(track);
+            }
+        }
+
+        if (hasAlbumId)
+        {
+            ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+            if (!Guid.TryParse(request.AlbumId!.Trim(), out Guid parsedAlbumGuid) || parsedAlbumGuid == Guid.Empty)
+            {
+                return AppIpcResponse.Failure(
+                    AppIpcErrorCodes.INVALID_PARAMETER,
+                    "albumId には有効な GUID 文字列を指定してください。");
+            }
+
+            Album? resolvedAlbum = await _libraryService
+                .GetAlbumByIdAsync(AlbumId.From(parsedAlbumGuid), cancellationToken)
+                .ConfigureAwait(false);
+
+            if (resolvedAlbum is null)
+            {
+                return AppIpcResponse.Failure(
+                    AppIpcErrorCodes.NOT_FOUND,
+                    "指定された albumId に一致するアルバムが見つかりません。");
+            }
+
+            List<Track> albumTracks = resolvedAlbum.Tracks
+                .OrderBy(t => t.TrackNumber)
+                .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(t => t.Id.Value)
+                .Where(t => !string.IsNullOrWhiteSpace(t.FilePath) && _fileExists(t.FilePath))
+                .ToList();
+
+            if (albumTracks.Count == 0)
+            {
+                return AppIpcResponse.Failure(
+                    AppIpcErrorCodes.FILE_NOT_FOUND,
+                    "アルバム内に再生可能な音声ファイルが見つかりません。");
+            }
+
+            resolvedTracks.AddRange(albumTracks);
+        }
+
+        if (resolvedTracks.Count == 0)
+        {
+            return AppIpcResponse.Failure(
+                AppIpcErrorCodes.NOT_FOUND,
+                "キューに追加可能なトラックが見つかりません。");
+        }
+
+        bool playNext = request.PlayNext ?? false;
+        string position = playNext ? QUEUE_POSITION_NEXT : QUEUE_POSITION_LAST;
+
+        ThrowIfCancelledOrExpired(request.DeadlineUtc, cancellationToken);
+
+        AppIpcResponse? response = null;
+        bool aborted = false;
+
+        _uiDispatcher.Invoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || IsExpired(request.DeadlineUtc))
+            {
+                aborted = true;
+                return;
+            }
+
+            _audioService.EnqueueTracks(resolvedTracks, playNext);
+
+            int userQueueCount = _audioService.UserQueue?.Count ?? 0;
+            int albumQueueCount = _audioService.AlbumQueue?.Count ?? 0;
+            List<AppIpcTrackInfo> addedTracks = resolvedTracks
+                .Select(CreateTrackInfo)
+                .ToList();
+
+            response = AppIpcResponse.SuccessEnqueueTracks(
+                position: position,
+                addedCount: addedTracks.Count,
+                userQueueCount: userQueueCount,
+                albumQueueCount: albumQueueCount,
+                addedTracks: addedTracks);
+        });
+
+        if (aborted || response is null)
+        {
+            throw new OperationCanceledException("要求期限を超過したため再生キューの追加を中止しました。", cancellationToken);
+        }
+
+        return response;
     }
 
     private static TimeSpan ClampPosition(TimeSpan position, TimeSpan duration)

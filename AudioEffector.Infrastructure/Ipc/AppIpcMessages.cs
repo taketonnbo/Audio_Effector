@@ -63,7 +63,7 @@ public static class AppIpcErrorReasons
 /// <summary>
 /// MCP サーバから Audio Effector（WPF 本体）へ送信する Named Pipe IPC リクエストを表します。
 /// </summary>
-/// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>get_playback_state</c>, <c>get_playback_queue</c>, <c>pause_playback</c>, <c>resume_playback</c>, <c>stop_playback</c>, <c>next_track</c>, <c>previous_track</c>, <c>play_track</c>, <c>play_album</c>, <c>play_playlist</c>）。</param>
+/// <param name="Command">実行するコマンド名（例: <c>ping</c>, <c>get_playback_state</c>, <c>get_playback_queue</c>, <c>enqueue_tracks</c>, <c>pause_playback</c>, <c>resume_playback</c>, <c>stop_playback</c>, <c>next_track</c>, <c>previous_track</c>, <c>play_track</c>, <c>play_album</c>, <c>play_playlist</c>）。</param>
 /// <param name="TrackId">再生対象トラックの GUID 文字列（任意）。</param>
 /// <param name="FilePath">再生対象音声ファイルの絶対パス（任意）。</param>
 /// <param name="DeadlineUtc">クライアント側が設定した要求の有効期限（UTC、任意）。期限超過時は処理を実行しない。</param>
@@ -80,6 +80,9 @@ public static class AppIpcErrorReasons
 /// <param name="SourceId">解決済みコレクションのソース ID（任意）。</param>
 /// <param name="SourceName">解決済みコレクションのソース名（キュー見出し同期用、任意）。</param>
 /// <param name="Limit">再生キュー取得等の最大返却件数（任意）。</param>
+/// <param name="TrackIds">キュー追加対象トラックの GUID 文字列一覧（任意）。</param>
+/// <param name="FilePaths">キュー追加対象音声ファイルの絶対パス一覧（任意）。</param>
+/// <param name="PlayNext">キュー追加位置（<see langword="true"/>: 次に再生 / <see langword="false"/>: キュー末尾に追加、任意）。</param>
 public sealed record AppIpcRequest(
     string Command,
     string? TrackId = null,
@@ -97,7 +100,10 @@ public sealed record AppIpcRequest(
     IReadOnlyList<string>? TrackFilePaths = null,
     Guid? SourceId = null,
     string? SourceName = null,
-    int? Limit = null);
+    int? Limit = null,
+    IReadOnlyList<string>? TrackIds = null,
+    IReadOnlyList<string>? FilePaths = null,
+    bool? PlayNext = null);
 
 /// <summary>
 /// Named Pipe IPC 応答で返却する再生中トラック情報です。
@@ -142,6 +148,9 @@ public sealed record AppIpcTrackInfo(
 /// <param name="AlbumQueueCount">アルバム残り曲キューの件数。</param>
 /// <param name="UserQueue">予約キューのトラック一覧（順序保持、任意）。</param>
 /// <param name="AlbumQueue">アルバム残り曲キューのトラック一覧（順序保持、任意）。</param>
+/// <param name="Position">キュー追加位置（<c>next</c> / <c>last</c>、任意）。</param>
+/// <param name="AddedCount">キューへ追加されたトラック件数（任意）。</param>
+/// <param name="AddedTracks">キューへ追加されたトラック一覧（順序保持、任意）。</param>
 public sealed record AppIpcResponse(
     bool Ok,
     string? PlaybackState = null,
@@ -163,7 +172,10 @@ public sealed record AppIpcResponse(
     int? UserQueueCount = null,
     int? AlbumQueueCount = null,
     IReadOnlyList<AppIpcTrackInfo>? UserQueue = null,
-    IReadOnlyList<AppIpcTrackInfo>? AlbumQueue = null)
+    IReadOnlyList<AppIpcTrackInfo>? AlbumQueue = null,
+    string? Position = null,
+    int? AddedCount = null,
+    IReadOnlyList<AppIpcTrackInfo>? AddedTracks = null)
 {
     /// <summary>
     /// 疎通確認（<c>ping</c>）の成功応答を生成します。
@@ -273,6 +285,37 @@ public sealed record AppIpcResponse(
             AlbumQueueCount: albumQueueCount,
             UserQueue: userQueue,
             AlbumQueue: albumQueue);
+    }
+
+    /// <summary>
+    /// 再生キュー追加コマンド（<c>enqueue_tracks</c>）の成功応答を生成します。
+    /// </summary>
+    /// <param name="position">キューへの追加位置（<c>next</c> / <c>last</c>）。</param>
+    /// <param name="addedCount">キューへ追加されたトラック件数。</param>
+    /// <param name="userQueueCount">追加後の予約キュー総件数。</param>
+    /// <param name="albumQueueCount">追加後のアルバム残り曲キュー総件数。</param>
+    /// <param name="addedTracks">キューへ追加されたトラック一覧（順序保持）。</param>
+    /// <returns>キュー追加結果を表す <see cref="AppIpcResponse"/>。</returns>
+    public static AppIpcResponse SuccessEnqueueTracks(
+        string position,
+        int addedCount,
+        int userQueueCount,
+        int albumQueueCount,
+        IReadOnlyList<AppIpcTrackInfo> addedTracks)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(position);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(addedCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(userQueueCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(albumQueueCount);
+        ArgumentNullException.ThrowIfNull(addedTracks);
+
+        return new AppIpcResponse(
+            Ok: true,
+            UserQueueCount: userQueueCount,
+            AlbumQueueCount: albumQueueCount,
+            Position: position,
+            AddedCount: addedCount,
+            AddedTracks: addedTracks);
     }
 
     /// <summary>

@@ -18,10 +18,14 @@ public sealed class PlaybackTools
     private const int DEFAULT_QUEUE_LIMIT = 50;
     private const int MIN_QUEUE_LIMIT = 1;
     private const int MAX_QUEUE_LIMIT = 200;
+    private const string QUEUE_POSITION_NEXT = "next";
+    private const string QUEUE_POSITION_LAST = "last";
 
     private static readonly string[] RequiredTrackParameters = ["trackId", "filePath"];
     private static readonly string[] RequiredAlbumParameters = ["albumId", "albumName"];
     private static readonly string[] RequiredPlaylistParameters = ["playlistId", "playlistName"];
+    private static readonly string[] RequiredEnqueueParameters = ["trackIds", "filePaths", "albumId"];
+    private static readonly string[] ValidQueuePositions = [QUEUE_POSITION_NEXT, QUEUE_POSITION_LAST];
 
     private readonly IPlaybackControlGateway _playbackGateway;
     private readonly ILogger<PlaybackTools> _logger;
@@ -89,6 +93,137 @@ public sealed class PlaybackTools
         {
             PlaybackControlResult<PlaybackQueueResponse> result = await _playbackGateway
                 .GetPlaybackQueueAsync(limit, cancellationToken)
+                .ConfigureAwait(false);
+
+            return FormatGatewayResult(result);
+        }
+        catch (Exception ex)
+        {
+            return McpResponseFormatter.FromException(ex, _logger);
+        }
+    }
+
+    /// <summary>
+    /// 起動中の Audio Effector の再生キューへ、指定した楽曲（単曲・複数曲）またはアルバムを追加します。
+    /// </summary>
+    /// <param name="trackIds">キューへ追加するトラック ID（GUID 文字列）の一覧（任意）。</param>
+    /// <param name="filePaths">キューへ追加する音声ファイルの絶対パス一覧（任意）。</param>
+    /// <param name="albumId">アルバム単位でキューへ追加する場合のアルバム ID（GUID 文字列、任意）。</param>
+    /// <param name="position">キューへの追加位置（<c>next</c>: 次に再生 / <c>last</c>: キュー末尾に追加、既定値: <c>last</c>）。</param>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>キュー追加結果および追加されたトラック一覧を含む統一 JSON 応答。</returns>
+    [McpServerTool(Name = "enqueue_tracks")]
+    [Description("起動中の Audio Effector の再生キューへ、指定した楽曲（trackIds / filePaths）またはアルバム（albumId）を追加します。現在再生中の楽曲やウィンドウ状態（通常メイン画面／ミニプレイヤー）を中断・変更せずに、position: \"next\"（次に再生）または \"last\"（キュー末尾に追加）で予約できます。Audio Effector 本体が未起動の場合は、先に launch_app（例: mode: \"mini_player\"）で起動してから再実行してください。")]
+    public async Task<CallToolResult> EnqueueTracksAsync(
+        [Description("キューへ追加するトラック ID（GUID 文字列）の一覧（filePaths / albumId 未指定時は必須）")] string[]? trackIds = null,
+        [Description("キューへ追加する音声ファイルの絶対パス一覧（trackIds / albumId 未指定時は必須）")] string[]? filePaths = null,
+        [Description("アルバム単位でキューへ追加する場合の AlbumId（GUID 文字列、trackIds / filePaths 未指定時は必須）")] string? albumId = null,
+        [Description("キューへの追加位置（\"next\": 次に再生 / \"last\": キュー末尾に追加、既定値: \"last\"）")] string? position = QUEUE_POSITION_LAST,
+        CancellationToken cancellationToken = default)
+    {
+        bool hasTrackIds = trackIds is { Length: > 0 };
+        bool hasFilePaths = filePaths is { Length: > 0 };
+        bool hasAlbumId = !string.IsNullOrWhiteSpace(albumId);
+
+        if (!hasTrackIds && !hasFilePaths && !hasAlbumId)
+        {
+            return McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                "trackIds、filePaths、albumId のいずれかを 1 件以上指定してください。",
+                new { parameters = RequiredEnqueueParameters });
+        }
+
+        string normalizedPosition = position is null
+            ? QUEUE_POSITION_LAST
+            : position.Trim().ToLowerInvariant();
+
+        bool playNext;
+        if (string.Equals(normalizedPosition, QUEUE_POSITION_NEXT, StringComparison.Ordinal))
+        {
+            playNext = true;
+        }
+        else if (string.Equals(normalizedPosition, QUEUE_POSITION_LAST, StringComparison.Ordinal))
+        {
+            playNext = false;
+        }
+        else
+        {
+            return McpResponseFormatter.Error(
+                McpErrorCodes.INVALID_PARAMETER,
+                "position には \"next\" または \"last\" を指定してください。",
+                new { parameter = "position", allowed = ValidQueuePositions });
+        }
+
+        List<TrackId>? parsedTrackIds = null;
+        if (hasTrackIds)
+        {
+            parsedTrackIds = new List<TrackId>(trackIds!.Length);
+            foreach (string rawTrackId in trackIds)
+            {
+                if (string.IsNullOrWhiteSpace(rawTrackId)
+                    || !Guid.TryParse(rawTrackId.Trim(), out Guid parsedGuid)
+                    || parsedGuid == Guid.Empty)
+                {
+                    return McpResponseFormatter.Error(
+                        McpErrorCodes.INVALID_PARAMETER,
+                        "trackIds には有効な GUID 文字列を指定してください。",
+                        new { parameter = "trackIds" });
+                }
+
+                parsedTrackIds.Add(TrackId.From(parsedGuid));
+            }
+        }
+
+        List<string>? normalizedFilePaths = null;
+        if (hasFilePaths)
+        {
+            normalizedFilePaths = new List<string>(filePaths!.Length);
+            foreach (string rawFilePath in filePaths)
+            {
+                if (string.IsNullOrWhiteSpace(rawFilePath))
+                {
+                    return McpResponseFormatter.Error(
+                        McpErrorCodes.INVALID_PARAMETER,
+                        "filePaths に空のファイルパスは指定できません。",
+                        new { parameter = "filePaths" });
+                }
+
+                string trimmedPath = rawFilePath.Trim();
+                if (!Path.IsPathFullyQualified(trimmedPath))
+                {
+                    return McpResponseFormatter.Error(
+                        McpErrorCodes.INVALID_PARAMETER,
+                        "filePaths には絶対パスを指定してください。",
+                        new { parameter = "filePaths" });
+                }
+
+                normalizedFilePaths.Add(trimmedPath);
+            }
+        }
+
+        AlbumId? parsedAlbumId = null;
+        if (hasAlbumId)
+        {
+            if (!Guid.TryParse(albumId!.Trim(), out Guid parsedAlbumGuid) || parsedAlbumGuid == Guid.Empty)
+            {
+                return McpResponseFormatter.Error(
+                    McpErrorCodes.INVALID_PARAMETER,
+                    "albumId には有効な GUID 文字列を指定してください。",
+                    new { parameter = "albumId" });
+            }
+
+            parsedAlbumId = AlbumId.From(parsedAlbumGuid);
+        }
+
+        try
+        {
+            PlaybackControlResult<EnqueueTracksResponse> result = await _playbackGateway
+                .EnqueueTracksAsync(
+                    parsedTrackIds,
+                    normalizedFilePaths,
+                    parsedAlbumId,
+                    playNext,
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             return FormatGatewayResult(result);
