@@ -618,6 +618,26 @@ public class PlaylistApplicationService
     }
 
     /// <summary>
+    /// 指定された ID のプレイリストを削除・永続化し、削除前のプレイリスト情報を返します。
+    /// 対象プレイリストが存在しない場合は削除処理およびイベント発行を行わず <see langword="null"/> を返します。
+    /// </summary>
+    /// <param name="id">削除対象のプレイリスト ID。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>削除されたプレイリストエンティティ（対象が存在しない場合は <see langword="null"/>）。</returns>
+    public async Task<UserPlaylist?> DeletePlaylistWithResultAsync(PlaylistId id, CancellationToken cancellationToken = default)
+    {
+        UserPlaylist? playlist = await _playlistRepository.GetByIdAsync(id, cancellationToken).ConfigureAwait(false);
+        if (playlist is null)
+        {
+            return null;
+        }
+
+        await _playlistRepository.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+        await _eventBus.PublishAsync(new PlaylistUpdatedEvent(playlist), cancellationToken).ConfigureAwait(false);
+        return playlist;
+    }
+
+    /// <summary>
     /// プレイリストにトラックを追加します
     /// </summary>
     /// <param name="playlistId">プレイリストID</param>
