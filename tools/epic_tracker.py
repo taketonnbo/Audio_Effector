@@ -637,9 +637,15 @@ def parse_worktree_porcelain(porcelain_output: str) -> Dict[int, Dict[str, str]]
         if not current_path:
             return
         normalized = current_path.replace("\\", "/")
-        if "/.agent_worktrees/" in normalized or normalized.startswith(".agent_worktrees/"):
+        rel_part: Optional[str] = None
+        if "/.agent_worktrees/" in normalized:
+            rel_part = normalized.split("/.agent_worktrees/", 1)[1]
+        elif normalized.startswith(".agent_worktrees/"):
+            rel_part = normalized[len(".agent_worktrees/"):]
+
+        if rel_part is not None:
             issue_num: Optional[int] = None
-            m_path = WORKTREE_ISSUE_RE.search(normalized)
+            m_path = WORKTREE_ISSUE_RE.search(rel_part)
             if m_path:
                 issue_num = int(m_path.group(1))
             elif current_branch:
@@ -1006,7 +1012,7 @@ def compute_next_actions(
             str(pr.get("merge_state_status") or "").upper() == "CLEAN"
             and int(pr.get("unresolved_review_threads") or 0) == 0
             and str(pr.get("review_decision") or "").upper() != "CHANGES_REQUESTED"
-            and str(pr.get("ci_state") or "").upper() != "FAIL"
+            and str(pr.get("ci_state") or "").upper() not in ("FAIL", "PENDING")
             and not pr.get("has_conflict", False)
             and not pr.get("needs_sync", False)
         ):
@@ -1405,6 +1411,9 @@ def apply_offline_block_updates(
                 else:
                     c["status"] = "in_review"
                     c["status_reason"] = f"PR #{pr_info['number']} レビュー待ち／マージ確認待ち"
+            elif c.get("worktree"):
+                c["status"] = "implementing"
+                c["status_reason"] = "稼働中ワークツリーが存在"
             elif unmet_deps:
                 c["status"] = "waiting_deps"
                 dep_str = ", ".join(f"#{d}" for d in unmet_deps)
@@ -1463,6 +1472,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
             if not args.no_save:
                 save_state(state_path, state)
+        elif isinstance(state.get("children"), list):
+            epic_num = int((state.get("epic") or {}).get("number") or args.epic)
+            state["next"] = compute_next_actions(
+                state["children"],
+                epic_number=epic_num,
+                max_parallel=args.max_parallel,
+            )
     else:
         try:
             state = build_state(
