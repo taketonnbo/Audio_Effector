@@ -493,5 +493,535 @@ class EpicTrackerPersistenceTests(unittest.TestCase):
             self.assertEqual(after_unblk["summary"]["blocked"], 0)
 
 
+class EpicTrackerParallelAndMergeStateTests(unittest.TestCase):
+    """PR マージ状態・ワークツリー検出・最大並列数制御のテスト。"""
+
+    def test_fetch_pull_requestsはmergeableとmergeStateStatusを取得フィールドに含める(self) -> None:
+        # Arrange
+        with mock.patch.object(epic_tracker, "run_command", return_value=(0, "[]", "")) as mocked_run:
+            # Act
+            prs = epic_tracker.fetch_pull_requests(repo="owner/repo", timeout=5)
+
+            # Assert
+            self.assertEqual(prs, [])
+            called_cmd = mocked_run.call_args[0][0]
+            json_idx = called_cmd.index("--json") + 1
+            fields = set(called_cmd[json_idx].split(","))
+            self.assertIn("mergeable", fields)
+            self.assertIn("mergeStateStatus", fields)
+
+    def test_PRマージ状態のCONFLICTINGとBEHINDとCLEANが正しく分類される(self) -> None:
+        # Arrange
+        specs = [
+            epic_tracker.ChildIssueSpec(number=501, order=1, depends_on=[], parallel_group=1),
+            epic_tracker.ChildIssueSpec(number=502, order=1, depends_on=[], parallel_group=1),
+            epic_tracker.ChildIssueSpec(number=503, order=1, depends_on=[], parallel_group=1),
+            epic_tracker.ChildIssueSpec(number=504, order=1, depends_on=[], parallel_group=1),
+            epic_tracker.ChildIssueSpec(number=505, order=1, depends_on=[], parallel_group=1),
+        ]
+        live_issues = {
+            n: {"number": n, "title": f"T{n}", "state": "OPEN", "url": "", "labels": []}
+            for n in (501, 502, 503, 504, 505)
+        }
+        prs_by_issue = {
+            501: [{"number": 61, "state": "OPEN", "isDraft": False, "mergeable": "CONFLICTING", "mergeStateStatus": "DIRTY"}],
+            502: [{"number": 62, "state": "OPEN", "isDraft": False, "mergeable": "MERGEABLE", "mergeStateStatus": "BEHIND"}],
+            503: [{"number": 63, "state": "OPEN", "isDraft": False, "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN"}],
+            504: [{"number": 64, "state": "OPEN", "isDraft": True, "mergeable": "CONFLICTING", "mergeStateStatus": "DIRTY"}],
+            505: [{"number": 65, "state": "MERGED", "isDraft": False, "mergeable": "UNKNOWN", "mergeStateStatus": "BEHIND"}],
+        }
+
+        # Act
+        classified = epic_tracker.classify_child_statuses(
+            specs=specs,
+            live_issues=live_issues,
+            prs_by_issue=prs_by_issue,
+            unresolved_threads_by_pr={61: 0, 62: 0, 63: 0, 64: 0},
+            local_branch_issues=set(),
+            blocked_overrides={},
+        )
+        by_num = {c["number"]: c for c in classified}
+
+        # Assert
+        self.assertTrue(by_num[501]["pr"]["has_conflict"])
+        self.assertTrue(by_num[501]["pr"]["needs_sync"])
+        self.assertEqual(by_num[501]["pr"]["mergeable"], "CONFLICTING")
+        self.assertEqual(by_num[501]["pr"]["merge_state_status"], "DIRTY")
+
+        self.assertFalse(by_num[502]["pr"]["has_conflict"])
+        self.assertTrue(by_num[502]["pr"]["needs_sync"])
+        self.assertEqual(by_num[502]["pr"]["merge_state_status"], "BEHIND")
+
+        self.assertFalse(by_num[503]["pr"]["has_conflict"])
+        self.assertFalse(by_num[503]["pr"]["needs_sync"])
+        self.assertEqual(by_num[503]["pr"]["merge_state_status"], "CLEAN")
+
+        # Draft や MERGED では sync/conflict フラグを立てない
+        self.assertFalse(by_num[504]["pr"]["has_conflict"])
+        self.assertFalse(by_num[504]["pr"]["needs_sync"])
+        self.assertFalse(by_num[505]["pr"]["has_conflict"])
+        self.assertFalse(by_num[505]["pr"]["needs_sync"])
+
+    def test_sync_branchがコンフリクト最優先で提案されCLEANなPRは直列マージ先頭のみready_to_mergeになる(self) -> None:
+        # Arrange
+        children = [
+            {
+                "number": 601,
+                "order": 1,
+                "parallel_group": 1,
+                "status": "in_review",
+                "status_reason": "PR #71 CLEAN",
+                "blocked_reason": "",
+                "pr": {
+                    "number": 71,
+                    "state": "OPEN",
+                    "is_draft": False,
+                    "unresolved_review_threads": 0,
+                    "review_decision": "",
+                    "ci_state": "PASS",
+                    "mergeable": "MERGEABLE",
+                    "merge_state_status": "CLEAN",
+                    "has_conflict": False,
+                    "needs_sync": False,
+                },
+                "worktree": None,
+            },
+            {
+                "number": 602,
+                "order": 1,
+                "parallel_group": 1,
+                "status": "in_review",
+                "status_reason": "PR #72 CLEAN",
+                "blocked_reason": "",
+                "pr": {
+                    "number": 72,
+                    "state": "OPEN",
+                    "is_draft": False,
+                    "unresolved_review_threads": 0,
+                    "review_decision": "",
+                    "ci_state": "PASS",
+                    "mergeable": "MERGEABLE",
+                    "merge_state_status": "CLEAN",
+                    "has_conflict": False,
+                    "needs_sync": False,
+                },
+                "worktree": None,
+            },
+            {
+                "number": 603,
+                "order": 2,
+                "parallel_group": 2,
+                "status": "in_review",
+                "status_reason": "PR #73 BEHIND",
+                "blocked_reason": "",
+                "pr": {
+                    "number": 73,
+                    "state": "OPEN",
+                    "is_draft": False,
+                    "unresolved_review_threads": 0,
+                    "review_decision": "",
+                    "ci_state": "PASS",
+                    "mergeable": "MERGEABLE",
+                    "merge_state_status": "BEHIND",
+                    "has_conflict": False,
+                    "needs_sync": True,
+                },
+                "worktree": {"path": "C:/repo/.agent_worktrees/issue-603", "branch": "feat/603-behind"},
+            },
+            {
+                "number": 604,
+                "order": 2,
+                "parallel_group": 2,
+                "status": "in_review",
+                "status_reason": "PR #74 CONFLICT",
+                "blocked_reason": "",
+                "pr": {
+                    "number": 74,
+                    "state": "OPEN",
+                    "is_draft": False,
+                    "unresolved_review_threads": 0,
+                    "review_decision": "",
+                    "ci_state": "PASS",
+                    "mergeable": "CONFLICTING",
+                    "merge_state_status": "DIRTY",
+                    "has_conflict": True,
+                    "needs_sync": True,
+                },
+                "worktree": {"path": "C:/repo/.agent_worktrees/issue-604", "branch": "feat/604-conflict"},
+            },
+        ]
+
+        # Act
+        next_info = epic_tracker.compute_next_actions(children, epic_number=600, max_parallel=3)
+
+        # Assert: コンフリクトありの sync_branch が最優先
+        self.assertEqual(next_info["primary_action"]["action"], "sync_branch")
+        self.assertEqual(next_info["primary_action"]["pr_number"], 74)
+        self.assertTrue(next_info["primary_action"]["has_conflict"])
+        self.assertIn("-WorkingDirectory \"C:/repo/.agent_worktrees/issue-604\"", next_info["primary_action"]["command_hint"])
+
+        sync_actions = [a for a in next_info["recommended_actions"] if a["action"] == "sync_branch"]
+        self.assertEqual([a["pr_number"] for a in sync_actions], [74, 73])
+
+        # CLEAN な PR (#71, #72) のうち先頭 #71 のみ ready_to_merge、#72 は queued_prs
+        merge_actions = [a for a in next_info["recommended_actions"] if a["action"] == "ready_to_merge"]
+        self.assertEqual(len(merge_actions), 1)
+        self.assertEqual(merge_actions[0]["pr_number"], 71)
+        self.assertEqual(merge_actions[0]["queued_prs"], [72])
+
+    def test_max_parallel上限により稼働中2件なら新規着手は最大1件・3件なら新規着手抑制となる(self) -> None:
+        # Arrange: 2 件稼働中 + pending 3 件
+        children_two_active = [
+            {"number": 701, "order": 1, "parallel_group": 1, "status": "implementing", "status_reason": "", "blocked_reason": "", "pr": None, "worktree": {"path": ".agent_worktrees/issue-701", "branch": "feat/701-a"}},
+            {"number": 702, "order": 1, "parallel_group": 1, "status": "in_review", "status_reason": "", "blocked_reason": "", "pr": {"number": 82, "state": "OPEN", "is_draft": False}, "worktree": None},
+            {"number": 703, "order": 2, "parallel_group": 2, "status": "pending", "status_reason": "", "blocked_reason": "", "pr": None, "worktree": None},
+            {"number": 704, "order": 2, "parallel_group": 2, "status": "pending", "status_reason": "", "blocked_reason": "", "pr": None, "worktree": None},
+            {"number": 705, "order": 2, "parallel_group": 2, "status": "pending", "status_reason": "", "blocked_reason": "", "pr": None, "worktree": None},
+        ]
+
+        # Act 1: max_parallel=3 (2/3 使用中 → 空き 1)
+        next_two = epic_tracker.compute_next_actions(children_two_active, epic_number=700, max_parallel=3)
+        start_two = [a for a in next_two["recommended_actions"] if a["action"] == "start_issue"]
+
+        # Assert 1
+        self.assertEqual(next_two["parallel_slots"]["active_slots"], 2)
+        self.assertEqual(next_two["parallel_slots"]["available_slots"], 1)
+        self.assertEqual(len(start_two), 1)
+        self.assertEqual(start_two[0]["issues"], [703])
+        self.assertFalse(start_two[0]["parallel"])
+
+        # Arrange 2: 3 件稼働中 + pending 2 件
+        children_three_active = [
+            *children_two_active[:2],
+            {"number": 703, "order": 2, "parallel_group": 2, "status": "fixing_review", "status_reason": "", "blocked_reason": "", "pr": {"number": 83, "state": "OPEN", "is_draft": False}, "worktree": None},
+            *children_two_active[3:],
+        ]
+
+        # Act 2: max_parallel=3 (3/3 使用中 → 空き 0)
+        next_three = epic_tracker.compute_next_actions(children_three_active, epic_number=700, max_parallel=3)
+        start_three = [a for a in next_three["recommended_actions"] if a["action"] == "start_issue"]
+
+        # Assert 2
+        self.assertEqual(next_three["parallel_slots"]["active_slots"], 3)
+        self.assertEqual(next_three["parallel_slots"]["available_slots"], 0)
+        self.assertEqual(start_three, [])
+
+        # Act 3: --max-parallel 0 はエラー終了
+        with mock.patch("sys.stderr"):
+            rc_err = epic_tracker.main(["--epic", "700", "--max-parallel", "0", "--offline"])
+        self.assertEqual(rc_err, 1)
+
+    def test_fetch_active_worktreesのporcelain解析とmerged後残留ワークツリー警告が動作する(self) -> None:
+        # Arrange
+        porcelain = (
+            "worktree C:/Users/dev/Audio_Effector\n"
+            "HEAD 1111111111111111111111111111111111111111\n"
+            "branch refs/heads/develop\n"
+            "\n"
+            "worktree C:/Users/dev/Audio_Effector/.agent_worktrees/issue-367\n"
+            "HEAD 2222222222222222222222222222222222222222\n"
+            "branch refs/heads/feat/367-build-isolation\n"
+            "\n"
+            "worktree C:\\Users\\dev\\Audio_Effector\\.agent_worktrees\\issue-368\n"
+            "HEAD 3333333333333333333333333333333333333333\n"
+            "detached\n"
+        )
+        with mock.patch.object(epic_tracker, "run_command", return_value=(0, porcelain, "")):
+            # Act
+            worktrees = epic_tracker.fetch_active_worktrees(timeout=5)
+
+        # Assert: メインリポジトリは除外され、.agent_worktrees/ 配下のみ抽出される
+        self.assertEqual(set(worktrees.keys()), {367, 368})
+        self.assertEqual(worktrees[367]["branch"], "feat/367-build-isolation")
+        self.assertEqual(worktrees[368]["branch"], "")
+
+        # Arrange: #367 は merged なのにワークツリー残留、#368 は implementing
+        specs = [
+            epic_tracker.ChildIssueSpec(number=367, order=1, depends_on=[], parallel_group=1),
+            epic_tracker.ChildIssueSpec(number=368, order=1, depends_on=[], parallel_group=1),
+        ]
+        live_issues = {
+            367: {"number": 367, "title": "ビルド分離", "state": "CLOSED", "url": "", "labels": []},
+            368: {"number": 368, "title": "並列トラッカー", "state": "OPEN", "url": "", "labels": []},
+        }
+        classified = epic_tracker.classify_child_statuses(
+            specs=specs,
+            live_issues=live_issues,
+            prs_by_issue={367: [{"number": 91, "state": "MERGED", "isDraft": False}], 368: []},
+            unresolved_threads_by_pr={},
+            local_branch_issues=set(),
+            blocked_overrides={},
+            active_worktrees=worktrees,
+        )
+        warnings = epic_tracker.collect_worktree_warnings(classified)
+
+        # Assert
+        by_num = {c["number"]: c for c in classified}
+        self.assertEqual(by_num[367]["status"], "merged")
+        self.assertIsNotNone(by_num[367]["worktree"])
+        self.assertEqual(by_num[368]["status"], "implementing")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("#367", warnings[0])
+        self.assertIn("worktree_manager.ps1 -Action remove -IssueNumber 367", warnings[0])
+
+    def test_format_human_reportにPRマージ状態と稼働中ワークツリーと並列スロットが表示される(self) -> None:
+        # Arrange
+        state = {
+            "updated_at": "2026-11-27T21:50:00+09:00",
+            "state_file": ".agent_logs/epic_370_state.json",
+            "epic": {"number": 370, "title": "並列化Epic", "state": "OPEN", "url": ""},
+            "summary": {
+                "total": 3,
+                "pending": 1,
+                "waiting_deps": 0,
+                "implementing": 0,
+                "in_review": 2,
+                "fixing_review": 0,
+                "merged": 0,
+                "blocked": 0,
+            },
+            "children": [
+                {
+                    "number": 367,
+                    "order": 1,
+                    "parallel_group": 1,
+                    "title": "ビルド分離",
+                    "depends_on": [],
+                    "status": "in_review",
+                    "status_reason": "PR #91 コンフリクトあり",
+                    "pr": {"number": 91, "state": "OPEN", "is_draft": False, "has_conflict": True, "merge_state_status": "DIRTY"},
+                    "worktree": {"path": "C:/repo/.agent_worktrees/issue-367", "branch": "feat/367-build"},
+                },
+                {
+                    "number": 368,
+                    "order": 1,
+                    "parallel_group": 1,
+                    "title": "トラッカー拡張",
+                    "depends_on": [],
+                    "status": "in_review",
+                    "status_reason": "PR #92 ベース追従同期が必要（BEHIND）",
+                    "pr": {"number": 92, "state": "OPEN", "is_draft": False, "has_conflict": False, "merge_state_status": "BEHIND"},
+                    "worktree": None,
+                },
+                {
+                    "number": 369,
+                    "order": 2,
+                    "parallel_group": 2,
+                    "title": "スキル改訂",
+                    "depends_on": [367],
+                    "status": "pending",
+                    "status_reason": "着手可能",
+                    "pr": None,
+                    "worktree": None,
+                },
+            ],
+            "next": {
+                "epic_halt_recommended": False,
+                "epic_halt_reason": "",
+                "parallel_slots": {"max_parallel": 3, "active_slots": 2, "available_slots": 1, "active_issues": [367, 368]},
+                "recommended_actions": [],
+                "primary_action": None,
+            },
+            "warnings": [],
+        }
+
+        # Act
+        report = epic_tracker.format_human_report(state, next_only=False)
+
+        # Assert
+        self.assertIn("並列スロット: 2/3 使用中", report)
+        self.assertIn("PR #91(OPEN/CONFLICT)", report)
+        self.assertIn("PR #92(OPEN/BEHIND)", report)
+        self.assertIn("worktree: C:/repo/.agent_worktrees/issue-367 (branch: feat/367-build)", report)
+
+    def test_ci_stateがPENDINGのCLEANなPRはready_to_mergeから除外される(self) -> None:
+        # Arrange
+        children = [
+            {
+                "number": 801,
+                "order": 1,
+                "parallel_group": 1,
+                "status": "in_review",
+                "status_reason": "PR #101 CI 実行中",
+                "blocked_reason": "",
+                "pr": {
+                    "number": 101,
+                    "state": "OPEN",
+                    "is_draft": False,
+                    "unresolved_review_threads": 0,
+                    "review_decision": "",
+                    "ci_state": "PENDING",
+                    "mergeable": "MERGEABLE",
+                    "merge_state_status": "CLEAN",
+                    "has_conflict": False,
+                    "needs_sync": False,
+                },
+                "worktree": None,
+            },
+        ]
+
+        # Act
+        next_info = epic_tracker.compute_next_actions(children, epic_number=800, max_parallel=3)
+
+        # Assert
+        merge_actions = [a for a in next_info["recommended_actions"] if a["action"] == "ready_to_merge"]
+        review_actions = [a for a in next_info["recommended_actions"] if a["action"] == "review_pr"]
+        self.assertEqual(merge_actions, [])
+        self.assertEqual(len(review_actions), 1)
+        self.assertEqual(review_actions[0]["pr_number"], 101)
+
+    def test_parse_worktree_porcelainは親パスのissue番号に誤マッチせず日本語Windowsパスを解析できる(self) -> None:
+        # Arrange
+        porcelain = (
+            "worktree C:\\Users\\西内\\issue-100\\Audio_Effector\n"
+            "HEAD 1111111111111111111111111111111111111111\n"
+            "branch refs/heads/develop\n"
+            "\n"
+            "worktree C:\\Users\\西内\\issue-100\\Audio_Effector\\.agent_worktrees\\issue-368\n"
+            "HEAD 2222222222222222222222222222222222222222\n"
+            "branch refs/heads/feat/368-parallel-tracker\n"
+            "\n"
+            "worktree .agent_worktrees/custom-dir\n"
+            "HEAD 3333333333333333333333333333333333333333\n"
+            "branch refs/heads/feat/369-custom-worktree\n"
+        )
+
+        # Act
+        worktrees = epic_tracker.parse_worktree_porcelain(porcelain)
+
+        # Assert: 親ディレクトリの issue-100 ではなく .agent_worktrees/ 配下の 368, 369 を抽出する
+        self.assertNotIn(100, worktrees)
+        self.assertEqual(set(worktrees.keys()), {368, 369})
+        self.assertEqual(worktrees[368]["branch"], "feat/368-parallel-tracker")
+        self.assertIn("西内", worktrees[368]["path"])
+        self.assertEqual(worktrees[369]["branch"], "feat/369-custom-worktree")
+
+    def test_offlineモードでmark_blocked未指定でもmax_parallelが出力に反映されファイルは書き換えない(self) -> None:
+        # Arrange
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "epic_810_state.json"
+            original_state = {
+                "schema_version": 1,
+                "updated_at": "2026-11-27T21:00:00+09:00",
+                "state_file": str(state_path),
+                "epic": {"number": 810, "title": "Offline並列テスト", "state": "OPEN", "url": ""},
+                "summary": {
+                    "total": 3,
+                    "pending": 2,
+                    "waiting_deps": 0,
+                    "implementing": 1,
+                    "in_review": 0,
+                    "fixing_review": 0,
+                    "merged": 0,
+                    "blocked": 0,
+                },
+                "children": [
+                    {"number": 811, "order": 1, "parallel_group": 1, "status": "implementing", "status_reason": "作業中", "blocked_reason": "", "pr": None, "worktree": None},
+                    {"number": 812, "order": 2, "parallel_group": 2, "status": "pending", "status_reason": "着手可能", "blocked_reason": "", "pr": None, "worktree": None},
+                    {"number": 813, "order": 2, "parallel_group": 2, "status": "pending", "status_reason": "着手可能", "blocked_reason": "", "pr": None, "worktree": None},
+                ],
+                "next": {
+                    "epic_halt_recommended": False,
+                    "epic_halt_reason": "",
+                    "parallel_slots": {"max_parallel": 3, "active_slots": 1, "available_slots": 2, "active_issues": [811]},
+                    "recommended_actions": [],
+                    "primary_action": None,
+                },
+                "blocked_overrides": {},
+                "warnings": [],
+            }
+            epic_tracker.save_state(state_path, original_state)
+            before_text = state_path.read_text(encoding="utf-8")
+
+            # Act: --offline --next --json --max-parallel 1（稼働中 1/1 のため新規着手抑制）
+            with mock.patch("sys.stdout") as fake_stdout:
+                buf = []
+                fake_stdout.write.side_effect = buf.append
+                rc = epic_tracker.main([
+                    "--epic", "810", "--offline", "--next", "--json", "--max-parallel", "1",
+                    "--state-file", str(state_path),
+                ])
+
+            # Assert
+            self.assertEqual(rc, 0)
+            out_next = json.loads("".join(buf))
+            self.assertEqual(out_next["parallel_slots"]["max_parallel"], 1)
+            self.assertEqual(out_next["parallel_slots"]["available_slots"], 0)
+            self.assertEqual([a for a in out_next["recommended_actions"] if a["action"] == "start_issue"], [])
+            # スナップショットファイル自体は書き換えない
+            self.assertEqual(state_path.read_text(encoding="utf-8"), before_text)
+
+    def test_offlineのunblock時にworktree保持Issueはimplementingへ復帰しstart_issueへ二重計上されない(self) -> None:
+        # Arrange
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "epic_820_state.json"
+            sample_state = {
+                "schema_version": 1,
+                "updated_at": "2026-11-27T21:00:00+09:00",
+                "state_file": str(state_path),
+                "epic": {"number": 820, "title": "Worktree復帰テスト", "state": "OPEN", "url": ""},
+                "summary": {
+                    "total": 1,
+                    "pending": 0,
+                    "waiting_deps": 0,
+                    "implementing": 1,
+                    "in_review": 0,
+                    "fixing_review": 0,
+                    "merged": 0,
+                    "blocked": 0,
+                },
+                "children": [
+                    {
+                        "number": 821,
+                        "order": 1,
+                        "parallel_group": 1,
+                        "title": "ワークツリー作業中Issue",
+                        "scope": "",
+                        "url": "",
+                        "issue_state": "OPEN",
+                        "checked_in_epic": False,
+                        "depends_on": [],
+                        "unmet_depends": [],
+                        "status": "implementing",
+                        "status_reason": "稼働中ワークツリーが存在",
+                        "blocked_reason": "",
+                        "pr": None,
+                        "worktree": {"path": "C:/repo/.agent_worktrees/issue-821", "branch": "feat/821-wt"},
+                    }
+                ],
+                "next": {
+                    "epic_halt_recommended": False,
+                    "epic_halt_reason": "",
+                    "recommended_actions": [],
+                    "primary_action": None,
+                },
+                "blocked_overrides": {},
+                "warnings": [],
+            }
+            epic_tracker.save_state(state_path, sample_state)
+
+            # Act: mark-blocked -> unblock
+            with mock.patch("sys.stdout"):
+                rc_blk = epic_tracker.main([
+                    "--epic", "820", "--offline", "--mark-blocked", "821", "--reason", "一時停止",
+                    "--state-file", str(state_path),
+                ])
+                rc_unblk = epic_tracker.main([
+                    "--epic", "820", "--offline", "--unblock", "821",
+                    "--state-file", str(state_path),
+                ])
+            after = epic_tracker.load_existing_state(state_path)
+
+            # Assert
+            self.assertEqual(rc_blk, 0)
+            self.assertEqual(rc_unblk, 0)
+            self.assertEqual(after["children"][0]["status"], "implementing")
+            self.assertEqual(after["children"][0]["status_reason"], "稼働中ワークツリーが存在")
+            self.assertEqual(after["summary"]["implementing"], 1)
+            self.assertEqual(after["summary"]["pending"], 0)
+            start_actions = [a for a in after["next"]["recommended_actions"] if a["action"] == "start_issue"]
+            self.assertEqual(start_actions, [])
+
+
 if __name__ == "__main__":
     unittest.main()
