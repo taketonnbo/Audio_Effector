@@ -583,11 +583,11 @@ public class PlaylistApplicationService
         return PlaylistCreationResult.Create(playlist, resolvedTracks, skippedItems);
     }
 
-    private static string ValidateAndNormalizePlaylistName(string name)
+    private static string ValidateAndNormalizePlaylistName(string name, string paramName = "name")
     {
         if (string.IsNullOrWhiteSpace(name))
         {
-            throw new ArgumentException("プレイリスト名を指定してください。", nameof(name));
+            throw new ArgumentException("プレイリスト名を指定してください。", paramName);
         }
 
         string trimmed = name.Trim();
@@ -595,7 +595,7 @@ public class PlaylistApplicationService
         {
             throw new ArgumentException(
                 $"プレイリスト名は {MAX_PLAYLIST_NAME_LENGTH} 文字以内で指定してください。",
-                nameof(name));
+                paramName);
         }
 
         return trimmed;
@@ -679,6 +679,633 @@ public class PlaylistApplicationService
 
         await _eventBus.PublishAsync(new PlaylistUpdatedEvent(playlist), cancellationToken);
         return playlist;
+    }
+
+    /// <summary>
+    /// 指定されたプレイリストへ複数トラックを一括追加し、1 回の排他ロックで原子的に永続化します。
+    /// </summary>
+    /// <param name="playlistId">編集対象のプレイリスト ID。</param>
+    /// <param name="trackIds">追加するトラック ID 一覧。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>更新結果（対象プレイリストが存在しない場合は <see langword="null"/>）。</returns>
+    public Task<PlaylistUpdateResult?> AddTracksAsync(
+        PlaylistId playlistId,
+        IReadOnlyList<TrackId> trackIds,
+        CancellationToken cancellationToken = default)
+    {
+        return AddTracksAsync(playlistId, trackIds, filePaths: null, cancellationToken);
+    }
+
+    /// <summary>
+    /// 指定されたプレイリストへ複数トラック（トラック ID・ファイルパス）を一括追加し、1 回の排他ロックで原子的に永続化します。
+    /// 指定されたトラックが 1 件でもライブラリに存在しない場合は <see cref="KeyNotFoundException"/> をスローし、プレイリストを変更しません。
+    /// </summary>
+    /// <param name="playlistId">編集対象のプレイリスト ID。</param>
+    /// <param name="trackIds">追加するトラック ID 一覧（任意）。</param>
+    /// <param name="filePaths">追加する音声ファイルの絶対パス一覧（任意）。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>更新結果（対象プレイリストが存在しない場合は <see langword="null"/>）。</returns>
+    public async Task<PlaylistUpdateResult?> AddTracksAsync(
+        PlaylistId playlistId,
+        IReadOnlyList<TrackId>? trackIds,
+        IReadOnlyList<string>? filePaths,
+        CancellationToken cancellationToken = default)
+    {
+        bool hasTrackIds = trackIds is { Count: > 0 };
+        bool hasFilePaths = filePaths is { Count: > 0 };
+        if (!hasTrackIds && !hasFilePaths)
+        {
+            throw new ArgumentException("追加する trackIds または filePaths を 1 件以上指定してください。", nameof(trackIds));
+        }
+
+        (Dictionary<TrackId, Track> tracksById, Dictionary<string, Track> tracksByPath) =
+            await LoadTrackLookupsAsync(cancellationToken).ConfigureAwait(false);
+
+        var candidates = new List<(Track Track, string RawIdentifier)>();
+        if (hasTrackIds)
+        {
+            foreach (TrackId trackId in trackIds!)
+            {
+                if (!tracksById.TryGetValue(trackId, out Track? track))
+                {
+                    throw new KeyNotFoundException($"指定されたトラック ID '{trackId}' はライブラリに存在しません。");
+                }
+
+                candidates.Add((track, trackId.ToString()));
+            }
+        }
+
+        if (hasFilePaths)
+        {
+            foreach (string rawPath in filePaths!)
+            {
+                if (string.IsNullOrWhiteSpace(rawPath))
+                {
+                    throw new ArgumentException("追加トラックのファイルパスに空の値は指定できません。", nameof(filePaths));
+                }
+
+                string trimmedPath = rawPath.Trim();
+                if (!tracksByPath.TryGetValue(trimmedPath, out Track? track))
+                {
+                    throw new KeyNotFoundException($"指定されたファイルパス '{trimmedPath}' に一致するトラックはライブラリに存在しません。");
+                }
+
+                candidates.Add((track, trimmedPath));
+            }
+        }
+
+        int addedCount = 0;
+        var skippedItems = new List<string>();
+
+        UserPlaylist? updatedPlaylist = await _playlistRepository.UpdateAsync(
+            playlistId,
+            current =>
+            {
+                addedCount = 0;
+                skippedItems.Clear();
+
+                bool hasExistingIds = current.TrackIds.Count > 0;
+                bool hasExistingPaths = current.TrackPaths is { Count: > 0 };
+
+                var mergedIds = new List<TrackId>();
+                var mergedPaths = new List<string>();
+                var existingIdSet = new HashSet<TrackId>();
+                var existingPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                bool keepPathAsSourceOfTruth = false;
+
+                if (hasExistingIds)
+                {
+                    bool pathsAligned = hasExistingPaths && current.TrackPaths.Count == current.TrackIds.Count;
+                    bool allIdsHavePath = true;
+                    for (int i = 0; i < current.TrackIds.Count; i++)
+                    {
+                        TrackId existingId = current.TrackIds[i];
+                        mergedIds.Add(existingId);
+                        existingIdSet.Add(existingId);
+
+                        if (tracksById.TryGetValue(existingId, out Track? resolved)
+                            && !string.IsNullOrWhiteSpace(resolved.FilePath))
+                        {
+                            mergedPaths.Add(resolved.FilePath);
+                            existingPathSet.Add(resolved.FilePath);
+                        }
+                        else if (pathsAligned && !string.IsNullOrWhiteSpace(current.TrackPaths[i]))
+                        {
+                            mergedPaths.Add(current.TrackPaths[i]);
+                            existingPathSet.Add(current.TrackPaths[i]);
+                        }
+                        else
+                        {
+                            allIdsHavePath = false;
+                        }
+                    }
+
+                    if (!allIdsHavePath)
+                    {
+                        mergedPaths.Clear();
+                    }
+                }
+                else if (hasExistingPaths)
+                {
+                    var resolvedIdsForAllPaths = new List<TrackId>(current.TrackPaths.Count);
+                    bool allPathsResolved = true;
+
+                    foreach (string rawPath in current.TrackPaths)
+                    {
+                        if (string.IsNullOrWhiteSpace(rawPath))
+                        {
+                            continue;
+                        }
+
+                        mergedPaths.Add(rawPath);
+                        existingPathSet.Add(rawPath);
+
+                        if (tracksByPath.TryGetValue(rawPath, out Track? resolved))
+                        {
+                            resolvedIdsForAllPaths.Add(resolved.Id);
+                            existingIdSet.Add(resolved.Id);
+                        }
+                        else
+                        {
+                            allPathsResolved = false;
+                        }
+                    }
+
+                    if (allPathsResolved)
+                    {
+                        mergedIds.AddRange(resolvedIdsForAllPaths);
+                    }
+                    else
+                    {
+                        keepPathAsSourceOfTruth = true;
+                    }
+                }
+
+                foreach ((Track track, string rawIdentifier) in candidates)
+                {
+                    bool duplicateById = existingIdSet.Contains(track.Id);
+                    bool duplicateByPath = !string.IsNullOrWhiteSpace(track.FilePath)
+                        && existingPathSet.Contains(track.FilePath);
+                    if (duplicateById || duplicateByPath)
+                    {
+                        skippedItems.Add(rawIdentifier);
+                        continue;
+                    }
+
+                    if (!keepPathAsSourceOfTruth)
+                    {
+                        mergedIds.Add(track.Id);
+                    }
+
+                    existingIdSet.Add(track.Id);
+                    if (!string.IsNullOrWhiteSpace(track.FilePath))
+                    {
+                        existingPathSet.Add(track.FilePath);
+                        if (keepPathAsSourceOfTruth || !hasExistingIds || mergedPaths.Count == mergedIds.Count - 1)
+                        {
+                            mergedPaths.Add(track.FilePath);
+                        }
+                    }
+
+                    addedCount++;
+                }
+
+                if (addedCount == 0)
+                {
+                    return false;
+                }
+
+                if (!keepPathAsSourceOfTruth && mergedPaths.Count != mergedIds.Count)
+                {
+                    mergedPaths.Clear();
+                }
+
+                current.ReplaceTracks(mergedIds, mergedPaths);
+                return true;
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (updatedPlaylist is null)
+        {
+            return null;
+        }
+
+        if (addedCount > 0)
+        {
+            await _eventBus.PublishAsync(new PlaylistUpdatedEvent(updatedPlaylist), cancellationToken).ConfigureAwait(false);
+        }
+
+        IReadOnlyList<Track> resolvedTracks = ResolveTracksFromLookups(updatedPlaylist, tracksById, tracksByPath);
+        return PlaylistUpdateResult.Create(updatedPlaylist, resolvedTracks, addedCount, skippedItems);
+    }
+
+    /// <summary>
+    /// 指定されたプレイリストから、インデックス配列またはトラック ID 配列に一致する楽曲を一括削除します。
+    /// 複数インデックス同時指定時は降順処理によりインデックスずれを防止します。
+    /// </summary>
+    /// <param name="playlistId">編集対象のプレイリスト ID。</param>
+    /// <param name="indices">削除する 0 始まりインデックス一覧（任意）。</param>
+    /// <param name="trackIds">削除するトラック ID 一覧（任意）。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>更新結果（対象プレイリストが存在しない場合は <see langword="null"/>）。</returns>
+    public async Task<PlaylistUpdateResult?> RemoveTracksAsync(
+        PlaylistId playlistId,
+        IReadOnlyList<int>? indices,
+        IReadOnlyList<TrackId>? trackIds,
+        CancellationToken cancellationToken = default)
+    {
+        bool hasIndices = indices is { Count: > 0 };
+        bool hasTrackIds = trackIds is { Count: > 0 };
+        if (!hasIndices && !hasTrackIds)
+        {
+            throw new ArgumentException("削除する indices または trackIds を 1 件以上指定してください。", nameof(indices));
+        }
+
+        if (hasIndices)
+        {
+            foreach (int index in indices!)
+            {
+                if (index < 0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(indices), index, "indices には 0 以上のインデックスを指定してください。");
+                }
+            }
+        }
+
+        (Dictionary<TrackId, Track> tracksById, Dictionary<string, Track> tracksByPath) =
+            await LoadTrackLookupsAsync(cancellationToken).ConfigureAwait(false);
+
+        int removedCount = 0;
+        var skippedItems = new List<string>();
+
+        UserPlaylist? updatedPlaylist = await _playlistRepository.UpdateAsync(
+            playlistId,
+            current =>
+            {
+                removedCount = 0;
+                skippedItems.Clear();
+
+                bool hasIds = current.TrackIds.Count > 0;
+                int currentCount = hasIds ? current.TrackIds.Count : (current.TrackPaths?.Count ?? 0);
+
+                if (hasIndices)
+                {
+                    foreach (int index in indices!)
+                    {
+                        if (index < 0 || index >= currentCount)
+                        {
+                            throw new ArgumentOutOfRangeException(
+                                nameof(indices),
+                                index,
+                                $"インデックス {index} はプレイリストの収録範囲（0〜{Math.Max(0, currentCount - 1)}）外です。");
+                        }
+                    }
+                }
+
+                if (hasIds)
+                {
+                    var updatedIds = current.TrackIds.ToList();
+                    var updatedPaths = current.TrackPaths?.ToList() ?? new List<string>();
+                    bool pathsAligned = updatedPaths.Count == updatedIds.Count;
+
+                    if (hasIndices)
+                    {
+                        foreach (int index in indices!.Distinct().OrderByDescending(i => i))
+                        {
+                            updatedIds.RemoveAt(index);
+                            if (pathsAligned)
+                            {
+                                updatedPaths.RemoveAt(index);
+                            }
+
+                            removedCount++;
+                        }
+                    }
+
+                    if (hasTrackIds)
+                    {
+                        foreach (TrackId targetId in trackIds!)
+                        {
+                            bool matchedAny = false;
+                            for (int i = updatedIds.Count - 1; i >= 0; i--)
+                            {
+                                if (updatedIds[i] == targetId)
+                                {
+                                    updatedIds.RemoveAt(i);
+                                    if (pathsAligned)
+                                    {
+                                        updatedPaths.RemoveAt(i);
+                                    }
+
+                                    removedCount++;
+                                    matchedAny = true;
+                                }
+                            }
+
+                            if (!matchedAny)
+                            {
+                                skippedItems.Add(targetId.ToString());
+                            }
+                        }
+                    }
+
+                    if (removedCount == 0)
+                    {
+                        return false;
+                    }
+
+                    if (updatedIds.Count == 0)
+                    {
+                        updatedPaths.Clear();
+                    }
+                    else if (!pathsAligned || updatedPaths.Count != updatedIds.Count)
+                    {
+                        updatedPaths.Clear();
+                    }
+
+                    current.ReplaceTracks(updatedIds, updatedPaths);
+                    return true;
+                }
+                else
+                {
+                    var updatedPaths = current.TrackPaths?.ToList() ?? new List<string>();
+
+                    if (hasIndices)
+                    {
+                        foreach (int index in indices!.Distinct().OrderByDescending(i => i))
+                        {
+                            updatedPaths.RemoveAt(index);
+                            removedCount++;
+                        }
+                    }
+
+                    if (hasTrackIds)
+                    {
+                        foreach (TrackId targetId in trackIds!)
+                        {
+                            if (!tracksById.TryGetValue(targetId, out Track? resolved)
+                                || string.IsNullOrWhiteSpace(resolved.FilePath))
+                            {
+                                skippedItems.Add(targetId.ToString());
+                                continue;
+                            }
+
+                            bool matchedAny = false;
+                            for (int i = updatedPaths.Count - 1; i >= 0; i--)
+                            {
+                                if (string.Equals(updatedPaths[i], resolved.FilePath, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    updatedPaths.RemoveAt(i);
+                                    removedCount++;
+                                    matchedAny = true;
+                                }
+                            }
+
+                            if (!matchedAny)
+                            {
+                                skippedItems.Add(targetId.ToString());
+                            }
+                        }
+                    }
+
+                    if (removedCount == 0)
+                    {
+                        return false;
+                    }
+
+                    current.ReplaceTracks(Array.Empty<TrackId>(), updatedPaths);
+                    return true;
+                }
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (updatedPlaylist is null)
+        {
+            return null;
+        }
+
+        if (removedCount > 0)
+        {
+            await _eventBus.PublishAsync(new PlaylistUpdatedEvent(updatedPlaylist), cancellationToken).ConfigureAwait(false);
+        }
+
+        IReadOnlyList<Track> resolvedTracks = ResolveTracksFromLookups(updatedPlaylist, tracksById, tracksByPath);
+        return PlaylistUpdateResult.Create(updatedPlaylist, resolvedTracks, removedCount, skippedItems);
+    }
+
+    /// <summary>
+    /// プレイリスト内のトラック順序を並び替え、<see cref="UserPlaylist.TrackIds"/> と <see cref="UserPlaylist.TrackPaths"/> の整合性を維持して永続化します。
+    /// 範囲外インデックスが指定された場合は <see cref="ArgumentOutOfRangeException"/> をスローします。
+    /// </summary>
+    /// <param name="playlistId">編集対象のプレイリスト ID。</param>
+    /// <param name="fromIndex">移動元インデックス（0 始まり）。</param>
+    /// <param name="toIndex">移動先インデックス（0 始まり）。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>更新結果（対象プレイリストが存在しない場合は <see langword="null"/>）。</returns>
+    public async Task<PlaylistUpdateResult?> ReorderPlaylistTrackAsync(
+        PlaylistId playlistId,
+        int fromIndex,
+        int toIndex,
+        CancellationToken cancellationToken = default)
+    {
+        if (fromIndex < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(fromIndex), fromIndex, "fromIndex は 0 以上で指定してください。");
+        }
+
+        if (toIndex < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(toIndex), toIndex, "toIndex は 0 以上で指定してください。");
+        }
+
+        int movedCount = 0;
+
+        UserPlaylist? updatedPlaylist = await _playlistRepository.UpdateAsync(
+            playlistId,
+            current =>
+            {
+                movedCount = 0;
+                bool hasIds = current.TrackIds.Count > 0;
+                int currentCount = hasIds ? current.TrackIds.Count : (current.TrackPaths?.Count ?? 0);
+
+                if (fromIndex >= currentCount)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(fromIndex),
+                        fromIndex,
+                        $"fromIndex ({fromIndex}) はプレイリストの収録範囲外です。");
+                }
+
+                if (toIndex >= currentCount)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(toIndex),
+                        toIndex,
+                        $"toIndex ({toIndex}) はプレイリストの収録範囲外です。");
+                }
+
+                if (fromIndex == toIndex)
+                {
+                    return false;
+                }
+
+                if (hasIds)
+                {
+                    var updatedIds = current.TrackIds.ToList();
+                    var updatedPaths = current.TrackPaths?.ToList() ?? new List<string>();
+                    bool pathsAligned = updatedPaths.Count == updatedIds.Count;
+
+                    TrackId movedId = updatedIds[fromIndex];
+                    updatedIds.RemoveAt(fromIndex);
+                    updatedIds.Insert(toIndex, movedId);
+
+                    if (pathsAligned)
+                    {
+                        string movedPath = updatedPaths[fromIndex];
+                        updatedPaths.RemoveAt(fromIndex);
+                        updatedPaths.Insert(toIndex, movedPath);
+                    }
+                    else
+                    {
+                        updatedPaths.Clear();
+                    }
+
+                    current.ReplaceTracks(updatedIds, updatedPaths);
+                }
+                else
+                {
+                    var updatedPaths = current.TrackPaths!.ToList();
+                    string movedPath = updatedPaths[fromIndex];
+                    updatedPaths.RemoveAt(fromIndex);
+                    updatedPaths.Insert(toIndex, movedPath);
+                    current.ReplaceTracks(Array.Empty<TrackId>(), updatedPaths);
+                }
+
+                movedCount = 1;
+                return true;
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (updatedPlaylist is null)
+        {
+            return null;
+        }
+
+        if (movedCount > 0)
+        {
+            await _eventBus.PublishAsync(new PlaylistUpdatedEvent(updatedPlaylist), cancellationToken).ConfigureAwait(false);
+        }
+
+        IReadOnlyList<Track> resolvedTracks = await ResolvePlaylistTracksAsync(updatedPlaylist, cancellationToken).ConfigureAwait(false);
+        return PlaylistUpdateResult.Create(updatedPlaylist, resolvedTracks, movedCount);
+    }
+
+    /// <summary>
+    /// 指定されたプレイリストの名称を変更して永続化し、<see cref="PlaylistUpdatedEvent"/> を発行します。
+    /// </summary>
+    /// <param name="playlistId">編集対象のプレイリスト ID。</param>
+    /// <param name="newName">新しいプレイリスト名（前後空白はトリムされ、空文字および上限超過は <see cref="ArgumentException"/>）。</param>
+    /// <param name="cancellationToken">キャンセレーショントークン。</param>
+    /// <returns>更新結果（対象プレイリストが存在しない場合は <see langword="null"/>）。</returns>
+    public async Task<PlaylistUpdateResult?> RenamePlaylistAsync(
+        PlaylistId playlistId,
+        string newName,
+        CancellationToken cancellationToken = default)
+    {
+        string normalizedName = ValidateAndNormalizePlaylistName(newName, nameof(newName));
+        int changedCount = 0;
+
+        UserPlaylist? updatedPlaylist = await _playlistRepository.UpdateAsync(
+            playlistId,
+            current =>
+            {
+                changedCount = 0;
+                if (string.Equals(current.Name, normalizedName, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                current.Rename(normalizedName);
+                changedCount = 1;
+                return true;
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (updatedPlaylist is null)
+        {
+            return null;
+        }
+
+        if (changedCount > 0)
+        {
+            await _eventBus.PublishAsync(new PlaylistUpdatedEvent(updatedPlaylist), cancellationToken).ConfigureAwait(false);
+        }
+
+        IReadOnlyList<Track> resolvedTracks = await ResolvePlaylistTracksAsync(updatedPlaylist, cancellationToken).ConfigureAwait(false);
+        return PlaylistUpdateResult.Create(updatedPlaylist, resolvedTracks, changedCount);
+    }
+
+    private async Task<(Dictionary<TrackId, Track> TracksById, Dictionary<string, Track> TracksByPath)> LoadTrackLookupsAsync(
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Track> allTracks = await _trackRepository
+            .GetAllAsync(cancellationToken)
+            .ConfigureAwait(false)
+            ?? Array.Empty<Track>();
+
+        if (_favoriteRepository is not null && allTracks.Count > 0)
+        {
+            IReadOnlyList<FavoriteTrackEntry> favoriteEntries = await _favoriteRepository
+                .GetAllAsync(cancellationToken)
+                .ConfigureAwait(false)
+                ?? Array.Empty<FavoriteTrackEntry>();
+            FavoriteTrackMatcher.Reconcile(favoriteEntries, allTracks);
+        }
+
+        var tracksById = new Dictionary<TrackId, Track>(allTracks.Count);
+        var tracksByPath = new Dictionary<string, Track>(allTracks.Count, StringComparer.OrdinalIgnoreCase);
+
+        foreach (Track track in allTracks)
+        {
+            tracksById.TryAdd(track.Id, track);
+            if (!string.IsNullOrWhiteSpace(track.FilePath))
+            {
+                tracksByPath.TryAdd(track.FilePath, track);
+            }
+        }
+
+        return (tracksById, tracksByPath);
+    }
+
+    private static List<Track> ResolveTracksFromLookups(
+        UserPlaylist playlist,
+        Dictionary<TrackId, Track> tracksById,
+        Dictionary<string, Track> tracksByPath)
+    {
+        var resolved = new List<Track>();
+
+        if (playlist.TrackIds.Count > 0)
+        {
+            foreach (TrackId trackId in playlist.TrackIds)
+            {
+                if (tracksById.TryGetValue(trackId, out Track? track))
+                {
+                    resolved.Add(track);
+                }
+            }
+        }
+        else if (playlist.TrackPaths is { Count: > 0 })
+        {
+            foreach (string trackPath in playlist.TrackPaths)
+            {
+                if (!string.IsNullOrWhiteSpace(trackPath) && tracksByPath.TryGetValue(trackPath, out Track? track))
+                {
+                    resolved.Add(track);
+                }
+            }
+        }
+
+        return resolved;
     }
 
     /// <summary>
