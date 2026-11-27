@@ -69,7 +69,7 @@ flowchart TD
    ```powershell
    python tools/epic_tracker.py --epic <Epic番号> --next --max-parallel 3 --json
    ```
-2. `epic_tracker.py` の優先順位（`sync_branch` [コンフリクト] > `fixing_review` > `ready_to_merge` > `sync_branch` [追従] > `in_review` > `implementing` > `start_issue`）と並列スロット残数（`available_slots = max(0, max_parallel - active_slots)`）に従ってディスパッチする：
+2. `epic_tracker.py`（`compute_next_actions()`）の優先順位（`sync_branch` [コンフリクト: priority 1] > `fix_review` [priority 1] > `sync_branch` [追従: priority 2] > `ready_to_merge` [priority 3] > `review_pr` [priority 4] > `resume_implementing` [priority 5] > `start_issue` [priority 6]）と並列スロット残数（`available_slots = max(0, max_parallel - active_slots)`）に従ってディスパッチする：
    - **単一 `pending` 子 Issue の場合**:
      - 最新の `develop` ブランチから `<Type>/<子Issue番号>-<説明>` を作成し、`run-dev-loop`（Inner Loop）を実行する。
    - **同一順序グループに複数の独立した `pending` 子 Issue があり並列実行する場合（最大 `available_slots` 件、上限 3 並列）**:
@@ -90,9 +90,10 @@ flowchart TD
 ### Phase 3: ローカル Merge Queue（直列マージ）・追従同期・次サイクル遷移
 1. 承認済み（`ready_to_merge`）の PR は、複数同時マージを行わず **必ず 1 件ずつ直列** で以下の手順を実施する：
    - **マージ前追従同期・再検証**: 対象 PR のワークツリー上で `.\tools\sync_branch.ps1 -Json` を実行する。`MERGED`（先行 PR 取り込みあり）となった場合は、`.\tools\verify_loop.ps1 -Full -PreferOriginBase` の全 5 ゲート合格を確認したうえで通常 Push する（`CONFLICT` 時は `loop_engineering_rules.md` Section 4 の自動解消基準または `-Abort` エスカレーションを適用）。
-   - **マージ実行とワークツリー後始末**: PR を `develop` へマージしたら、直ちに以下を実行する：
+   - **マージ実行とワークツリー後始末**: PR を `develop` へマージしたら、**必ず親リポジトリルートへ戻ったうえで**以下を実行する（対象ワークツリー配下にカレントディレクトリがあるままだと削除時のディレクトリロックや `develop` チェックアウト競合で失敗するため）：
      ```powershell
-     .\tools\worktree_manager.ps1 -Action remove -IssueNumber <子Issue番号> -Force -Json
+     Set-Location -LiteralPath "<親リポジトリルート>"
+     if ($?) { .\tools\worktree_manager.ps1 -Action remove -IssueNumber <子Issue番号> -Force -Json }
      if ($?) { git checkout develop }
      if ($?) { git pull origin develop }
      ```
