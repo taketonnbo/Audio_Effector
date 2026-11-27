@@ -11,9 +11,11 @@ description: Epic Issue 配下の複数子 Issue を依存関係・並列グル�
 - **必須ルール**: `.agents/rules/loop_engineering_rules.md`（特に Section 5「コンテキスト分離の原則」および Section 7「Epic 運用ルール」）
 - **関連ルール**: `.agents/rules/branch_operation_rules.md`, `git_operation_rules.md`, `build_rules.md`, `test_rules.md`, `issue_pr_rules.md`
 - **連携ツール・スキル**:
-  - 進捗・依存関係トラッカー: `tools/epic_tracker.py`（状態スナップショット: `.agent_logs/epic_<番号>_state.json`）
-  - 統合検証ハーネス: `tools/verify_loop.ps1`
-  - Inner Loop: `run-dev-loop`（実装・検証・分割コミット・PR 作成・レビュー指摘対応）
+  - 進捗・依存関係・並列スロットトラッカー: `tools/epic_tracker.py`（状態スナップショット: `.agent_logs/epic_<番号>_state.json` ※親オーケストレーター単独書き込み）
+  - ワークツリー管理ツール: `tools/worktree_manager.ps1`（`.agent_worktrees/issue-<番号>` の作成・一覧・削除・整理、最大 3 並列上限ガード）
+  - ブランチ最新化・コンフリクト検知ツール: `tools/sync_branch.ps1`（非破壊マージ・コンフリクト検知 exit 2・`-DryRun`・`-Abort`）
+  - 統合検証ハーネス: `tools/verify_loop.ps1`（`origin/develop` 自動優先解決・名前付き Mutex ビルド保護・ワークツリーレポート拡張）
+  - Inner Loop: `run-dev-loop`（実装・検証・分割コミット・PR 作成・レビュー指摘対応・最新化同期）
   - 公式 PR レビュー: `review-pr`（※必ず実装とは独立したコンテキストで実行）
   - レビュー指摘対応: `address-pr-review`
 
@@ -40,32 +42,42 @@ flowchart TD
 
 ## ワークフロー手順
 
-### Phase 0: Epic 初期化・実行計画確定
-1. `tools/epic_tracker.py` を実行し、Epic 本文から全子 Issue・実施順序・依存関係・並列グループ・現在のライブ状態を取得・可視化する：
+### Phase 0: Epic 初期化・実行計画確定・事前コンフリクト回避チェック
+1. `tools/epic_tracker.py` を実行し、Epic 本文から全子 Issue・実施順序・依存関係・並列グループ・PR マージ状態・稼働中ワークツリー・並列スロット残数を取得・可視化する：
    ```powershell
-   python tools/epic_tracker.py --epic <Epic番号>
+   python tools/epic_tracker.py --epic <Epic番号> --max-parallel 3
    ```
-   - 状態スナップショットは `.agent_logs/epic_<Epic番号>_state.json` へ自動保存され、セッションを跨いでも `--offline` または再実行で進捗を引き継げる。
+   - 状態スナップショットは `.agent_logs/epic_<Epic番号>_state.json` へ自動保存され、セッションを跨いでも `--offline` または再実行で進捗を引き継げる（このファイルの更新は親オーケストレーター専用とする）。
 2. ユーザーと以下の **運用モード** を確定する（未指定の場合は安全な既定値を採用する）：
+   - **最大並列数**: 既定 `3`（上限 `3`、最小 `1`）。
    - **レビュー運用モード**:
      - **半自動（既定）**: PR 作成後、人間または別セッションでの `review-pr` 実施を待つ。
      - **自動**: 実装セッションとは**完全に独立したコンテキストの新規サブエージェント**を起動して `review-pr` を実行する（実装コンテキストを共有しない）。
    - **マージ方針**:
      - **手動マージ（既定）**: レビュー完了後、ユーザーが GitHub 上で `develop` へマージする。
-     - **条件付き自動マージ**: ユーザーが明示承認した場合のみ、**独立コンテキストでの `review-pr` 完了済み**、かつ未解決レビュー指摘 0 件、かつ `tools/verify_loop.ps1 -Full` 合格済みの PR を `develop` へマージする。
-3. Epic 本文の依存関係に循環依存や不明な外部依存の警告が出ている場合は、着手前にユーザーへ確認する。
+     - **条件付き自動マージ**: ユーザーが明示承認した場合のみ、**独立コンテキストでの `review-pr` 完了済み**、かつ未解決レビュー指摘 0 件、かつ最新 `origin/develop` 同期後の `tools/verify_loop.ps1 -Full -PreferOriginBase` 合格済みの PR を **ローカル Merge Queue で 1 件ずつ直列に** `develop` へマージする。
+3. **事前コンフリクト回避チェック（事前スコープ分離）**:
+   - 同一順序グループに複数の `pending` 子 Issue が存在する場合、並列着手前に各子 Issue の変更対象ファイルを確認する。
+   - 以下の **ホットスポットファイル** に複数子 Issue の大規模変更が重複する見込みが高い場合は、無理に並列化せず直列実行へ切り替えるか、変更責務を明確に分離してから着手する：
+     - `AudioEffector.sln`, `*.csproj`
+     - `App.xaml.cs`, `MainViewModel.cs`
+     - `設計/spec_map.json`
+4. Epic 本文の依存関係に循環依存や不明な外部依存・残留ワークツリーの警告が出ている場合は、着手前に確認・整理する。
 
-### Phase 1: 次タスク選定・ディスパッチ
+### Phase 1: 次タスク選定・並列ディスパッチ（最大 3 並列）
 1. 次に実行すべきアクションを機械的に取得する：
    ```powershell
-   python tools/epic_tracker.py --epic <Epic番号> --next --json
+   python tools/epic_tracker.py --epic <Epic番号> --next --max-parallel 3 --json
    ```
-2. 優先順位（`fixing_review` > `in_review` > `implementing` > `pending`）に従ってディスパッチする：
+2. `epic_tracker.py`（`compute_next_actions()`）の優先順位（`sync_branch` [コンフリクト: priority 1] > `sync_branch` [追従: priority 2] / `fix_review` [priority 2] > `ready_to_merge` [priority 3] > `review_pr` [priority 4] > `resume_implementing` [priority 5] > `start_issue` [priority 6]）と並列スロット残数（`available_slots = max(0, max_parallel - active_slots)`）に従ってディスパッチする：
    - **単一 `pending` 子 Issue の場合**:
      - 最新の `develop` ブランチから `<Type>/<子Issue番号>-<説明>` を作成し、`run-dev-loop`（Inner Loop）を実行する。
-   - **同一順序グループに複数の独立した `pending` 子 Issue があり並列実行する場合**:
-     - ワークスペース競合および `.agent_build/` 競合を防ぐため、必ず **`git worktree` またはワークスペース分離機能（`branch` / `share`）** を用いて子 Issue ごとに独立した作業ツリーを割り当てる。
-     - 各作業ツリー内で独立に `run-dev-loop`（および `.\tools\verify_loop.ps1 -Full`）を実行する。
+   - **同一順序グループに複数の独立した `pending` 子 Issue があり並列実行する場合（最大 `available_slots` 件、上限 3 並列）**:
+     - 親オーケストレーターが `tools/worktree_manager.ps1` を用いて子 Issue ごとに `.agent_worktrees/issue-<子Issue番号>` を作成する：
+       ```powershell
+       .\tools\worktree_manager.ps1 -Action create -IssueNumber <子Issue番号> -BranchName "<Type>/<子Issue番号>-<説明>" -MaxParallel 3 -Json
+       ```
+     - 各並列ワーカーには **自担当ワークツリーパス内のみでの編集・ビルド・テスト・コミット・Push・PR 作成** を厳命し、自ワークツリー配下の `.agent_logs/verify_issue_<子Issue番号>.json` のみ出力させる（親リポジトリ直下・他ワークツリー・`.agent_logs/epic_<番号>_state.json` への書き込み禁止）。
      - 同一の作業ディレクトリ上で複数子 Issue の編集・ビルド・テストを同時実行してはならない。
 
 ### Phase 2: 別セッションレビュー連携・指摘対応
@@ -75,11 +87,18 @@ flowchart TD
    - `address-pr-review` スキルに従い全指摘の妥当性判定 → 修正 → **`.\tools\verify_loop.ps1 -Full -JsonOut ".agent_logs\verify_review.json"`** → 分割追加コミット＆通常 Push（`--force` 禁止）→ 各コメント返信を行う。
    - 再レビューが必要な場合は再び独立コンテキストへ引き継ぐ（最大 5 往復）。
 
-### Phase 3: マージ反映・次サイクル遷移
-1. 子 Issue の PR が `develop` へマージされたら、以下を実施する：
-   - 未コミット差分がないことを確認したうえで、ローカルの `develop` を最新化する（`git checkout develop; if ($?) { git pull origin develop }`）。
-   - 並列実行で作成した一時ワークツリーや不要な `.agent_build/` が残っていれば必ずクリーンアップする（`git worktree remove <path>; git worktree prune`）。
-   - `python tools/epic_tracker.py --epic <Epic番号>` を再実行して依存解消された次の子 Issue を確認し、Phase 1 へ戻る。
+### Phase 3: ローカル Merge Queue（直列マージ）・追従同期・次サイクル遷移
+1. 承認済み（`ready_to_merge`）の PR は、複数同時マージを行わず **必ず 1 件ずつ直列** で以下の手順を実施する：
+   - **マージ前追従同期・再検証**: 対象 PR のワークツリー上で `.\tools\sync_branch.ps1 -Json` を実行する。`MERGED`（先行 PR 取り込みあり）となった場合は、`.\tools\verify_loop.ps1 -Full -PreferOriginBase` の全 5 ゲート合格を確認したうえで通常 Push する（`CONFLICT` 時は `loop_engineering_rules.md` Section 4 の自動解消基準または `-Abort` エスカレーションを適用）。
+   - **マージ実行とワークツリー後始末**: PR を `develop` へマージしたら、**必ず親リポジトリルートへ戻ったうえで**以下を実行する（対象ワークツリー配下にカレントディレクトリがあるままだと削除時のディレクトリロックや `develop` チェックアウト競合で失敗するため）：
+     ```powershell
+     Set-Location -LiteralPath "<親リポジトリルート>"
+     if ($?) { .\tools\worktree_manager.ps1 -Action remove -IssueNumber <子Issue番号> -Force -Json }
+     if ($?) { git checkout develop }
+     if ($?) { git pull origin develop }
+     ```
+   - **残存並列 PR への順次追従同期**: 他に稼働中またはレビュー済みの並列 PR が残っている場合、`python tools/epic_tracker.py --epic <Epic番号> --next --max-parallel 3` を再実行して `sync_branch` / `ready_to_merge` 状態を再評価し、次の 1 件に対して追従同期 → 検証 → マージを順次繰り返す。
+   - 孤立ディレクトリが残っている場合は `.\tools\worktree_manager.ps1 -Action prune -Json` で整理する（既定で稼働中ワークツリーの `.agent_build/` は保護される）。
 2. 子 Issue が Inner Loop の停止条件に到達し `blocked` となった場合：
    - ローカル状態へ記録する（GitHub への不要な書き込みは行わない）：
      ```powershell

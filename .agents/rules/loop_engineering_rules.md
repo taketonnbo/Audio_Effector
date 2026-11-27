@@ -58,9 +58,15 @@ description: AI エージェントによる自律開発ループ（ループエ�
   - 意味のある単位（例: ドメイン実装、ViewModel 実装、UI 実装、テスト追加）で検証が通った段階で小さくコミットし、失敗時に直前の安定状態へ安全に巻き戻せる状態を保ちます。
   - 既にリモートへプッシュ済みかつレビューコメントが紐づく PR では、履歴書き換え（`git push --force`）を行わず、追加コミットで修正を積みます。
 - **ハング防止と一時ファイル管理**:
-  - ビルド・テストの長時間ハングを防ぐため、[build_rules.md](build_rules.md) のタイムアウト管理・即時 `kill` ルールを厳守します。`tools/verify_loop.ps1` のタイムアウト保護（`-BuildTimeoutSeconds` / `-TestTimeoutSeconds`）を無効化してはなりません。
+  - ビルド・テストの長時間ハングを防ぐため、[build_rules.md](build_rules.md) のタイムアウト管理・即時 `kill` ルールを厳守します。`tools/verify_loop.ps1` のタイムアウト保護（`-BuildTimeoutSeconds` / `-TestTimeoutSeconds`）および並列ビルド競合保護 Mutex（`-BuildLockTimeoutSeconds`、通常の検証での `-NoBuildLock` 指定禁止）を無効化してはなりません。
   - 実行終了後（正常・異常問わず）に `.agent_build/` が残留していないことを確認します。
   - ループ実行時のログや JSON レポートは `.gitignore` 登録済みの `.agent_logs/` 配下にのみ保存し、`git status` やコミットへ混入させてはなりません。
+- **ブランチ最新化と自動コンフリクト解消基準**:
+  - Push 済み・レビュー紐づき PR の履歴保全のため、`git rebase` や `git push --force` は使用せず、`tools/sync_branch.ps1` による非破壊マージ（`git merge --no-edit origin/develop`）を標準とします。
+  - コンフリクト発生時（`tools/sync_branch.ps1` 終了コード `2` / `status: "CONFLICT"`）の対応境界は以下の通りとします：
+    - **自動解消を許可する範囲**: `using` / `import` の独立追記、`.csproj` や `設計/spec_map.json` の独立エントリ追加、DI 登録・ファクトリ登録の独立追記、テストケースの独立追記など、意図が明確かつ相互独立なマージ衝突。
+    - **即時ロールバック（`tools/sync_branch.ps1 -Abort` / `git merge --abort`）しユーザーへエスカレーションすべき範囲**: 同一メソッド・同一業務ロジックの意味的衝突、アーキテクチャや仕様判断を伴う衝突、バイナリ・生成物の衝突、または自動解消後の `tools/verify_loop.ps1 -Full` が **連続 2 回失敗** した場合。
+  - コンフリクトを自動解消した後は、コミット・Push 前に **必ず `.\tools\verify_loop.ps1 -Full` の全 5 ゲート合格（終了コード `0`）** を再確認します。
 - **シェル構文の互換性（Windows PowerShell 5.1 準拠）**:
   - 本環境の既定シェルは Windows PowerShell 5.1（`&&` 演算子非対応）のため、コマンド連結やスキル内手順では `&&` を使用せず、`; if ($?) { ... }` または `$LASTEXITCODE` チェックを用いて前段失敗時の連鎖実行を防止します。
 
@@ -102,23 +108,34 @@ description: AI エージェントによる自律開発ループ（ループエ�
 
 複数の子 Issue を束ねる Epic Issue を自律推進する外側ループ（Outer Loop: `run-epic-loop` / `tools/epic_tracker.py`）では、単一 Issue 用のルール（Section 1〜6）に加えて以下のガードレールを厳守します。
 
-### 7.1 進捗追跡とセッション跨ぎ再開
-- Epic 配下の各子 Issue の状態（`pending`, `waiting_deps`, `implementing`, `in_review`, `fixing_review`, `merged`, `blocked`）および依存関係は、`tools/epic_tracker.py --epic <Epic番号>` を用いて機械的に同期・判定します。
-- 状態スナップショットは `.gitignore` 登録済みの `.agent_logs/epic_<Epic番号>_state.json` に保存し、Git 管理対象を汚さずにセッション跨ぎで再開可能とします。
+### 7.1 進捗追跡・セッション跨ぎ再開と状態ファイルの単一書き込み原則
+- Epic 配下の各子 Issue の状態（`pending`, `waiting_deps`, `implementing`, `in_review`, `fixing_review`, `merged`, `blocked`）、PR マージ可否（`CLEAN` / `BEHIND` / `CONFLICTING`）、稼働中ワークツリー、および並列スロット残数は、`tools/epic_tracker.py --epic <Epic番号> --max-parallel 3` を用いて機械的に同期・判定します。
+- **状態ファイルの単一書き込み原則**: `.agent_logs/epic_<Epic番号>_state.json` の読み書きは **Outer Loop（親オーケストレーター）の単独責務** とします。並列稼働する各ワーカーは親の Epic 状態ファイルを直接編集・上書きしてはならず、自ワークツリー配下の検証ログ（例: `.agent_logs/verify_issue_<子Issue番号>.json`）のみを出力します。
 - トラッカー自体は読み取り専用（GitHub Issue/PR への書き込みを行わない）として運用し、`blocked` の記録・解除もローカル状態スナップショット上で行います。
 
-### 7.2 ブランチ・ワークツリー衛生管理（並列実行時の隔離）
-- 同一順序グループに属する独立した子 Issue を並列実行する場合、**同一の作業ディレクトリ上で複数ブランチの編集・ビルド・テストを混在させてはなりません**。
-- 並列実行時は必ず `git worktree` またはエージェントのワークスペース分離機能（`branch` / `share`）を使用し、子 Issue ごとに独立した作業ツリーを確保します。
-- 隔離ビルドディレクトリ（`.agent_build/`）は各作業ツリーのルート配下に独立作成し、他ワークツリーのビルド成果物と競合させないこと。
-- 子 Issue の PR 作成・マージ完了後、または並列タスクの中断時には、作成した一時ワークツリーおよび `.agent_build/` を速やかに削除・整理します（`git worktree remove` / `git worktree prune`）。
+### 7.2 最大並列数上限とブランチ・ワークツリー衛生管理
+- **最大並列数上限**: 同時並列実行数は **最大 3 並列**（既定値 `3`）を上限とします。上限を超える新規ワークツリー作成および並列ディスパッチを行ってはなりません。
+- **ワークツリー標準配置と一元管理**:
+  - 同一順序グループに属する独立した子 Issue を並列実行する場合、**同一の作業ディレクトリ上で複数ブランチの編集・ビルド・テストを混在させてはなりません**。
+  - 並列作業は必ず `.gitignore` 済みの `.agent_worktrees/issue-<子Issue番号>` を標準配置先とし、`tools/worktree_manager.ps1`（`create` / `list` / `remove` / `prune`）を用いて一元管理します。
+  - 隔離ビルドディレクトリ（`.agent_build/`）は各作業ツリーのルート配下に独立作成し、Gate 1 ビルド工程は `tools/verify_loop.ps1` の名前付き Mutex（`Local\AudioEffector_VerifyLoop_BuildLock`）で安全に直列化します。
+  - ワークツリー内での `tools/verify_loop.ps1` 実行時は、`origin/develop` を比較ベースとして自動優先（`-PreferOriginBase` 相当）し、親ローカル `develop` の古さによる比較ズレを防ぎます。
+  - 子 Issue の PR マージ完了後または中断時には、`tools/worktree_manager.ps1 -Action remove -IssueNumber <子Issue番号> -Force` で対象ワークツリーおよび `.agent_build/` を速やかに削除します（`.agent_logs/` 等の未追跡ログがワークツリー内に残るため `-Force` を併用）。また、`prune` は既定で稼働中ワークツリーの `.agent_build/` を保護します。
 
 ### 7.3 Epic 進行時のコンテキスト分離徹底
 - Epic のオーケストレーション中であっても、Section 5（コンテキスト分離の原則）を一切緩和してはなりません。
 - Outer Loop のオーケストレーターおよび子 Issue の実装セッションは、担当した PR に対して直接 `review-pr` を実行・コメント投稿してはなりません。
 - 自動レビュー運用モードを選択した場合でも、必ず **実装時の会話履歴・前提を引き継がない独立セッションまたは新規独立サブエージェント** を起動して `review-pr` を実施します。
 
-### 7.4 Epic レベルの停止条件・エスカレーション基準
+### 7.4 マージ直列化（ローカル Merge Queue）
+- 子 Issue の実装・検証および独立エージェントによる PR レビューは **最大 3 並列** で並行推進して構いませんが、`develop` ブランチへのマージは **必ず 1 件ずつ直列** で実施します。
+- 各 PR のマージ直前には以下の順序を厳守し、複数 PR の同時マージによる論理コンフリクト（`develop` 破損）を防止します：
+  1. 対象ワークツリー上で `.\tools\sync_branch.ps1 -Json` を実行し、最新の `origin/develop` を非破壊マージで取り込む（`CONFLICT` 時は Section 4 の自動解消基準または `-Abort` エスカレーションに従う）。
+  2. 取り込みが発生した（`MERGED`）場合、対象ワークツリー上で `.\tools\verify_loop.ps1 -Full -PreferOriginBase` の全 5 ゲート合格を確認し、マージコミットを通常 Push する。
+  3. PR を `develop` へマージし、直ちに `tools/worktree_manager.ps1 -Action remove -IssueNumber <子Issue番号> -Force` でワークツリーを削除し、親リポジトリの `develop` を最新化する。
+  4. 残存する他並列 PR に対して次のマージキュー順番で 1〜3 を順次繰り返す。
+
+### 7.5 Epic レベルの停止条件・エスカレーション基準
 Inner Loop 単体の停止条件（Section 3）に加え、以下のいずれかに該当した時点で、該当する停止範囲に従い **Outer Loop 全体の一時停止** または **依存後続 Issue の部分保留** を行い、ユーザーへエスカレーションします。
 
 | 条件カテゴリ | Epic 停止基準 | 停止範囲 | エスカレーション時に報告すべき内容 |
