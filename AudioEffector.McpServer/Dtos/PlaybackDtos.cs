@@ -50,6 +50,21 @@ public sealed record PlaybackQueueResponse(
     IReadOnlyList<PlayedTrackDto> AlbumQueue);
 
 /// <summary>
+/// <c>enqueue_tracks</c> ツールの応答データ DTO です。
+/// </summary>
+/// <param name="Position">キューへの追加位置（<c>next</c>: 次に再生 / <c>last</c>: キュー末尾に追加）。</param>
+/// <param name="AddedCount">キューへ追加されたトラック件数。</param>
+/// <param name="UserQueueCount">追加後の予約キュー総件数。</param>
+/// <param name="AlbumQueueCount">追加後のアルバム残り曲キュー総件数。</param>
+/// <param name="AddedTracks">キューへ追加されたトラック情報一覧（順序保持）。</param>
+public sealed record EnqueueTracksResponse(
+    string Position,
+    int AddedCount,
+    int UserQueueCount,
+    int AlbumQueueCount,
+    IReadOnlyList<PlayedTrackDto> AddedTracks);
+
+/// <summary>
 /// 基本再生制御ツール（<c>pause_playback</c>・<c>resume_playback</c>・<c>stop_playback</c>・<c>next_track</c>・<c>previous_track</c>）の統一応答データ DTO です。
 /// </summary>
 /// <param name="Action">実行された操作名（<c>pause_playback</c> / <c>resume_playback</c> / <c>stop_playback</c> / <c>next_track</c> / <c>previous_track</c>）。</param>

@@ -169,6 +169,142 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
     }
 
     /// <inheritdoc />
+    public async Task<PlaybackControlResult<EnqueueTracksResponse>> EnqueueTracksAsync(
+        IReadOnlyList<TrackId>? trackIds,
+        IReadOnlyList<string>? filePaths,
+        AlbumId? albumId,
+        bool playNext,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // --data-dir によるカスタムディレクトリ使用時は MCP 側ライブラリと WPF 側既定ライブラリが異なるため、
+        // MCP 側で trackIds / albumId をファイルパス一覧へ解決してから WPF 側へ送信する
+        if (_dataDirectoryProvider is { IsCustomDirectory: true }
+            && ((trackIds is { Count: > 0 } && _trackRepository is not null)
+                || (albumId.HasValue && _libraryService is not null)))
+        {
+            return await EnqueueCustomDirectoryTracksAsync(
+                trackIds,
+                filePaths,
+                albumId,
+                playNext,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        IReadOnlyList<string>? requestTrackIds = trackIds is { Count: > 0 }
+            ? trackIds.Select(id => id.Value.ToString("D")).ToList()
+            : null;
+        IReadOnlyList<string>? requestFilePaths = filePaths is { Count: > 0 }
+            ? filePaths.Select(p => p.Trim()).ToList()
+            : null;
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_ENQUEUE_TRACKS,
+            DeadlineUtc: DateTimeOffset.UtcNow + _commandTimeout,
+            AlbumId: albumId?.Value.ToString("D"),
+            TrackIds: requestTrackIds,
+            FilePaths: requestFilePaths,
+            PlayNext: playNext);
+
+        return await SendCommandAsync(
+            request,
+            response => MapEnqueueTracksSuccessResponse(response, localTracks: null),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<PlaybackControlResult<EnqueueTracksResponse>> EnqueueCustomDirectoryTracksAsync(
+        IReadOnlyList<TrackId>? trackIds,
+        IReadOnlyList<string>? filePaths,
+        AlbumId? albumId,
+        bool playNext,
+        CancellationToken cancellationToken)
+    {
+        var resolvedFilePaths = new List<string>();
+        var localTracks = new List<Track>();
+
+        if (trackIds is { Count: > 0 } && _trackRepository is not null)
+        {
+            foreach (TrackId trackId in trackIds)
+            {
+                Track? localTrack = await _trackRepository
+                    .GetByIdAsync(trackId, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (localTrack is null)
+                {
+                    return PlaybackControlResult<EnqueueTracksResponse>.Failure(
+                        McpErrorCodes.NOT_FOUND,
+                        McpErrorMapper.GetPublicMessage(McpErrorCodes.NOT_FOUND));
+                }
+
+                if (string.IsNullOrWhiteSpace(localTrack.FilePath) || !_fileExists(localTrack.FilePath))
+                {
+                    return PlaybackControlResult<EnqueueTracksResponse>.Failure(
+                        McpErrorCodes.FILE_NOT_FOUND,
+                        McpErrorMapper.GetPublicMessage(McpErrorCodes.FILE_NOT_FOUND));
+                }
+
+                resolvedFilePaths.Add(localTrack.FilePath);
+                localTracks.Add(localTrack);
+            }
+        }
+
+        if (filePaths is { Count: > 0 })
+        {
+            foreach (string path in filePaths)
+            {
+                resolvedFilePaths.Add(path.Trim());
+            }
+        }
+
+        if (albumId.HasValue && _libraryService is not null)
+        {
+            Album? resolvedAlbum = await _libraryService
+                .GetAlbumByIdAsync(albumId.Value, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (resolvedAlbum is null)
+            {
+                return PlaybackControlResult<EnqueueTracksResponse>.Failure(
+                    McpErrorCodes.NOT_FOUND,
+                    McpErrorMapper.GetPublicMessage(McpErrorCodes.NOT_FOUND));
+            }
+
+            List<Track> playableTracks = resolvedAlbum.Tracks
+                .OrderBy(t => t.TrackNumber)
+                .ThenBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(t => t.Id.Value)
+                .Where(t => !string.IsNullOrWhiteSpace(t.FilePath) && _fileExists(t.FilePath))
+                .ToList();
+
+            if (playableTracks.Count == 0)
+            {
+                return PlaybackControlResult<EnqueueTracksResponse>.Failure(
+                    McpErrorCodes.FILE_NOT_FOUND,
+                    McpErrorMapper.GetPublicMessage(McpErrorCodes.FILE_NOT_FOUND));
+            }
+
+            foreach (Track track in playableTracks)
+            {
+                resolvedFilePaths.Add(track.FilePath);
+                localTracks.Add(track);
+            }
+        }
+
+        var request = new AppIpcRequest(
+            Command: AppIpcServer.COMMAND_ENQUEUE_TRACKS,
+            DeadlineUtc: DateTimeOffset.UtcNow + _commandTimeout,
+            FilePaths: resolvedFilePaths,
+            PlayNext: playNext);
+
+        return await SendCommandAsync(
+            request,
+            response => MapEnqueueTracksSuccessResponse(response, localTracks),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public Task<PlaybackControlResult<PlaybackActionResponse>> PausePlaybackAsync(
         CancellationToken cancellationToken = default)
     {
@@ -689,6 +825,57 @@ public sealed class IpcPlaybackControlGateway : IPlaybackControlGateway
             AlbumQueue: albumQueue);
 
         return PlaybackControlResult<PlaybackQueueResponse>.Success(dto);
+    }
+
+    private PlaybackControlResult<EnqueueTracksResponse> MapEnqueueTracksSuccessResponse(
+        AppIpcResponse response,
+        List<Track>? localTracks)
+    {
+        bool isKnownPosition = string.Equals(response.Position, PlaybackIpcCommandHandler.QUEUE_POSITION_NEXT, StringComparison.Ordinal)
+            || string.Equals(response.Position, PlaybackIpcCommandHandler.QUEUE_POSITION_LAST, StringComparison.Ordinal);
+
+        if (!isKnownPosition
+            || !response.AddedCount.HasValue
+            || response.AddedCount.Value <= 0
+            || !response.UserQueueCount.HasValue
+            || response.UserQueueCount.Value < 0
+            || !response.AlbumQueueCount.HasValue
+            || response.AlbumQueueCount.Value < 0
+            || response.AddedTracks is null
+            || response.AddedTracks.Count == 0)
+        {
+            LogIpcCommunicationFailedDelegate(_logger, _pipeName, null);
+            return PlaybackControlResult<EnqueueTracksResponse>.Failure(
+                McpErrorCodes.IPC_CONNECTION_FAILED,
+                McpErrorMapper.GetPublicMessage(McpErrorCodes.IPC_CONNECTION_FAILED));
+        }
+
+        List<PlayedTrackDto> addedTracks = response.AddedTracks
+            .Select(trackInfo =>
+            {
+                PlayedTrackDto trackDto = PlayedTrackDto.FromIpcTrackInfo(trackInfo);
+                if (localTracks is not null)
+                {
+                    Track? matchedLocal = localTracks.FirstOrDefault(t =>
+                        string.Equals(t.FilePath, trackInfo.FilePath, StringComparison.OrdinalIgnoreCase));
+                    if (matchedLocal is not null)
+                    {
+                        trackDto = trackDto with { Id = matchedLocal.Id.Value };
+                    }
+                }
+
+                return trackDto;
+            })
+            .ToList();
+
+        var dto = new EnqueueTracksResponse(
+            Position: response.Position!,
+            AddedCount: response.AddedCount.Value,
+            UserQueueCount: response.UserQueueCount.Value,
+            AlbumQueueCount: response.AlbumQueueCount.Value,
+            AddedTracks: addedTracks);
+
+        return PlaybackControlResult<EnqueueTracksResponse>.Success(dto);
     }
 
     private PlaybackControlResult<PlaybackActionResponse> MapPlaybackActionSuccessResponse(

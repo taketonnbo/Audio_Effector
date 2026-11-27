@@ -27,6 +27,22 @@ public interface IPlaybackControlGateway
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 指定された楽曲（トラック ID 一覧・音声ファイルパス一覧）またはアルバムを起動中の Audio Effector 本体の再生キューへ追加します。
+    /// </summary>
+    /// <param name="trackIds">キューへ追加するトラック ID 一覧（省略可）。</param>
+    /// <param name="filePaths">キューへ追加する音声ファイル絶対パス一覧（省略可）。</param>
+    /// <param name="albumId">アルバム単位でキューへ追加する場合のアルバム ID（省略可）。</param>
+    /// <param name="playNext"><see langword="true"/> の場合は「次に再生」、<see langword="false"/> の場合は「キュー末尾に追加」。</param>
+    /// <param name="cancellationToken">キャンセル要求トークン。</param>
+    /// <returns>キュー追加結果または標準エラーコードを含む処理結果。</returns>
+    Task<PlaybackControlResult<EnqueueTracksResponse>> EnqueueTracksAsync(
+        IReadOnlyList<TrackId>? trackIds,
+        IReadOnlyList<string>? filePaths,
+        AlbumId? albumId,
+        bool playNext,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 起動中の Audio Effector 本体の再生を一時停止します。
     /// </summary>
     /// <param name="cancellationToken">キャンセル要求トークン。</param>
