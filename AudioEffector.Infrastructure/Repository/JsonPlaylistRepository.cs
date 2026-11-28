@@ -26,10 +26,11 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
     };
 
     private static readonly string _legacyPlaylistIdNamespace = "AudioEffector.Playlist.Legacy.v1";
-    private readonly string _filePath;
+    private readonly Func<string> _filePathResolver;
     private readonly IJsonFileLockHelper _fileLockHelper;
     private readonly Dictionary<PlaylistId, UserPlaylist> _playlists = new();
     private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private string? _lastLoadedFilePath;
     private FileMetadataSnapshot _lastLoadedMetadata = FileMetadataSnapshot.Missing;
     private bool _isLoaded;
     private bool _disposed;
@@ -43,38 +44,58 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
     {
         _fileLockHelper = fileLockHelper ?? JsonFileLockHelper.Default;
 
+        string resolvedFilePath;
         if (string.IsNullOrWhiteSpace(filePath))
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string appDir = Path.Combine(appData, "AudioEffector");
             Directory.CreateDirectory(appDir);
-            _filePath = Path.Combine(appDir, "playlists.json");
+            resolvedFilePath = Path.Combine(appDir, "playlists.json");
         }
         else
         {
-            _filePath = filePath;
+            resolvedFilePath = filePath;
         }
+
+        _filePathResolver = () => resolvedFilePath;
     }
 
-    private async Task EnsureLoadedAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// データディレクトリプロバイダを指定してJsonPlaylistRepositoryを初期化します（保存先変更へ動的追従）
+    /// </summary>
+    /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ</param>
+    /// <param name="fileLockHelper">プロセス間ファイルロックおよび原子的書き込みヘルパー（未指定時は既定実装）</param>
+    public JsonPlaylistRepository(IDataDirectoryProvider dataDirectoryProvider, IJsonFileLockHelper? fileLockHelper = null)
     {
-        FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
-        if (_isLoaded && currentMetadata == _lastLoadedMetadata)
+        ArgumentNullException.ThrowIfNull(dataDirectoryProvider);
+        _fileLockHelper = fileLockHelper ?? JsonFileLockHelper.Default;
+        _filePathResolver = () => dataDirectoryProvider.GetFilePath("playlists.json");
+    }
+
+    private bool IsCacheFresh(string filePath, FileMetadataSnapshot currentMetadata) =>
+        _isLoaded
+        && string.Equals(_lastLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase)
+        && currentMetadata == _lastLoadedMetadata;
+
+    private async Task EnsureLoadedAsync(string filePath, CancellationToken cancellationToken)
+    {
+        FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(filePath);
+        if (IsCacheFresh(filePath, currentMetadata))
         {
             return;
         }
 
         using IDisposable fileLock = await _fileLockHelper
-            .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+            .AcquireLockAsync(filePath, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        await ReloadFromDiskCoreAsync(forceReload: false, cancellationToken).ConfigureAwait(false);
+        await ReloadFromDiskCoreAsync(filePath, forceReload: false, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task ReloadFromDiskCoreAsync(bool forceReload, CancellationToken cancellationToken)
+    private async Task ReloadFromDiskCoreAsync(string filePath, bool forceReload, CancellationToken cancellationToken)
     {
-        FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
-        if (!forceReload && _isLoaded && currentMetadata == _lastLoadedMetadata)
+        FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(filePath);
+        if (!forceReload && IsCacheFresh(filePath, currentMetadata))
         {
             return;
         }
@@ -82,6 +103,7 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         if (!currentMetadata.Exists)
         {
             _playlists.Clear();
+            _lastLoadedFilePath = filePath;
             _lastLoadedMetadata = FileMetadataSnapshot.Missing;
             _isLoaded = true;
             return;
@@ -89,7 +111,7 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
 
         try
         {
-            string json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
+            string json = await File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
             var dtos = JsonSerializer.Deserialize<List<PlaylistDto>>(json, _jsonOptions);
             _playlists.Clear();
             if (dtos != null)
@@ -121,22 +143,24 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
             _playlists.Clear();
         }
 
+        _lastLoadedFilePath = filePath;
         _lastLoadedMetadata = currentMetadata;
         _isLoaded = true;
     }
 
     private async Task<FileMetadataSnapshot> WritePlaylistsAtomicCoreAsync(
+        string filePath,
         IEnumerable<UserPlaylist> candidatePlaylists,
         CancellationToken cancellationToken)
     {
         var dtos = candidatePlaylists.Select(PlaylistDto.FromEntity).ToList();
         string json = JsonSerializer.Serialize(dtos, _jsonOptions);
 
-        await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
-        return _fileLockHelper.GetFileMetadata(_filePath);
+        await _fileLockHelper.WriteAllTextAtomicAsync(filePath, json, cancellationToken).ConfigureAwait(false);
+        return _fileLockHelper.GetFileMetadata(filePath);
     }
 
-    private void CommitCache(Dictionary<PlaylistId, UserPlaylist> candidate, FileMetadataSnapshot updatedMetadata)
+    private void CommitCache(string filePath, Dictionary<PlaylistId, UserPlaylist> candidate, FileMetadataSnapshot updatedMetadata)
     {
         _playlists.Clear();
         foreach (KeyValuePair<PlaylistId, UserPlaylist> pair in candidate)
@@ -144,6 +168,7 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
             _playlists[pair.Key] = pair.Value;
         }
 
+        _lastLoadedFilePath = filePath;
         _lastLoadedMetadata = updatedMetadata;
         _isLoaded = true;
     }
@@ -159,7 +184,8 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            string filePath = _filePathResolver();
+            await EnsureLoadedAsync(filePath, cancellationToken).ConfigureAwait(false);
             return _playlists.TryGetValue(id, out var playlist) ? playlist : null;
         }
         finally
@@ -178,7 +204,8 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+            string filePath = _filePathResolver();
+            await EnsureLoadedAsync(filePath, cancellationToken).ConfigureAwait(false);
             return _playlists.Values.ToList();
         }
         finally
@@ -200,18 +227,19 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            string filePath = _filePathResolver();
             using IDisposable fileLock = await _fileLockHelper
-                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .AcquireLockAsync(filePath, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
+            await ReloadFromDiskCoreAsync(filePath, forceReload: true, cancellationToken).ConfigureAwait(false);
             var candidate = new Dictionary<PlaylistId, UserPlaylist>(_playlists)
             {
                 [playlist.Id] = playlist,
             };
 
-            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
-            CommitCache(candidate, updatedMetadata);
+            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(filePath, candidate.Values, cancellationToken).ConfigureAwait(false);
+            CommitCache(filePath, candidate, updatedMetadata);
         }
         finally
         {
@@ -232,8 +260,9 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            string filePath = _filePathResolver();
             using IDisposable fileLock = await _fileLockHelper
-                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .AcquireLockAsync(filePath, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
             var candidate = new Dictionary<PlaylistId, UserPlaylist>(playlists.Count);
@@ -245,8 +274,8 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
                 }
             }
 
-            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
-            CommitCache(candidate, updatedMetadata);
+            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(filePath, candidate.Values, cancellationToken).ConfigureAwait(false);
+            CommitCache(filePath, candidate, updatedMetadata);
         }
         finally
         {
@@ -271,19 +300,20 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            string filePath = _filePathResolver();
             using IDisposable fileLock = await _fileLockHelper
-                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .AcquireLockAsync(filePath, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
+            await ReloadFromDiskCoreAsync(filePath, forceReload: true, cancellationToken).ConfigureAwait(false);
             var candidate = new Dictionary<PlaylistId, UserPlaylist>(_playlists);
             if (!candidate.Remove(id, out UserPlaylist? removed))
             {
                 return null;
             }
 
-            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(candidate.Values, cancellationToken).ConfigureAwait(false);
-            CommitCache(candidate, updatedMetadata);
+            FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(filePath, candidate.Values, cancellationToken).ConfigureAwait(false);
+            CommitCache(filePath, candidate, updatedMetadata);
             return removed;
         }
         finally
@@ -298,8 +328,9 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            using var fileLock = await _fileLockHelper.AcquireLockAsync(_filePath, cancellationToken: cancellationToken).ConfigureAwait(false);
-            await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false);
+            string filePath = _filePathResolver();
+            using var fileLock = await _fileLockHelper.AcquireLockAsync(filePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await ReloadFromDiskCoreAsync(filePath, forceReload: true, cancellationToken).ConfigureAwait(false);
             if (!_playlists.TryGetValue(id, out var playlist))
             {
                 return null;
@@ -309,7 +340,8 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
             {
                 try
                 {
-                    FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(_playlists.Values, cancellationToken).ConfigureAwait(false);
+                    FileMetadataSnapshot updatedMetadata = await WritePlaylistsAtomicCoreAsync(filePath, _playlists.Values, cancellationToken).ConfigureAwait(false);
+                    _lastLoadedFilePath = filePath;
                     _lastLoadedMetadata = updatedMetadata;
                     _isLoaded = true;
                 }
@@ -317,6 +349,7 @@ public class JsonPlaylistRepository : IPlaylistRepository, IDisposable
                 {
                     // update デリゲートがインメモリインスタンスを変更済みの可能性があるため、キャッシュを破棄して次回必ずディスクから再読込させる
                     _playlists.Clear();
+                    _lastLoadedFilePath = null;
                     _lastLoadedMetadata = FileMetadataSnapshot.Missing;
                     _isLoaded = false;
                     throw;

@@ -25,10 +25,11 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    private readonly string _filePath;
+    private readonly Func<string> _filePathResolver;
     private readonly IJsonFileLockHelper _fileLockHelper;
     private readonly List<FavoriteTrackEntry> _entries = new();
     private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private string? _lastLoadedFilePath;
     private FileMetadataSnapshot _lastLoadedMetadata = FileMetadataSnapshot.Missing;
     private bool _isLoaded;
     private bool _disposed;
@@ -73,41 +74,61 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
     {
         _fileLockHelper = fileLockHelper ?? JsonFileLockHelper.Default;
 
+        string resolvedFilePath;
         if (string.IsNullOrWhiteSpace(filePath))
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string appDir = Path.Combine(appData, "AudioEffector");
             Directory.CreateDirectory(appDir);
-            _filePath = Path.Combine(appDir, "favorites.json");
+            resolvedFilePath = Path.Combine(appDir, "favorites.json");
         }
         else
         {
-            _filePath = filePath;
+            resolvedFilePath = filePath;
         }
+
+        _filePathResolver = () => resolvedFilePath;
     }
+
+    /// <summary>
+    /// データディレクトリプロバイダを指定してJsonFavoriteRepositoryを初期化します（保存先変更へ動的追従）
+    /// </summary>
+    /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ</param>
+    /// <param name="fileLockHelper">プロセス間ファイルロックおよび原子的書き込みヘルパー（未指定時は既定実装）</param>
+    public JsonFavoriteRepository(IDataDirectoryProvider dataDirectoryProvider, IJsonFileLockHelper? fileLockHelper = null)
+    {
+        ArgumentNullException.ThrowIfNull(dataDirectoryProvider);
+        _fileLockHelper = fileLockHelper ?? JsonFileLockHelper.Default;
+        _filePathResolver = () => dataDirectoryProvider.GetFilePath("favorites.json");
+    }
+
+    private bool IsCacheFresh(string filePath, FileMetadataSnapshot currentMetadata) =>
+        _isLoaded
+        && string.Equals(_lastLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase)
+        && currentMetadata == _lastLoadedMetadata;
 
     /// <summary>
     /// JSONファイルの初回読み込みおよび鮮度監視リロードを行います。一時的なI/O失敗時は_isLoadedをfalseのまま維持しfalseを返します
     /// </summary>
-    private async Task<bool> EnsureLoadedAsync(CancellationToken cancellationToken)
+    private async Task<bool> EnsureLoadedAsync(string filePath, CancellationToken cancellationToken)
     {
-        FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
-        if (_isLoaded && currentMetadata == _lastLoadedMetadata)
+        FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(filePath);
+        if (IsCacheFresh(filePath, currentMetadata))
         {
             return true;
         }
 
         using IDisposable fileLock = await _fileLockHelper
-            .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+            .AcquireLockAsync(filePath, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        return await ReloadFromDiskCoreAsync(forceReload: false, cancellationToken).ConfigureAwait(false);
+        return await ReloadFromDiskCoreAsync(filePath, forceReload: false, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<bool> ReloadFromDiskCoreAsync(bool forceReload, CancellationToken cancellationToken)
+    private async Task<bool> ReloadFromDiskCoreAsync(string filePath, bool forceReload, CancellationToken cancellationToken)
     {
-        FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
-        if (!forceReload && _isLoaded && currentMetadata == _lastLoadedMetadata)
+        FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(filePath);
+        if (!forceReload && IsCacheFresh(filePath, currentMetadata))
         {
             return true;
         }
@@ -115,6 +136,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         if (!currentMetadata.Exists)
         {
             _entries.Clear();
+            _lastLoadedFilePath = filePath;
             _lastLoadedMetadata = FileMetadataSnapshot.Missing;
             _isLoaded = true;
             return true;
@@ -124,7 +146,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
 
         try
         {
-            string json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
+            string json = await File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
             _entries.Clear();
             if (!string.IsNullOrWhiteSpace(json))
             {
@@ -168,6 +190,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
                 }
             }
 
+            _lastLoadedFilePath = filePath;
             _lastLoadedMetadata = currentMetadata;
             _isLoaded = true;
         }
@@ -180,6 +203,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         {
             // 破損JSONの場合は空コレクションとして安全に起動確定
             _entries.Clear();
+            _lastLoadedFilePath = filePath;
             _lastLoadedMetadata = currentMetadata;
             _isLoaded = true;
         }
@@ -194,7 +218,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         {
             try
             {
-                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+                await SaveToFileCoreAsync(filePath, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -209,14 +233,15 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         return true;
     }
 
-    private async Task SaveToFileCoreAsync(CancellationToken cancellationToken)
+    private async Task SaveToFileCoreAsync(string filePath, CancellationToken cancellationToken)
     {
         _isLoaded = false;
         var dtos = _entries.Select(FavoriteTrackDto.FromEntity).ToList();
         string json = JsonSerializer.Serialize(dtos, JSON_OPTIONS);
 
-        await _fileLockHelper.WriteAllTextAtomicAsync(_filePath, json, cancellationToken).ConfigureAwait(false);
-        _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+        await _fileLockHelper.WriteAllTextAtomicAsync(filePath, json, cancellationToken).ConfigureAwait(false);
+        _lastLoadedFilePath = filePath;
+        _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(filePath);
         _isLoaded = true;
     }
 
@@ -251,7 +276,8 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false))
+            string filePath = _filePathResolver();
+            if (!await EnsureLoadedAsync(filePath, cancellationToken).ConfigureAwait(false))
             {
                 return Array.Empty<FavoriteTrackEntry>();
             }
@@ -273,12 +299,13 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            string filePath = _filePathResolver();
             using IDisposable fileLock = await _fileLockHelper
-                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .AcquireLockAsync(filePath, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
             // 一時的I/O失敗で既存データを読み込めなかった場合は、既存ファイルの上書き破壊を防ぐため保存を行わない
-            if (!await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false))
+            if (!await ReloadFromDiskCoreAsync(filePath, forceReload: true, cancellationToken).ConfigureAwait(false))
             {
                 return;
             }
@@ -302,7 +329,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
                 _entries.Add(entry);
             }
 
-            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            await SaveToFileCoreAsync(filePath, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -319,11 +346,12 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            string filePath = _filePathResolver();
             using IDisposable fileLock = await _fileLockHelper
-                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .AcquireLockAsync(filePath, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            if (!await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false))
+            if (!await ReloadFromDiskCoreAsync(filePath, forceReload: true, cancellationToken).ConfigureAwait(false))
             {
                 return;
             }
@@ -331,7 +359,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
             int removedCount = _entries.RemoveAll(entry => FavoriteTrackMatcher.IsMatchForRemoval(entry, track));
             if (removedCount > 0)
             {
-                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+                await SaveToFileCoreAsync(filePath, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -347,11 +375,12 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            using var fileLock = await _fileLockHelper.AcquireLockAsync(_filePath, cancellationToken: cancellationToken).ConfigureAwait(false);
-            if (await ReloadFromDiskCoreAsync(forceReload: true, cancellationToken).ConfigureAwait(false) &&
+            string filePath = _filePathResolver();
+            using var fileLock = await _fileLockHelper.AcquireLockAsync(filePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (await ReloadFromDiskCoreAsync(filePath, forceReload: true, cancellationToken).ConfigureAwait(false) &&
                 FavoriteMetadataChange.ApplyTo(_entries, changes))
             {
-                await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+                await SaveToFileCoreAsync(filePath, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -369,8 +398,9 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            string filePath = _filePathResolver();
             using IDisposable fileLock = await _fileLockHelper
-                .AcquireLockAsync(_filePath, cancellationToken: cancellationToken)
+                .AcquireLockAsync(filePath, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
             _entries.Clear();
@@ -384,7 +414,7 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
                 AddWithoutDuplicate(_entries, entry);
             }
 
-            await SaveToFileCoreAsync(cancellationToken).ConfigureAwait(false);
+            await SaveToFileCoreAsync(filePath, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -401,7 +431,8 @@ public class JsonFavoriteRepository : IFavoriteRepository, IDisposable
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false))
+            string filePath = _filePathResolver();
+            if (!await EnsureLoadedAsync(filePath, cancellationToken).ConfigureAwait(false))
             {
                 return false;
             }
