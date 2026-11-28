@@ -272,4 +272,74 @@ public sealed class MtpDataTransferAdapterTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_tempDirectory, "escape.lrc")));
         Assert.False(missingSource);
     }
+
+    /// <summary>
+    /// DownloadTrackFromDeviceAsync の正常系でサブディレクトリが自動作成されてファイルが逆転送され、進捗が 1.0 まで通知されることを検証します
+    /// </summary>
+    [Fact]
+    public async Task DownloadTrackFromDeviceAsync_正常系_ファイルが逆転送され進捗が1まで通知されること()
+    {
+        // Arrange
+        var sut = new MtpDataTransferAdapter();
+        string sourceFile = CreateSourceFile("device_song.flac", 192 * 1024);
+        string destFile = Path.Combine(_destinationDirectory, "Artist", "Album", "device_song.flac");
+        var reports = new List<double>();
+        var progress = new SyncProgress<double>(v => reports.Add(v));
+
+        // Act
+        bool result = await sut.DownloadTrackFromDeviceAsync(sourceFile, destFile, progress);
+
+        // Assert
+        Assert.True(result);
+        Assert.True(File.Exists(destFile));
+        Assert.Equal(new FileInfo(sourceFile).Length, new FileInfo(destFile).Length);
+        Assert.NotEmpty(reports);
+        Assert.Equal(1.0, reports[^1]);
+    }
+
+    /// <summary>
+    /// DownloadTrackFromDeviceAsync の途中でキャンセルされた場合、false を返し不完全な出力ファイルが残らないことを検証します
+    /// </summary>
+    [Fact]
+    public async Task DownloadTrackFromDeviceAsync_途中キャンセル時_falseを返し不完全ファイルが削除されること()
+    {
+        // Arrange
+        var sut = new MtpDataTransferAdapter();
+        string sourceFile = CreateSourceFile("large_song.wav", 256 * 1024);
+        string destFile = Path.Combine(_destinationDirectory, "Canceled", "large_song.wav");
+        using var cts = new CancellationTokenSource();
+        var progress = new SyncProgress<double>(v =>
+        {
+            if (v > 0 && v < 1.0)
+            {
+                cts.Cancel();
+            }
+        });
+
+        // Act
+        bool result = await sut.DownloadTrackFromDeviceAsync(sourceFile, destFile, progress, cts.Token);
+
+        // Assert
+        Assert.False(result);
+        Assert.False(File.Exists(destFile));
+    }
+
+    /// <summary>
+    /// DownloadTrackFromDeviceAsync で転送元ファイルが存在しない場合、false を返し出力ファイルを作成しないことを検証します
+    /// </summary>
+    [Fact]
+    public async Task DownloadTrackFromDeviceAsync_転送元不在時_falseを返すこと()
+    {
+        // Arrange
+        var sut = new MtpDataTransferAdapter();
+        string missingSource = Path.Combine(_sourceDirectory, "not_found.mp3");
+        string destFile = Path.Combine(_destinationDirectory, "not_found.mp3");
+
+        // Act
+        bool result = await sut.DownloadTrackFromDeviceAsync(missingSource, destFile);
+
+        // Assert
+        Assert.False(result);
+        Assert.False(File.Exists(destFile));
+    }
 }

@@ -4151,6 +4151,17 @@ public sealed class DeviceBrowserViewModelTests
             AddFile(destinationFilePath);
         }
 
+        public void DownloadFile(string sourceFilePath, Stream outputStream)
+        {
+            if (!FileExists(sourceFilePath))
+            {
+                throw new FileNotFoundException("MTP source file not found.", sourceFilePath);
+            }
+
+            byte[] data = System.Text.Encoding.UTF8.GetBytes($"mtp-content:{sourceFilePath}");
+            outputStream.Write(data, 0, data.Length);
+        }
+
         private void AddDirectoryUnsafe(string path)
         {
             string normalized = NormalizePath(path);
