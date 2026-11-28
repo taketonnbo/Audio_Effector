@@ -33,14 +33,14 @@
 +---------------------------------------------------------------------------------------------------+
 ```
 
-> **構想要素に関する注記**: モックアップ内の容量内訳バー・総数サマリー・再スキャンボタン・アルバムアート表示は拡張構想（関連Issue: #233, #254）です。`DeviceManagerDialog.xaml` では幅 `300px` のアルバム `Expander` カードを `WrapPanel` で折り返し表示する構成となります。
+> **構想要素に関する注記**: モックアップ内の容量内訳バー・総数サマリー・再スキャンボタン・アルバムアート表示は拡張構想（関連Issue: #233, #254）です。`DeviceManagerDialog.xaml` では幅 `320px` のアルバム `Expander` カードを `WrapPanel` で折り返し表示する構成となります。
 
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-ウィンドウタイトル `"Device Storage Manager"`、`800×600px`、`WindowStartupLocation="CenterOwner"`。行0がヘッダー（`Auto`：`"Installed Albums on Device"`）、行1が一覧領域（`*`）、行2が `"Close"` ボタン（`Auto`）の3行構成。各アルバム `Expander` は幅 `300px` で `WrapPanel` 内に折り返し配置される。
+ウィンドウタイトル `"Device Storage Manager"`、`820×640px`、`WindowStartupLocation="CenterOwner"`。行0がヘッダー（`Auto`：`"Installed Albums on Device"`）、行1が一覧領域（`*`）、行2が逆転送詳細進捗パネル（`Auto`、`IsImporting=True` 時のみ表示）、行3が `"Close"` ボタン（`Auto`）の4行構成。各アルバム `Expander` は幅 `320px`（ヘッダー `Grid` 幅 `296px`）で `WrapPanel` 内に折り返し配置される。
 
 ## 4. デザイントークンの適用
 
@@ -53,7 +53,7 @@
 | `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 曲数（`{Tracks.Count} tracks`） |
 | `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 見出し・プログレスバーアクセント |
 
-`"Installed Albums on Device"` 見出し `24pt / Bold`、アルバム名 `14pt / Bold`、アーティスト名 `12pt`、曲数 `10pt`。`"Close"` ボタンは `100×30px`、削除ボタンはアルバム `30×30px`、曲 `24×24px`。
+`"Installed Albums on Device"` 見出し `24pt / Bold`、アルバム名 `14pt / Bold`、アーティスト名 `12pt`、曲数 `10pt`。`"Close"` ボタンは `100×30px`、PC 取り込みボタンおよび削除ボタンはアルバム `30×30px`、曲 `24×24px`、逆転送中止ボタンは高さ `28px`（横パディング `12px`）。
 
 ## 5. 構成要素と共通コントロール
 
