@@ -60,7 +60,7 @@
 | :--- | :--- |
 | ワークスペース | `CurrentViewType`（初期値: `ViewType.Albums`）の11値を `ContentControl.ContentTemplate` の `DataTrigger` で切り替える |
 | 上部プレイヤー | 通常高 `60px`。右パネルの開状態（`IsRightPanelOpen = True`）に連動して高 `0px` へ格納 |
-| 右側情報パネル | `IsRightPanelOpen`（初期 `false`）で開閉、`IsAlbumViewMaximized`（初期 `true`）で最大化/コンパクトを切替。右上ボタンは拡大／縮小ボタン（`ToggleAlbumViewSizeModeCommand`）の 1 つに統一し（楽曲未再生時は拡張領域を開けないガード付き）、コンパクト時の下部拡張領域（`Grid.Row="1"`）上部に 3 タブバー（`歌詞` / `ダッシュボード` / `タグ`）を配置して `LyricsView`・`LrcGeneratorView`・`ListeningStatsView`・タグパネルを排他表示 |
+| 右側情報パネル | `IsRightPanelOpen`（初期 `false`）で開閉、`IsAlbumViewMaximized`（初期 `true`）で最大化/コンパクトを切替。右上ボタンは拡大／縮小ボタン（`ToggleAlbumViewSizeModeCommand`）の 1 つに統一し（楽曲未再生時は拡張領域を開けないガード付き）、コンパクト時の下部拡張領域（`Grid.Row="1"`）上部に 3 タブバー（`歌詞` / `ダッシュボード` / `タグ`）を配置して現在再生中・選択中の楽曲および所属アルバムに紐づく `LyricsView`・`LrcGeneratorView`・`ListeningStatsView`（対象曲統計＋アルバム内 TOP 5）・タグパネルを排他表示 |
 | 読込中オーバーレイ | `IsMainLoadingOverlayVisible = True`（`IsLoading = True` かつ `CurrentViewType != ViewType.Folders`）でワークスペース上に半透明オーバーレイと `"LOADING..."` テキストを表示（フォルダタブ表示中はフォルダタブ内の専用プログレスインジケーターへ表示を委譲） |
 | 下部スペクトラム | 高 `22px` の開閉バーと高 `0 / 140px` の64バンド描画領域（`ViewType.DeviceSync` 遷移時は自動で `IsSpectrumVisible = false` に格納） |
 
