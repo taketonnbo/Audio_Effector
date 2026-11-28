@@ -88,4 +88,4 @@
 - [右側タブ開閉機能UI仕様書](../右側タブ開閉機能/右側タブ開閉機能UI仕様書.md)
 - [コードビハインド](../../../AudioEffector/Presentation/Views/MainWindow.xaml.cs)
 - [MainViewModel](../../../AudioEffector/Presentation/ViewModels/MainViewModel.cs)
-- 関連Issue（設計経緯）: [#233](https://github.com/taketonnbo/Audio_Effector/issues/233)、[#239](https://github.com/taketonnbo/Audio_Effector/issues/239)、[#240](https://github.com/taketonnbo/Audio_Effector/issues/240)、[#241](https://github.com/taketonnbo/Audio_Effector/issues/241)、[#242](https://github.com/taketonnbo/Audio_Effector/issues/242)
+- 関連Issue（設計経緯）: [#233](https://github.com/taketonnbo/Audio_Effector/issues/233)、[#239](https://github.com/taketonnbo/Audio_Effector/issues/239)、[#240](https://github.com/taketonnbo/Audio_Effector/issues/240)、[#241](https://github.com/taketonnbo/Audio_Effector/issues/241)、[#242](https://github.com/taketonnbo/Audio_Effector/issues/242)、[#384](https://github.com/taketonnbo/Audio_Effector/issues/384)

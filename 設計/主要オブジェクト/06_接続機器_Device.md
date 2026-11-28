@@ -21,13 +21,16 @@
 | プロパティ名 | 型 | 説明 | 表示箇所 | 状態 | 実装プロパティ ([DeviceBrowserViewModel.cs](../../AudioEffector/Presentation/ViewModels/DeviceBrowserViewModel.cs)) |
 | :--- | :--- | :--- | :--- | :---: | :--- |
 | **Name** | `string` | デバイス表示名（ドライブレター＋ボリュームラベル、またはMTP機器名） | コンボボックス | 実装済み | `MainViewModel.DeviceViewModel.Name` |
+| **ConnectionTypeLabel** | `string` | 接続種別ラベル（`USB` または `MTP`） | 機器詳細ヘッダーバー | 実装済み | `DeviceViewModel.ConnectionTypeLabel` |
+| **TotalSpaceBytes / FreeSpaceBytes / UsedSpaceRatio / StorageSummaryText** | `long` / `double` / `string` | 機器の総容量・空き容量・使用率バー値・表示サマリ（取得不可時はフォールバック表示） | 機器詳細ヘッダーバー | 実装済み | `DeviceViewModel.TotalSpaceBytes`, `FreeSpaceBytes`, `UsedSpaceRatio`, `StorageSummaryText` |
+| **HasConnectedDevices / SelectedSizeSummaryText / IsInsufficientSpace** | `bool` / `string` | 接続有無・選択楽曲の合計サイズ予測・容量不足判定 | 未接続案内・下部ヘッダー | 実装済み | `DeviceBrowserViewModel.HasConnectedDevices`, `SelectedSizeSummaryText`, `IsInsufficientSpace` |
 | **Drive / MtpDevice** | `DriveInfo?` / `MediaDevice?` | ファイルシステムドライブまたはMTPデバイス実体参照 | 内部転送・探索制御 | 実装済み | `DeviceViewModel.Drive`, `DeviceViewModel.MtpDevice` |
 | **CurrentDevicePath** | `string` | 機器内の現在閲覧中/転送先フォルダパス | ナビゲーションバー | 実装済み | `DeviceBrowserViewModel.CurrentDevicePath` |
 | **DeviceDirectories** | `ObservableCollection<DirectoryItem>` | 現在フォルダ配下のサブフォルダ（`📁`）およびファイル（`📄`）一覧 | 上部ディレクトリリスト | 実装済み | `DeviceBrowserViewModel.DeviceDirectories` |
 | **IsTransferring** | `bool` | 転送処理中かどうか（UI操作ロックおよびウィンドウ終了確認と連動） | 転送画面全体 | 実装済み | `DeviceBrowserViewModel.IsTransferring` |
 | **TransferProgress** | `double` | 転送進捗率（`0`〜`100`%） | 下部 `Transferring: XX%` 表示 | 実装済み | `DeviceBrowserViewModel.TransferProgress` |
 | **DeviceAlbums** | `ObservableCollection<DeviceAlbum>` | デバイス内に保存されているアルバム・楽曲一覧 | `DeviceManagerDialog.xaml` | 実装済み | `DeviceManagerViewModel.DeviceAlbums` ([DeviceManagerViewModel.cs](../../AudioEffector/Presentation/ViewModels/DeviceManagerViewModel.cs)) |
-| **DefaultDestinationPath / IgnoredDeviceIds / FreeSpace / Transcode設定** | 各種 | 端末別既定フォルダ記憶、無視端末リスト、空き容量予測、転送時フォーマット変換設定 | — | 拡張構想 (#96/#97/#233) | — |
+| **DefaultDestinationPath / Transcode設定** | 各種 | 端末別既定フォルダ記憶、転送時フォーマット変換設定 | — | 拡張構想 (#96/#97/#385) | — |
 
 ## 4. アクション（操作）定義
 

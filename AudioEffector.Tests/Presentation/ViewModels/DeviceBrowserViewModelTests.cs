@@ -268,4 +268,129 @@ public sealed class DeviceBrowserViewModelTests
             }
         }
     }
+
+    /// <summary>
+    /// DeviceViewModelのUpdateStorageSpaceおよびClearStorageSpaceにより、使用量・使用率・サマリ文字列が正しく算出されることを検証します。
+    /// </summary>
+    [Fact]
+    public void DeviceViewModel_ストレージ容量更新およびクリア_使用量とサマリ表示が正しく計算されること()
+    {
+        // Arrange
+        var sut = new MainViewModel.DeviceViewModel
+        {
+            Name = "WALKMAN",
+            Type = MainViewModel.DeviceType.MTP
+        };
+        long total = 64L * 1024 * 1024 * 1024; // 64.0 GB
+        long free = 24L * 1024 * 1024 * 1024;  // 24.0 GB
+
+        // Act
+        sut.UpdateStorageSpace(total, free);
+        bool hasInfoAfterUpdate = sut.HasStorageInfo;
+        long usedAfterUpdate = sut.UsedSpaceBytes;
+        double ratioAfterUpdate = sut.UsedSpaceRatio;
+        string summaryAfterUpdate = sut.StorageSummaryText;
+
+        sut.ClearStorageSpace();
+
+        // Assert
+        Assert.Equal("MTP", sut.ConnectionTypeLabel);
+        Assert.True(hasInfoAfterUpdate);
+        Assert.Equal(total - free, usedAfterUpdate);
+        Assert.Equal(40.0 / 64.0, ratioAfterUpdate, precision: 4);
+        Assert.Equal("24.0 GB 空き / 64.0 GB", summaryAfterUpdate);
+
+        Assert.False(sut.HasStorageInfo);
+        Assert.Equal(0.0, sut.UsedSpaceRatio);
+        Assert.Equal("容量情報取得不可", sut.StorageSummaryText);
+    }
+
+    /// <summary>
+    /// アルバムおよびトラックの選択状態変化に応じて、選択件数・合計サイズ・空き容量判定（空き十分／容量不足）がリアルタイム更新されることを検証します。
+    /// </summary>
+    [Fact]
+    public void UpdateSelectionSummary_選択状態変更時_合計サイズと空き容量判定がリアルタイム更新されること()
+    {
+        // Arrange
+        var track1 = new Track { Title = "Track 1", Artist = "Artist A", Album = "Album A", FilePath = @"C:\Music\01.flac" };
+        var track2 = new Track { Title = "Track 2", Artist = "Artist A", Album = "Album A", FilePath = @"C:\Music\02.flac" };
+        var album = new Album("Album A", "Artist A", 2024, new[] { track1, track2 });
+        var albums = new ObservableCollection<Album> { album };
+        var sizes = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+        {
+            [track1.FilePath] = 600L * 1024 * 1024, // 600 MB
+            [track2.FilePath] = 700L * 1024 * 1024, // 700 MB
+        };
+
+        long totalCapacity = 2L * 1024 * 1024 * 1024;
+        long freeCapacity = 1L * 1024 * 1024 * 1024; // 空き 1.0 GB
+
+        using var sut = new DeviceBrowserViewModel(
+            albums,
+            () => albums,
+            () => { },
+            path => sizes.TryGetValue(path, out var len) ? len : 0L,
+            (_, _) => (true, totalCapacity, freeCapacity));
+
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (E:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = @"E:\"
+        };
+        device.UpdateStorageSpace(totalCapacity, freeCapacity);
+        sut.RemovableDrives.Add(device);
+        sut.SelectedDevice = device;
+
+        // Act & Assert: 1曲選択（600 MB <= 1.0 GB → 空き十分）
+        track1.IsSelected = true;
+        Assert.True(sut.HasConnectedDevices);
+        Assert.Equal(1, sut.SelectedAlbumCount);
+        Assert.Equal(1, sut.SelectedTrackCount);
+        Assert.Equal(600L * 1024 * 1024, sut.SelectedTotalBytes);
+        Assert.False(sut.IsInsufficientSpace);
+        Assert.Contains("空き十分", sut.SelectedSizeSummaryText);
+
+        // Act & Assert: 2曲目も選択（1300 MB > 1.0 GB → 容量不足）
+        track2.IsSelected = true;
+        Assert.Equal(1, sut.SelectedAlbumCount);
+        Assert.Equal(2, sut.SelectedTrackCount);
+        Assert.Equal(1300L * 1024 * 1024, sut.SelectedTotalBytes);
+        Assert.True(sut.IsInsufficientSpace);
+        Assert.Contains("容量不足", sut.SelectedSizeSummaryText);
+
+        // Act & Assert: 選択解除で 0 曲に戻る
+        track1.IsSelected = false;
+        track2.IsSelected = false;
+        Assert.Equal(0, sut.SelectedTrackCount);
+        Assert.False(sut.IsInsufficientSpace);
+        Assert.Equal("選択中: 0 曲", sut.SelectedSizeSummaryText);
+    }
+
+    /// <summary>
+    /// 接続機器一覧が空の場合と追加された場合でHasConnectedDevicesが正しく切り替わることを検証します。
+    /// </summary>
+    [Fact]
+    public void HasConnectedDevices_接続機器一覧の増減時_状態とPropertyChanged通知が正しく連動すること()
+    {
+        // Arrange
+        var albums = new ObservableCollection<Album>();
+        using var sut = new DeviceBrowserViewModel(albums, () => albums, () => { });
+        var notified = new List<string?>();
+        sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        // Act
+        bool initial = sut.HasConnectedDevices;
+        var device = new MainViewModel.DeviceViewModel { Name = "USB", Type = MainViewModel.DeviceType.FileSystem };
+        sut.RemovableDrives.Add(device);
+        bool afterAdd = sut.HasConnectedDevices;
+        sut.RemovableDrives.Clear();
+        bool afterClear = sut.HasConnectedDevices;
+
+        // Assert
+        Assert.False(initial);
+        Assert.True(afterAdd);
+        Assert.False(afterClear);
+        Assert.Contains(nameof(DeviceBrowserViewModel.HasConnectedDevices), notified);
+    }
 }
