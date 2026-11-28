@@ -380,7 +380,8 @@
                                 BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="1"
                                 Cursor="Hand"/>
-                        <TextBlock Text="※すべての再生履歴（最近再生した曲）・曲別統計・ライブラリ全体ランキングおよび日時毎の推移データが初期化され、元に戻せません。"
+                        <TextBlock x:Name="ResetListeningStatsNoteTextBlock"
+                                   Text="※すべての再生履歴（最近再生した曲）・曲別統計・ライブラリ全体ランキングおよび日時毎の推移データが初期化され、元に戻せません。音楽ファイル本体・プレイリスト・お気に入りには影響しません。"
                                    FontSize="12"
                                    Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                                    Margin="0,0,0,20"

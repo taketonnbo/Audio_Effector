@@ -1115,7 +1115,7 @@ public class SettingsViewModel : ViewModelBase
         }
 
         bool confirmed = _resetConfirmationPrompt(
-            "すべての再生履歴・リスニング統計・推移データが削除され、元に戻せません。\n本当にリセットしますか？",
+            "すべての再生履歴・リスニング統計・推移データが削除され、元に戻せません。\n（音楽ファイル本体・プレイリスト・お気に入りには影響しません）\n本当にリセットしますか？",
             "再生履歴・リスニング統計のリセット確認");
         if (!confirmed)
         {
