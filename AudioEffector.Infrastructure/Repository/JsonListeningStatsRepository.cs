@@ -184,8 +184,8 @@ public sealed class JsonListeningStatsRepository : IListeningStatsRepository, IR
         {
             string filePath = _filePathResolver();
             using IDisposable fileLock = _fileLockHelper.AcquireLock(filePath);
-            _legacyMigrationAttemptedPaths.Add(filePath);
             WriteDataLocked(filePath, new ListeningStatsData());
+            _legacyMigrationAttemptedPaths.Add(filePath);
         }
     }
 
