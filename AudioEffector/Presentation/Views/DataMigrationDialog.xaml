@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="データ保存先の変更"
-        Width="520"
+        Width="540"
         SizeToContent="Height"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
@@ -16,6 +16,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
@@ -25,7 +26,7 @@
                    Foreground="{DynamicResource NeonCyanBrush}"
                    Margin="0,0,0,12"/>
 
-        <StackPanel Grid.Row="1" Margin="0,0,0,14">
+        <StackPanel Grid.Row="1" Margin="0,0,0,12">
             <TextBlock Text="現在の保存先に既存のデータファイル（プレイリスト・お気に入り・再生履歴・プリセット等）が存在します。"
                        TextWrapping="Wrap"
                        Foreground="{DynamicResource TextForegroundBrush}"
@@ -51,14 +52,30 @@
             </Border>
         </StackPanel>
 
-        <TextBlock Grid.Row="2"
+        <Border x:Name="DestinationOverwriteWarningBorder"
+                Grid.Row="2"
+                Visibility="Collapsed"
+                Background="{DynamicResource ControlBackgroundHighlightBrush}"
+                BorderBrush="{DynamicResource NeonCyanBrush}"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="10"
+                Margin="0,0,0,12">
+            <TextBlock x:Name="DestinationOverwriteWarningTextBlock"
+                       Text="⚠ 変更先フォルダにはすでに既存のデータファイルが存在します。「コピーして切り替え」または「移動して切り替え」を選択すると、変更先の同名ファイルは上書きされます。変更先の既存データ（クラウド同期データ等）を使用する場合は「移行せず切り替え」を選択してください。"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextForegroundBrush}"/>
+        </Border>
+
+        <TextBlock Grid.Row="3"
                    Text="※ アプリ設定（settings.json）は既定フォルダに残ります。"
                    FontSize="12"
                    Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                    TextWrapping="Wrap"
                    Margin="0,0,0,16"/>
 
-        <WrapPanel Grid.Row="3" HorizontalAlignment="Right">
+        <WrapPanel Grid.Row="4" HorizontalAlignment="Right">
             <Button x:Name="CopyButton"
                     Content="コピーして切り替え"
                     IsDefault="True"
@@ -66,7 +83,7 @@
                     Padding="12,6"
                     Margin="0,0,8,0"
                     Background="{DynamicResource NeonCyanBrush}"
-                    Foreground="#161920"
+                    Foreground="{DynamicResource InverseTextForegroundBrush}"
                     FontWeight="SemiBold"
                     BorderThickness="0"/>
             <Button x:Name="MoveButton"
