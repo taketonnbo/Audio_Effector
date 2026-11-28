@@ -885,6 +885,553 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// SanitizeFileName が末尾のピリオド・空白・無効文字を OS 作成フォルダ名と一致するよう正規化し、先頭・途中のピリオドは保持することを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("DIVERSITY.", "DIVERSITY")]
+    [InlineData("DIVERSITY...", "DIVERSITY")]
+    [InlineData("DIVERSITY . ", "DIVERSITY")]
+    [InlineData(".hack", ".hack")]
+    [InlineData("Mr. Children", "Mr. Children")]
+    [InlineData("...", "Unknown")]
+    [InlineData("   ", "Unknown")]
+    [InlineData("", "Unknown")]
+    public void SanitizeFileName_末尾ピリオドや空白を含む名称_保存と照合で一貫したフォルダ名へ正規化されること(string input, string expected)
+    {
+        // Arrange & Act
+        string actual = DeviceBrowserViewModel.SanitizeFileName(input);
+
+        // Assert
+        Assert.Equal(expected, actual);
+    }
+
+    /// <summary>
+    /// 末尾がピリオドのアルバムおよび通常名アルバムをファイルシステムのサブフォルダへ転送した場合、完了通知時点で再走査結果が反映されチェック解除・非活性となり、ライブラリの表示名が維持されることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferSelectedAsync_末尾ピリオドのアルバムをサブフォルダへ転送時_再走査完了後に通知され非活性となり表示名を維持すること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_DotSub_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceRoot = Path.Combine(tempRoot, "Device");
+        string musicDir = Path.Combine(deviceRoot, "Music");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(musicDir);
+
+        string dotTrackPath = Path.Combine(sourceDir, "01.mp3");
+        string normalTrackPath = Path.Combine(sourceDir, "02.mp3");
+        File.WriteAllText(dotTrackPath, "dot-track-data");
+        File.WriteAllText(normalTrackPath, "normal-track-data");
+
+        var dotTrack = new Track { Title = "Track 01", Artist = "M2U", Album = "DIVERSITY.", FilePath = dotTrackPath };
+        var normalTrack = new Track { Title = "Track 02", Artist = "M2U", Album = "Control", FilePath = normalTrackPath };
+        var dotAlbum = new Album("DIVERSITY.", "M2U", 2024, new[] { dotTrack }) { IsSelected = true };
+        var normalAlbum = new Album("Control", "M2U", 2024, new[] { normalTrack }) { IsSelected = true };
+        var albums = new ObservableCollection<Album> { dotAlbum, normalAlbum };
+
+        bool dotAlbumOnDeviceAtNotification = false;
+        bool dotAlbumSelectedAtNotification = true;
+        bool isTransferringAtNotification = false;
+        var messages = new List<(string Message, string Caption)>();
+
+        DeviceBrowserViewModel? sut = null;
+        try
+        {
+            sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (msg, caption) =>
+                {
+                    messages.Add((msg, caption));
+                    dotAlbumOnDeviceAtNotification = dotAlbum.IsOnDevice;
+                    dotAlbumSelectedAtNotification = dotAlbum.IsSelected;
+                    isTransferringAtNotification = sut!.IsTransferring;
+                });
+
+            var fsDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "TestDrive",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = deviceRoot
+            };
+            sut.SelectedDevice = fsDevice;
+            sut.CurrentDevicePath = musicDir;
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // 同じフォルダの再読込後も状態が維持されることを確認
+            await sut.CheckDeviceAlbumsAsync();
+
+            // Assert
+            Assert.Single(messages);
+            Assert.Equal("Success", messages[0].Caption);
+            Assert.True(dotAlbumOnDeviceAtNotification);
+            Assert.False(dotAlbumSelectedAtNotification);
+            Assert.True(isTransferringAtNotification);
+            Assert.False(sut.IsTransferring);
+
+            Assert.True(File.Exists(Path.Combine(musicDir, "M2U", "DIVERSITY", "01.mp3")));
+            Assert.True(File.Exists(Path.Combine(musicDir, "M2U", "Control", "02.mp3")));
+            Assert.True(dotTrack.IsOnDevice);
+            Assert.False(dotTrack.IsSelected);
+            Assert.True(dotAlbum.IsOnDevice);
+            Assert.False(dotAlbum.IsSelected);
+            Assert.True(normalTrack.IsOnDevice);
+            Assert.False(normalTrack.IsSelected);
+            Assert.True(normalAlbum.IsOnDevice);
+            Assert.False(normalAlbum.IsSelected);
+            Assert.Empty(DeviceBrowserViewModel.CollectTransferTargetTracks(albums));
+
+            // ライブラリ表示名は元のタグ表記を維持する
+            Assert.Equal("DIVERSITY.", dotAlbum.Title);
+            Assert.Equal("DIVERSITY.", dotTrack.Album);
+        }
+        finally
+        {
+            sut?.Dispose();
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 機器ルートを転送先として通常名および末尾ピリオド名のアルバムを転送した場合、ルート全域の再帰走査を行わずに既知転送先のみを照合し、再読込後も非活性状態が維持されることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferSelectedAsync_機器ルートへ転送時_ルート全域を再帰走査せず既知パスのみ照合し再読込後も維持されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_RootTransfer_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceRoot = Path.Combine(tempRoot, "DeviceRoot");
+        string unrelatedDeepDir = Path.Combine(deviceRoot, "DCIM", "Nested");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(unrelatedDeepDir);
+
+        // ルート配下の無関係ディレクトリにある同名音声ファイル（走査対象外であることの確認用）
+        File.WriteAllText(Path.Combine(unrelatedDeepDir, "01.mp3"), "unrelated-audio");
+
+        string rootNormalPath = Path.Combine(sourceDir, "01.mp3");
+        string rootDotPath = Path.Combine(sourceDir, "02.mp3");
+        File.WriteAllText(rootNormalPath, "root-normal-data");
+        File.WriteAllText(rootDotPath, "root-dot-data");
+
+        var normalTrack = new Track { Title = "Root Song", Artist = "M2U", Album = "RootControl", FilePath = rootNormalPath };
+        var dotTrack = new Track { Title = "Dot Song", Artist = "M2U", Album = "DIVERSITY.", FilePath = rootDotPath };
+        var normalAlbum = new Album("RootControl", "M2U", 2024, new[] { normalTrack }) { IsSelected = true };
+        var dotAlbum = new Album("DIVERSITY.", "M2U", 2024, new[] { dotTrack }) { IsSelected = true };
+        var albums = new ObservableCollection<Album> { normalAlbum, dotAlbum };
+
+        var messages = new List<(string Message, string Caption)>();
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (msg, caption) => messages.Add((msg, caption)));
+
+            var fsDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "RootDrive",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = deviceRoot
+            };
+            sut.SelectedDevice = fsDevice;
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // 同じルートフォルダの再読込を実行しても状態が維持されること
+            sut.RefreshDirectoryCommand.Execute(null);
+            await sut.CheckDeviceAlbumsAsync();
+
+            // 既知フォルダのみを対象としたルートインデックスに無関係フォルダのファイルが含まれないことも検証
+            var knownTargets = DeviceBrowserViewModel.CollectKnownTrackFolderTargets(albums);
+            var rootIndex = DeviceBrowserViewModel.BuildFileSystemAudioIndex(deviceRoot, recursive: false, knownTargetFolders: knownTargets);
+
+            // Assert
+            Assert.Single(messages);
+            Assert.Equal("Success", messages[0].Caption);
+            Assert.True(normalTrack.IsOnDevice);
+            Assert.False(normalTrack.IsSelected);
+            Assert.True(normalAlbum.IsOnDevice);
+            Assert.False(normalAlbum.IsSelected);
+            Assert.True(dotTrack.IsOnDevice);
+            Assert.False(dotTrack.IsSelected);
+            Assert.True(dotAlbum.IsOnDevice);
+            Assert.False(dotAlbum.IsSelected);
+            Assert.Empty(DeviceBrowserViewModel.CollectTransferTargetTracks(albums));
+
+            Assert.Contains(@"M2U\RootControl\01", rootIndex);
+            Assert.Contains(@"M2U\DIVERSITY\02", rootIndex);
+            Assert.DoesNotContain(@"DCIM\Nested\01", rootIndex);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 一部の曲のみ転送したアルバム、ソース欠落曲、別アルバムの同名曲、および拡張子変換を伴う転送で、成功した実在曲のみが非活性となり残りの未転送曲を選択できることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferSelectedAsync_一部曲転送と欠落曲および拡張子変換混在時_成功曲のみ非活性となり残り曲を選択できること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_PartialTransfer_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string otherSourceDir = Path.Combine(tempRoot, "OtherSource");
+        string deviceRoot = Path.Combine(tempRoot, "Device");
+        string musicDir = Path.Combine(deviceRoot, "Music");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(otherSourceDir);
+        Directory.CreateDirectory(musicDir);
+
+        string flacPath1 = Path.Combine(sourceDir, "01.flac");
+        string flacPath2 = Path.Combine(sourceDir, "02.flac");
+        string missingPath = Path.Combine(sourceDir, "03.flac"); // 実体なし（欠落）
+        string otherSameNamePath = Path.Combine(otherSourceDir, "01.flac");
+        File.WriteAllText(flacPath1, "flac-1");
+        File.WriteAllText(flacPath2, "flac-2");
+        File.WriteAllText(otherSameNamePath, "other-flac-1");
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.ConvertFlacToMp3 = true);
+        var fakeTranscoder = new FakeAudioTranscodeService();
+
+        var track1 = new Track { Title = "Track 1", Artist = "M2U", Album = "DIVERSITY.", FilePath = flacPath1, IsSelected = true };
+        var track2 = new Track { Title = "Track 2", Artist = "M2U", Album = "DIVERSITY.", FilePath = flacPath2, IsSelected = false };
+        var missingTrack = new Track { Title = "Track 3 (Missing)", Artist = "M2U", Album = "DIVERSITY.", FilePath = missingPath, IsSelected = true };
+        var partialAlbum = new Album("DIVERSITY.", "M2U", 2024, new[] { track1, track2, missingTrack });
+
+        // 別アルバムの同名ファイル（01.flac）は未転送のままであること
+        var otherTrack = new Track { Title = "Other 1", Artist = "OtherArtist", Album = "OtherAlbum", FilePath = otherSameNamePath, IsSelected = false };
+        var otherAlbum = new Album("OtherAlbum", "OtherArtist", 2024, new[] { otherTrack });
+
+        var albums = new ObservableCollection<Album> { partialAlbum, otherAlbum };
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: fakeTranscoder,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { });
+
+            sut.SelectedDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "TestDrive",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = deviceRoot
+            };
+            sut.CurrentDevicePath = musicDir;
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.True(File.Exists(Path.Combine(musicDir, "M2U", "DIVERSITY", "01.mp3")));
+            Assert.True(track1.IsOnDevice);
+            Assert.False(track1.IsSelected);
+
+            // 未選択だった track2 と、実体欠落の missingTrack は転送済みにしない
+            Assert.False(track2.IsOnDevice);
+            Assert.False(missingTrack.IsOnDevice);
+            Assert.False(partialAlbum.IsOnDevice);
+
+            // 別アルバムの同名曲は誤って転送済みにされない
+            Assert.False(otherTrack.IsOnDevice);
+            Assert.False(otherAlbum.IsOnDevice);
+
+            // 残りの曲は引き続き選択可能
+            track2.IsSelected = true;
+            Assert.True(track2.IsSelected);
+            var nextTargets = DeviceBrowserViewModel.CollectTransferTargetTracks(albums);
+            Assert.Contains(track2, nextTargets);
+            Assert.DoesNotContain(track1, nextTargets);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 書き込み可能な転送先を持つ MTP 機器のルートおよびサブフォルダへの転送において、再走査完了まで完了通知を待機し、無関係フォルダを走査せず既知パスおよび旧末尾ピリオド配置を認識して再読込後も非活性状態を維持することを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferSelectedAsync_書き込み可能なMTP機器のルートおよびサブフォルダ転送時_再走査完了後に通知され再読込後も非活性を維持すること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_MtpTransfer_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        Directory.CreateDirectory(sourceDir);
+
+        string dotPath = Path.Combine(sourceDir, "01.mp3");
+        string legacyDotPath = Path.Combine(sourceDir, "02.mp3");
+        File.WriteAllText(dotPath, "mtp-dot-data");
+        File.WriteAllText(legacyDotPath, "mtp-legacy-dot-data");
+
+        var fakeMtp = new FakeMtpDeviceClient();
+        fakeMtp.AddDirectory(@"\DCIM");
+        fakeMtp.AddDirectory(@"\DCIM\Camera");
+        fakeMtp.AddFile(@"\DCIM\Camera\01.mp3");
+        // 旧版で末尾ピリオドフォルダのまま保存済みのファイルを模擬
+        fakeMtp.AddFile(@"\M2U\DIVERSITY.\02.mp3");
+
+        var scanStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var allowScanToComplete = new ManualResetEventSlim(false);
+        bool shouldBlockNextScan = false;
+        fakeMtp.OnGetFiles = dir =>
+        {
+            if (shouldBlockNextScan && string.Equals(dir, @"\", StringComparison.OrdinalIgnoreCase))
+            {
+                shouldBlockNextScan = false;
+                scanStarted.TrySetResult(true);
+                allowScanToComplete.Wait(TimeSpan.FromSeconds(5));
+            }
+        };
+
+        var track1 = new Track { Title = "Track 01", Artist = "M2U", Album = "DIVERSITY.", FilePath = dotPath };
+        var track2 = new Track { Title = "Track 02", Artist = "M2U", Album = "DIVERSITY.", FilePath = legacyDotPath };
+        var album = new Album("DIVERSITY.", "M2U", 2024, new[] { track1, track2 });
+        var albums = new ObservableCollection<Album> { album };
+
+        bool notifiedBeforeScanReleased = false;
+        bool albumOnDeviceAtNotification = false;
+        var notifications = new List<string>();
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: (msg, caption) =>
+                {
+                    if (!allowScanToComplete.IsSet)
+                    {
+                        notifiedBeforeScanReleased = true;
+                    }
+                    albumOnDeviceAtNotification = album.IsOnDevice;
+                    notifications.Add($"{caption}:{msg}");
+                });
+
+            var mtpDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "Fake WALKMAN",
+                Type = MainViewModel.DeviceType.MTP,
+                RootPath = @"\"
+            };
+            sut.SelectedDevice = mtpDevice;
+
+            // 初回走査で旧末尾ピリオド配置の track2 が既に認識されていること
+            await sut.CheckDeviceAlbumsAsync();
+            Assert.False(track1.IsOnDevice);
+            Assert.True(track2.IsOnDevice);
+            Assert.False(album.IsOnDevice);
+
+            // 未転送の track1 のみ選択（アルバム全体選択しても track2 は既転送のため除外）
+            album.IsSelected = true;
+            Assert.True(track1.IsSelected);
+            Assert.False(track2.IsSelected);
+
+            // Act: 再走査を一時停止させた状態でルート転送を実行
+            fakeMtp.ClearEnumeratedDirectories();
+            shouldBlockNextScan = true;
+            var transferTask = sut.TransferSelectedAsync();
+
+            await scanStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Empty(notifications);
+            Assert.True(sut.IsTransferring);
+
+            allowScanToComplete.Set();
+            await transferTask;
+
+            // 同じルートフォルダの再読込後も状態が維持されること
+            await sut.CheckDeviceAlbumsAsync();
+
+            // Assert
+            Assert.False(notifiedBeforeScanReleased);
+            Assert.True(albumOnDeviceAtNotification);
+            Assert.Single(notifications);
+            Assert.StartsWith("Success:", notifications[0]);
+            Assert.False(sut.IsTransferring);
+            Assert.True(fakeMtp.FileExists(@"\M2U\DIVERSITY\01.mp3"));
+            Assert.DoesNotContain(@"\DCIM", fakeMtp.EnumeratedDirectories, StringComparer.OrdinalIgnoreCase);
+            Assert.True(track1.IsOnDevice);
+            Assert.False(track1.IsSelected);
+            Assert.True(track2.IsOnDevice);
+            Assert.True(album.IsOnDevice);
+            Assert.False(album.IsSelected);
+
+            // さらに MTP サブフォルダへの転送・再走査も同様に機能すること
+            fakeMtp.AddDirectory(@"\Music");
+            sut.CurrentDevicePath = @"\Music";
+            await sut.CheckDeviceAlbumsAsync();
+            Assert.False(track1.IsOnDevice);
+            Assert.False(album.IsOnDevice);
+
+            album.IsSelected = true;
+            await sut.TransferSelectedAsync();
+            await sut.CheckDeviceAlbumsAsync();
+
+            Assert.True(fakeMtp.FileExists(@"\Music\M2U\DIVERSITY\01.mp3"));
+            Assert.True(fakeMtp.FileExists(@"\Music\M2U\DIVERSITY\02.mp3"));
+            Assert.True(track1.IsOnDevice);
+            Assert.True(track2.IsOnDevice);
+            Assert.True(album.IsOnDevice);
+            Assert.False(album.IsSelected);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed class FakeMtpDeviceClient : DeviceBrowserViewModel.IMtpDeviceClient
+    {
+        private readonly HashSet<string> _directories = new(StringComparer.OrdinalIgnoreCase) { @"\" };
+        private readonly HashSet<string> _files = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<string> _enumeratedDirectories = new();
+
+        public bool IsConnected { get; private set; }
+        public Action<string>? OnGetFiles { get; set; }
+        public IReadOnlyList<string> EnumeratedDirectories => _enumeratedDirectories;
+
+        public void Connect() => IsConnected = true;
+
+        public void Disconnect() => IsConnected = false;
+
+        public void ClearEnumeratedDirectories() => _enumeratedDirectories.Clear();
+
+        public void AddDirectory(string path)
+        {
+            string normalized = NormalizePath(path);
+            _directories.Add(normalized);
+            string? parent = Path.GetDirectoryName(normalized);
+            while (!string.IsNullOrEmpty(parent))
+            {
+                _directories.Add(NormalizePath(parent));
+                if (parent == @"\")
+                {
+                    break;
+                }
+                parent = Path.GetDirectoryName(parent);
+            }
+        }
+
+        public void AddFile(string path)
+        {
+            string normalized = NormalizePath(path);
+            string? parent = Path.GetDirectoryName(normalized);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                AddDirectory(parent);
+            }
+            _files.Add(normalized);
+        }
+
+        public bool DirectoryExists(string path) => _directories.Contains(NormalizePath(path));
+
+        public void CreateDirectory(string path) => AddDirectory(path);
+
+        public IEnumerable<string> GetDirectories(string path)
+        {
+            string normalized = NormalizePath(path);
+            _enumeratedDirectories.Add(normalized);
+            var result = new List<string>();
+            foreach (var dir in _directories)
+            {
+                if (string.Equals(dir, normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string? parent = Path.GetDirectoryName(dir);
+                if (!string.IsNullOrEmpty(parent) && string.Equals(NormalizePath(parent), normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(dir);
+                }
+            }
+            return result;
+        }
+
+        public IEnumerable<string> GetFiles(string path)
+        {
+            string normalized = NormalizePath(path);
+            OnGetFiles?.Invoke(normalized);
+            var result = new List<string>();
+            foreach (var file in _files)
+            {
+                string? parent = Path.GetDirectoryName(file);
+                if (!string.IsNullOrEmpty(parent) && string.Equals(NormalizePath(parent), normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(file);
+                }
+            }
+            return result;
+        }
+
+        public bool FileExists(string path) => _files.Contains(NormalizePath(path));
+
+        public void UploadFile(string sourceFilePath, string destinationFilePath)
+        {
+            if (!File.Exists(sourceFilePath))
+            {
+                throw new FileNotFoundException("Source file not found.", sourceFilePath);
+            }
+
+            AddFile(destinationFilePath);
+        }
+
+        private static string NormalizePath(string path)
+        {
+            string normalized = (path ?? string.Empty).Replace('/', '\\').Trim();
+            if (string.IsNullOrEmpty(normalized) || normalized == @"\")
+            {
+                return @"\";
+            }
+
+            if (!normalized.StartsWith('\\'))
+            {
+                normalized = @"\" + normalized;
+            }
+
+            return normalized.TrimEnd('\\');
+        }
+    }
+
     private sealed class FakeAudioTranscodeService : IAudioTranscodeService
     {
         public int TranscodeCallCount { get; private set; }
