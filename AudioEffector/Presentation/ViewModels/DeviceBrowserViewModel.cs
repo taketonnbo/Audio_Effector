@@ -3614,6 +3614,43 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
         dialog.ShowDialog();
 
+        // 逆転送中に「中止して閉じる」を実行した直後は、バックグラウンドの MTP DownloadFile 等が
+        // 完了・後始末を終えるまで待ってから同一デバイスへの再走査・空き容量更新を行う（UI スレッドは非ブロック）
+        Task? pendingImportTask = dialogViewModel.ActiveImportTask;
+        if (pendingImportTask != null && !pendingImportTask.IsCompleted)
+        {
+            _ = RefreshAfterDeviceManagerClosedAsync(pendingImportTask);
+        }
+        else
+        {
+            RefreshAfterDeviceManagerClosedCore();
+        }
+    }
+
+    private async Task RefreshAfterDeviceManagerClosedAsync(Task pendingImportTask)
+    {
+        try
+        {
+            await pendingImportTask.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "デバイス管理ダイアログ閉鎖後の逆転送完了待機中に例外が発生しました。");
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.HasShutdownFinished)
+        {
+            await dispatcher.InvokeAsync(RefreshAfterDeviceManagerClosedCore);
+        }
+        else if (dispatcher == null)
+        {
+            RefreshAfterDeviceManagerClosedCore();
+        }
+    }
+
+    private void RefreshAfterDeviceManagerClosedCore()
+    {
         // デバイス管理ダイアログを閉じた後、ディレクトリ表示・重複状態・空き容量を最新化する
         if (!string.IsNullOrEmpty(CurrentDevicePath))
         {

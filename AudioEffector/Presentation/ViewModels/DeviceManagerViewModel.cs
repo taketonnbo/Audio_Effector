@@ -31,6 +31,7 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
     private string _basePath;
     private List<Album> _pcAlbums;
     private CancellationTokenSource? _importCts;
+    private Task? _activeImportTask;
     private volatile bool _isDisposed;
     private volatile bool _suppressImportResultNotification;
 
@@ -152,7 +153,7 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
     public bool IsCancellingImport
     {
         get => _isCancellingImport;
-        private set
+        internal set
         {
             if (SetProperty(ref _isCancellingImport, value))
             {
@@ -197,6 +198,11 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
     /// コンストラクタで開始された初回アルバム読み込みタスクを取得します
     /// </summary>
     internal Task InitialLoadTask { get; }
+
+    /// <summary>
+    /// 現在実行中の逆転送バックグラウンドタスクを取得します（未実行時は null）
+    /// </summary>
+    internal Task? ActiveImportTask => Volatile.Read(ref _activeImportTask);
 
     /// <summary>
     /// デバイス情報、ベースパス、PC側アルバム一覧を指定してインスタンスを初期化します
@@ -1371,11 +1377,14 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
         ImportPhaseText = "取り込みを準備中...";
 
         TransferResultSummary? summary = null;
+        Task<TransferResultSummary>? importTask = null;
 
         try
         {
             var detailProgress = new InlineImportProgress(ApplyImportProgress);
-            summary = await ImportTracksToPcAsync(items, destinationRoot, detailProgress, importCts.Token);
+            importTask = ImportTracksToPcAsync(items, destinationRoot, detailProgress, importCts.Token);
+            Volatile.Write(ref _activeImportTask, importTask);
+            summary = await importTask;
 
             if (_isDisposed || _suppressImportResultNotification)
             {
@@ -1399,6 +1408,11 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
         }
         finally
         {
+            if (importTask != null)
+            {
+                _ = Interlocked.CompareExchange(ref _activeImportTask, null, importTask);
+            }
+
             if (ReferenceEquals(Interlocked.CompareExchange(ref _importCts, null, importCts), importCts))
             {
                 importCts.Dispose();
@@ -1442,6 +1456,7 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
             string? fatalErrorMessage = null;
 
             DeviceBrowserViewModel.IMtpDeviceClient? mtpClient = null;
+            string? sourceRoot = !string.IsNullOrWhiteSpace(_basePath) ? _basePath : _currentDevice.RootPath;
             if (_currentDevice.Type == MainViewModel.DeviceType.MTP)
             {
                 mtpClient = _resolveMtpClient(_currentDevice);
@@ -1455,6 +1470,18 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
                         fatalErrorMessage: "MTP デバイスが接続されていません。",
                         operationLabel: "取り込み");
                 }
+            }
+            else if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem
+                && !string.IsNullOrWhiteSpace(sourceRoot)
+                && !Directory.Exists(sourceRoot))
+            {
+                return new TransferResultSummary(
+                    successCount: 0,
+                    skippedCount: 0,
+                    failedItems: failedItems,
+                    wasAbortedByFatalError: true,
+                    fatalErrorMessage: "接続ドライブまたは機器フォルダが見つかりません。",
+                    operationLabel: "取り込み");
             }
 
             foreach (var (album, track) in items)
@@ -1487,6 +1514,18 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
                     string targetDir = Path.Combine(destinationRoot, artistFolder, albumFolder);
                     string destPath = Path.Combine(targetDir, fileName);
 
+                    string fullTargetDir = Path.GetFullPath(targetDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    string fullDestPath = Path.GetFullPath(destPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (!IsPathWithinDirectory(destPath, targetDir)
+                        || string.Equals(fullDestPath, fullTargetDir, StringComparison.OrdinalIgnoreCase))
+                    {
+                        failedItems.Add(new TransferFailedItem(displayTitle, fileName, "保存先ファイルパスが無効です。"));
+                        processed++;
+                        double invalidDestPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
+                        detailProgress?.Report(new TransferProgressInfo(processed, total, invalidDestPercent, fileName, "エラー"));
+                        continue;
+                    }
+
                     // 保存先に同名ファイルが既に存在する場合は重複スキップして意図しない上書きを防止する
                     if (File.Exists(destPath))
                     {
@@ -1509,6 +1548,17 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
                     {
                         if (!File.Exists(track.Path))
                         {
+                            if (!string.IsNullOrWhiteSpace(sourceRoot) && !Directory.Exists(sourceRoot))
+                            {
+                                failedItems.Add(new TransferFailedItem(displayTitle, fileName, "接続ドライブまたは機器フォルダが見つかりません。"));
+                                processed++;
+                                double disconnectedPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
+                                detailProgress?.Report(new TransferProgressInfo(processed, total, disconnectedPercent, fileName, "エラー"));
+                                wasAbortedByFatalError = true;
+                                fatalErrorMessage = "接続ドライブまたは機器フォルダにアクセスできなくなったため取り込みを中断しました。";
+                                break;
+                            }
+
                             failedItems.Add(new TransferFailedItem(displayTitle, fileName, "デバイス上のファイルが見つかりません。"));
                             processed++;
                             double missingPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
@@ -1550,7 +1600,9 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
                     }
 
                     if (_currentDevice.Type == MainViewModel.DeviceType.FileSystem
-                        && (ex is DriveNotFoundException || !Directory.Exists(destinationRoot)))
+                        && (ex is DriveNotFoundException
+                            || !Directory.Exists(destinationRoot)
+                            || (!string.IsNullOrWhiteSpace(sourceRoot) && !Directory.Exists(sourceRoot))))
                     {
                         wasAbortedByFatalError = true;
                         fatalErrorMessage = $"保存先フォルダまたは接続ドライブにアクセスできなくなったため取り込みを中断しました: {ex.Message}";
@@ -1651,12 +1703,76 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private static string ResolveImportFileName(DeviceTrack track)
+    /// <summary>
+    /// デバイストラックから Windows ファイルシステムへ安全に保存可能なファイル名を解決します
+    /// </summary>
+    /// <param name="track">対象デバイストラック</param>
+    /// <returns>サニタイズ済みファイル名（無効なパス・相対セグメントの場合は空文字列）</returns>
+    internal static string ResolveImportFileName(DeviceTrack track)
     {
-        string rawName = !string.IsNullOrWhiteSpace(track.Path)
-            ? Path.GetFileName(track.Path.Replace('/', '\\'))
-            : track.Title;
-        return Path.GetFileName(rawName ?? string.Empty);
+        if (track == null)
+        {
+            return string.Empty;
+        }
+
+        string raw = !string.IsNullOrWhiteSpace(track.Path)
+            ? track.Path
+            : (track.Title ?? string.Empty);
+
+        string normalized = raw.Replace('/', '\\');
+        if (string.IsNullOrWhiteSpace(normalized) || normalized.EndsWith('\\'))
+        {
+            return string.Empty;
+        }
+
+        int lastSep = normalized.LastIndexOf('\\');
+        string segment = (lastSep >= 0 ? normalized[(lastSep + 1)..] : normalized).Trim();
+        if (string.IsNullOrEmpty(segment) || segment == "." || segment == "..")
+        {
+            return string.Empty;
+        }
+
+        int dotIndex = segment.LastIndexOf('.');
+        string rawBase = dotIndex > 0 ? segment[..dotIndex] : segment;
+        string rawExt = dotIndex > 0 ? segment[dotIndex..] : string.Empty;
+
+        string sanitizedBase = SanitizeSinglePathSegment(rawBase).TrimEnd(' ', '.');
+        string sanitizedExt = string.IsNullOrEmpty(rawExt)
+            ? string.Empty
+            : "." + SanitizeSinglePathSegment(rawExt[1..]).TrimEnd(' ', '.');
+        if (sanitizedExt == ".")
+        {
+            sanitizedExt = string.Empty;
+        }
+
+        string combined = (sanitizedBase + sanitizedExt).TrimEnd(' ', '.');
+        if (string.IsNullOrEmpty(sanitizedBase)
+            || string.IsNullOrEmpty(combined)
+            || combined == "."
+            || combined == "..")
+        {
+            return string.Empty;
+        }
+
+        return combined;
+    }
+
+    private static string SanitizeSinglePathSegment(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
+        }
+
+        char[] invalidChars = Path.GetInvalidFileNameChars();
+        return string.Create(value.Length, (value, invalidChars), static (span, state) =>
+        {
+            for (int i = 0; i < state.value.Length; i++)
+            {
+                char c = state.value[i];
+                span[i] = Array.IndexOf(state.invalidChars, c) >= 0 || c == ':' ? '_' : c;
+            }
+        });
     }
 
     private static string ResolveImportArtistName(DeviceAlbum album, DeviceTrack track)
@@ -1766,7 +1882,11 @@ public class DeviceManagerViewModel : ViewModelBase, IDisposable
 
     private void NotifyImportCommandStateChanged()
     {
-        RunOnUiThread(() => _cancelImportCommand?.RaiseCanExecuteChanged());
+        RunOnUiThread(() =>
+        {
+            _cancelImportCommand?.RaiseCanExecuteChanged();
+            CommandManager.InvalidateRequerySuggested();
+        });
     }
 
     private static void RunOnUiThread(Action action)

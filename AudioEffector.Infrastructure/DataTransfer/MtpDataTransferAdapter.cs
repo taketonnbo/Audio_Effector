@@ -321,6 +321,12 @@ public class MtpDataTransferAdapter : IDataTransferRepository
             return false;
         }
 
+        if (File.Exists(destinationFilePath))
+        {
+            Logger.Warn($"逆転送先に同名ファイルが既に存在するため上書きを中止します: {destinationFilePath}");
+            return false;
+        }
+
         const int BUFFER_SIZE = 64 * 1024;
         var buffer = new byte[BUFFER_SIZE];
         bool destCreated = false;
@@ -335,7 +341,7 @@ public class MtpDataTransferAdapter : IDataTransferRepository
             }
 
             await using var sourceStream = new FileStream(deviceFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, BUFFER_SIZE, useAsync: true);
-            await using var destStream = new FileStream(destinationFilePath, FileMode.Create, FileAccess.Write, FileShare.None, BUFFER_SIZE, useAsync: true);
+            await using var destStream = new FileStream(destinationFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, BUFFER_SIZE, useAsync: true);
             destCreated = true;
 
             long totalBytes = sourceStream.Length;
