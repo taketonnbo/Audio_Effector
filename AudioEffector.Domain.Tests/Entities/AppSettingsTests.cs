@@ -105,4 +105,30 @@ public sealed class AppSettingsTests
         Assert.NotNull(legacyRestored!.DeviceDefaultTransferFolders);
         Assert.Empty(legacyRestored.DeviceDefaultTransferFolders);
     }
+
+    /// <summary>
+    /// HasAcceptedLrcCopyrightGuideline の既定値 false、true のシリアライズ／デシリアライズ、および旧形式 JSON（キー欠落）からの後方互換読み込みを検証します。
+    /// </summary>
+    [Fact]
+    public void HasAcceptedLrcCopyrightGuideline_JSONシリアライズおよび旧形式デシリアライズ_既定値falseとtrue復元が正しく動作すること()
+    {
+        // Arrange
+        var defaultSettings = new AppSettings();
+        var sut = new AppSettings
+        {
+            HasAcceptedLrcCopyrightGuideline = true
+        };
+
+        // Act
+        string json = JsonSerializer.Serialize(sut);
+        var restored = JsonSerializer.Deserialize<AppSettings>(json);
+        var legacyRestored = JsonSerializer.Deserialize<AppSettings>("{\"Theme\":0,\"Volume\":0.8}");
+
+        // Assert
+        Assert.False(defaultSettings.HasAcceptedLrcCopyrightGuideline);
+        Assert.NotNull(restored);
+        Assert.True(restored!.HasAcceptedLrcCopyrightGuideline);
+        Assert.NotNull(legacyRestored);
+        Assert.False(legacyRestored!.HasAcceptedLrcCopyrightGuideline);
+    }
 }

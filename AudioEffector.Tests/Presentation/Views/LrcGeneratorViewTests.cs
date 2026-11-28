@@ -153,6 +153,72 @@ public sealed class LrcGeneratorViewTests
             => Task.FromResult<LyricsDocument?>(null);
     }
 
+    private sealed class StubSettingsService(bool hasAcceptedLrcCopyrightGuideline = true) : ISettingsService
+    {
+        private readonly object _sync = new();
+        private AppSettings _settings = new()
+        {
+            HasAcceptedLrcCopyrightGuideline = hasAcceptedLrcCopyrightGuideline,
+        };
+
+        public bool StoredHasAcceptedLrcCopyrightGuideline
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _settings.HasAcceptedLrcCopyrightGuideline;
+                }
+            }
+        }
+
+        public AppSettings LoadSettings()
+        {
+            lock (_sync)
+            {
+                return new AppSettings
+                {
+                    HasAcceptedLrcCopyrightGuideline = _settings.HasAcceptedLrcCopyrightGuideline,
+                };
+            }
+        }
+
+        public void SaveSettings(AppSettings settings)
+        {
+            lock (_sync)
+            {
+                _settings = settings;
+            }
+        }
+
+        public Task<AppSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(LoadSettings());
+
+        public Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
+        {
+            SaveSettings(settings);
+            return Task.CompletedTask;
+        }
+
+        public void UpdateSettings(Action<AppSettings> update)
+        {
+            lock (_sync)
+            {
+                update(_settings);
+            }
+        }
+
+        public Task UpdateSettingsAsync(Action<AppSettings> update, CancellationToken cancellationToken = default)
+        {
+            lock (_sync)
+            {
+                update(_settings);
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
     private static Task RunInStaThreadAsync(Func<Task> action)
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -284,7 +350,9 @@ public sealed class LrcGeneratorViewTests
     private static (LrcGeneratorViewModel ViewModel, StubAlignmentEngine Engine, StubTextEncodingService TextSvc, StubModelManager ModelMgr) CreateViewModel(
         bool modelAvailable,
         Func<string, bool>? fileExistsFunc = null,
-        StubLrcParser? lrcParser = null)
+        StubLrcParser? lrcParser = null,
+        bool acceptedCopyrightGuideline = true,
+        ISettingsService? settingsService = null)
     {
         var engine = new StubAlignmentEngine();
         var textSvc = new StubTextEncodingService();
@@ -293,6 +361,7 @@ public sealed class LrcGeneratorViewTests
         var lyricsSvc = new LyricsApplicationService(new StubLyricsProvider(), eventBus);
         var genSvc = new LrcGenerationApplicationService(engine, textSvc, modelMgr, lrcParser ?? new StubLrcParser(), lyricsSvc);
         var audioMock = new Mock<IAudioService>();
+        ISettingsService resolvedSettings = settingsService ?? new StubSettingsService(acceptedCopyrightGuideline);
         var vm = new LrcGeneratorViewModel(
             genSvc,
             audioMock.Object,
@@ -300,7 +369,8 @@ public sealed class LrcGeneratorViewTests
             selectTextFileFunc: null,
             selectModelFileFunc: null,
             openFolderAction: _ => { },
-            fileExistsFunc: fileExistsFunc ?? (_ => true));
+            fileExistsFunc: fileExistsFunc ?? (_ => true),
+            settingsService: resolvedSettings);
         return (vm, engine, textSvc, modelMgr);
     }
 
@@ -781,6 +851,86 @@ public sealed class LrcGeneratorViewTests
                 {
                     Directory.Delete(tempDir, recursive: true);
                 }
+            }
+        });
+    }
+
+    /// <summary>
+    /// ダーク／ライト両テーマおよび最小幅（260px）のオフスクリーンホスト Window 上で、
+    /// 著作権・利用ガイドライン未承諾時の警告カード表示＆両生成ボタン非活性、
+    /// 承諾後の常設注意表示＆両生成ボタン活性実反映、詳細トグル開閉、バインディングエラー 0 件、高負荷エフェクト 0 件を検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("DarkTheme.xaml")]
+    [InlineData("LightTheme.xaml")]
+    public Task LrcGeneratorView_両テーマと最小幅で著作権ガイドライン未承諾から承諾および詳細トグルを描画_表示切替とボタン活性実反映とバインディングエラー0件を満たす(string themeFileName)
+    {
+        return RunInStaThreadAsync(async () =>
+        {
+            // Arrange
+            EnsureApplicationResources();
+            using var listener = new BindingErrorTraceListener();
+            var existingPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C:\Music\GuidelineUi.flac" };
+            var settingsService = new StubSettingsService(hasAcceptedLrcCopyrightGuideline: false);
+            var (vm, _, _, _) = CreateViewModel(
+                modelAvailable: true,
+                fileExistsFunc: p => existingPaths.Contains(p),
+                settingsService: settingsService);
+
+            using (vm)
+            {
+                vm.SetTargetTrack(new Track { FilePath = @"C:\Music\GuidelineUi.flac", Title = "GuidelineUi", Artist = "Artist" });
+                await vm.InspectAndSelectTextFileAsync(@"C:\Lyrics\GuidelineUi.txt");
+                vm.ConfirmEncodingConversionCommand.Execute(null);
+
+                var sut = new LrcGeneratorView { DataContext = vm };
+                AttachThemeResources(sut.Resources, themeFileName);
+
+                await RunWithHostWindowAsync(sut, host =>
+                {
+                    var acceptBanner = Assert.IsType<Border>(sut.FindName("CopyrightGuidelineAcceptBanner"));
+                    var acceptButton = Assert.IsType<Button>(sut.FindName("AcceptCopyrightGuidelineButton"));
+                    var noticeBar = Assert.IsType<Border>(sut.FindName("CopyrightGuidelineNoticeBar"));
+                    var toggleButton = Assert.IsType<Button>(sut.FindName("ToggleCopyrightGuidelineButton"));
+                    var detailPanel = Assert.IsType<StackPanel>(sut.FindName("CopyrightGuidelineDetailPanel"));
+                    var generateFromTextBtn = Assert.IsType<Button>(sut.FindName("GenerateFromTextButton"));
+                    var transcribeAudioBtn = Assert.IsType<Button>(sut.FindName("TranscribeAudioButton"));
+
+                    // Assert 1: 未承諾時は警告カード表示・常設注意バー非表示・両生成ボタン非活性
+                    Assert.True(vm.IsInputState);
+                    Assert.Equal(Visibility.Visible, acceptBanner.Visibility);
+                    Assert.Equal(Visibility.Collapsed, noticeBar.Visibility);
+                    Assert.True(acceptButton.IsEnabled);
+                    Assert.False(generateFromTextBtn.IsEnabled);
+                    Assert.False(transcribeAudioBtn.IsEnabled);
+
+                    // Act 1: 承諾ボタンを実行
+                    acceptButton.Command.Execute(null);
+                    host.UpdateLayout();
+
+                    // Assert 2: 警告カード非表示・常設注意バー表示（詳細は初期折りたたみ）・両生成ボタン即時活性・設定永続化
+                    Assert.Equal(Visibility.Collapsed, acceptBanner.Visibility);
+                    Assert.Equal(Visibility.Visible, noticeBar.Visibility);
+                    Assert.Equal(Visibility.Collapsed, detailPanel.Visibility);
+                    Assert.True(toggleButton.IsEnabled);
+                    Assert.True(generateFromTextBtn.IsEnabled);
+                    Assert.True(transcribeAudioBtn.IsEnabled);
+                    Assert.True(settingsService.StoredHasAcceptedLrcCopyrightGuideline);
+
+                    // Act 2: 詳細トグルを展開 → 折りたたみ
+                    toggleButton.Command.Execute(null);
+                    host.UpdateLayout();
+                    Assert.Equal(Visibility.Visible, detailPanel.Visibility);
+
+                    toggleButton.Command.Execute(null);
+                    host.UpdateLayout();
+                    Assert.Equal(Visibility.Collapsed, detailPanel.Visibility);
+
+                    // Assert 3: バインディングエラー 0 件・高負荷エフェクト 0 件
+                    Assert.Empty(listener.Errors);
+                    Assert.False(HasHeavyEffect(sut));
+                    return Task.CompletedTask;
+                }, width: 260, height: 520);
             }
         });
     }

@@ -470,4 +470,32 @@ public sealed class JsonRepositoryConcurrencyAndDiTests : IDisposable
         Assert.False(sut.IsCustomDirectory);
         Assert.Equal(expected, sut.DataDirectory);
     }
+
+    /// <summary>
+    /// 旧形式の settings.json（HasAcceptedLrcCopyrightGuideline キー欠落）から既定値 false として読み込まれ、
+    /// UpdateSettingsAsync による承諾保存後に別インスタンスから true として復元されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SettingsApplicationService_HasAcceptedLrcCopyrightGuidelineの更新と再読込_既存JSON欠落時はfalseで更新後はtrueが永続化されること()
+    {
+        // Arrange
+        var directory = new DataDirectoryProvider(_tempDirectory);
+        string path = directory.GetFilePath("settings.json");
+        await File.WriteAllTextAsync(path, """{"Theme":0,"Volume":0.65}""");
+        using var repo = new JsonSettingsRepository(path);
+        using var sut = new SettingsApplicationService(repo, directory, JsonFileLockHelper.Default);
+
+        // Act
+        AppSettings initial = sut.LoadSettings();
+        await sut.UpdateSettingsAsync(settings => settings.HasAcceptedLrcCopyrightGuideline = true);
+
+        using var reloadRepo = new JsonSettingsRepository(path);
+        using var reloadService = new SettingsApplicationService(reloadRepo, directory, JsonFileLockHelper.Default);
+        AppSettings reloaded = await reloadService.LoadSettingsAsync();
+
+        // Assert
+        Assert.False(initial.HasAcceptedLrcCopyrightGuideline);
+        Assert.True(reloaded.HasAcceptedLrcCopyrightGuideline);
+        Assert.Equal(0.65f, reloaded.Volume, precision: 2);
+    }
 }
