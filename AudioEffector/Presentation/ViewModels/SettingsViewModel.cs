@@ -356,6 +356,23 @@ public class SettingsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// 機器転送時にFLACファイルをMP3形式へ自動変換してデータ量を削減するかどうかを取得または設定します
+    /// </summary>
+    public bool ConvertFlacToMp3
+    {
+        get => _appSettings.ConvertFlacToMp3;
+        set
+        {
+            if (_appSettings.ConvertFlacToMp3 != value)
+            {
+                _appSettings.ConvertFlacToMp3 = value;
+                OnPropertyChanged();
+                _settingsService.UpdateSettings(settings => settings.ConvertFlacToMp3 = value);
+            }
+        }
+    }
+
     // --- Shortcuts ---
 
     /// <summary>
