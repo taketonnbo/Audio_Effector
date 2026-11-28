@@ -133,6 +133,91 @@ class EpicTrackerParserTests(unittest.TestCase):
         self.assertEqual([s.number for s in specs], [701, 702])
         self.assertEqual(by_num[702].depends_on, [701])
 
+    def test_依存列で明示的に依存なしと記載された異なる順序の子Issueは暗黙依存を持たず並列候補になる(self) -> None:
+        # Arrange: Epic #434 形式（順序 1・2 が別番号だが依存列がいずれも「なし」）
+        body = """
+### 2. サブ Issue 一覧
+
+| 順序 | Issue | 内容・対象機能 | 依存 |
+| :---: | :--- | :--- | :--- |
+| 1 | #435 | 著作権・利用ガイドライン警告表示 | なし |
+| 2 | #436 | THIRD-PARTY-NOTICES.md 最新化・同梱整備 | なし |
+| 3 | #437 | 統合ドキュメント確認 | #435 |
+
+- [ ] #435 警告表示
+- [ ] #436 ライセンス表記
+- [ ] #437 統合確認
+"""
+        # Act
+        specs, warnings = epic_tracker.parse_epic_body(body, epic_number=434)
+        by_num = {s.number: s for s in specs}
+
+        live_issues = {
+            435: {"number": 435, "title": "警告表示", "state": "OPEN", "url": "", "labels": []},
+            436: {"number": 436, "title": "ライセンス表記", "state": "OPEN", "url": "", "labels": []},
+            437: {"number": 437, "title": "統合確認", "state": "OPEN", "url": "", "labels": []},
+        }
+        classified = epic_tracker.classify_child_statuses(
+            specs=specs,
+            live_issues=live_issues,
+            prs_by_issue={435: [], 436: [], 437: []},
+            unresolved_threads_by_pr={},
+            local_branch_issues=set(),
+            blocked_overrides={},
+        )
+        next_info = epic_tracker.compute_next_actions(classified, epic_number=434, max_parallel=3)
+
+        # Assert
+        self.assertEqual(warnings, [])
+        self.assertEqual(by_num[435].depends_on, [])
+        self.assertEqual(by_num[436].depends_on, [])
+        self.assertEqual(by_num[437].depends_on, [435])
+        status_map = {c["number"]: c["status"] for c in classified}
+        self.assertEqual(status_map[435], "pending")
+        self.assertEqual(status_map[436], "pending")
+        self.assertEqual(status_map[437], "waiting_deps")
+        self.assertEqual(next_info["primary_action"]["action"], "start_issue")
+        self.assertEqual(next_info["primary_action"]["issues"], [435, 436])
+        self.assertTrue(next_info["primary_action"]["parallel"])
+        self.assertIn("依存なし／依存解消済み", next_info["primary_action"]["summary"])
+
+    def test_チェックリスト形式の明示依存なし指定とスロット上限超過時の順序優先選出が動作する(self) -> None:
+        # Arrange
+        body = """
+- [ ] #801 タスクA [order: 1]
+- [ ] #802 タスクB (依存: なし) [order: 2]
+- [ ] #803 タスクC (depends: none) [order: 3]
+- [ ] #804 タスクD (depends: #801) [order: 4]
+"""
+        # Act
+        specs, warnings = epic_tracker.parse_epic_body(body, epic_number=800)
+        by_num = {s.number: s for s in specs}
+
+        live_issues = {
+            n: {"number": n, "title": f"T{n}", "state": "OPEN", "url": "", "labels": []}
+            for n in (801, 802, 803, 804)
+        }
+        classified = epic_tracker.classify_child_statuses(
+            specs=specs,
+            live_issues=live_issues,
+            prs_by_issue={801: [], 802: [], 803: [], 804: []},
+            unresolved_threads_by_pr={},
+            local_branch_issues=set(),
+            blocked_overrides={},
+        )
+        next_info = epic_tracker.compute_next_actions(classified, epic_number=800, max_parallel=2)
+
+        # Assert
+        self.assertEqual(warnings, [])
+        self.assertEqual(by_num[801].depends_on, [])
+        self.assertEqual(by_num[802].depends_on, [])
+        self.assertEqual(by_num[803].depends_on, [])
+        self.assertEqual(by_num[804].depends_on, [801])
+        self.assertEqual(next_info["primary_action"]["action"], "start_issue")
+        self.assertEqual(next_info["primary_action"]["issues"], [801, 802])
+        self.assertTrue(next_info["primary_action"]["parallel"])
+        self.assertIn("並列スロット上限 0/2 により最大 2 件を提案", next_info["primary_action"]["summary"])
+
 
 class EpicTrackerPrAndApiTests(unittest.TestCase):
     """PR 紐付け・GraphQL 変数バインド・API エラーハンドリングのテスト。"""
