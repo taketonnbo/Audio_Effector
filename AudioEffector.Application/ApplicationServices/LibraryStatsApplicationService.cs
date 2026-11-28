@@ -11,7 +11,7 @@ using AudioEffector.Domain.Repositories;
 namespace AudioEffector.Application.ApplicationServices;
 
 /// <summary>
-/// ライブラリ全体のリスニング統計（KPI サマリ・曲/アーティスト/アルバム TOP 10・日別/月別推移・時間帯/曜日別傾向）を集計するアプリケーションサービスです。
+/// ライブラリ全体のリスニング統計（KPI サマリ・曲/アーティスト/アルバム TOP 10・日別/月別推移・時間帯/曜日別傾向）を集計するアプリケーションサービス
 /// </summary>
 public sealed class LibraryStatsApplicationService
 {
@@ -72,8 +72,8 @@ public sealed class LibraryStatsApplicationService
     }
 
     /// <summary>
-    /// 任意の期間範囲（<see cref="StatsDateRange"/>）に対するライブラリ全体のリスニング統計を集計します。
-    /// 将来の特定週・月・年単位ランキング拡張にも対応する共通集計エントリポイントです。
+    /// 任意の期間範囲（<see cref="StatsDateRange"/>）に対するライブラリ全体のリスニング統計を集計します
+    /// 将来の特定週・月・年単位ランキング拡張にも対応する共通集計エントリポイントです
     /// </summary>
     /// <param name="dateRange">集計対象期間（null 指定時は全期間）</param>
     /// <param name="topCount">各ランキングの最大件数（既定 10 件）</param>
@@ -116,9 +116,12 @@ public sealed class LibraryStatsApplicationService
         }
 
         List<RankedTrackStat> topTracks = BuildTopTracks(records, effectiveTopCount);
-        List<RankedArtistStat> topArtists = BuildTopArtists(records, effectiveTopCount);
+        List<RankedArtistStat> rankedArtistsForSummary = BuildTopArtists(records, Math.Max(1, effectiveTopCount));
+        List<RankedArtistStat> topArtists = effectiveTopCount > 0
+            ? rankedArtistsForSummary.Take(effectiveTopCount).ToList()
+            : new List<RankedArtistStat>();
         List<RankedAlbumStat> topAlbums = BuildTopAlbums(records, effectiveTopCount);
-        LibraryStatsSummary summary = BuildSummary(records, dateRange, now, topArtists);
+        LibraryStatsSummary summary = BuildSummary(records, dateRange, now, rankedArtistsForSummary);
         List<ListeningTrendPoint> dailyTrends = BuildDailyTrends(records, dateRange, now);
         List<ListeningTrendPoint> monthlyTrends = BuildMonthlyTrends(records, dateRange, now);
         ListeningHabitDistribution habits = BuildHabits(records);
@@ -313,8 +316,8 @@ public sealed class LibraryStatsApplicationService
             normalizedStats.Count,
             artistGroups.Count,
             albumGroups.Count,
-            topArtists.Count > 0 ? topArtists[0].ArtistName : string.Empty,
-            topArtists.Count > 0 ? topArtists[0].PlayCount : 0);
+            artistGroups.Count > 0 ? artistGroups[0].ArtistName : string.Empty,
+            artistGroups.Count > 0 ? artistGroups[0].PlayCount : 0);
 
         return new LibraryStatsSnapshot(
             dateRange,
@@ -583,6 +586,33 @@ public sealed class LibraryStatsApplicationService
                 startDateInclusive = MaxDate(rangeStart, anchorEnd.AddDays(-(DefaultRecentDailyDays - 1)));
             }
         }
+        else if (dateRange.EndExclusive.HasValue)
+        {
+            DateTime rangeEnd = dateRange.EndExclusive.Value.AddTicks(-1).Date;
+            endDateInclusive = rangeEnd;
+            if (records.Count > 0)
+            {
+                DateTime earliestRecordDate = records.Min(r => r.PlayedAt.Date);
+                DateTime windowStart = endDateInclusive.AddDays(-(DefaultRecentDailyDays - 1));
+                startDateInclusive = earliestRecordDate > windowStart ? earliestRecordDate : windowStart;
+            }
+            else
+            {
+                startDateInclusive = endDateInclusive.AddDays(-(DefaultRecentDailyDays - 1));
+            }
+        }
+        else if (dateRange.StartInclusive.HasValue)
+        {
+            DateTime rangeStart = dateRange.StartInclusive.Value.Date;
+            DateTime latestCandidate = records.Count > 0
+                ? MaxDate(now.Date, records.Max(r => r.PlayedAt.Date))
+                : now.Date;
+            endDateInclusive = MaxDate(rangeStart, latestCandidate);
+            int totalRangeDays = (endDateInclusive - rangeStart).Days + 1;
+            startDateInclusive = totalRangeDays <= MaxDailyTrendBuckets
+                ? rangeStart
+                : MaxDate(rangeStart, endDateInclusive.AddDays(-(DefaultRecentDailyDays - 1)));
+        }
         else if (records.Count > 0)
         {
             DateTime latestRecordDate = records.Max(r => r.PlayedAt.Date);
@@ -644,6 +674,27 @@ public sealed class LibraryStatsApplicationService
             startMonth = new DateTime(dateRange.StartInclusive.Value.Year, dateRange.StartInclusive.Value.Month, 1);
             DateTime rangeEnd = dateRange.EndExclusive.Value.AddTicks(-1);
             endMonth = new DateTime(rangeEnd.Year, rangeEnd.Month, 1);
+
+            int monthsSpan = ((endMonth.Year - startMonth.Year) * 12) + (endMonth.Month - startMonth.Month) + 1;
+            if (monthsSpan > MaxMonthlyTrendBuckets)
+            {
+                startMonth = endMonth.AddMonths(-(MaxMonthlyTrendBuckets - 1));
+            }
+        }
+        else if (dateRange.EndExclusive.HasValue)
+        {
+            DateTime rangeEnd = dateRange.EndExclusive.Value.AddTicks(-1);
+            endMonth = new DateTime(rangeEnd.Year, rangeEnd.Month, 1);
+            startMonth = endMonth.AddMonths(-(DefaultRecentMonthlyMonths - 1));
+        }
+        else if (dateRange.StartInclusive.HasValue)
+        {
+            startMonth = new DateTime(dateRange.StartInclusive.Value.Year, dateRange.StartInclusive.Value.Month, 1);
+            DateTime latest = records.Count > 0
+                ? MaxDate(now.Date, records.Max(r => r.PlayedAt.Date))
+                : now.Date;
+            DateTime candidateEnd = new DateTime(latest.Year, latest.Month, 1);
+            endMonth = candidateEnd >= startMonth ? candidateEnd : startMonth;
 
             int monthsSpan = ((endMonth.Year - startMonth.Year) * 12) + (endMonth.Month - startMonth.Month) + 1;
             if (monthsSpan > MaxMonthlyTrendBuckets)

@@ -3,8 +3,8 @@ using System;
 namespace AudioEffector.Domain.Entities;
 
 /// <summary>
-/// リスニング統計の集計対象期間（開始日時含む・終了日時含まない半開区間）を表す不変モデルです。
-/// 既定の期間フィルタだけでなく、将来の特定週・月・年単位ランキング向けの任意期間指定にも対応します。
+/// リスニング統計の集計対象期間（開始日時含む・終了日時含まない半開区間）を表す不変モデル
+/// 既定の期間フィルタだけでなく、将来の特定週・月・年単位ランキング向けの任意期間指定にも対応します
 /// </summary>
 public sealed record StatsDateRange
 {
@@ -14,12 +14,12 @@ public sealed record StatsDateRange
     public static StatsDateRange AllTime { get; } = new(null, null);
 
     /// <summary>
-    /// 集計期間の開始日時（含む）。未指定（null）の場合は下限なしを表します。
+    /// 集計期間の開始日時（含む）。未指定（null）の場合は下限なしを表します
     /// </summary>
     public DateTime? StartInclusive { get; }
 
     /// <summary>
-    /// 集計期間の終了日時（含まない）。未指定（null）の場合は上限なしを表します。
+    /// 集計期間の終了日時（含まない）。未指定（null）の場合は上限なしを表します
     /// </summary>
     public DateTime? EndExclusive { get; }
 
