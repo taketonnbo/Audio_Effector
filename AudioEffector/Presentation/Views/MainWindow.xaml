@@ -667,6 +667,15 @@
                                     </Setter.Value>
                                 </Setter>
                             </DataTrigger>
+                            <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.ListeningStats}">
+                                <Setter Property="ContentTemplate">
+                                    <Setter.Value>
+                                        <DataTemplate>
+                                            <views:LibraryStatsView DataContext="{Binding LibraryStats}" />
+                                        </DataTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </DataTrigger>
                             <DataTrigger Binding="{Binding CurrentViewType}" Value="{x:Static vm:ViewType.Equalizer}">
                                 <Setter Property="ContentTemplate">
                                     <Setter.Value>

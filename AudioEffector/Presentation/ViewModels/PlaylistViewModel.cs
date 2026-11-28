@@ -476,6 +476,44 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
         UserPlaylists.Add(playlist);
     }
 
+    /// <summary>
+    /// 指定された名称と楽曲一覧で新規ユーザープレイリストを作成して永続化します。
+    /// </summary>
+    /// <param name="playlistName">新規プレイリスト名</param>
+    /// <param name="tracks">追加する楽曲一覧（順序を保持し重複を除外します）</param>
+    /// <returns>作成・保存に成功した <see cref="UserPlaylist"/>（無効入力または保存失敗時は null）</returns>
+    public UserPlaylist? CreatePlaylistWithTracks(string? playlistName, IEnumerable<Track> tracks)
+    {
+        ArgumentNullException.ThrowIfNull(tracks);
+        if (string.IsNullOrWhiteSpace(playlistName))
+        {
+            return null;
+        }
+
+        var trackList = tracks.Where(t => t != null).ToList();
+        if (trackList.Count == 0)
+        {
+            return null;
+        }
+
+        var playlist = new UserPlaylist { Name = playlistName.Trim() };
+        Result<IReadOnlyList<Track>> addResult = _playlistService.TryAddTracksPreservingOrder(playlist, trackList);
+        if (addResult.IsFailure)
+        {
+            ReportPersistenceFailure(addResult.ErrorMessage);
+            return null;
+        }
+
+        if (!TryPersistPlaylist(playlist))
+        {
+            return null;
+        }
+
+        UpdatePlaylistThumbnails(playlist);
+        RunOnUiThread(() => UserPlaylists.Add(playlist));
+        return playlist;
+    }
+
     private void DeletePlaylist(object? parameter)
     {
         var playlist = parameter as UserPlaylist ?? SelectedPlaylist;

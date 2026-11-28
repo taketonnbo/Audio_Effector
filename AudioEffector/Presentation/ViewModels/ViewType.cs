@@ -32,6 +32,9 @@ public enum ViewType
     /// <summary>最近再生した曲画面</summary>
     Recent,
 
+    /// <summary>ライブラリ全体のリスニング統計画面</summary>
+    ListeningStats,
+
     /// <summary>イコライザー設定画面</summary>
     Equalizer,
 
