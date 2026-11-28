@@ -61,7 +61,7 @@
 
 - **上部（機器側エクスプローラー）**: `"CONNECTED DEVICE"` 見出し、接続機器 `ComboBox`（リムーバブルドライブおよびMTPデバイス両対応）、`"⚙ Manage"` ボタン、親フォルダへ移動 `".."`、現在パス `CurrentDevicePath`、再読込 `"↻"`、および `DeviceDirectories`（サブフォルダ `📁` とファイル `📄` の一覧）を表示する。
 - **下部（PC側選択リスト）**: `"SELECT ALBUMS / TRACKS TO TRANSFER"` 見出し、`Albums` の `Expander` と `CheckBox`（展開時は配下 `Tracks` の `CheckBox`）。
-- **重複防止とロック**: 転送先（`<CurrentDevicePath>\<Artist>\<Album>\<FileName>`）に全曲存在するアルバムは `Album.IsOnDevice = True` となり選択 `CheckBox` が無効化される（転送実行時にも既存同名ファイルは自動スキップ）。転送中（`IsTransferring = True`）はナビゲーション・選択・転送ボタンをロックし、ボタン文言を `"TRANSFERRING..."` に切り替えて進捗率 `Transferring: XX%` を更新する。
+- **重複防止とロック**: 選択中フォルダ（`CurrentDevicePath`）配下の既存音声ファイルを非同期で一括インデックス化し（ルート直下での全階層再帰走査は回避）、相対パス（`<Artist>\<Album>\<拡張子除去ファイル名>`、直下フラット配置含む）ベースで別アルバム間の同名衝突を防ぎつつ曲単位の `Track.IsOnDevice` を判定する。既転送曲は曲単位で `CheckBox` が無効化・曲名が半透明（`Opacity="0.5"`）でグレーアウトされ、アルバム選択 ON 時も未転送曲のみ自動選択される。全曲転送済みのアルバムは `Album.IsOnDevice = True` に自動連動し、アルバムの `CheckBox`・タイトル表示も非活性・グレーアウトされる（デバイス未選択・切断時は自動リセット、転送実行時にも既転送曲は除外される）。転送中（`IsTransferring = True`）はナビゲーション・選択・転送ボタンをロックし、ボタン文言を `"TRANSFERRING..."` に切り替えて進捗率 `Transferring: XX%` を更新する。
 
 ## 6. アニメーションとインタラクション
 

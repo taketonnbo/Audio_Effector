@@ -29,6 +29,7 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
     private bool _isHiRes;
     private bool _isPlaying;
     private bool _isSelected;
+    private bool _isOnDevice;
 
     /// <summary>
     /// 一意のトラックID
@@ -346,10 +347,37 @@ public class Track : INotifyPropertyChanged, IEquatable<Track>
         get => _isSelected;
         set
         {
+            if (value && _isOnDevice)
+            {
+                return;
+            }
+
             if (_isSelected != value)
             {
                 _isSelected = value;
                 OnPropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 接続先デバイスの指定フォルダ配下に既に存在するかどうか
+    /// </summary>
+    public bool IsOnDevice
+    {
+        get => _isOnDevice;
+        set
+        {
+            if (_isOnDevice != value)
+            {
+                _isOnDevice = value;
+                OnPropertyChanged();
+
+                if (_isOnDevice && _isSelected)
+                {
+                    _isSelected = false;
+                    OnPropertyChanged(nameof(IsSelected));
+                }
             }
         }
     }

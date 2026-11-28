@@ -227,4 +227,41 @@ public class TrackTests
         Assert.Equal(newAlbumId, sut.AlbumId);
         Assert.Contains(nameof(Track.AlbumId), notified);
     }
+
+    /// <summary>
+    /// IsOnDeviceをtrueに設定した際、PropertyChangedが通知され、選択状態が自動解除されることを検証します。
+    /// </summary>
+    [Fact]
+    public void IsOnDevice_Trueを設定した場合_PropertyChanged通知とIsSelected自動解除が行われること()
+    {
+        // Arrange
+        var sut = new Track { IsSelected = true };
+        var notified = new List<string?>();
+        sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        // Act
+        sut.IsOnDevice = true;
+
+        // Assert
+        Assert.True(sut.IsOnDevice);
+        Assert.False(sut.IsSelected);
+        Assert.Contains(nameof(Track.IsOnDevice), notified);
+        Assert.Contains(nameof(Track.IsSelected), notified);
+    }
+
+    /// <summary>
+    /// IsOnDeviceがtrueのトラックに対してIsSelectedをtrueに設定しても選択されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void IsSelected_IsOnDeviceがTrueの場合_Trueを設定してもFalseを維持すること()
+    {
+        // Arrange
+        var sut = new Track { IsOnDevice = true };
+
+        // Act
+        sut.IsSelected = true;
+
+        // Assert
+        Assert.False(sut.IsSelected);
+    }
 }
