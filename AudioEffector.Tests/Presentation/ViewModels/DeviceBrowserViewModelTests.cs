@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.ViewModels;
 using Xunit;
@@ -703,6 +704,107 @@ public sealed class DeviceBrowserViewModelTests
         {
             update(_settings);
             return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// ConvertMp4ToM4aが有効な場合、.mp4トラックが.m4aへ変換されて転送され、変換用一時ファイルが転送後に自動クリーンアップされることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracksToFileSystemAsync_ConvertMp4ToM4a有効時_M4Aへ変換転送され一時ファイルが削除されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_Mp4Transfer_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string destDir = Path.Combine(tempRoot, "Dest");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(destDir);
+
+        string sourceMp4 = Path.Combine(sourceDir, "01_Sample.mp4");
+        File.WriteAllText(sourceMp4, "original-mp4-bytes");
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.ConvertMp4ToM4a = true);
+
+        var fakeTranscoder = new FakeAudioTranscodeService();
+        var track = new Track
+        {
+            Title = "Sample",
+            Artist = "Artist A",
+            Album = "Album A",
+            FilePath = sourceMp4
+        };
+        var albums = new ObservableCollection<Album> { new Album("Album A", "Artist A", 2024, new[] { track }) };
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: fakeTranscoder);
+
+            // Act
+            var options = sut.GetCurrentTranscodeOptions();
+            await sut.TransferTracksToFileSystemAsync(new[] { track }, destDir, options);
+
+            // Assert
+            string expectedDestM4a = Path.Combine(destDir, "Artist A", "Album A", "01_Sample.m4a");
+            Assert.True(options.ConvertMp4ToM4a);
+            Assert.Equal(1, fakeTranscoder.TranscodeCallCount);
+            Assert.True(File.Exists(expectedDestM4a));
+            Assert.Equal("transcoded-m4a-bytes", File.ReadAllText(expectedDestM4a));
+            Assert.NotNull(fakeTranscoder.LastTemporaryDirectory);
+            Assert.False(Directory.Exists(fakeTranscoder.LastTemporaryDirectory));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed class FakeAudioTranscodeService : IAudioTranscodeService
+    {
+        public int TranscodeCallCount { get; private set; }
+        public string? LastTemporaryDirectory { get; private set; }
+
+        public bool NeedsTranscode(string sourceFilePath, AudioTranscodeOptions options)
+            => options.ConvertMp4ToM4a && Path.GetExtension(sourceFilePath).Equals(".mp4", StringComparison.OrdinalIgnoreCase);
+
+        public string ResolveTargetFileName(string sourceFilePath, AudioTranscodeOptions options)
+        {
+            string fileName = Path.GetFileName(sourceFilePath);
+            return NeedsTranscode(sourceFilePath, options) ? Path.ChangeExtension(fileName, ".m4a") : fileName;
+        }
+
+        public Task<TranscodedAudioResult> PrepareForTransferAsync(
+            string sourceFilePath,
+            AudioTranscodeOptions options,
+            CancellationToken cancellationToken = default)
+        {
+            if (!NeedsTranscode(sourceFilePath, options))
+            {
+                return Task.FromResult(TranscodedAudioResult.Passthrough(sourceFilePath));
+            }
+
+            TranscodeCallCount++;
+            string tempDir = Path.Combine(Path.GetTempPath(), $"AE_FakeTranscode_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            LastTemporaryDirectory = tempDir;
+
+            string targetName = ResolveTargetFileName(sourceFilePath, options);
+            string outputPath = Path.Combine(tempDir, targetName);
+            File.WriteAllText(outputPath, "transcoded-m4a-bytes");
+
+            return Task.FromResult(new TranscodedAudioResult(
+                sourceFilePath,
+                outputPath,
+                targetName,
+                wasTranscoded: true,
+                temporaryDirectoryPath: tempDir));
         }
     }
 }
