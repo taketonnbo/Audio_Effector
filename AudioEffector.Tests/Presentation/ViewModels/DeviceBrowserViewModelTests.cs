@@ -3044,6 +3044,128 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// SanitizeFileNameCore の旧禁止文字除去モード（非 LINQ 実装）および新置換モードにおいて、
+    /// 空文字・空白・禁止文字のみ・制御文字・末尾ピリオド・長文字列など全境界ケースで期待通りの出力を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(null, false, true, "Unknown")]
+    [InlineData("", false, true, "Unknown")]
+    [InlineData("   \t  ", false, true, "Unknown")]
+    [InlineData(":*?<>|", false, true, "Unknown")]
+    [InlineData(":*?<>|", true, true, "______")]
+    [InlineData(" : . . : ", false, true, "Unknown")]
+    [InlineData("...", false, true, "Unknown")]
+    [InlineData("...", false, false, "Unknown")]
+    [InlineData("  Artist:Name...  ", false, true, "ArtistName")]
+    [InlineData("  Artist:Name...  ", false, false, "ArtistName...")]
+    [InlineData("  Artist:Name...  ", true, true, "Artist_Name")]
+    [InlineData("  Artist:Name...  ", true, false, "Artist_Name...")]
+    [InlineData("A\0B\u0001C:D?", false, true, "ABCD")]
+    [InlineData("A\0B\u0001C:D?", true, true, "A_B_C_D_")]
+    [InlineData("  AC/DC  ", false, true, "ACDC")]
+    [InlineData("  AC/DC  ", true, true, "AC_DC")]
+    [InlineData("Title . . ", false, false, "Title . .")]
+    [InlineData("Title . . ", false, true, "Title")]
+    public void SanitizeFileNameCore_旧除去モードと新置換モードの境界ケース_期待される正規化結果を返すこと(
+        string? input,
+        bool replaceInvalidWithUnderscore,
+        bool trimTrailingDots,
+        string expected)
+    {
+        // Arrange & Act
+        string actual = DeviceBrowserViewModel.SanitizeFileNameCore(
+            input,
+            replaceInvalidWithUnderscore,
+            trimTrailingDots);
+
+        // Assert
+        Assert.Equal(expected, actual);
+    }
+
+    /// <summary>
+    /// SanitizeFileNameCore がスタック確保閾値（256文字）を超える長い文字列に対しても
+    /// 旧除去モード・新置換モードの双方で正確にサニタイズできることを検証します。
+    /// </summary>
+    [Fact]
+    public void SanitizeFileNameCore_256文字超の長文字列_旧除去および新置換モードとも正確に正規化されること()
+    {
+        // Arrange
+        string prefix = new string('A', 200);
+        string suffix = new string('B', 100);
+        string input = $"  {prefix}:*?{suffix}...  ";
+
+        // Act
+        string legacyTrimmed = DeviceBrowserViewModel.SanitizeFileNameCore(input, replaceInvalidWithUnderscore: false, trimTrailingDots: true);
+        string legacyKeepDots = DeviceBrowserViewModel.SanitizeFileNameCore(input, replaceInvalidWithUnderscore: false, trimTrailingDots: false);
+        string canonicalTrimmed = DeviceBrowserViewModel.SanitizeFileNameCore(input, replaceInvalidWithUnderscore: true, trimTrailingDots: true);
+
+        // Assert
+        Assert.Equal(prefix + suffix, legacyTrimmed);
+        Assert.Equal(prefix + suffix + "...", legacyKeepDots);
+        Assert.Equal(prefix + "___" + suffix, canonicalTrimmed);
+    }
+
+    /// <summary>
+    /// BuildPrimaryDirectoryOwnerMap のアルバム単位ショートカット適用時に、
+    /// Artist/Title 確定済みの複数トラックアルバム・空白メタデータでフォールバック解決を要するアルバム・空アルバムが混在しても
+    /// 別アルバム衝突防止が従来と完全に等価に動作することを検証します。
+    /// </summary>
+    [Fact]
+    public void ApplyDeviceTrackIndex_確定済みアルバムと空白フォールバックアルバム混在時_所有者マップによる別アルバム衝突防止が等価に動作すること()
+    {
+        // Arrange
+        // 1. Artist/Title が確定済みの複数トラックアルバム（ショートカット経路）
+        var confirmedTrack1 = new Track { Title = "Track 1", Artist = "Performer X", AlbumArtist = "A_B", Album = "Album_1", FilePath = @"C:\Music\confirmed\01.mp3" };
+        var confirmedTrack2 = new Track { Title = "Track 2", Artist = "Performer Y", AlbumArtist = "A_B", Album = "Album_1", FilePath = @"C:\Music\confirmed\02.mp3" };
+        var confirmedAlbum = new Album("  Album_1  ", "  A_B  ", 2026, new[] { confirmedTrack1, confirmedTrack2 });
+
+        // 2. 禁止文字を含む別アルバム（旧除去互換候補 "AB\Album1" が下の空白アルバム正規配置と衝突）
+        var colonTrack = new Track { Title = "Colon Song", Artist = "A:B", AlbumArtist = "A:B", Album = "Album:1", FilePath = @"C:\Music\colon\01.mp3" };
+        var colonAlbum = new Album("Album:1", "A:B", 2026, new[] { colonTrack });
+
+        // 3. Album.Artist / Album.Title が空白で fallbackIdentities / Track フォールバック経路を通るアルバム
+        var fallbackTrack1 = new Track { Title = "Fallback 1", Artist = "AB", AlbumArtist = "AB", Album = "Album1", FilePath = @"C:\Music\fallback\01.mp3" };
+        var fallbackTrack2 = new Track { Title = "Fallback 2", Artist = "AB", AlbumArtist = "AB", Album = "Album1", FilePath = @"C:\Music\fallback\02.mp3" };
+        var fallbackAlbum = new Album
+        {
+            Title = "   ",
+            Artist = "",
+            Year = 2026,
+            Tracks = new List<Track> { fallbackTrack1, fallbackTrack2 }
+        };
+
+        // 4. 旧曲別アーティスト配置が confirmedAlbum の正規配置 "A_B\Album_1" と衝突する別アルバム
+        var compilationTrack = new Track { Title = "Comp Song", Artist = "A_B", AlbumArtist = "Various Artists", Album = "Album_1", FilePath = @"C:\Music\comp\02.mp3" };
+        var compilationAlbum = new Album("Album_1", "Various Artists", 2026, new[] { compilationTrack });
+
+        // 5. 空トラックアルバム（Tracks.Count == 0）は所有権を登録せず他アルバムをブロックしない
+        var emptyAlbum = new Album("Legacy", "LegacyArtist", 2026, Array.Empty<Track>());
+        var legacyMatchTrack = new Track { Title = "Legacy Match", Artist = "Legacy:Artist", AlbumArtist = "Legacy:Artist", Album = "Legacy", FilePath = @"C:\Music\legacy\03.mp3" };
+        var legacyMatchAlbum = new Album("Legacy", "Legacy:Artist", 2026, new[] { legacyMatchTrack });
+
+        var albums = new[] { confirmedAlbum, colonAlbum, fallbackAlbum, compilationAlbum, emptyAlbum, legacyMatchAlbum };
+
+        var deviceFileKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            @"A_B\Album_1\02",        // confirmedAlbum の正規配置（compilationTrack の旧曲別配置と衝突）
+            @"AB\Album1\01",          // fallbackAlbum の正規配置（colonTrack の旧除去配置と衝突）
+            @"LegacyArtist\Legacy\03" // legacyMatchTrack の旧除去配置（emptyAlbum は空なのでブロックされない）
+        };
+
+        // Act
+        DeviceBrowserViewModel.ApplyDeviceTrackIndex(albums, deviceFileKeys);
+
+        // Assert
+        Assert.False(confirmedTrack1.IsOnDevice);
+        Assert.True(confirmedTrack2.IsOnDevice);
+        Assert.True(fallbackTrack1.IsOnDevice);
+        Assert.False(fallbackTrack2.IsOnDevice);
+        Assert.False(colonTrack.IsOnDevice);
+        Assert.False(compilationTrack.IsOnDevice);
+        Assert.True(legacyMatchTrack.IsOnDevice);
+    }
+
     private sealed class FakeMtpDeviceClient : DeviceBrowserViewModel.IMtpDeviceClient
     {
         private readonly object _sync = new();
