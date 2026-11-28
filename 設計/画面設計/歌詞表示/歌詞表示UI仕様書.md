@@ -159,9 +159,9 @@
 
 ### 3.4 `LyricsView` コンポーネント内部構造と 2 モード設計
 
-`LyricsView`（`UserControl`）は `DisplayMode`（`Normal` / `Compact`）プロパティによりレイアウト密度を切り替え、同一の `LyricsViewModel`（歌詞データ・同期状態・シークコマンド）を共有する。
+`LyricsView`（`UserControl`）は依存関係プロパティ `IsCompactMode`（`False`: 通常モード / `True`: コンパクトモード）によりレイアウト密度を切り替え、同一の `LyricsViewModel`（歌詞データ・同期状態・シークコマンド）を共有する。
 
-| 項目 | 通常モード (`DisplayMode="Normal"`) | コンパクトモード (`DisplayMode="Compact"`) |
+| 項目 | 通常モード (`IsCompactMode="False"`) | コンパクトモード (`IsCompactMode="True"`) |
 | :--- | :--- | :--- |
 | **主な配置先** | `MainWindow.xaml` 右カラム `Grid.Row="1"` | `MiniPlayerWindow.xaml` 下部拡張ドック |
 | **推奨サイズ** | 幅 `1*`（`MinWidth="260"`）、高さ `1*`（`MinHeight="180"`） | 横長: 幅 `350px` × 高 `136px` / 正方形: 幅 `220px` × 高 `120px` |
@@ -386,5 +386,5 @@ flowchart TD
 - [パフォーマンス最適化詳細設計書](../../詳細設計/パフォーマンス最適化.md)
 - [ユースケース: 01_楽曲再生・再生制御](../../ユースケース/01_楽曲再生・再生制御.md)
 - [主要オブジェクト一覧](../../主要オブジェクト/index.md)・[01_楽曲_Track](../../主要オブジェクト/01_楽曲_Track.md)
-- [MainWindow.xaml](../../../AudioEffector/Presentation/Views/MainWindow.xaml)・[MiniPlayerWindow.xaml](../../../AudioEffector/Presentation/Views/MiniPlayerWindow.xaml)
+- [LyricsView.xaml](../../../AudioEffector/Presentation/Views/LyricsView.xaml)・[LyricsViewModel.cs](../../../AudioEffector/Presentation/ViewModels/LyricsViewModel.cs)・[MainWindow.xaml](../../../AudioEffector/Presentation/Views/MainWindow.xaml)・[MiniPlayerWindow.xaml](../../../AudioEffector/Presentation/Views/MiniPlayerWindow.xaml)
 - 関連Issue: 親Epic [#401](https://github.com/taketonnbo/Audio_Effector/issues/401)、先行 [#402](https://github.com/taketonnbo/Audio_Effector/issues/402)、本Issue [#403](https://github.com/taketonnbo/Audio_Effector/issues/403)、後続 [#406](https://github.com/taketonnbo/Audio_Effector/issues/406)、関連 [#98](https://github.com/taketonnbo/Audio_Effector/issues/98)、[#100](https://github.com/taketonnbo/Audio_Effector/issues/100)、[#121](https://github.com/taketonnbo/Audio_Effector/issues/121)
