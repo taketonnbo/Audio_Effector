@@ -756,4 +756,229 @@ public sealed class LrcGeneratorViewModelTests
             Assert.False(sut.IsProgressIndeterminate);
         }
     }
+
+    /// <summary>
+    /// 自動文字起こし実行・.lrc 保存後に同一楽曲で再作成を開始すると入力状態へ復帰し、
+    /// テキストファイル（.txt）からの LRC 生成・上書き確認・保存・歌詞更新通知まで完了できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SetTargetTrack_自動文字起こし保存後に同一楽曲で再作成開始_入力状態へ復帰しテキスト生成と上書き保存が成功する()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_lrc_recreate_txt_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "RecreateSong.flac");
+        string lrcPath = Path.Combine(tempDir, "RecreateSong.lrc");
+        File.WriteAllText(audioPath, "dummy");
+
+        try
+        {
+            var (sut, engine, textSvc, _, lyricsSvc) = CreateSut(fileExistsFunc: File.Exists);
+            var track = new Track { FilePath = audioPath, Title = "RecreateSong", Artist = "Artist" };
+            int updatedCount = 0;
+            lyricsSvc.LyricsUpdated += (_, _) => updatedCount++;
+
+            using (sut)
+            {
+                // 初回: 自動文字起こし → .lrc 保存
+                sut.SetTargetTrack(track);
+                await sut.TranscribeFromAudioAsync();
+                Assert.True(sut.IsPreviewState);
+                await sut.SaveLrcRequestedAsync();
+                File.WriteAllText(lrcPath, "[00:05.00]transcribed");
+                Assert.True(sut.HasSavedFile);
+                Assert.Equal(1, updatedCount);
+
+                // Act 1: 同一楽曲で再作成開始 → 入力・待機状態へ復帰
+                sut.SetTargetTrack(track);
+
+                // Assert 1: 前回の結果・保存状態がクリアされ入力状態へ遷移
+                Assert.True(sut.IsInputState);
+                Assert.False(sut.HasResult);
+                Assert.False(sut.HasSavedFile);
+                Assert.Empty(sut.PreviewLines);
+                Assert.False(sut.IsOverwriteConfirmVisible);
+                Assert.True(sut.SelectTextFileCommand.CanExecute(null));
+                Assert.True(sut.TranscribeAudioCommand.CanExecute(null));
+                Assert.False(sut.GenerateLrcCommand.CanExecute(null));
+
+                // Act 2: .txt 選択 → テキストからの強制アライメント生成 → 上書き確認 → 上書き保存
+                await sut.InspectAndSelectTextFileAsync(@"C:\Lyrics\RecreateSong.txt");
+                Assert.True(sut.GenerateLrcCommand.CanExecute(null));
+
+                await sut.GenerateFromTextAsync();
+                Assert.True(sut.IsPreviewState);
+                Assert.NotNull(engine.LastRequest);
+                Assert.Equal(LrcGenerationMode.TextAlignment, engine.LastRequest!.Mode);
+
+                await sut.SaveLrcRequestedAsync();
+                Assert.True(sut.IsOverwriteConfirmVisible);
+
+                await sut.ExecuteSaveAsync(overwrite: true);
+
+                // Assert 2: 既存 .lrc の上書き保存および歌詞更新通知が完了
+                Assert.False(sut.IsOverwriteConfirmVisible);
+                Assert.Equal(lrcPath, textSvc.LastSavedPath);
+                Assert.True(textSvc.LastOverwriteFlag);
+                Assert.True(sut.HasSavedFile);
+                Assert.Equal(2, updatedCount);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 自動文字起こし実行・.lrc 保存後に同一楽曲で再作成を開始した場合に、
+    /// 再度「音声から直接文字起こし」を実行して上書き保存できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SetTargetTrack_自動文字起こし保存後に同一楽曲で再作成開始_自動文字起こしの再実行と上書き保存が成功する()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_lrc_recreate_audio_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "VoiceSong.flac");
+        string lrcPath = Path.Combine(tempDir, "VoiceSong.lrc");
+        File.WriteAllText(audioPath, "dummy");
+
+        try
+        {
+            var (sut, engine, textSvc, _, _) = CreateSut(fileExistsFunc: File.Exists);
+            var track = new Track { FilePath = audioPath, Title = "VoiceSong", Artist = "Artist" };
+
+            using (sut)
+            {
+                sut.SetTargetTrack(track);
+                await sut.TranscribeFromAudioAsync();
+                await sut.SaveLrcRequestedAsync();
+                File.WriteAllText(lrcPath, "[00:05.00]first");
+                Assert.True(sut.HasSavedFile);
+
+                // Act: 同一楽曲で再作成開始 → 再度自動文字起こし → 上書き保存
+                sut.SetTargetTrack(track);
+                Assert.True(sut.IsInputState);
+                Assert.True(sut.TranscribeAudioCommand.CanExecute(null));
+
+                await sut.TranscribeFromAudioAsync();
+                Assert.True(sut.IsPreviewState);
+                Assert.Equal(LrcGenerationMode.AudioTranscription, engine.LastRequest!.Mode);
+
+                await sut.SaveLrcRequestedAsync();
+                Assert.True(sut.IsOverwriteConfirmVisible);
+
+                await sut.ExecuteSaveAsync(overwrite: true);
+
+                // Assert
+                Assert.False(sut.IsOverwriteConfirmVisible);
+                Assert.Equal(lrcPath, textSvc.LastSavedPath);
+                Assert.True(textSvc.LastOverwriteFlag);
+                Assert.True(sut.HasSavedFile);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 生成処理中（IsBusy == true）に同一楽曲または別楽曲で SetTargetTrack が呼ばれた場合、
+    /// 進行中の処理が中断・リセットされないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SetTargetTrack_生成処理中に同一楽曲または別楽曲を指定_進行中の処理が中断およびリセットされない()
+    {
+        // Arrange
+        var (sut, engine, _, _, _) = CreateSut();
+        var gate = new TaskCompletionSource<AlignmentResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.Handler = (_, _, _) => gate.Task;
+        var originalTrack = new Track { FilePath = @"C:\Music\Running.flac", Title = "Running" };
+        var otherTrack = new Track { FilePath = @"C:\Music\Other.flac", Title = "Other" };
+
+        using (sut)
+        {
+            sut.SetTargetTrack(originalTrack);
+            Task runTask = sut.TranscribeFromAudioAsync();
+            Assert.True(sut.IsBusy);
+            Assert.True(sut.IsGeneratingState);
+
+            // Act: 処理中に同一楽曲（resetCompletedResult 含む）および別楽曲で SetTargetTrack を呼び出す
+            sut.SetTargetTrack(originalTrack, resetCompletedResult: true);
+            sut.SetTargetTrack(otherTrack, resetCompletedResult: true);
+
+            // Assert: 対象楽曲・実行状態とも維持される
+            Assert.Same(originalTrack, sut.TargetTrack);
+            Assert.True(sut.IsBusy);
+            Assert.True(sut.IsGeneratingState);
+
+            var doc = new LyricsDocument([new LyricLine(0, TimeSpan.FromSeconds(2), "done")], isSynced: true, title: "Running");
+            gate.TrySetResult(new AlignmentResult(doc, "[00:02.00]done", [], LrcGenerationMode.AudioTranscription, "Fake"));
+            await runTask;
+
+            Assert.True(sut.IsPreviewState);
+            Assert.Same(originalTrack, sut.TargetTrack);
+        }
+    }
+
+    /// <summary>
+    /// プレビューの「再生成」ボタンからの復帰・同一テキストパスの再選択・未保存結果の保持および明示リセットが正しく動作することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task RegenerateCommandとInspectAndSelectTextFileAsync_再生成復帰と同一パス再選択_入力サマリと両生成モードが正常に動作する()
+    {
+        // Arrange
+        int lineCount = 2;
+        var (sut, _, textSvc, _, _) = CreateSut();
+        textSvc.InspectionFactory = path => new TextEncodingInspectionResult(path, true, false, "UTF-8", lineCount, lineCount);
+        var track = new Track { FilePath = @"C:\Music\SamePath.flac", Title = "SamePath" };
+
+        using (sut)
+        {
+            sut.SetTargetTrack(track);
+            await sut.InspectAndSelectTextFileAsync(@"C:\Lyrics\same.txt");
+            Assert.Equal("UTF-8 / 2 行", sut.InputTextSummary);
+
+            await sut.TranscribeFromAudioAsync();
+            Assert.True(sut.IsPreviewState);
+            Assert.False(sut.HasSavedFile);
+
+            // 未保存結果のまま同一楽曲で SetTargetTrack(resetCompletedResult: false) → 完了結果を維持
+            sut.SetTargetTrack(track);
+            Assert.True(sut.IsPreviewState);
+
+            // Act 1: プレビューの「再生成」ボタンで入力状態へ戻る
+            sut.RegenerateCommand.Execute(null);
+
+            // Assert 1: 入力状態へ復帰し、テキスト生成・自動文字起こし双方とも利用可能
+            Assert.True(sut.IsInputState);
+            Assert.True(sut.GenerateLrcCommand.CanExecute(null));
+            Assert.True(sut.TranscribeAudioCommand.CanExecute(null));
+
+            // Act 2: 同一パスの .txt を編集後（行数変化）に再選択
+            lineCount = 5;
+            var changedProps = new List<string?>();
+            sut.PropertyChanged += (_, e) => changedProps.Add(e.PropertyName);
+            await sut.InspectAndSelectTextFileAsync(@"C:\Lyrics\same.txt");
+
+            // Assert 2: 同一パスでも InputTextSummary が通知・更新され、コマンドも利用可能
+            Assert.Equal("UTF-8 / 5 行", sut.InputTextSummary);
+            Assert.Contains(nameof(LrcGeneratorViewModel.InputTextSummary), changedProps);
+            Assert.True(sut.GenerateLrcCommand.CanExecute(null));
+
+            // Act 3: 未保存結果に対して resetCompletedResult: true を明示指定した場合はリセットされる
+            await sut.TranscribeFromAudioAsync();
+            Assert.True(sut.IsPreviewState);
+            sut.SetTargetTrack(track, resetCompletedResult: true);
+            Assert.True(sut.IsInputState);
+        }
+    }
 }
