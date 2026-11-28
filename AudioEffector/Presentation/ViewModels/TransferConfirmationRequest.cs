@@ -4,72 +4,72 @@ using System.Collections.Generic;
 namespace AudioEffector.Presentation.ViewModels;
 
 /// <summary>
-/// 機器転送開始前の確認・警告ダイアログへ渡す事前チェック結果を表します。
+/// 機器転送開始前の確認・警告ダイアログへ渡す事前チェック結果を表します
 /// </summary>
 public sealed class TransferConfirmationRequest
 {
     /// <summary>
-    /// 転送対象として選択されている未転送トラック総数を取得します。
+    /// 転送対象として選択されている未転送トラック総数を取得します
     /// </summary>
     public int TotalTrackCount { get; }
 
     /// <summary>
-    /// 転送対象トラックの合計必要サイズ（バイト）を取得します。
+    /// 転送対象トラックの合計必要サイズ（バイト）を取得します
     /// </summary>
     public long RequiredBytes { get; }
 
     /// <summary>
-    /// 接続機器の空き容量情報が取得できているかどうかを取得します。
+    /// 接続機器の空き容量情報が取得できているかどうかを取得します
     /// </summary>
     public bool HasStorageInfo { get; }
 
     /// <summary>
-    /// 接続機器の空き容量（バイト）を取得します。
+    /// 接続機器の空き容量（バイト）を取得します
     /// </summary>
     public long FreeSpaceBytes { get; }
 
     /// <summary>
-    /// 接続機器の空き容量が不足しているかどうかを取得します。
+    /// 接続機器の空き容量が不足しているかどうかを取得します
     /// </summary>
     public bool IsInsufficientSpace { get; }
 
     /// <summary>
-    /// 不足している容量（バイト、容量十分な場合は 0）を取得します。
+    /// 不足している容量（バイト、容量十分な場合は 0）を取得します
     /// </summary>
     public long ShortageBytes { get; }
 
     /// <summary>
-    /// MP4 から M4A への変換対象曲数を取得します。
+    /// MP4 から M4A への変換対象曲数を取得します
     /// </summary>
     public int Mp4ToM4aCount { get; }
 
     /// <summary>
-    /// FLAC から MP3 への変換対象曲数を取得します。
+    /// FLAC から MP3 への変換対象曲数を取得します
     /// </summary>
     public int FlacToMp3Count { get; }
 
     /// <summary>
-    /// 形式変換を行わずそのままコピーする曲数を取得します。
+    /// 形式変換を行わずそのままコピーする曲数を取得します
     /// </summary>
     public int CopyOnlyCount { get; }
 
     /// <summary>
-    /// 形式変換対象が 1 曲以上含まれるかどうかを取得します。
+    /// 形式変換対象が 1 曲以上含まれるかどうかを取得します
     /// </summary>
     public bool HasTranscodeTargets => Mp4ToM4aCount > 0 || FlacToMp3Count > 0;
 
     /// <summary>
-    /// 転送開始前に確認・警告ダイアログの表示が必要かどうかを取得します。
+    /// 転送開始前に確認・警告ダイアログの表示が必要かどうかを取得します
     /// </summary>
     public bool NeedsConfirmation => IsInsufficientSpace || HasTranscodeTargets;
 
     /// <summary>
-    /// 容量不足かつ形式変換対象が含まれる場合に概算サイズ注記を表示するかどうかを取得します。
+    /// 容量不足かつ形式変換対象が含まれる場合に概算サイズ注記を表示するかどうかを取得します
     /// </summary>
     public bool ShowEstimatedSizeNote => IsInsufficientSpace && HasTranscodeTargets;
 
     /// <summary>
-    /// ダイアログのウィンドウタイトルを取得します。
+    /// ダイアログのウィンドウタイトルを取得します
     /// </summary>
     public string DialogTitle => (IsInsufficientSpace, HasTranscodeTargets) switch
     {
@@ -80,7 +80,7 @@ public sealed class TransferConfirmationRequest
     };
 
     /// <summary>
-    /// ダイアログの見出しテキストを取得します。
+    /// ダイアログの見出しテキストを取得します
     /// </summary>
     public string HeaderText => (IsInsufficientSpace, HasTranscodeTargets) switch
     {
@@ -91,37 +91,37 @@ public sealed class TransferConfirmationRequest
     };
 
     /// <summary>
-    /// 転送開始ボタンの表示ラベルを取得します。
+    /// 転送開始ボタンの表示ラベルを取得します
     /// </summary>
     public string PrimaryActionText => IsInsufficientSpace ? "そのまま転送を開始" : "転送を開始";
 
     /// <summary>
-    /// 選択曲数の表示文字列を取得します。
+    /// 選択曲数の表示文字列を取得します
     /// </summary>
     public string SelectedTrackCountText => $"{TotalTrackCount} 曲";
 
     /// <summary>
-    /// 必要容量のフォーマット済み表示文字列を取得します。
+    /// 必要容量のフォーマット済み表示文字列を取得します
     /// </summary>
     public string RequiredSizeText => MainViewModel.DeviceViewModel.FormatByteSize(RequiredBytes);
 
     /// <summary>
-    /// 機器の空き容量のフォーマット済み表示文字列を取得します。
+    /// 機器の空き容量のフォーマット済み表示文字列を取得します
     /// </summary>
     public string FreeSpaceText => MainViewModel.DeviceViewModel.FormatByteSize(FreeSpaceBytes);
 
     /// <summary>
-    /// 不足容量のフォーマット済み表示文字列を取得します。
+    /// 不足容量のフォーマット済み表示文字列を取得します
     /// </summary>
     public string ShortageSizeText => MainViewModel.DeviceViewModel.FormatByteSize(ShortageBytes);
 
     /// <summary>
-    /// 形式変換の内訳およびコピーのみ曲数の表示行一覧を取得します。
+    /// 形式変換の内訳およびコピーのみ曲数の表示行一覧を取得します
     /// </summary>
     public IReadOnlyList<string> ConversionBreakdownLines { get; }
 
     /// <summary>
-    /// <see cref="TransferConfirmationRequest"/> のインスタンスを初期化します。
+    /// <see cref="TransferConfirmationRequest"/> のインスタンスを初期化します
     /// </summary>
     /// <param name="totalTrackCount">転送対象の総曲数</param>
     /// <param name="requiredBytes">転送対象の合計サイズ（バイト）</param>
