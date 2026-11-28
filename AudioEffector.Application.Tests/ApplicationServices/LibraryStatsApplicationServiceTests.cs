@@ -246,4 +246,67 @@ public sealed class LibraryStatsApplicationServiceTests
         Assert.Equal(0, errorSnapshot.Summary.TotalPlayCount);
         Assert.Empty(errorSnapshot.TopTracks);
     }
+
+    /// <summary>
+    /// 片側境界（上限のみ・下限のみ）の StatsDateRange および topCount == 0 指定時にも推移範囲とトップアーティストが一貫集計されることを検証します。
+    /// </summary>
+    [Fact]
+    public void GetStatsForRange_片側境界およびtopCount0指定時_推移範囲とトップアーティストが正しく算出されること()
+    {
+        // Arrange
+        var now = new DateTime(2026, 5, 13, 12, 0, 0);
+        var data = new ListeningStatsData();
+        data.PlayEvents.Add(new TrackPlayEvent(new DateTime(2024, 12, 20, 20, 0, 0), @"C:\m\old1.mp3", "Old 1", "Past Artist", "Past Album", TimeSpan.FromMinutes(3)));
+        data.PlayEvents.Add(new TrackPlayEvent(new DateTime(2024, 12, 25, 21, 0, 0), @"C:\m\old1.mp3", "Old 1", "Past Artist", "Past Album", TimeSpan.FromMinutes(3)));
+        data.PlayEvents.Add(new TrackPlayEvent(new DateTime(2026, 5, 10, 10, 0, 0), @"C:\m\new1.mp3", "New 1", "Current Artist", "Current Album", TimeSpan.FromMinutes(4)));
+
+        var sut = new LibraryStatsApplicationService(new InMemoryListeningStatsRepository(data), () => now);
+
+        // Act
+        LibraryStatsSnapshot endOnly = sut.GetStatsForRange(new StatsDateRange(null, new DateTime(2025, 1, 1)), topCount: 0);
+        LibraryStatsSnapshot startOnly = sut.GetStatsForRange(new StatsDateRange(new DateTime(2026, 5, 1), null));
+
+        // Assert
+        Assert.Equal(2, endOnly.Summary.TotalPlayCount);
+        Assert.Equal("Past Artist", endOnly.Summary.TopArtistName);
+        Assert.Equal(2, endOnly.Summary.TopArtistPlayCount);
+        Assert.Empty(endOnly.TopArtists);
+        Assert.Equal(new DateTime(2024, 12, 31), endOnly.DailyTrends[^1].BucketStart);
+        Assert.Equal(2, endOnly.DailyTrends.Sum(d => d.PlayCount));
+        Assert.Equal(new DateTime(2024, 12, 1), endOnly.MonthlyTrends[^1].BucketStart);
+        Assert.Equal(2, endOnly.MonthlyTrends[^1].PlayCount);
+
+        Assert.Equal(1, startOnly.Summary.TotalPlayCount);
+        Assert.Equal(new DateTime(2026, 5, 1), startOnly.DailyTrends[0].BucketStart);
+        Assert.Equal(1, startOnly.DailyTrends.Sum(d => d.PlayCount));
+    }
+
+    /// <summary>
+    /// PlayEvents が空で TrackStats のみ存在する旧形式データ時、全期間クエリでサマリとランキングが安全に復元されること、および同名別アーティストのアルバムが分離集計されることを検証します。
+    /// </summary>
+    [Fact]
+    public void GetStats_TrackStatsのみの旧データおよび同名別アーティストアルバム時_安全にフォールバックし別アルバムとして集計すること()
+    {
+        // Arrange
+        var now = new DateTime(2026, 5, 13, 12, 0, 0);
+        var legacyData = new ListeningStatsData();
+        legacyData.TrackStats.Add(new TrackListeningStat(@"C:\m\a.mp3", "A", "Artist A", "Greatest Hits", TimeSpan.FromMinutes(3), playCount: 4, totalListeningDuration: TimeSpan.FromMinutes(12), lastPlayedAt: now.AddDays(-2)));
+        legacyData.TrackStats.Add(new TrackListeningStat(@"C:\m\b.mp3", "B", "Artist B", "Greatest Hits", TimeSpan.FromMinutes(4), playCount: 2, totalListeningDuration: TimeSpan.FromMinutes(8), lastPlayedAt: now.AddDays(-1)));
+
+        var sut = new LibraryStatsApplicationService(new InMemoryListeningStatsRepository(legacyData), () => now);
+
+        // Act
+        LibraryStatsSnapshot allTime = sut.GetStats(StatsPeriodFilter.AllTime);
+        LibraryStatsSnapshot summaryOnly = sut.GetStats(StatsPeriodFilter.AllTime, topCount: 0);
+
+        // Assert
+        Assert.True(allTime.HasData);
+        Assert.Equal(6, allTime.Summary.TotalPlayCount);
+        Assert.Equal(2, allTime.Summary.UniqueAlbumCount);
+        Assert.Equal(2, allTime.TopAlbums.Count);
+        Assert.Equal("Artist A", allTime.TopAlbums[0].ArtistName);
+        Assert.Equal("Artist B", allTime.TopAlbums[1].ArtistName);
+        Assert.Equal("Artist A", summaryOnly.Summary.TopArtistName);
+        Assert.Equal(4, summaryOnly.Summary.TopArtistPlayCount);
+    }
 }

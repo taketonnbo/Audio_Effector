@@ -675,4 +675,42 @@ public sealed class MainViewModelTests
             App.ServiceProvider = previousProvider;
         }
     }
+
+    /// <summary>
+    /// CurrentViewType を ListeningStats へ切り替えた際に LibraryStats.IsActiveView が連動し、
+    /// 存在しないアーティストへの遷移要求時は Artists 画面へ誤遷移せず存在アーティスト時のみ遷移することを検証します。
+    /// </summary>
+    [Fact]
+    public void LibraryStats統合_ビュー切替およびアーティスト遷移時_IsActiveView連動と未存在アーティスト遷移ガードが機能すること()
+    {
+        // Arrange
+        using var sut = new MainViewModel();
+        var track = new Track
+        {
+            FilePath = @"C:\Music\Aimer\song.flac",
+            Title = "Song",
+            Artist = "Aimer",
+            Album = "Album",
+        };
+        sut.Library!.Tracks.Add(track);
+        sut.Artists.RefreshArtists();
+
+        // Act 1: リスニング統計画面へ切替
+        sut.CurrentViewType = ViewType.ListeningStats;
+        bool activeWhileOnStats = sut.LibraryStats.IsActiveView;
+
+        // Act 2: 未存在アーティスト遷移要求（遷移せず ListeningStats に留まる）
+        sut.LibraryStats.NavigateToArtistCommand.Execute("Deleted Artist");
+        ViewType viewAfterMissingArtist = sut.CurrentViewType;
+
+        // Act 3: 存在するアーティスト遷移要求（Artists 画面へ遷移し該当アーティストが選択される）
+        sut.LibraryStats.NavigateToArtistCommand.Execute("Aimer");
+
+        // Assert
+        Assert.True(activeWhileOnStats);
+        Assert.Equal(ViewType.ListeningStats, viewAfterMissingArtist);
+        Assert.Equal(ViewType.Artists, sut.CurrentViewType);
+        Assert.Equal("Aimer", sut.Artists.SelectedArtist?.Name);
+        Assert.False(sut.LibraryStats.IsActiveView);
+    }
 }

@@ -139,6 +139,7 @@ public sealed class LibraryStatsViewModelTests
         var repo = new InMemoryListeningStatsRepository(data);
         var audioMock = new Mock<IAudioService>();
         var (libraryVm, playlistVm, _) = CreateLibraryAndPlaylist(audioMock.Object, [t1, t2]);
+        using var _playlistDisposable = playlistVm;
         using var listeningSvc = new ListeningStatsApplicationService(repo, audioMock.Object, () => now);
         var libraryStatsSvc = new LibraryStatsApplicationService(repo, () => now);
 
@@ -166,8 +167,6 @@ public sealed class LibraryStatsViewModelTests
         Assert.Single(sut.TopTracks);
         Assert.Equal("Song A", sut.TopTracks[0].Title);
         Assert.Contains("21:00 台", sut.HabitPeakInsight);
-
-        playlistVm.Dispose();
     }
 
     /// <summary>
@@ -189,6 +188,7 @@ public sealed class LibraryStatsViewModelTests
         var repo = new InMemoryListeningStatsRepository(data);
         var audioMock = new Mock<IAudioService>();
         var (libraryVm, playlistVm, savedPlaylists) = CreateLibraryAndPlaylist(audioMock.Object, [t1, t2]);
+        using var _playlistDisposable = playlistVm;
         using var listeningSvc = new ListeningStatsApplicationService(repo, audioMock.Object, () => now);
         var libraryStatsSvc = new LibraryStatsApplicationService(repo, () => now);
 
@@ -239,8 +239,6 @@ public sealed class LibraryStatsViewModelTests
         Assert.Single(savedPlaylists);
         Assert.Equal(2, created.TrackPaths.Count);
         Assert.Equal("プレイリスト作成完了", notifiedTitle);
-
-        playlistVm.Dispose();
     }
 
     /// <summary>
@@ -260,6 +258,7 @@ public sealed class LibraryStatsViewModelTests
         var repo = new InMemoryListeningStatsRepository(data);
         var audioMock = new Mock<IAudioService>();
         var (libraryVm, playlistVm, _) = CreateLibraryAndPlaylist(audioMock.Object, [t1], [album]);
+        using var _playlistDisposable = playlistVm;
         using var listeningSvc = new ListeningStatsApplicationService(repo, audioMock.Object, () => now);
         var libraryStatsSvc = new LibraryStatsApplicationService(repo, () => now);
 
@@ -286,8 +285,6 @@ public sealed class LibraryStatsViewModelTests
         // Assert
         Assert.Equal("Aimer", navigatedArtist);
         Assert.Same(album, navigatedAlbum);
-
-        playlistVm.Dispose();
     }
 
     /// <summary>
@@ -303,6 +300,7 @@ public sealed class LibraryStatsViewModelTests
         var audioMock = new Mock<IAudioService>();
         var dispatcher = new QueuedDispatcherStub();
         var (libraryVm, playlistVm, _) = CreateLibraryAndPlaylist(audioMock.Object, [t1]);
+        using var _playlistDisposable = playlistVm;
         using var listeningSvc = new ListeningStatsApplicationService(repo, audioMock.Object, () => now);
         var libraryStatsSvc = new LibraryStatsApplicationService(repo, () => now);
 
@@ -331,8 +329,6 @@ public sealed class LibraryStatsViewModelTests
         Assert.Equal(0, countWhileInactive);
         Assert.Equal(2, sut.TotalPlayCount);
         Assert.True(sut.HasData);
-
-        playlistVm.Dispose();
     }
 
     /// <summary>
@@ -346,6 +342,7 @@ public sealed class LibraryStatsViewModelTests
         var repo = new InMemoryListeningStatsRepository();
         var audioMock = new Mock<IAudioService>();
         var (libraryVm, playlistVm, _) = CreateLibraryAndPlaylist(audioMock.Object, Array.Empty<Track>());
+        using var _playlistDisposable = playlistVm;
         using var listeningSvc = new ListeningStatsApplicationService(repo, audioMock.Object, () => now);
         var libraryStatsSvc = new LibraryStatsApplicationService(repo, () => now);
 
@@ -367,7 +364,159 @@ public sealed class LibraryStatsViewModelTests
         Assert.False(sut.CreateTopTracksPlaylistCommand.CanExecute(null));
         Assert.Equal("—", sut.TopArtistNameDisplay);
         Assert.Equal(24, sut.HabitBars.Count);
+    }
 
-        playlistVm.Dispose();
+    /// <summary>
+    /// ライブラリに存在しない曲を含む TOP 10 をプレイリスト化・追加する際、架空 TrackId を永続化せずライブラリ実体曲のみを登録すること、および全件未解決時に案内通知して中断することを検証します。
+    /// </summary>
+    [Fact]
+    public void CreateTopTracksPlaylist_未解決曲混在および全件未解決時_実ライブラリ曲のみ登録し全件未解決時は作成しないこと()
+    {
+        // Arrange
+        var now = new DateTime(2026, 5, 13, 18, 0, 0);
+        Track existingTrack = CreateTrack("Existing", "Artist 1", "Album 1", @"C:\music\existing.mp3");
+        Track removedTrack = CreateTrack("Removed", "Artist 2", "Album 2", @"C:\music\removed.mp3");
+
+        var mixedData = new ListeningStatsData();
+        mixedData.PlayEvents.Add(TrackPlayEvent.FromTrack(existingTrack, now.AddHours(-2)));
+        mixedData.PlayEvents.Add(TrackPlayEvent.FromTrack(removedTrack, now.AddHours(-1)));
+
+        var audioMock = new Mock<IAudioService>();
+        var (libraryVm, playlistVm, savedPlaylists) = CreateLibraryAndPlaylist(audioMock.Object, [existingTrack]);
+        using var _playlistDisposable = playlistVm;
+        var repo = new InMemoryListeningStatsRepository(mixedData);
+        using var listeningSvc = new ListeningStatsApplicationService(repo, audioMock.Object, () => now);
+        var libraryStatsSvc = new LibraryStatsApplicationService(repo, () => now);
+
+        var notifications = new List<(string Message, string Title, bool IsError)>();
+        using var sut = new LibraryStatsViewModel(
+            libraryStatsSvc,
+            listeningSvc,
+            libraryVm,
+            audioMock.Object,
+            new ImmediateDispatcherStub(),
+            playlistVm,
+            playlistNamePrompt: _ => "解決曲のみプレイリスト",
+            messageNotifier: (m, t, e) => notifications.Add((m, t, e)));
+
+        // Act 1: 混在状態でのプレイリスト化と未解決曲の右クリック追加
+        UserPlaylist? created = sut.CreateTopTracksPlaylist();
+        LibraryStatsTrackItemViewModel removedItem = sut.TopTracks.Single(t => t.Title == "Removed");
+        sut.AddTrackToPlaylistCommand.Execute(removedItem);
+
+        // Act 2: ライブラリから全曲除外された状態でのプレイリスト化
+        libraryVm.Tracks.Clear();
+        UserPlaylist? failed = sut.CreateTopTracksPlaylist();
+
+        // Assert
+        Assert.NotNull(created);
+        Assert.Single(created!.TrackIds);
+        Assert.Equal(existingTrack.Id, created.TrackIds[0]);
+        Assert.Single(savedPlaylists);
+        Assert.Contains(notifications, n => n.Title == "プレイリスト作成完了" && n.Message.Contains("1 曲"));
+        Assert.Contains(notifications, n => n.Title == "プレイリスト追加不可" && n.IsError);
+        Assert.Null(failed);
+        Assert.Contains(notifications, n => n.Title == "プレイリスト作成不可" && n.IsError);
+    }
+
+    /// <summary>
+    /// 統計上のアルバムと同名・別アーティストのアルバムしかライブラリに存在しない場合、誤遷移せず案内通知することを検証します。
+    /// </summary>
+    [Fact]
+    public void NavigateToAlbumCommand_同名別アーティストアルバムのみライブラリ存在時_誤遷移せず未検出案内すること()
+    {
+        // Arrange
+        var now = new DateTime(2026, 5, 13, 18, 0, 0);
+        Track libraryTrack = CreateTrack("Hit A", "Artist A", "Greatest Hits", @"C:\music\a_hit.mp3");
+        var libraryAlbum = new Album("Greatest Hits", "Artist A", 2020, new List<Track> { libraryTrack });
+        Track deletedArtistBTrack = CreateTrack("Hit B", "Artist B", "Greatest Hits", @"C:\music\b_hit.mp3");
+
+        var data = new ListeningStatsData();
+        data.PlayEvents.Add(TrackPlayEvent.FromTrack(deletedArtistBTrack, now.AddHours(-1)));
+
+        var repo = new InMemoryListeningStatsRepository(data);
+        var audioMock = new Mock<IAudioService>();
+        var (libraryVm, playlistVm, _) = CreateLibraryAndPlaylist(audioMock.Object, [libraryTrack], [libraryAlbum]);
+        using var _playlistDisposable = playlistVm;
+        using var listeningSvc = new ListeningStatsApplicationService(repo, audioMock.Object, () => now);
+        var libraryStatsSvc = new LibraryStatsApplicationService(repo, () => now);
+
+        Album? navigated = null;
+        string? notifyTitle = null;
+        using var sut = new LibraryStatsViewModel(
+            libraryStatsSvc,
+            listeningSvc,
+            libraryVm,
+            audioMock.Object,
+            new ImmediateDispatcherStub(),
+            playlistVm,
+            playlistNamePrompt: _ => null,
+            messageNotifier: (_, title, _) => notifyTitle = title);
+        sut.AlbumNavigationRequested += alb => navigated = alb;
+
+        // Act
+        sut.NavigateToAlbumCommand.Execute(sut.TopAlbums[0]);
+
+        // Assert
+        Assert.Null(navigated);
+        Assert.Equal("アルバム未検出", notifyTitle);
+    }
+
+    /// <summary>
+    /// 単曲クリック再生・キュー末尾追加・31日および24時間軸ラベル間引き・Dispose後の更新イベント無害性を検証します。
+    /// </summary>
+    [Fact]
+    public void PlaybackAndDispose_単曲再生とキュー追加とラベル間引きおよびDispose後通知時_期待通り動作すること()
+    {
+        // Arrange
+        var now = new DateTime(2026, 5, 13, 18, 0, 0);
+        Track t1 = CreateTrack("Track 1", "Artist 1", "Album 1", @"C:\music\t1.mp3");
+        Track t2 = CreateTrack("Track 2", "Artist 2", "Album 2", @"C:\music\t2.mp3");
+
+        var data = new ListeningStatsData();
+        data.PlayEvents.Add(TrackPlayEvent.FromTrack(t1, new DateTime(2026, 5, 1, 21, 0, 0)));
+        data.PlayEvents.Add(TrackPlayEvent.FromTrack(t2, new DateTime(2026, 5, 10, 9, 0, 0)));
+
+        var repo = new InMemoryListeningStatsRepository(data);
+        var audioMock = new Mock<IAudioService>();
+        var (libraryVm, playlistVm, _) = CreateLibraryAndPlaylist(audioMock.Object, [t1, t2]);
+        using var _playlistDisposable = playlistVm;
+        using var listeningSvc = new ListeningStatsApplicationService(repo, audioMock.Object, () => now);
+        var libraryStatsSvc = new LibraryStatsApplicationService(repo, () => now);
+
+        bool? lastPlayNext = null;
+        var sut = new LibraryStatsViewModel(
+            libraryStatsSvc,
+            listeningSvc,
+            libraryVm,
+            audioMock.Object,
+            new ImmediateDispatcherStub(),
+            playlistVm,
+            playlistNamePrompt: _ => null,
+            messageNotifier: (_, _, _) => { });
+        sut.EnqueueRequested += (_, playNext) => lastPlayNext = playNext;
+
+        // Act
+        sut.PlayTrackCommand.Execute(sut.TopTracks[1]);
+        sut.EnqueueTrackCommand.Execute(sut.TopTracks[0]);
+        sut.SelectPeriodFilterCommand.Execute(StatsPeriodFilter.ThisMonth);
+
+        int monthDays = sut.TrendBars.Count;
+        int visibleTrendLabels = sut.TrendBars.Count(b => !string.IsNullOrEmpty(b.Label));
+        int visibleHourlyLabels = sut.HabitBars.Count(b => !string.IsNullOrEmpty(b.Label));
+        bool allTooltipsPopulated = sut.TrendBars.All(b => !string.IsNullOrWhiteSpace(b.ToolTipText))
+            && sut.HabitBars.All(b => !string.IsNullOrWhiteSpace(b.ToolTipText));
+
+        sut.Dispose();
+        listeningSvc.RecordPlaybackCompleted(t1);
+
+        // Assert
+        audioMock.Verify(a => a.PlayTrack(It.IsAny<Track>()), Times.Once);
+        Assert.False(lastPlayNext);
+        Assert.Equal(31, monthDays);
+        Assert.True(visibleTrendLabels is >= 6 and <= 9);
+        Assert.Equal(8, visibleHourlyLabels); // 0, 3, 6, 9, 12, 15, 18, 21
+        Assert.True(allTooltipsPopulated);
+        Assert.Equal(2, sut.TotalPlayCount); // Dispose 後の統計更新で変化しない
     }
 }
