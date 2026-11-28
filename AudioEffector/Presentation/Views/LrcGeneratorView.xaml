@@ -988,13 +988,8 @@
                                     Content="保存先フォルダを開く"
                                     Style="{StaticResource LrcSecondaryButtonStyle}"
                                     Command="{Binding OpenSavedFolderCommand}"
-                                    Margin="0,0,8,4"
-                                    AutomationProperties.Name="保存先フォルダを開く"/>
-                            <Button Content="歌詞表示で確認"
-                                    Style="{StaticResource LrcSubtleButtonStyle}"
-                                    Command="{Binding BackToLyricsCommand}"
                                     Margin="0,0,0,4"
-                                    AutomationProperties.Name="同期歌詞表示パネルで確認"/>
+                                    AutomationProperties.Name="保存先フォルダを開く"/>
                         </WrapPanel>
                     </StackPanel>
                 </Border>
