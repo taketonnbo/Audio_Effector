@@ -34,6 +34,8 @@
       href: 機能仕様/機器転送.md
     - name: 歌詞表示機能
       href: 機能仕様/歌詞表示機能.md
+    - name: LRC自動生成
+      href: 機能仕様/LRC自動生成.md
 - name: 機能・UI詳細設計
   items:
     - name: パフォーマンス最適化
