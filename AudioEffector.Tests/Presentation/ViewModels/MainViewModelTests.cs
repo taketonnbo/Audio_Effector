@@ -717,11 +717,11 @@ public sealed class MainViewModelTests
     }
 
     /// <summary>
-    /// ReloadListeningStatsAfterReset 呼び出し時、最近再生した曲・右側リスニング統計・左側ライブラリ統計の 3 画面すべてが
-    /// 即座に最新（空状態）へ同期されることを検証します。
+    /// DI 構成で ListeningStatsApplicationService.ResetAllStats() を実行した際、
+    /// StatsReset イベント単一経路により最近再生した曲・右側リスニング統計・左側ライブラリ統計の 3 画面すべてが即座に空状態へ同期されることを検証します。
     /// </summary>
     [Fact]
-    public void ReloadListeningStatsAfterReset_全リセット後に呼び出した場合_最近再生した曲および左右統計ビューが即座に空状態へ同期されること()
+    public void StatsReset同期_DI構成でResetAllStats実行時_最近再生した曲および左右統計ビューが即座に空状態へ同期されること()
     {
         // Arrange
         var previousProvider = App.ServiceProvider;
@@ -796,6 +796,7 @@ public sealed class MainViewModelTests
         {
             using var sut = new MainViewModel();
             var statsService = provider.GetRequiredService<ListeningStatsApplicationService>();
+            Assert.Same(statsService, sut.ListeningStatsService);
 
             sut.Recent.RecordTrack(track);
             statsService.RecordPlaybackCompleted(track);
@@ -806,11 +807,11 @@ public sealed class MainViewModelTests
             Assert.Equal(1, sut.ListeningStats.TotalPlayCount);
             Assert.Equal(1, sut.LibraryStats.TotalPlayCount);
 
-            // Act: リポジトリ直接クリア後に ReloadListeningStatsAfterReset を実行
-            statsRepo.ClearAll();
-            sut.ReloadListeningStatsAfterReset();
+            // Act: StatsReset 単一経路による全リセット
+            bool succeeded = statsService.ResetAllStats();
 
             // Assert: 3 画面すべてが空状態へ即時同期されること
+            Assert.True(succeeded);
             Assert.Empty(sut.Recent.FilteredEntries);
             Assert.Equal(0, sut.ListeningStats.TotalPlayCount);
             Assert.Empty(sut.ListeningStats.TopPlayedTracks);
@@ -820,6 +821,81 @@ public sealed class MainViewModelTests
         finally
         {
             App.ServiceProvider = previousProvider;
+        }
+    }
+
+    /// <summary>
+    /// 統計関連サービスおよび ViewModel が DI 未登録のフォールバック生成経路でも、
+    /// Recent・ListeningStats・LibraryStats が単一のリポジトリおよび ListeningStatsApplicationService を共有し、
+    /// ResetAllStats 実行時に 3 画面すべてが即座に空状態へ同期されることを検証します。
+    /// </summary>
+    [Fact]
+    public void StatsReset同期_フォールバック生成経路でResetAllStats実行時_共有インスタンス経由で3画面すべてが空状態へ同期されること()
+    {
+        // Arrange
+        var previousProvider = App.ServiceProvider;
+        string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"AudioEffector_FallbackReset_{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempDir);
+
+        var services = new ServiceCollection();
+        var dataDirectoryProvider = new DataDirectoryProvider(tempDir);
+        var dispatcher = new ImmediateDispatcherStub();
+        var settingsMock = new Mock<ISettingsService>();
+        settingsMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+        var audioServiceMock = new Mock<IAudioService>();
+        audioServiceMock.Setup(a => a.UserQueue).Returns(Array.Empty<Track>());
+        audioServiceMock.Setup(a => a.AlbumQueue).Returns(Array.Empty<Track>());
+
+        var track = new Track
+        {
+            FilePath = @"C:\Music\FallbackSync\track01.flac",
+            Title = "Fallback Target",
+            Artist = "Artist Y",
+            Album = "Album Y",
+            Duration = TimeSpan.FromMinutes(3),
+        };
+        audioServiceMock.Setup(a => a.CurrentTrack).Returns(track);
+
+        // 統計リポジトリ・統計サービス・各統計/履歴 ViewModel は意図的に未登録とし、フォールバック生成経路を検証する
+        services.AddSingleton<IDataDirectoryProvider>(dataDirectoryProvider);
+        services.AddSingleton<IUiDispatcher>(dispatcher);
+        services.AddSingleton(settingsMock.Object);
+        services.AddSingleton(audioServiceMock.Object);
+
+        using var provider = services.BuildServiceProvider();
+        App.ServiceProvider = provider;
+        try
+        {
+            using var sut = new MainViewModel();
+            Assert.NotNull(sut.ListeningStatsService);
+
+            sut.Recent.RecordTrack(track);
+            sut.ListeningStatsService!.RecordPlaybackCompleted(track);
+            sut.ListeningStats!.Refresh();
+            sut.LibraryStats.Refresh();
+
+            Assert.Single(sut.Recent.FilteredEntries);
+            Assert.Equal(1, sut.ListeningStats.TotalPlayCount);
+            Assert.Equal(1, sut.LibraryStats.TotalPlayCount);
+
+            // Act: フォールバック生成された共有サービスから全リセット
+            bool succeeded = sut.ListeningStatsService!.ResetAllStats();
+
+            // Assert: リポジトリとサービスが共有され 3 画面すべてが空状態へ即時同期されること
+            Assert.True(succeeded);
+            Assert.Empty(sut.Recent.FilteredEntries);
+            Assert.Equal(0, sut.ListeningStats.TotalPlayCount);
+            Assert.Empty(sut.ListeningStats.TopPlayedTracks);
+            Assert.Equal(0, sut.LibraryStats.TotalPlayCount);
+            Assert.Empty(sut.LibraryStats.TopTracks);
+        }
+        finally
+        {
+            App.ServiceProvider = previousProvider;
+            if (System.IO.Directory.Exists(tempDir))
+            {
+                System.IO.Directory.Delete(tempDir, recursive: true);
+            }
         }
     }
 }

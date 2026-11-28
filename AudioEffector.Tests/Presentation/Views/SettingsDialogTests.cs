@@ -647,12 +647,14 @@ public sealed class SettingsDialogTests
             rootWithService.UpdateLayout();
 
             var enabledButton = Assert.IsType<Button>(dialogWithService.FindName("ResetListeningStatsButton"));
+            var noteTextBlock = Assert.IsType<TextBlock>(dialogWithService.FindName("ResetListeningStatsNoteTextBlock"));
 
             // Assert
             Assert.Same(vmWithoutService.ResetListeningStatsCommand, disabledButton.Command);
             Assert.False(disabledButton.IsEnabled);
             Assert.Same(vmWithService.ResetListeningStatsCommand, enabledButton.Command);
             Assert.True(enabledButton.IsEnabled);
+            Assert.Contains("音楽ファイル本体・プレイリスト・お気に入りには影響しません", noteTextBlock.Text);
             Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
         });
     }

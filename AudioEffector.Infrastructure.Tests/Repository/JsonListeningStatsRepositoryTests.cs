@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
@@ -275,5 +277,69 @@ public sealed class JsonListeningStatsRepositoryTests : IDisposable
         Assert.Empty(reloaded.TrackStats);
         Assert.Empty(reloaded.PlayEvents);
         Assert.Empty(((IRecentTrackRepository)freshReader).Load());
+    }
+
+    /// <summary>
+    /// ListeningStats.json 未作成・旧 RecentTracks.json 残存時に ClearAll の書込が失敗した場合、
+    /// 移行済みフラグが汚染されず後続の Load() で旧履歴の初回マイグレーションが維持されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ClearAll_書込失敗時_旧履歴移行済みフラグが汚染されず後続Loadで初回移行が維持されること()
+    {
+        // Arrange
+        string statsPath = Path.Combine(_tempDir, "ListeningStats.json");
+        string legacyPath = Path.Combine(_tempDir, "RecentTracks.json");
+        File.WriteAllText(
+            legacyPath,
+            """[{"FilePath":"C:\\Music\\legacy_keep.mp3","Title":"Legacy Keep","Artist":"Artist","Album":"Album","DurationSeconds":180,"PlayedAt":"2026-05-01T10:00:00"}]""");
+
+        var lockHelper = new FailOnceWriteLockHelper(JsonFileLockHelper.Default);
+        var sut = new JsonListeningStatsRepository(statsPath, fileLockHelper: lockHelper, legacyRecentTracksFilePath: legacyPath);
+
+        // Act 1: 書込障害により ClearAll が失敗
+        Assert.Throws<IOException>(() => sut.ClearAll());
+        Assert.False(File.Exists(statsPath));
+
+        // Act 2: 後続 Load() で旧履歴の初回移行が正常に動作する
+        ListeningStatsData migrated = sut.Load();
+
+        // Assert
+        TrackListeningStat stat = Assert.Single(migrated.TrackStats);
+        Assert.Equal("Legacy Keep", stat.Title);
+        Assert.Single(migrated.PlayEvents);
+    }
+
+    private sealed class FailOnceWriteLockHelper : IJsonFileLockHelper
+    {
+        private readonly IJsonFileLockHelper _inner;
+        private bool _hasFailed;
+
+        public FailOnceWriteLockHelper(IJsonFileLockHelper inner)
+        {
+            _inner = inner;
+        }
+
+        public Task<IDisposable> AcquireLockAsync(string filePath, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+            => _inner.AcquireLockAsync(filePath, timeout, cancellationToken);
+
+        public IDisposable AcquireLock(string filePath, TimeSpan? timeout = null)
+            => _inner.AcquireLock(filePath, timeout);
+
+        public Task WriteAllTextAtomicAsync(string filePath, string content, CancellationToken cancellationToken = default)
+            => _inner.WriteAllTextAtomicAsync(filePath, content, cancellationToken);
+
+        public void WriteAllTextAtomic(string filePath, string content)
+        {
+            if (!_hasFailed)
+            {
+                _hasFailed = true;
+                throw new IOException("Simulated disk write failure.");
+            }
+
+            _inner.WriteAllTextAtomic(filePath, content);
+        }
+
+        public FileMetadataSnapshot GetFileMetadata(string filePath)
+            => _inner.GetFileMetadata(filePath);
     }
 }

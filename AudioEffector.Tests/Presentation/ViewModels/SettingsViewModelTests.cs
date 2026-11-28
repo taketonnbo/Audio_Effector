@@ -733,6 +733,7 @@ public class SettingsViewModelTests
         Assert.True(sut.CanResetListeningStats);
         Assert.Equal("再生履歴・リスニング統計のリセット確認", promptTitle);
         Assert.Contains("元に戻せません", promptMessage);
+        Assert.Contains("音楽ファイル本体・プレイリスト・お気に入りには影響しません", promptMessage);
         Assert.Empty(statsRepo.Load().TrackStats);
         Assert.Empty(statsRepo.Load().PlayEvents);
         Assert.Equal(1, resetEventCount);
