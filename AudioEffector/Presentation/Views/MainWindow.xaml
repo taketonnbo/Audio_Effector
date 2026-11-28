@@ -771,98 +771,47 @@
                 </RowDefinition>
             </Grid.RowDefinitions>
 
-            <!-- Top Right: Lyrics Toggle & Maximize / Minimize Buttons (Always in top-right of panel) -->
+            <!-- Top Right: Maximize / Minimize Button Only (#121 / #123) -->
             <StackPanel Orientation="Horizontal"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top"
                         Margin="0,12,15,0"
                         Panel.ZIndex="100">
-                <!-- Lyrics Toggle Button -->
-                <ToggleButton x:Name="LyricsToggleButton"
-                              Command="{Binding ToggleLyricsPanelCommand}"
-                              IsChecked="{Binding IsLyricsPanelVisible, Mode=OneWay}"
-                              Width="28" Height="28"
-                              Margin="0,0,4,0"
-                              FocusVisualStyle="{x:Null}"
-                              Cursor="Hand"
-                              AutomationProperties.Name="歌詞表示切り替え">
-                    <ToggleButton.Style>
-                        <Style TargetType="ToggleButton">
-                            <Setter Property="Background" Value="Transparent"/>
-                            <Setter Property="BorderBrush" Value="Transparent"/>
-                            <Setter Property="BorderThickness" Value="1"/>
-                            <Setter Property="Foreground" Value="{DynamicResource MutedTextForegroundBrush}"/>
-                            <Setter Property="ToolTip" Value="歌詞を表示"/>
-                            <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ToggleButton">
-                                        <Border x:Name="RootBorder"
-                                                Background="{TemplateBinding Background}"
-                                                BorderBrush="{TemplateBinding BorderBrush}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                CornerRadius="4">
-                                            <Path x:Name="LyricsIcon"
-                                                  Data="M12,3V13.55C11.41,13.21 10.73,13 10,13A4,4 0 0,0 6,17A4,4 0 0,0 10,21A4,4 0 0,0 14,17V7H18V3H12Z"
-                                                  Fill="{TemplateBinding Foreground}"
-                                                  Stretch="Uniform"
-                                                  Width="14" Height="14"
-                                                  HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center"/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="RootBorder" Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
-                                                <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
-                                            </Trigger>
-                                            <Trigger Property="IsChecked" Value="True">
-                                                <Setter TargetName="RootBorder" Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
-                                                <Setter TargetName="RootBorder" Property="BorderBrush" Value="{DynamicResource NeonCyanBrush}"/>
-                                                <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
-                                                <Setter Property="ToolTip" Value="歌詞を閉じる"/>
-                                            </Trigger>
-                                            <MultiTrigger>
-                                                <MultiTrigger.Conditions>
-                                                    <Condition Property="IsChecked" Value="True"/>
-                                                    <Condition Property="IsMouseOver" Value="True"/>
-                                                </MultiTrigger.Conditions>
-                                                <Setter Property="Foreground" Value="{DynamicResource DarkNeonCyanBrush}"/>
-                                            </MultiTrigger>
-                                            <Trigger Property="IsPressed" Value="True">
-                                                <Setter TargetName="RootBorder" Property="Opacity" Value="0.8"/>
-                                                <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
-                                            </Trigger>
-                                            <Trigger Property="IsEnabled" Value="False">
-                                                <Setter TargetName="RootBorder" Property="Opacity" Value="0.4"/>
-                                                <Setter Property="ToolTip" Value="歌詞表示は利用できません"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ToggleButton.Style>
-                </ToggleButton>
-
                 <!-- Maximize / Minimize Button -->
-                <Button Command="{Binding ToggleAlbumViewSizeModeCommand}"
+                <Button x:Name="AlbumViewSizeModeButton"
+                        Command="{Binding ToggleAlbumViewSizeModeCommand}"
                         Width="28" Height="28"
                         Background="Transparent" BorderThickness="0"
                         FocusVisualStyle="{x:Null}"
                         Cursor="Hand"
+                        ToolTipService.ShowOnDisabled="True"
                         AutomationProperties.Name="アルバム表示サイズ切り替え">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="ToolTip" Value="Maximize to Full Album View"/>
+                            <Setter Property="Opacity" Value="1.0"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsAlbumViewMaximized}" Value="True">
+                                    <Setter Property="ToolTip" Value="Minimize to Compact View"/>
+                                </DataTrigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4"/>
+                                    <Setter Property="Cursor" Value="Arrow"/>
+                                    <Setter Property="ToolTip" Value="楽曲を再生すると拡張パネルを開けます"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
                     <Path Stretch="Uniform" Width="14" Height="14">
                         <Path.Style>
                             <Style TargetType="Path">
                                 <!-- Default: Maximize (Expand) -->
                                 <Setter Property="Data" Value="M5,5h5V3H3v7h2V5z M19,3h-7v2h5v5h2V3z M19,19h-5v2h7v-7h-2V19z M5,19v-5H3v7h7v-2H5z"/>
                                 <Setter Property="Fill" Value="{DynamicResource MutedTextForegroundBrush}"/>
-                                <Setter Property="ToolTip" Value="Maximize to Full Album View"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsAlbumViewMaximized}" Value="True">
                                         <!-- Minimize (Collapse) -->
                                         <Setter Property="Data" Value="M4,9h5V4H7v3H4V9z M15,4v5h5V7h-3V4H15z M17,17h3v-2h-5v5h2V17z M7,17v3h2v-5H4v2H7z"/>
-                                        <Setter Property="ToolTip" Value="Minimize to Compact View"/>
                                     </DataTrigger>
                                     <Trigger Property="IsMouseOver" Value="True">
                                         <Setter Property="Fill" Value="{DynamicResource NeonCyanBrush}"/>
@@ -1267,6 +1216,10 @@
                                                             <MenuItem Header="お気に入りに追加/解除" Command="{Binding PlacementTarget.Tag.ToggleFavoriteCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                             <MenuItem Header="プレイリストに追加..." Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                             <Separator/>
+                                                            <MenuItem Header="ダッシュボードを表示" Command="{Binding PlacementTarget.Tag.OpenTrackDashboardCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="タグを表示" Command="{Binding PlacementTarget.Tag.OpenTrackTagsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                            <MenuItem Header="歌詞を編集（LRCエディタ）" Command="{Binding PlacementTarget.Tag.OpenLrcGeneratorCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
+                                                            <Separator/>
                                                             <MenuItem Header="プロパティ" Command="{Binding PlacementTarget.Tag.ShowTrackPropertiesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                             <MenuItem Header="ファイルの場所を開く" Command="{Binding PlacementTarget.Tag.OpenFileLocationCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}" CommandParameter="{Binding}"/>
                                                             <Separator/>
@@ -1382,7 +1335,7 @@
                     </Grid.RowDefinitions>
 
                     <!-- Top Info Row -->
-                    <Grid x:Name="RightPanelCompactInfoGrid" Grid.Row="0" Margin="0,0,68,8" Background="Transparent">
+                    <Grid x:Name="RightPanelCompactInfoGrid" Grid.Row="0" Margin="0,0,38,8" Background="Transparent">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/> <!-- Small Thumbnail -->
                             <ColumnDefinition Width="*"/>    <!-- Track Title & Artist & Quality -->
@@ -1540,17 +1493,246 @@
                 </Grid>
             </Grid>
 
-            <!-- Row 1: Bottom Extension Area (Lyrics / LRC Generator #98 / Extension Widgets #121) -->
-            <Grid Grid.Row="1" Background="{DynamicResource PanelBackgroundBrush}">
-                <Grid x:Name="RightPanelLyricsHost"
-                      Visibility="{Binding IsLyricsViewVisible, Converter={StaticResource BoolToVis}}">
-                    <views:LyricsView x:Name="RightPanelLyricsView"
-                                      DataContext="{Binding Lyrics}"/>
-                </Grid>
-                <Grid x:Name="RightPanelLrcGeneratorHost"
-                      Visibility="{Binding IsLrcGeneratorViewVisible, Converter={StaticResource BoolToVis}}">
-                    <views:LrcGeneratorView x:Name="RightPanelLrcGeneratorView"
-                                            DataContext="{Binding LrcGenerator}"/>
+            <!-- Row 1: Bottom Extension Area (3-Tab Bar: Lyrics / Dashboard / Tags #121 / #123) -->
+            <Grid Grid.Row="1"
+                  Background="{DynamicResource PanelBackgroundBrush}"
+                  Visibility="{Binding IsRightExtensionAreaVisible, Converter={StaticResource BoolToVis}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 3-Tab Bar -->
+                <Border Grid.Row="0"
+                        Background="{DynamicResource PanelBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,1,0,1"
+                        Padding="12,0">
+                    <UniformGrid Columns="3">
+                        <!-- 歌詞タブ -->
+                        <Button x:Name="RightExtensionLyricsTabButton"
+                                Content="歌詞"
+                                Command="{Binding SelectRightExtensionTabCommand}"
+                                CommandParameter="{x:Static vm:RightExtensionPanelType.Lyrics}"
+                                Cursor="Hand"
+                                FocusVisualStyle="{x:Null}"
+                                AutomationProperties.Name="歌詞タブ">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Height" Value="34"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource SecondaryTextForegroundBrush}"/>
+                                    <Setter Property="BorderBrush" Value="Transparent"/>
+                                    <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                                    <Setter Property="FontSize" Value="12"/>
+                                    <Setter Property="FontWeight" Value="Normal"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="TabBorder"
+                                                        Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsLyricsTabSelected}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource NeonCyanBrush}"/>
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+
+                        <!-- ダッシュボードタブ -->
+                        <Button x:Name="RightExtensionDashboardTabButton"
+                                Content="ダッシュボード"
+                                Command="{Binding SelectRightExtensionTabCommand}"
+                                CommandParameter="{x:Static vm:RightExtensionPanelType.Dashboard}"
+                                Cursor="Hand"
+                                FocusVisualStyle="{x:Null}"
+                                AutomationProperties.Name="ダッシュボードタブ">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Height" Value="34"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource SecondaryTextForegroundBrush}"/>
+                                    <Setter Property="BorderBrush" Value="Transparent"/>
+                                    <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                                    <Setter Property="FontSize" Value="12"/>
+                                    <Setter Property="FontWeight" Value="Normal"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="TabBorder"
+                                                        Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsDashboardTabSelected}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource NeonCyanBrush}"/>
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+
+                        <!-- タグタブ -->
+                        <Button x:Name="RightExtensionTagsTabButton"
+                                Content="タグ"
+                                Command="{Binding SelectRightExtensionTabCommand}"
+                                CommandParameter="{x:Static vm:RightExtensionPanelType.Tags}"
+                                Cursor="Hand"
+                                FocusVisualStyle="{x:Null}"
+                                AutomationProperties.Name="タグタブ">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Height" Value="34"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource SecondaryTextForegroundBrush}"/>
+                                    <Setter Property="BorderBrush" Value="Transparent"/>
+                                    <Setter Property="BorderThickness" Value="0,0,0,2"/>
+                                    <Setter Property="FontSize" Value="12"/>
+                                    <Setter Property="FontWeight" Value="Normal"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="TabBorder"
+                                                        Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsTagsTabSelected}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                            <Setter Property="BorderBrush" Value="{DynamicResource NeonCyanBrush}"/>
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </UniformGrid>
+                </Border>
+
+                <!-- Tab Content Host -->
+                <Grid Grid.Row="1">
+                    <Grid x:Name="RightPanelLyricsHost"
+                          Visibility="{Binding IsLyricsViewVisible, Converter={StaticResource BoolToVis}}">
+                        <views:LyricsView x:Name="RightPanelLyricsView"
+                                          DataContext="{Binding Lyrics}"/>
+                    </Grid>
+                    <Grid x:Name="RightPanelLrcGeneratorHost"
+                          Visibility="{Binding IsLrcGeneratorViewVisible, Converter={StaticResource BoolToVis}}">
+                        <views:LrcGeneratorView x:Name="RightPanelLrcGeneratorView"
+                                                DataContext="{Binding LrcGenerator}"/>
+                    </Grid>
+                    <Grid x:Name="RightPanelDashboardHost"
+                          Visibility="{Binding IsDashboardViewVisible, Converter={StaticResource BoolToVis}}">
+                        <views:ListeningStatsView x:Name="RightPanelDashboardView"
+                                                  DataContext="{Binding ListeningStats}"/>
+                    </Grid>
+                    <Grid x:Name="RightPanelTagsHost"
+                          Visibility="{Binding IsTagsViewVisible, Converter={StaticResource BoolToVis}}"
+                          Background="{DynamicResource PanelBackgroundBrush}">
+                        <StackPanel Margin="16,14">
+                            <Border Background="{DynamicResource ControlBackgroundBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="12,10"
+                                    Margin="0,0,0,12">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,8"
+                                          Visibility="{Binding IsTagsShowingNonPlayingTrack, Converter={StaticResource BoolToVis}}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0"
+                                                Background="{DynamicResource ControlBackgroundHighlightBrush}"
+                                                BorderBrush="{DynamicResource NeonCyanBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="4"
+                                                Padding="8,3"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="選択中の曲を表示中"
+                                                       FontSize="10"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource NeonCyanBrush}"/>
+                                        </Border>
+                                        <Button Grid.Column="1"
+                                                Content="再生中の曲に戻す"
+                                                Command="{Binding ReturnTagsToPlayingTrackCommand}"
+                                                Visibility="{Binding CanReturnTagsToPlayingTrack, Converter={StaticResource BoolToVis}}"
+                                                Background="{DynamicResource ControlBackgroundBrush}"
+                                                Foreground="{DynamicResource NeonCyanBrush}"
+                                                BorderBrush="{DynamicResource NeonCyanBrush}"
+                                                BorderThickness="1"
+                                                FontSize="11"
+                                                Padding="10,4"
+                                                Cursor="Hand"/>
+                                    </Grid>
+                                    <TextBlock Text="{Binding TagsTargetTrackTitle}"
+                                               FontSize="14"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextForegroundBrush}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding TagsTargetTrackArtist}"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                               Margin="0,2,0,0"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="{DynamicResource ControlBackgroundBrush}"
+                                    BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="14,16">
+                                <TextBlock Text="タグ管理・スマートミックス機能は後続タスク（#124）で提供予定です。"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                           TextWrapping="Wrap"
+                                           HorizontalAlignment="Center"/>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
                 </Grid>
             </Grid>
         </Grid>

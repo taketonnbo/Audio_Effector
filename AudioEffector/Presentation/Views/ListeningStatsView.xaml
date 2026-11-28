@@ -1,0 +1,340 @@
+<UserControl x:Class="AudioEffector.Presentation.Views.ListeningStatsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:vm="clr-namespace:AudioEffector.Presentation.ViewModels"
+             mc:Ignorable="d"
+             x:Name="ListeningStatsViewRoot"
+             d:DesignHeight="360" d:DesignWidth="420"
+             d:DataContext="{d:DesignInstance vm:ListeningStatsViewModel}">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="LocalBoolToVis"/>
+
+        <!-- セカンダリボタン（再生中の曲に戻す等） -->
+        <Style x:Key="DashboardSecondaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource ControlBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource NeonCyanBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="RootBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RootBorder" Property="Background" Value="{DynamicResource NeonCyanBrush}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource InverseTextForegroundBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="RootBorder" Property="Opacity" Value="0.82"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="RootBorder" Property="Opacity" Value="0.4"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- TOP N 行クリック用スタイル -->
+        <Style x:Key="TopTrackRowButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="RowBorder"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RowBorder" Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="RowBorder" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 軽量フラットプログレスバー -->
+        <Style x:Key="TopTrackProgressBarStyle" TargetType="ProgressBar">
+            <Setter Property="Height" Value="4"/>
+            <Setter Property="Minimum" Value="0"/>
+            <Setter Property="Maximum" Value="100"/>
+            <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid>
+                            <Border x:Name="PART_Track"
+                                    Background="{TemplateBinding Background}"
+                                    CornerRadius="2"/>
+                            <Border x:Name="PART_Indicator"
+                                    Background="{TemplateBinding Foreground}"
+                                    CornerRadius="2"
+                                    HorizontalAlignment="Left"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Background="{DynamicResource PanelBackgroundBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="16,12">
+            <StackPanel>
+                <!-- 1. 対象楽曲ヘッダーカード -->
+                <Border Background="{DynamicResource ControlBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="12,10"
+                        Margin="0,0,0,12">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- 再生中以外の曲を表示中バナー＋戻す導線 -->
+                        <Grid Grid.Row="0"
+                              Margin="0,0,0,8"
+                              Visibility="{Binding IsShowingNonPlayingTrack, Converter={StaticResource LocalBoolToVis}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0"
+                                    Background="{DynamicResource ControlBackgroundHighlightBrush}"
+                                    BorderBrush="{DynamicResource NeonCyanBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="4"
+                                    Padding="8,3"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center">
+                                <TextBlock Text="選択中の曲を表示中"
+                                           FontSize="10"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource NeonCyanBrush}"/>
+                            </Border>
+                            <Button x:Name="ReturnToPlayingTrackButton"
+                                    Grid.Column="1"
+                                    Content="再生中の曲に戻す"
+                                    Command="{Binding ReturnToPlayingTrackCommand}"
+                                    Style="{StaticResource DashboardSecondaryButtonStyle}"
+                                    Visibility="{Binding CanReturnToPlayingTrack, Converter={StaticResource LocalBoolToVis}}"
+                                    AutomationProperties.Name="再生中の曲に戻す"/>
+                        </Grid>
+
+                        <TextBlock Grid.Row="1"
+                                   Text="{Binding TargetTrackTitle}"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextForegroundBrush}"
+                                   TextTrimming="CharacterEllipsis"/>
+
+                        <TextBlock Grid.Row="2"
+                                   Margin="0,2,0,0"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                   TextTrimming="CharacterEllipsis"
+                                   Visibility="{Binding HasTargetTrack, Converter={StaticResource LocalBoolToVis}}">
+                            <Run Text="{Binding TargetTrackArtist, Mode=OneWay}"/>
+                            <Run Text="  •  " Foreground="{DynamicResource MutedTextForegroundBrush}"/>
+                            <Run Text="{Binding TargetTrackAlbum, Mode=OneWay}"/>
+                        </TextBlock>
+                    </Grid>
+                </Border>
+
+                <!-- 2. 対象楽曲の KPI サマリカード (3 カラム) -->
+                <UniformGrid Columns="3" Margin="0,0,0,14">
+                    <!-- 累計再生回数 -->
+                    <Border Background="{DynamicResource ControlBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="10,10"
+                            Margin="0,0,6,0">
+                        <StackPanel>
+                            <TextBlock Text="累計再生回数"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource MutedTextForegroundBrush}"/>
+                            <TextBlock x:Name="TotalPlayCountText"
+                                       Text="{Binding TotalPlayCountDisplay}"
+                                       FontSize="16"
+                                       FontWeight="Bold"
+                                       Foreground="{DynamicResource NeonCyanBrush}"
+                                       Margin="0,4,0,0"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 累計再生時間 -->
+                    <Border Background="{DynamicResource ControlBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="10,10"
+                            Margin="3,0,3,0">
+                        <StackPanel>
+                            <TextBlock Text="累計再生時間"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource MutedTextForegroundBrush}"/>
+                            <TextBlock x:Name="TotalListeningTimeText"
+                                       Text="{Binding TotalListeningTimeDisplay}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextForegroundBrush}"
+                                       Margin="0,4,0,0"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 最終再生日時 -->
+                    <Border Background="{DynamicResource ControlBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="10,10"
+                            Margin="6,0,0,0">
+                        <StackPanel>
+                            <TextBlock Text="最終再生日時"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource MutedTextForegroundBrush}"/>
+                            <TextBlock x:Name="LastPlayedAtText"
+                                       Text="{Binding LastPlayedAtDisplay}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextForegroundBrush}"
+                                       Margin="0,6,0,0"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+
+                <!-- 3. よく聴く曲 TOP 5 -->
+                <Border Background="{DynamicResource ControlBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="12,10">
+                    <StackPanel>
+                        <TextBlock Text="よく聴く曲 TOP 5"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextForegroundBrush}"
+                                   Margin="0,0,0,8"/>
+
+                        <!-- エンプティ状態 -->
+                        <TextBlock Text="まだ再生統計が記録されていません。楽曲を最後まで再生すると統計が蓄積されます。"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,6,0,6">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasTopPlayedTracks}" Value="False">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+
+                        <!-- ランキング一覧 -->
+                        <ItemsControl x:Name="TopPlayedTracksItemsControl"
+                                      ItemsSource="{Binding TopPlayedTracks}"
+                                      Visibility="{Binding HasTopPlayedTracks, Converter={StaticResource LocalBoolToVis}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:TopPlayedTrackItemViewModel}">
+                                    <Button Command="{Binding DataContext.SelectTopTrackCommand, ElementName=ListeningStatsViewRoot}"
+                                            CommandParameter="{Binding}"
+                                            Style="{StaticResource TopTrackRowButtonStyle}"
+                                            Margin="0,0,0,4">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="26"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+
+                                            <!-- 順位 -->
+                                            <TextBlock Grid.Column="0" Grid.RowSpan="2"
+                                                       Text="{Binding Rank, StringFormat='#{0}'}"
+                                                       FontSize="12"
+                                                       FontWeight="Bold"
+                                                       Foreground="{DynamicResource NeonCyanBrush}"
+                                                       VerticalAlignment="Center"/>
+
+                                            <!-- タイトル & アーティスト -->
+                                            <StackPanel Grid.Column="1" Grid.Row="0" Margin="0,0,8,0">
+                                                <TextBlock Text="{Binding Title}"
+                                                           FontSize="12"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource TextForegroundBrush}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Artist}"
+                                                           FontSize="10"
+                                                           Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+
+                                            <!-- 再生回数 -->
+                                            <TextBlock Grid.Column="2" Grid.Row="0"
+                                                       Text="{Binding PlayCountDisplay}"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextForegroundBrush}"
+                                                       VerticalAlignment="Center"/>
+
+                                            <!-- 再生回数比率バー -->
+                                            <ProgressBar Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1"
+                                                         Margin="0,5,0,0"
+                                                         Value="{Binding PlayCountPercent, Mode=OneWay}"
+                                                         Style="{StaticResource TopTrackProgressBarStyle}"/>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>

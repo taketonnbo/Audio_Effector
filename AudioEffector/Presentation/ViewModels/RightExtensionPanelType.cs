@@ -19,4 +19,14 @@ public enum RightExtensionPanelType
     /// LRC 自動生成パネル
     /// </summary>
     LrcGenerator = 2,
+
+    /// <summary>
+    /// リスニング統計ダッシュボードパネル
+    /// </summary>
+    Dashboard = 3,
+
+    /// <summary>
+    /// タグ管理パネル（#124 で機能拡張予定）
+    /// </summary>
+    Tags = 4,
 }
