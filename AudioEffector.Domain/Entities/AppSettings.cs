@@ -136,6 +136,16 @@ public class AppSettings
     public string? DataDirectoryPath { get; set; }
 
     /// <summary>
+    /// デバッグ用ログの出力レベル（Trace / Debug / Info / Warn / Error / Off、既定値は Info）
+    /// </summary>
+    public string LogLevel { get; set; } = "Info";
+
+    /// <summary>
+    /// デバッグ用ログファイルの保存先ディレクトリパス（未指定時は実行フォルダ配下の logs）
+    /// </summary>
+    public string? LogDirectoryPath { get; set; }
+
+    /// <summary>
     /// 機器転送時にMP4ファイルをM4A形式へ自動変換するかどうか
     /// </summary>
     public bool ConvertMp4ToM4a { get; set; }
