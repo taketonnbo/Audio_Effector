@@ -339,6 +339,23 @@ public class SettingsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// 機器転送時にMP4ファイルをM4A形式へ自動変換するかどうかを取得または設定します
+    /// </summary>
+    public bool ConvertMp4ToM4a
+    {
+        get => _appSettings.ConvertMp4ToM4a;
+        set
+        {
+            if (_appSettings.ConvertMp4ToM4a != value)
+            {
+                _appSettings.ConvertMp4ToM4a = value;
+                OnPropertyChanged();
+                _settingsService.UpdateSettings(settings => settings.ConvertMp4ToM4a = value);
+            }
+        }
+    }
+
     // --- Shortcuts ---
 
     /// <summary>

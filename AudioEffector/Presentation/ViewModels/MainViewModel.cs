@@ -862,11 +862,14 @@ namespace AudioEffector.Presentation.ViewModels
             // Device Sync Command Initialization
             SwitchToDeviceSyncCommand = new RelayCommand(o => CurrentViewType = ViewType.DeviceSync);
 
+            var transcodeService = App.ServiceProvider?.GetService(typeof(IAudioTranscodeService)) as IAudioTranscodeService
+                ?? new MediaFoundationAudioTranscodeService();
             DeviceBrowser = new DeviceBrowserViewModel(
                 Albums,
                 () => Albums.ToList().AsReadOnly(),
                 () => { },
-                settingsService: _settingsService);
+                settingsService: _settingsService,
+                audioTranscodeService: transcodeService);
             ShowSettingsCommand = new RelayCommand(o => ShowSettings());
             ToggleRightPanelCommand = new RelayCommand(o => IsRightPanelOpen = !IsRightPanelOpen);
             TogglePlayQueuePanelCommand = new RelayCommand(o => IsPlayQueuePanelOpen = !IsPlayQueuePanelOpen);

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Entities.DataTransfer;
 using AudioEffector.Domain.Repositories;
@@ -14,14 +15,23 @@ namespace AudioEffector.Application.ApplicationServices;
 public class DataTransferApplicationService
 {
     private readonly IDataTransferRepository _dataTransferRepository;
+    private readonly IAudioTranscodeService? _audioTranscodeService;
+    private readonly ISettingsService? _settingsService;
 
     /// <summary>
     /// DataTransferApplicationServiceを初期化します
     /// </summary>
     /// <param name="dataTransferRepository">データ転送リポジトリ</param>
-    public DataTransferApplicationService(IDataTransferRepository dataTransferRepository)
+    /// <param name="audioTranscodeService">音声変換サービス（省略時は変換なし）</param>
+    /// <param name="settingsService">設定サービス（省略時は変換無効）</param>
+    public DataTransferApplicationService(
+        IDataTransferRepository dataTransferRepository,
+        IAudioTranscodeService? audioTranscodeService = null,
+        ISettingsService? settingsService = null)
     {
         _dataTransferRepository = dataTransferRepository ?? throw new ArgumentNullException(nameof(dataTransferRepository));
+        _audioTranscodeService = audioTranscodeService;
+        _settingsService = settingsService;
     }
 
     /// <summary>
@@ -76,16 +86,34 @@ public class DataTransferApplicationService
         int successCount = 0;
         int total = trackList.Count;
 
+        var transcodeOptions = ResolveTranscodeOptions();
+
         for (int i = 0; i < total; i++)
         {
             if (cancellationToken.IsCancellationRequested) break;
 
             var track = trackList[i];
-            bool success = await _dataTransferRepository.TransferTrackAsync(
-                track.FilePath,
-                destinationFolder,
-                null,
-                cancellationToken);
+            bool success;
+            if (_audioTranscodeService != null && _audioTranscodeService.NeedsTranscode(track.FilePath, transcodeOptions))
+            {
+                using var prepared = await _audioTranscodeService.PrepareForTransferAsync(
+                    track.FilePath,
+                    transcodeOptions,
+                    cancellationToken);
+                success = await _dataTransferRepository.TransferTrackAsync(
+                    prepared.OutputFilePath,
+                    destinationFolder,
+                    null,
+                    cancellationToken);
+            }
+            else
+            {
+                success = await _dataTransferRepository.TransferTrackAsync(
+                    track.FilePath,
+                    destinationFolder,
+                    null,
+                    cancellationToken);
+            }
 
             if (success)
             {
@@ -96,6 +124,20 @@ public class DataTransferApplicationService
         }
 
         return successCount;
+    }
+
+    private AudioTranscodeOptions ResolveTranscodeOptions()
+    {
+        if (_settingsService == null)
+        {
+            return new AudioTranscodeOptions();
+        }
+
+        var settings = _settingsService.LoadSettings();
+        return new AudioTranscodeOptions
+        {
+            ConvertMp4ToM4a = settings.ConvertMp4ToM4a
+        };
     }
 
     /// <summary>

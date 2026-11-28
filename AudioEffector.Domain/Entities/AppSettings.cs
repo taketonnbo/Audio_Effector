@@ -131,6 +131,11 @@ public class AppSettings
     public ShortcutKeyConfig VolumeDownShortcut { get; set; } = new();
 
     /// <summary>
+    /// 機器転送時にMP4ファイルをM4A形式へ自動変換するかどうか
+    /// </summary>
+    public bool ConvertMp4ToM4a { get; set; }
+
+    /// <summary>
     /// 接続機器識別子ごとの既定転送先フォルダパス辞書
     /// </summary>
     public Dictionary<string, string> DeviceDefaultTransferFolders

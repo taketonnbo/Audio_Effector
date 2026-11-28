@@ -214,4 +214,27 @@ public class SettingsViewModelTests
         Assert.True(_persistedSettings.MiniPlayerRotateAlbumArt == false);
         _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
+
+    /// <summary>
+    /// ConvertMp4ToM4aプロパティを変更した際、設定サービスへ保存されPropertyChangedイベントが発火することを検証します。
+    /// </summary>
+    [Fact]
+    public void ConvertMp4ToM4a_変更時_設定サービスへ保存されPropertyChangedが発火する()
+    {
+        // Arrange
+        var sut = new SettingsViewModel(_settingsServiceMock.Object, _audioServiceMock.Object);
+        var notified = new List<string?>();
+        sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        // Act
+        sut.ConvertMp4ToM4a = true;
+        sut.ConvertMp4ToM4a = true; // 同値再代入では再保存されないこと
+
+        // Assert
+        Assert.True(sut.ConvertMp4ToM4a);
+        Assert.Contains(nameof(SettingsViewModel.ConvertMp4ToM4a), notified);
+        Assert.Single(notified);
+        Assert.True(_persistedSettings.ConvertMp4ToM4a);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
+    }
 }

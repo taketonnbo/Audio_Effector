@@ -251,6 +251,19 @@
                         <TextBlock Text="※有効にすると、再スキャン時に既存ファイルの最終更新日時（タイムスタンプ）が変更されている場合もタグ情報を再解析してライブラリへ反映します。"
                                    FontSize="12"
                                    Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                   Margin="20,0,0,20"
+                                   TextWrapping="Wrap"/>
+
+                        <TextBlock Text="機器転送設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}"/>
+
+                        <CheckBox Content="転送時に MP4 を M4A に変換する"
+                                  IsChecked="{Binding ConvertMp4ToM4a, Mode=TwoWay}"
+                                  Margin="0,0,0,5"
+                                  Foreground="{DynamicResource TextForegroundBrush}"
+                                  VerticalContentAlignment="Center"/>
+                        <TextBlock Text="※有効にすると、機器転送時に .mp4 音声ファイルを .m4a（AAC）形式へ自動変換して転送します（変換用一時ファイルは転送後に自動削除されます）。"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                                    Margin="20,0,0,15"
                                    TextWrapping="Wrap"/>
                     </StackPanel>
