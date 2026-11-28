@@ -1,14 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Events;
 using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
+using AudioEffector.Infrastructure;
 using AudioEffector.Presentation.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
@@ -1627,5 +1630,199 @@ public sealed class LrcGeneratorViewModelTests
         Assert.True(sut.HasAcceptedCopyrightGuideline);
         Assert.True(settings.StoredHasAcceptedLrcCopyrightGuideline);
         Assert.Equal(1, settings.UpdateSettingsAsyncCallCount);
+    }
+
+    /// <summary>
+    /// ネイティブライブラリ欠損（Native Library not found...）等の英語生例外発生時に、
+    /// ErrorMessage へ英語生メッセージを露出せず分かりやすい日本語案内を表示し、再試行・戻るアクションが維持されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TranscribeFromAudioAsync_ネイティブライブラリ欠損例外発生時_英語生メッセージを露出せず日本語案内と再試行戻る動作を維持する()
+    {
+        // Arrange
+        var (sut, engine, _, _, _) = CreateSut();
+        bool shouldFail = true;
+        engine.Handler = (req, _, _) =>
+        {
+            if (shouldFail)
+            {
+                return Task.FromException<AlignmentResult>(new FileNotFoundException(
+                    "Native Library not found in default paths.Verify you have have included the native Whisper library in your application, or install the default libraries with the Whisper.net.Runtime NuGet."));
+            }
+
+            var doc = new LyricsDocument([new LyricLine(0, TimeSpan.FromSeconds(1), "復帰後の歌詞")], isSynced: true, title: req.Title);
+            return Task.FromResult(new AlignmentResult(doc, "[00:01.00]復帰後の歌詞", [], req.Mode, "Fake"));
+        };
+
+        using (sut)
+        {
+            sut.SetTargetTrack(new Track { FilePath = @"E:\USB\Track01.flac", Title = "Track01" });
+
+            // Act 1: 失敗
+            await sut.TranscribeFromAudioAsync();
+
+            // Assert 1: 英語生メッセージ非露出・日本語案内表示
+            Assert.True(sut.IsErrorState);
+            Assert.Equal("LRC を生成できませんでした", sut.ErrorTitle);
+            Assert.Equal(LrcGenerationErrorMessageResolver.NATIVE_RUNTIME_UNAVAILABLE_MESSAGE, sut.ErrorMessage);
+            Assert.DoesNotContain("Native Library", sut.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Whisper.net", sut.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+
+            // Act 2: 「戻る」で入力待機状態へ復帰
+            sut.ReturnFromErrorCommand.Execute(null);
+            Assert.True(sut.IsInputState);
+            Assert.False(sut.IsErrorState);
+
+            // Act 3: 再度エラーにして「再試行」で復旧する（固定スリープではなく状態遷移完了を明示待機）
+            await sut.TranscribeFromAudioAsync();
+            Assert.True(sut.IsErrorState);
+            shouldFail = false;
+
+            var retryCompletedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName == nameof(LrcGeneratorViewModel.IsPreviewState) && sut.IsPreviewState)
+                {
+                    retryCompletedTcs.TrySetResult(true);
+                }
+            }
+
+            sut.PropertyChanged += OnPropertyChanged;
+            try
+            {
+                sut.RetryErrorCommand.Execute(null);
+                if (!sut.IsPreviewState)
+                {
+                    await retryCompletedTcs.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                }
+            }
+            finally
+            {
+                sut.PropertyChanged -= OnPropertyChanged;
+            }
+
+            // Assert 3
+            Assert.True(sut.IsPreviewState);
+            Assert.False(sut.IsErrorState);
+        }
+    }
+
+    /// <summary>
+    /// モデルダウンロードのネットワーク障害およびタイムアウトで生英語を露出せずエラー状態へ遷移し、
+    /// ユーザーキャンセル時はエラー状態にならず待機画面へ戻ることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DownloadDefaultModelAsync_ネットワーク障害とタイムアウトとキャンセル_適切に日本語表示または復帰する()
+    {
+        // Arrange
+        var (sut, _, _, modelMgr, _) = CreateSut(modelAvailable: false);
+        using (sut)
+        {
+            // Act 1: ネットワーク障害
+            modelMgr.DownloadHandler = (_, _) => Task.FromException<LocalSpeechModelInfo>(
+                new HttpRequestException("No such host is known."));
+            await sut.DownloadDefaultModelAsync();
+
+            // Assert 1
+            Assert.True(sut.IsErrorState);
+            Assert.Equal("モデルをダウンロードできませんでした", sut.ErrorTitle);
+            Assert.Equal(LrcGenerationErrorMessageResolver.MODEL_DOWNLOAD_NETWORK_ERROR_MESSAGE, sut.ErrorMessage);
+            Assert.DoesNotContain("No such host", sut.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+
+            // Act 2: タイムアウト（未キャンセルのトークン）
+            modelMgr.DownloadHandler = (_, _) => Task.FromException<LocalSpeechModelInfo>(
+                new TaskCanceledException("HttpClient.Timeout exceeded."));
+            await sut.DownloadDefaultModelAsync();
+
+            // Assert 2
+            Assert.True(sut.IsErrorState);
+            Assert.Equal(LrcGenerationErrorMessageResolver.MODEL_DOWNLOAD_TIMEOUT_MESSAGE, sut.ErrorMessage);
+
+            // Act 3: ユーザーキャンセル
+            var startedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            modelMgr.DownloadHandler = async (_, ct) =>
+            {
+                startedTcs.TrySetResult(true);
+                await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+                throw new InvalidOperationException("unreachable");
+            };
+            Task dlTask = sut.DownloadDefaultModelAsync();
+            await startedTcs.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            sut.CancelModelDownloadCommand.Execute(null);
+            await dlTask.WaitAsync(TimeSpan.FromSeconds(3));
+
+            // Assert 3: エラー状態に遷移せずモデル未配置へ戻る
+            Assert.False(sut.IsErrorState);
+            Assert.False(sut.IsModelDownloading);
+            Assert.True(sut.IsModelMissingState);
+        }
+    }
+
+    /// <summary>
+    /// USB メモリ等の外部ドライブへの保存失敗（英語 OS 例外・パス露出）およびテキスト検査の英語例外で、
+    /// SaveErrorMessage / ValidationErrorMessage に英語生メッセージやパスが露出しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ExecuteSaveAsyncとInspectAndSelectTextFileAsync_USB外部ドライブ英語例外_生メッセージとパスを露出しない()
+    {
+        // Arrange
+        var (sut, _, textSvc, _, _) = CreateSut();
+        using (sut)
+        {
+            sut.SetTargetTrack(new Track { FilePath = @"E:\USB\Song.flac", Title = "Song" });
+
+            // Act 1: テキスト検査で英語のアクセス拒否例外
+            textSvc.InspectionFactory = _ => throw new UnauthorizedAccessException("Access to the path 'E:\\USB\\lyrics.txt' is denied.");
+            await sut.InspectAndSelectTextFileAsync(@"E:\USB\lyrics.txt");
+
+            // Assert 1
+            Assert.True(sut.HasValidationError);
+            Assert.DoesNotContain("Access to the path", sut.ValidationErrorMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(@"E:\USB", sut.ValidationErrorMessage, StringComparison.OrdinalIgnoreCase);
+
+            // Act 2: 生成後に USB 取り外し想定の IOException で保存失敗
+            textSvc.InspectionFactory = null;
+            await sut.TranscribeFromAudioAsync();
+            textSvc.SaveException = new IOException("The device is not ready.", unchecked((int)0x80070015));
+            await sut.ExecuteSaveAsync(overwrite: true);
+
+            // Assert 2
+            Assert.True(sut.HasSaveError);
+            Assert.Equal(LrcGenerationErrorMessageResolver.SAVE_LRC_IO_ERROR_MESSAGE, sut.SaveErrorMessage);
+            Assert.DoesNotContain("not ready", sut.SaveErrorMessage, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>
+    /// 本番 DI 構成（AddInfrastructureServices + AddApplicationServices）から IAppLogger と LrcGenerationApplicationService が正常に解決できることを検証します。
+    /// </summary>
+    [Fact]
+    public void DI構成_IAppLoggerとLrcGenerationApplicationService_正常に解決できる()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_di_lrc_log_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddInfrastructureServices(tempDir);
+            services.AddApplicationServices();
+            using ServiceProvider provider = services.BuildServiceProvider();
+
+            // Act
+            IAppLogger logger = provider.GetRequiredService<IAppLogger>();
+            LrcGenerationApplicationService service = provider.GetRequiredService<LrcGenerationApplicationService>();
+
+            // Assert
+            Assert.NotNull(logger);
+            Assert.NotNull(service);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
     }
 }

@@ -59,7 +59,7 @@
 
 - デバイス走査中（`IsLoading = True`）は `"Scanning device..."` と不定進捗バー（`ProgressBar IsIndeterminate="True"`）を表示する。
 - 走査完了後は `DeviceAlbums`（`DeviceAlbum`）の名称（`Title`）、アーティスト名（`Artist`）、収録曲数（`{Tracks.Count} tracks`）、およびアルバム削除ボタンを表示する（アルバムアート画像は表示しない）。
-- `Expander` 展開時は配下の `DeviceTrack` 一覧（表示名は実ファイル名）と曲単位の削除ボタンを表示する。
+- `Expander` 展開時は配下の `DeviceTrack` 一覧（表示名は実ファイル名）と曲単位の削除ボタンを表示する。各アルバム内の楽曲は、PC側ライブラリ情報と一致するトラック番号（未設定を除く）を優先したうえで、ファイル名の自然順（数値昇順・大文字小文字非区別フォールバック）で整列して表示する。
 
 ## 6. アニメーションとインタラクション
 
