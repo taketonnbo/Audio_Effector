@@ -248,7 +248,9 @@ public class MtpDataTransferAdapter : IDataTransferRepository
             {
                 string trimmedName = destinationFileName.Trim();
                 string fileNameOnly = Path.GetFileName(trimmedName);
-                if (!string.Equals(trimmedName, fileNameOnly, StringComparison.Ordinal) || string.IsNullOrWhiteSpace(fileNameOnly))
+                if (trimmedName is "." or ".."
+                    || !string.Equals(trimmedName, fileNameOnly, StringComparison.Ordinal)
+                    || string.IsNullOrWhiteSpace(fileNameOnly))
                 {
                     Logger.Warn($"不正な補助ファイル名が指定されました: {destinationFileName}");
                     return false;
@@ -260,7 +262,17 @@ public class MtpDataTransferAdapter : IDataTransferRepository
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                string destFilePath = Path.Combine(destinationFolder, targetFileName);
+                string fullDestDir = Path.GetFullPath(destinationFolder);
+                string destDirPrefix = fullDestDir.EndsWith(Path.DirectorySeparatorChar)
+                    ? fullDestDir
+                    : fullDestDir + Path.DirectorySeparatorChar;
+                string destFilePath = Path.GetFullPath(Path.Combine(fullDestDir, targetFileName));
+                if (!destFilePath.StartsWith(destDirPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Warn($"転送先フォルダ外への補助ファイル書き込みを拒否しました: {destinationFileName}");
+                    return false;
+                }
+
                 File.Copy(sourceFilePath, destFilePath, overwrite: true);
                 return true;
             }

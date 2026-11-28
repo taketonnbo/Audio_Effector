@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.IO;
 using System.Text;
 using AudioEffector.Domain.Services;
@@ -11,7 +12,8 @@ namespace AudioEffector.Application.Common;
 /// </summary>
 public static class CompanionLrcResolver
 {
-    private const int MAX_HEADER_CHARS = 65536;
+    private const int MAX_HEADER_BYTES = 64 * 1024;
+    private const int READ_CHUNK_BYTES = 4096;
 
     /// <summary>
     /// 転送元音声ファイルに対応する `.lrc` ファイルが存在し、かつ現在の <see cref="LrcTransferOptions"/> で転送対象と判定される場合にそのパスを返します
@@ -65,22 +67,42 @@ public static class CompanionLrcResolver
 
     private static string ReadHeadTextSafely(string filePath)
     {
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        using var stream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
 
-        char[] buffer = new char[MAX_HEADER_CHARS];
-        int totalRead = 0;
-        while (totalRead < MAX_HEADER_CHARS)
+        int initialCapacity = stream.CanSeek
+            ? (int)Math.Min(Math.Max(stream.Length, 0L), MAX_HEADER_BYTES)
+            : READ_CHUNK_BYTES;
+
+        // 最大 64 KB（LOH 閾値 85 KB 未満）のバイト上限で先頭のみを安全に読み取る
+        using var headStream = new MemoryStream(initialCapacity);
+        byte[] chunk = ArrayPool<byte>.Shared.Rent(READ_CHUNK_BYTES);
+        try
         {
-            int read = reader.Read(buffer, totalRead, MAX_HEADER_CHARS - totalRead);
-            if (read <= 0)
+            int remaining = MAX_HEADER_BYTES;
+            while (remaining > 0)
             {
-                break;
-            }
+                int toRead = Math.Min(chunk.Length, remaining);
+                int bytesRead = stream.Read(chunk, 0, toRead);
+                if (bytesRead <= 0)
+                {
+                    break;
+                }
 
-            totalRead += read;
+                headStream.Write(chunk, 0, bytesRead);
+                remaining -= bytesRead;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(chunk);
         }
 
-        return new string(buffer, 0, totalRead);
+        headStream.Position = 0;
+        using var reader = new StreamReader(headStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
     }
 }
