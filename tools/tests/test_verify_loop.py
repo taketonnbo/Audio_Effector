@@ -202,9 +202,18 @@ foreach ($p in $ast.ParamBlock.Parameters) {{
         # Assert
         self.assertEqual(data["error_count"], 0, msg=f"構文エラー: {data['errors']}")
         params = data["params"]
-        for expected in ("PreferOriginBase", "FetchBase", "BuildLockTimeoutSeconds", "NoBuildLock"):
+        for expected in (
+            "PreferOriginBase",
+            "FetchBase",
+            "BuildLockTimeoutSeconds",
+            "NoBuildLock",
+            "PythonTestTimeoutSeconds",
+            "SkipLicenseSync",
+            "StrictAllLicenses",
+        ):
             self.assertIn(expected, params, msg=f"パラメータ -{expected} が未定義です。")
         self.assertEqual(params["BuildLockTimeoutSeconds"], "300")
+        self.assertEqual(params["PythonTestTimeoutSeconds"], "240")
 
     def test_比較ベース解決が通常リポジトリとワークツリーおよびフォールバックで正しく動作すること(self) -> None:
         # Arrange
@@ -602,6 +611,79 @@ $rBlank    = Resolve-BaseMergeCommit -BaseRef '   ' -PreferOriginBase -FetchBase
         self.assertEqual(norm_data["prefixed"]["ResolvedRef"], "origin/epic/401-lyrics")
         self.assertEqual(norm_data["prefixed"]["MergeBase"], epic_c1)
         self.assertFalse(norm_data["blank"]["Success"])
+
+    def test_ライセンス同期ゲートが差分違反検出と正常合格およびJSON出力を行えること(self) -> None:
+        # Arrange: サンドボックスリポジトリへ check_license_sync.py と製品 .csproj・THIRD-PARTY-NOTICES.md を配置
+        lic_repo = self.base_dir / "lic_repo"
+        lic_repo.mkdir(parents=True, exist_ok=True)
+        _run_git(["init"], cwd=lic_repo)
+        _run_git(["config", "user.name", "Test User"], cwd=lic_repo)
+        _run_git(["config", "user.email", "test@example.com"], cwd=lic_repo)
+        _run_git(["checkout", "-b", "develop"], cwd=lic_repo)
+
+        tools_dst = lic_repo / "tools"
+        tools_dst.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / "tools" / "check_license_sync.py", tools_dst / "check_license_sync.py")
+
+        infra_csproj = lic_repo / "AudioEffector.Infrastructure" / "AudioEffector.Infrastructure.csproj"
+        infra_csproj.parent.mkdir(parents=True, exist_ok=True)
+        infra_csproj.write_text(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+            "  <ItemGroup>\n"
+            "    <PackageReference Include=\"NAudio\" Version=\"2.2.1\" />\n"
+            "  </ItemGroup>\n"
+            "</Project>\n",
+            encoding="utf-8",
+        )
+        notices_file = lic_repo / "THIRD-PARTY-NOTICES.md"
+        notices_file.write_text("# Third-Party Notices\n\n## NAudio\n- **Version:** 2.2.1\n", encoding="utf-8")
+        _run_git(["add", "."], cwd=lic_repo)
+        _run_git(["commit", "-m", "chore: base"], cwd=lic_repo)
+        base_commit = _run_git(["rev-parse", "HEAD"], cwd=lic_repo).stdout.strip()
+        _run_git(["checkout", "-b", "feat/437-lic-gate"], cwd=lic_repo)
+
+        loader = _ps_loader_snippet(
+            VERIFY_LOOP,
+            ["Stop-ProcessTree", "Invoke-ExternalCommand", "New-GateResult", "Invoke-LicenseSyncGate"],
+        )
+        escaped_repo = str(lic_repo).replace("'", "''")
+
+        # Act 1: 変更なし -Full 実行で PASSED ＆ Report が返ること
+        ps_pass = loader + f"""
+$res = Invoke-LicenseSyncGate -RepoRootPath '{escaped_repo}' -BaseCommit '{base_commit}' -ChangedFiles @() -Full
+$res | ConvertTo-Json -Depth 6
+"""
+        res_pass = _run_ps_command(ps_pass, cwd=REPO_ROOT)
+        self.assertEqual(res_pass.returncode, 0, msg=res_pass.stdout + "\n" + res_pass.stderr)
+        pass_data = json.loads(res_pass.stdout)
+        self.assertTrue(pass_data["Passed"])
+        self.assertEqual(pass_data["GateResult"]["name"], "license_sync")
+        self.assertEqual(pass_data["GateResult"]["status"], "PASSED")
+        self.assertIsNotNone(pass_data["Report"])
+        self.assertFalse(pass_data["Report"]["needs_update"])
+
+        # Act 2: 新規パッケージ追加（THIRD-PARTY-NOTICES.md 未更新）で FAILED になること
+        infra_csproj.write_text(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+            "  <ItemGroup>\n"
+            "    <PackageReference Include=\"NAudio\" Version=\"2.2.1\" />\n"
+            "    <PackageReference Include=\"Whisper.net\" Version=\"1.9.0\" />\n"
+            "  </ItemGroup>\n"
+            "</Project>\n",
+            encoding="utf-8",
+        )
+        ps_fail = loader + f"""
+$res = Invoke-LicenseSyncGate -RepoRootPath '{escaped_repo}' -BaseCommit '{base_commit}' -ChangedFiles @('AudioEffector.Infrastructure/AudioEffector.Infrastructure.csproj') -Full
+$res | ConvertTo-Json -Depth 6
+"""
+        res_fail = _run_ps_command(ps_fail, cwd=REPO_ROOT)
+        self.assertEqual(res_fail.returncode, 0, msg=res_fail.stdout + "\n" + res_fail.stderr)
+        fail_data = json.loads(res_fail.stdout)
+        self.assertFalse(fail_data["Passed"])
+        self.assertEqual(fail_data["GateResult"]["status"], "FAILED")
+        self.assertGreaterEqual(fail_data["GateResult"]["error_count"], 1)
+        self.assertTrue(fail_data["Report"]["needs_update"])
+        self.assertIn("Whisper.net", fail_data["Report"]["missing_packages"])
 
 
 if __name__ == "__main__":
