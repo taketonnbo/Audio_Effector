@@ -4,6 +4,8 @@ using MediaDevices;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -22,7 +24,11 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 {
     private readonly Func<IReadOnlyList<Album>> _getAlbums;
     private readonly Action _onCheckDeviceAlbumsRequested;
+    private readonly Func<string, long> _getFileSizeBytes;
+    private readonly HashSet<Album> _subscribedAlbums = new();
+    private readonly HashSet<Track> _subscribedTracks = new();
     private CancellationTokenSource? _checkDeviceAlbumsCts;
+    private CancellationTokenSource? _storageRefreshCts;
 
     private static readonly HashSet<string> SupportedAudioExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -33,6 +39,61 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// 接続されている外部デバイス一覧を取得または設定します
     /// </summary>
     public ObservableCollection<MainViewModel.DeviceViewModel> RemovableDrives { get; set; } = new ObservableCollection<MainViewModel.DeviceViewModel>();
+
+    /// <summary>
+    /// 接続中の外部デバイスが 1 台以上存在するかどうかを取得します
+    /// </summary>
+    public bool HasConnectedDevices => RemovableDrives.Count > 0;
+
+    private int _selectedAlbumCount;
+    /// <summary>
+    /// 転送対象として選択されているアルバム数を取得します
+    /// </summary>
+    public int SelectedAlbumCount
+    {
+        get => _selectedAlbumCount;
+        private set => SetProperty(ref _selectedAlbumCount, value);
+    }
+
+    private int _selectedTrackCount;
+    /// <summary>
+    /// 転送対象として選択されている未転送トラック数を取得します
+    /// </summary>
+    public int SelectedTrackCount
+    {
+        get => _selectedTrackCount;
+        private set => SetProperty(ref _selectedTrackCount, value);
+    }
+
+    private long _selectedTotalBytes;
+    /// <summary>
+    /// 転送対象として選択されている楽曲の合計ファイルサイズ（バイト）を取得します
+    /// </summary>
+    public long SelectedTotalBytes
+    {
+        get => _selectedTotalBytes;
+        private set => SetProperty(ref _selectedTotalBytes, value);
+    }
+
+    private bool _isInsufficientSpace;
+    /// <summary>
+    /// 選択中楽曲の合計サイズが接続機器の空き容量を超過しているかどうかを取得します
+    /// </summary>
+    public bool IsInsufficientSpace
+    {
+        get => _isInsufficientSpace;
+        private set => SetProperty(ref _isInsufficientSpace, value);
+    }
+
+    private string _selectedSizeSummaryText = "選択中: 0 曲";
+    /// <summary>
+    /// 選択中楽曲の件数・合計サイズ・空き容量判定のサマリ文字列を取得します
+    /// </summary>
+    public string SelectedSizeSummaryText
+    {
+        get => _selectedSizeSummaryText;
+        private set => SetProperty(ref _selectedSizeSummaryText, value);
+    }
 
     private MainViewModel.DeviceViewModel? _selectedDevice;
 
@@ -77,12 +138,15 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                     {
                         LoadDeviceDirectories(_selectedDevice.Drive.RootDirectory.FullName);
                     }
+
+                    _ = RefreshSelectedDeviceStorageAsync();
                 }
                 else
                 {
                     DeviceDirectories.Clear();
                     CurrentDevicePath = string.Empty;
                     CheckDeviceAlbums();
+                    UpdateSelectionSummary();
                 }
             }
         }
@@ -192,14 +256,22 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="albumsRef">MainViewModelのAlbumsコレクションへの直接参照</param>
     /// <param name="getAlbums">PCアルバム一覧を取得するコールバック</param>
     /// <param name="onCheckDeviceAlbumsRequested">デバイスアルバムチェック要求コールバック</param>
+    /// <param name="getFileSizeBytes">トラックのファイルサイズ取得関数（テスト差し替え用、省略時はFileInfoを使用）</param>
     public DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
-        Action onCheckDeviceAlbumsRequested)
+        Action onCheckDeviceAlbumsRequested,
+        Func<string, long>? getFileSizeBytes = null)
     {
         _albumsRef = albumsRef ?? throw new ArgumentNullException(nameof(albumsRef));
         _getAlbums = getAlbums ?? throw new ArgumentNullException(nameof(getAlbums));
         _onCheckDeviceAlbumsRequested = onCheckDeviceAlbumsRequested ?? throw new ArgumentNullException(nameof(onCheckDeviceAlbumsRequested));
+        _getFileSizeBytes = getFileSizeBytes ?? DefaultGetFileSizeBytes;
+
+        RemovableDrives.CollectionChanged += OnRemovableDrivesCollectionChanged;
+        _albumsRef.CollectionChanged += OnAlbumsCollectionChanged;
+        SyncAlbumSubscriptions(_albumsRef);
+        UpdateSelectionSummary();
 
         RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
         TransferSelectedCommand = new RelayCommand(o => TransferSelected());
@@ -223,13 +295,17 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         var drives = DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Removable).ToList();
         foreach (var drive in drives)
         {
-            RemovableDrives.Add(new MainViewModel.DeviceViewModel
+            var deviceVm = new MainViewModel.DeviceViewModel
             {
-                Name = $"{drive.VolumeLabel} ({drive.Name})",
+                Name = drive.IsReady && !string.IsNullOrWhiteSpace(drive.VolumeLabel)
+                    ? $"{drive.VolumeLabel} ({drive.Name})"
+                    : $"リムーバブルディスク ({drive.Name})",
                 Type = MainViewModel.DeviceType.FileSystem,
                 Drive = drive,
                 RootPath = drive.RootDirectory.FullName
-            });
+            };
+            TryPopulateFileSystemStorage(deviceVm);
+            RemovableDrives.Add(deviceVm);
         }
 
         // Add MTP Devices
@@ -419,6 +495,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 }
 
                 ApplyDeviceTrackIndex(albums, index);
+                UpdateSelectionSummary();
             });
         }
         catch (OperationCanceledException)
@@ -709,7 +786,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 進行中の非同期重複スキャンをキャンセルし、保持しているリソースを解放します。
+    /// 進行中の非同期重複スキャン・容量取得をキャンセルし、保持しているイベント購読およびリソースを解放します。
     /// </summary>
     public void Dispose()
     {
@@ -720,7 +797,352 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             cts.Dispose();
         }
 
+        var storageCts = Interlocked.Exchange(ref _storageRefreshCts, null);
+        if (storageCts != null)
+        {
+            try { storageCts.Cancel(); } catch (ObjectDisposedException) { }
+            storageCts.Dispose();
+        }
+
+        RemovableDrives.CollectionChanged -= OnRemovableDrivesCollectionChanged;
+        _albumsRef.CollectionChanged -= OnAlbumsCollectionChanged;
+        ClearAllAlbumSubscriptions();
+
         GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// 現在選択されている接続機器の空き容量・総容量を非同期で最新化します。
+    /// </summary>
+    /// <param name="externalCancellationToken">外部キャンセルトークン</param>
+    /// <returns>非同期タスク</returns>
+    internal async Task RefreshSelectedDeviceStorageAsync(CancellationToken externalCancellationToken = default)
+    {
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellationToken);
+        var previousCts = Interlocked.Exchange(ref _storageRefreshCts, linkedCts);
+        if (previousCts != null)
+        {
+            try { previousCts.Cancel(); } catch (ObjectDisposedException) { }
+            previousCts.Dispose();
+        }
+
+        var ct = linkedCts.Token;
+        var device = SelectedDevice;
+        var currentPath = CurrentDevicePath;
+
+        if (device == null)
+        {
+            RunOnUiThread(() =>
+            {
+                if (!ct.IsCancellationRequested)
+                {
+                    UpdateSelectionSummary();
+                }
+            });
+            return;
+        }
+
+        try
+        {
+            var (hasInfo, totalBytes, freeBytes) = await Task.Run(() =>
+            {
+                ct.ThrowIfCancellationRequested();
+                return ReadDeviceStorageSpace(device, currentPath);
+            }, ct);
+
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
+
+            RunOnUiThread(() =>
+            {
+                if (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (hasInfo)
+                {
+                    device.UpdateStorageSpace(totalBytes, freeBytes);
+                }
+                else
+                {
+                    device.ClearStorageSpace();
+                }
+
+                UpdateSelectionSummary();
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // 新しい機器選択・更新によりキャンセルされた場合は無視
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error refreshing device storage info: {ex.Message}");
+            RunOnUiThread(() =>
+            {
+                if (!ct.IsCancellationRequested)
+                {
+                    device.ClearStorageSpace();
+                    UpdateSelectionSummary();
+                }
+            });
+        }
+    }
+
+    /// <summary>
+    /// 現在のアルバム／楽曲選択状態および接続機器の空き容量から、選択サマリ（件数・合計サイズ・容量不足判定）を再計算します。
+    /// </summary>
+    public void UpdateSelectionSummary()
+    {
+        var albums = _getAlbums();
+        var targets = CollectTransferTargetTracks(albums);
+        var targetSet = new HashSet<Track>(targets);
+
+        int selectedAlbumCount = 0;
+        foreach (var album in albums)
+        {
+            if (album.Tracks != null && album.Tracks.Any(t => targetSet.Contains(t)))
+            {
+                selectedAlbumCount++;
+            }
+        }
+
+        long totalBytes = 0L;
+        foreach (var track in targets)
+        {
+            totalBytes += Math.Max(0L, _getFileSizeBytes(track.FilePath));
+        }
+
+        bool hasStorageInfo = SelectedDevice?.HasStorageInfo == true;
+        long freeBytes = SelectedDevice?.FreeSpaceBytes ?? 0L;
+        bool isInsufficient = hasStorageInfo && totalBytes > freeBytes;
+
+        SelectedAlbumCount = selectedAlbumCount;
+        SelectedTrackCount = targets.Count;
+        SelectedTotalBytes = totalBytes;
+        IsInsufficientSpace = isInsufficient;
+        SelectedSizeSummaryText = FormatSelectionSummaryText(
+            selectedAlbumCount,
+            targets.Count,
+            totalBytes,
+            hasStorageInfo,
+            isInsufficient);
+    }
+
+    /// <summary>
+    /// 選択中楽曲の件数・合計サイズ・空き容量判定から表示用サマリテキストを生成します。
+    /// </summary>
+    /// <param name="albumCount">選択対象アルバム数</param>
+    /// <param name="trackCount">選択対象トラック数</param>
+    /// <param name="totalBytes">選択対象合計バイト数</param>
+    /// <param name="hasStorageInfo">接続機器の容量情報が取得できているか</param>
+    /// <param name="isInsufficientSpace">空き容量が不足しているか</param>
+    /// <returns>表示用サマリテキスト</returns>
+    internal static string FormatSelectionSummaryText(
+        int albumCount,
+        int trackCount,
+        long totalBytes,
+        bool hasStorageInfo,
+        bool isInsufficientSpace)
+    {
+        if (trackCount <= 0)
+        {
+            return "選択中: 0 曲";
+        }
+
+        string formattedSize = MainViewModel.DeviceViewModel.FormatByteSize(totalBytes);
+        if (!hasStorageInfo)
+        {
+            return $"選択中: {albumCount} アルバム, {trackCount} 曲 ({formattedSize})";
+        }
+
+        string capacityStatus = isInsufficientSpace ? "容量不足" : "空き十分";
+        return $"選択中: {albumCount} アルバム, {trackCount} 曲 ({formattedSize} / {capacityStatus})";
+    }
+
+    private static (bool HasInfo, long TotalBytes, long FreeBytes) ReadDeviceStorageSpace(
+        MainViewModel.DeviceViewModel device,
+        string currentPath)
+    {
+        if (device.Type == MainViewModel.DeviceType.FileSystem && device.Drive != null)
+        {
+            try
+            {
+                if (device.Drive.IsReady && device.Drive.TotalSize > 0)
+                {
+                    return (true, device.Drive.TotalSize, device.Drive.AvailableFreeSpace);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error reading filesystem drive space: {ex.Message}");
+            }
+
+            return (false, 0L, 0L);
+        }
+
+        if (device.Type == MainViewModel.DeviceType.MTP && device.MtpDevice != null && device.MtpDevice.IsConnected)
+        {
+            try
+            {
+                var drives = device.MtpDevice.GetDrives();
+                if (drives != null && drives.Length > 0)
+                {
+                    var normalizedPath = (currentPath ?? string.Empty).Replace('/', '\\').TrimStart('\\');
+                    var matchedDrive = !string.IsNullOrEmpty(normalizedPath)
+                        ? drives.FirstOrDefault(d =>
+                            !string.IsNullOrWhiteSpace(d.Name) &&
+                            normalizedPath.StartsWith(d.Name.Trim('\\'), StringComparison.OrdinalIgnoreCase))
+                        : null;
+
+                    if (matchedDrive != null && matchedDrive.TotalSize > 0)
+                    {
+                        return (true, matchedDrive.TotalSize, matchedDrive.AvailableFreeSpace);
+                    }
+
+                    long total = 0L;
+                    long free = 0L;
+                    foreach (var d in drives)
+                    {
+                        if (d.TotalSize > 0)
+                        {
+                            total += d.TotalSize;
+                            free += Math.Max(0L, d.AvailableFreeSpace);
+                        }
+                    }
+
+                    if (total > 0)
+                    {
+                        return (true, total, free);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error reading MTP storage info: {ex.Message}");
+            }
+        }
+
+        return (false, 0L, 0L);
+    }
+
+    private static void TryPopulateFileSystemStorage(MainViewModel.DeviceViewModel deviceVm)
+    {
+        var (hasInfo, totalBytes, freeBytes) = ReadDeviceStorageSpace(deviceVm, deviceVm.RootPath);
+        if (hasInfo)
+        {
+            deviceVm.UpdateStorageSpace(totalBytes, freeBytes);
+        }
+        else
+        {
+            deviceVm.ClearStorageSpace();
+        }
+    }
+
+    private static long DefaultGetFileSizeBytes(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return 0L;
+        }
+
+        try
+        {
+            return File.Exists(filePath) ? new FileInfo(filePath).Length : 0L;
+        }
+        catch
+        {
+            return 0L;
+        }
+    }
+
+    private void OnRemovableDrivesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(HasConnectedDevices));
+    }
+
+    private void OnAlbumsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        SyncAlbumSubscriptions(_albumsRef);
+        UpdateSelectionSummary();
+    }
+
+    private void SyncAlbumSubscriptions(IEnumerable<Album> currentAlbums)
+    {
+        var activeAlbums = new HashSet<Album>(currentAlbums);
+        foreach (var staleAlbum in _subscribedAlbums.Where(a => !activeAlbums.Contains(a)).ToList())
+        {
+            staleAlbum.PropertyChanged -= OnAlbumSelectionPropertyChanged;
+            _subscribedAlbums.Remove(staleAlbum);
+        }
+
+        var activeTracks = new HashSet<Track>();
+        foreach (var album in activeAlbums)
+        {
+            if (_subscribedAlbums.Add(album))
+            {
+                album.PropertyChanged += OnAlbumSelectionPropertyChanged;
+            }
+
+            if (album.Tracks != null)
+            {
+                foreach (var track in album.Tracks)
+                {
+                    activeTracks.Add(track);
+                    if (_subscribedTracks.Add(track))
+                    {
+                        track.PropertyChanged += OnTrackSelectionPropertyChanged;
+                    }
+                }
+            }
+        }
+
+        foreach (var staleTrack in _subscribedTracks.Where(t => !activeTracks.Contains(t)).ToList())
+        {
+            staleTrack.PropertyChanged -= OnTrackSelectionPropertyChanged;
+            _subscribedTracks.Remove(staleTrack);
+        }
+    }
+
+    private void ClearAllAlbumSubscriptions()
+    {
+        foreach (var album in _subscribedAlbums)
+        {
+            album.PropertyChanged -= OnAlbumSelectionPropertyChanged;
+        }
+
+        _subscribedAlbums.Clear();
+
+        foreach (var track in _subscribedTracks)
+        {
+            track.PropertyChanged -= OnTrackSelectionPropertyChanged;
+        }
+
+        _subscribedTracks.Clear();
+    }
+
+    private void OnAlbumSelectionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(Album.Tracks))
+        {
+            SyncAlbumSubscriptions(_albumsRef);
+            UpdateSelectionSummary();
+        }
+        else if (e.PropertyName == nameof(Album.IsSelected) || e.PropertyName == nameof(Album.IsOnDevice))
+        {
+            UpdateSelectionSummary();
+        }
+    }
+
+    private void OnTrackSelectionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(Track.IsSelected) || e.PropertyName == nameof(Track.IsOnDevice))
+        {
+            UpdateSelectionSummary();
+        }
     }
 
     private static void RunOnUiThread(Action action)
@@ -913,6 +1335,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             }
 
             LoadDeviceDirectories(destinationFolder);
+            _ = RefreshSelectedDeviceStorageAsync();
 
             MessageBox.Show("Transfer completed successfully!", "Success");
         }
@@ -971,7 +1394,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         var dialog = new DeviceManagerDialog(dialogViewModel);
         dialog.ShowDialog();
 
-        // デバイス管理ダイアログを閉じた後、ディレクトリ表示およびデバイス上の曲・アルバム存在状態を最新化する
+        // デバイス管理ダイアログを閉じた後、ディレクトリ表示・重複状態・空き容量を最新化する
         if (!string.IsNullOrEmpty(CurrentDevicePath))
         {
             LoadDeviceDirectories(CurrentDevicePath);
@@ -980,5 +1403,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         {
             CheckDeviceAlbums();
         }
+
+        _ = RefreshSelectedDeviceStorageAsync();
     }
 }
