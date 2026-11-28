@@ -128,9 +128,13 @@ public sealed class LyricsForcedAligner
     /// <returns>0.0〜1.0 の類似度スコア</returns>
     public static double ComputeTextSimilarity(string? left, string? right)
     {
-        string normalizedLeft = NormalizeForComparison(left);
-        string normalizedRight = NormalizeForComparison(right);
+        return ComputeNormalizedSimilarity(
+            NormalizeForComparison(left),
+            NormalizeForComparison(right));
+    }
 
+    private static double ComputeNormalizedSimilarity(string normalizedLeft, string normalizedRight)
+    {
         if (normalizedLeft.Length == 0 || normalizedRight.Length == 0)
         {
             return 0.0;
@@ -208,23 +212,34 @@ public sealed class LyricsForcedAligner
         int lineCount = lyrics.Count;
         int segmentCount = segments.Count;
 
-        // 類似度行列を事前計算
+        // 正規化済み文字列と類似度行列を事前計算（二重ループ内の重複正規化を回避）
+        string[] normalizedLyrics = new string[lineCount];
+        for (int i = 0; i < lineCount; i++)
+        {
+            normalizedLyrics[i] = NormalizeForComparison(lyrics[i]);
+        }
+
+        string[] normalizedSegments = new string[segmentCount];
+        for (int j = 0; j < segmentCount; j++)
+        {
+            normalizedSegments[j] = NormalizeForComparison(segments[j].Text);
+        }
+
         double[,] similarity = new double[lineCount, segmentCount];
         for (int i = 0; i < lineCount; i++)
         {
             for (int j = 0; j < segmentCount; j++)
             {
-                similarity[i, j] = ComputeTextSimilarity(lyrics[i], segments[j].Text);
+                similarity[i, j] = ComputeNormalizedSimilarity(normalizedLyrics[i], normalizedSegments[j]);
             }
         }
 
         // 単調増加制約付き DP テーブル:
         // dp[i, j] = 歌詞行 0..i-1 とセグメント 0..j-1 の最良アライメントスコア
         // 遷移:
-        //   0: 行 i-1 とセグメント j-1 を 1対1 対応 (i-1, j-1)
+        //   0: 行 i-1 とセグメント j-1 を 1 対 1 対応 (i-1, j-1)（※類似度が閾値以上のペアのみ許可）
         //   1: 行 i-1 をスキップして未対応にする (i-1, j)
         //   2: セグメント j-1 をスキップする (i, j-1)
-        //   3: 複数歌詞行を同一セグメント j-1 へ割り当て (i-1, j) with match bonus (セグメントが長い場合)
         double[,] dp = new double[lineCount + 1, segmentCount + 1];
         byte[,] trace = new byte[lineCount + 1, segmentCount + 1];
 
@@ -245,28 +260,32 @@ public sealed class LyricsForcedAligner
             for (int j = 1; j <= segmentCount; j++)
             {
                 double sim = similarity[i - 1, j - 1];
-                // 相対位置の近さによる微弱バイアス（繰り返しサビ等で順序位置が近いセグメントを優先）
-                double linePos = lineCount > 1 ? (double)(i - 1) / (lineCount - 1) : 0.0;
-                double segPos = segmentCount > 1 ? (double)(j - 1) / (segmentCount - 1) : 0.0;
-                double positionBonus = (1.0 - Math.Abs(linePos - segPos)) * 0.08;
-
-                double matchScore = dp[i - 1, j - 1] + sim + positionBonus;
                 double skipLineScore = dp[i - 1, j] + SKIP_LINE_PENALTY;
                 double skipSegmentScore = dp[i, j - 1] + SKIP_SEGMENT_PENALTY;
 
-                double best = matchScore;
-                byte bestMove = 0;
-
-                if (skipLineScore > best)
-                {
-                    best = skipLineScore;
-                    bestMove = 1;
-                }
+                double best = skipLineScore;
+                byte bestMove = 1;
 
                 if (skipSegmentScore > best)
                 {
                     best = skipSegmentScore;
                     bestMove = 2;
+                }
+
+                // 閾値未満のペアにはマッチ遷移を許可しない（背景ノイズやシフト時の対角線ダミーマッチ防止）
+                if (sim >= MIN_ANCHOR_SIMILARITY)
+                {
+                    // 相対位置の近さによる微弱バイアス（繰り返しサビ等で順序位置が近いセグメントを優先）
+                    double linePos = lineCount > 1 ? (double)(i - 1) / (lineCount - 1) : 0.0;
+                    double segPos = segmentCount > 1 ? (double)(j - 1) / (segmentCount - 1) : 0.0;
+                    double positionBonus = (1.0 - Math.Abs(linePos - segPos)) * 0.08;
+                    double matchScore = dp[i - 1, j - 1] + sim + positionBonus;
+
+                    if (matchScore >= best)
+                    {
+                        best = matchScore;
+                        bestMove = 0;
+                    }
                 }
 
                 dp[i, j] = best;
@@ -358,11 +377,11 @@ public sealed class LyricsForcedAligner
             return;
         }
 
-        // 最初のアンカーより前の未確定区間
+        // 最初のアンカーより前の未確定区間（先頭アンカーが先頭セグメントと同時刻の場合は 0 秒から補間する）
         int firstAnchor = anchorIndices[0];
         if (firstAnchor > 0)
         {
-            TimeSpan rangeStart = firstStart <= timestamps[firstAnchor]!.Value
+            TimeSpan rangeStart = firstStart < timestamps[firstAnchor]!.Value
                 ? firstStart
                 : TimeSpan.Zero;
             DistributeRangeByCharWeight(
