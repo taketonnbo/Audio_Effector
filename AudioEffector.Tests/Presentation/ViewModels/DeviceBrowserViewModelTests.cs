@@ -1744,7 +1744,6 @@ public sealed class DeviceBrowserViewModelTests
             // Act
             album.IsSelected = true;
             await sut.TransferSelectedAsync();
-            await sut.CheckDeviceAlbumsAsync();
 
             // Assert
             Assert.True(fakeMtp.FileExists(@"\Music\A\作品X\01.mp3"));
@@ -1762,7 +1761,7 @@ public sealed class DeviceBrowserViewModelTests
     }
 
     /// <summary>
-    /// 旧版の曲別アーティスト配下に一部の曲が転送済みの機器（FileSystem ルート／サブフォルダおよび MTP ルート）において、既存曲を認識して再選択不可にし、残りの未転送曲だけを代表アーティスト配下へ追加転送して二重転送を防ぐことを検証します。
+    /// 旧版の曲別アーティスト配下に一部の曲が転送済みの機器（FileSystem ルート／サブフォルダおよび MTP ルート）において、既存曲を認識して再選択不可にし、残りの未転送曲だけを代表アーティスト配下へ追加転送して変換ON/OFF双方で二重転送を防ぐことを検証します。
     /// </summary>
     /// <returns>非同期タスク</returns>
     [Fact]
@@ -1780,8 +1779,9 @@ public sealed class DeviceBrowserViewModelTests
         string track2Path = Path.Combine(sourceDir, "02.flac");
         File.WriteAllText(track1Path, "flac-1");
         File.WriteAllText(track2Path, "flac-2");
-        // 旧版の曲別アーティスト "B" 配下に track2 が既に転送済み（さらに変換済み .mp3 で模擬）
+        // 旧版の曲別アーティスト "B" 配下に track2 が既に転送済み（変換済み .mp3 で模擬）および非音声ファイル（誤スキップ防止確認用）
         File.WriteAllText(Path.Combine(legacyGuestDir, "02.mp3"), "legacy-transferred-mp3");
+        File.WriteAllText(Path.Combine(legacyGuestDir, "01.jpg"), "cover-image");
 
         var track1 = new Track { Title = "Track 1", Artist = "A", AlbumArtist = "A", Album = "作品X", FilePath = track1Path };
         var track2 = new Track { Title = "Track 2", Artist = "B", AlbumArtist = "A", Album = "作品X", FilePath = track2Path };
@@ -1789,7 +1789,11 @@ public sealed class DeviceBrowserViewModelTests
         var albums = new ObservableCollection<Album> { album };
 
         var fakeMtp = new FakeMtpDeviceClient();
-        fakeMtp.AddFile(@"\B\作品X\02.flac");
+        fakeMtp.AddFile(@"\B\作品X\02.mp3");
+        fakeMtp.AddFile(@"\B\作品X\01.jpg");
+
+        var fsTranscoder = new FakeAudioTranscodeService();
+        var mtpTranscoder = new FakeAudioTranscodeService();
 
         try
         {
@@ -1801,7 +1805,7 @@ public sealed class DeviceBrowserViewModelTests
                 getFileSizeBytes: null,
                 readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
                 settingsService: null,
-                audioTranscodeService: null,
+                audioTranscodeService: fsTranscoder,
                 resolveMtpClient: null,
                 showMessage: (_, _) => { }))
             {
@@ -1813,7 +1817,7 @@ public sealed class DeviceBrowserViewModelTests
                 };
                 await sut.CheckDeviceAlbumsAsync();
 
-                // 旧配置の track2 が既転送として認識され、選択不可であること
+                // 旧配置の track2 が既転送として認識され選択不可（非音声 01.jpg は track1 に影響しない）
                 Assert.False(track1.IsOnDevice);
                 Assert.True(track2.IsOnDevice);
                 Assert.False(album.IsOnDevice);
@@ -1835,15 +1839,21 @@ public sealed class DeviceBrowserViewModelTests
                 Assert.True(track2.IsOnDevice);
                 Assert.True(album.IsOnDevice);
 
-                // 直接 TransferTracksToFileSystemAsync へ track2（拡張子一致 .mp3 を旧配置に持つ状態、FLAC→MP3 ON）を渡してもスキップされること
+                // 直接 TransferTracksToFileSystemAsync へ track2（旧配置に 02.mp3 が存在）を変換 ON / OFF 双方で渡してもスキップされ二重転送されないこと
                 await sut.TransferTracksToFileSystemAsync(
                     new[] { track2 },
                     deviceRoot,
                     new AudioTranscodeOptions { ConvertFlacToMp3 = true });
+                await sut.TransferTracksToFileSystemAsync(
+                    new[] { track2 },
+                    deviceRoot,
+                    new AudioTranscodeOptions { ConvertFlacToMp3 = false });
+                Assert.Equal(0, fsTranscoder.TranscodeCallCount);
                 Assert.False(File.Exists(Path.Combine(deviceRoot, "A", "作品X", "02.mp3")));
+                Assert.False(File.Exists(Path.Combine(deviceRoot, "A", "作品X", "02.flac")));
             }
 
-            // MTP ルートでの旧配置認識・残り曲のみ追加転送検証
+            // MTP ルートでの旧配置認識・残り曲のみ追加転送・変換 ON/OFF 二重転送防止検証
             using (var mtpSut = new DeviceBrowserViewModel(
                 albums,
                 () => albums,
@@ -1851,7 +1861,7 @@ public sealed class DeviceBrowserViewModelTests
                 getFileSizeBytes: null,
                 readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
                 settingsService: null,
-                audioTranscodeService: null,
+                audioTranscodeService: mtpTranscoder,
                 resolveMtpClient: _ => fakeMtp,
                 showMessage: (_, _) => { }))
             {
@@ -1875,7 +1885,210 @@ public sealed class DeviceBrowserViewModelTests
                 Assert.True(track1.IsOnDevice);
                 Assert.True(track2.IsOnDevice);
                 Assert.True(album.IsOnDevice);
+
+                // MTP でも変換 ON / OFF 双方で旧配置 02.mp3 を検知し二重転送しないこと
+                await mtpSut.TransferTracksToMtpAsync(
+                    fakeMtp,
+                    new[] { track2 },
+                    @"\",
+                    new AudioTranscodeOptions { ConvertFlacToMp3 = true });
+                await mtpSut.TransferTracksToMtpAsync(
+                    fakeMtp,
+                    new[] { track2 },
+                    @"\",
+                    new AudioTranscodeOptions { ConvertFlacToMp3 = false });
+                Assert.Equal(0, mtpTranscoder.TranscodeCallCount);
+                Assert.False(fakeMtp.FileExists(@"\A\作品X\02.mp3"));
+                Assert.False(fakeMtp.FileExists(@"\A\作品X\02.flac"));
             }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 同名アルバム・異代表アーティストの 2 作品（例: Various Artists / Best と Artist X / Best）で演奏者名が重複する場合、一方を転送しても他方の未転送曲が旧配置フォールバックで誤衝突せず分離管理できることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferSelectedAsync_同名アルバム異代表アーティストで演奏者重複時_旧配置誤衝突せず分離管理できること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_SameAlbumCollision_{Guid.NewGuid():N}");
+        string compSourceDir = Path.Combine(tempRoot, "Source", "CompBest");
+        string soloSourceDir = Path.Combine(tempRoot, "Source", "SoloBest");
+        string deviceRoot = Path.Combine(tempRoot, "Device");
+        string musicDir = Path.Combine(deviceRoot, "Music");
+        Directory.CreateDirectory(compSourceDir);
+        Directory.CreateDirectory(soloSourceDir);
+        Directory.CreateDirectory(musicDir);
+
+        string compTrackPath = Path.Combine(compSourceDir, "01.mp3");
+        string soloTrackPath = Path.Combine(soloSourceDir, "01.mp3");
+        File.WriteAllText(compTrackPath, "comp-track");
+        File.WriteAllText(soloTrackPath, "solo-track");
+
+        var compTrack = new Track { Title = "Comp Hit", Artist = "Artist X", Album = "Best", FilePath = compTrackPath };
+        var soloTrack = new Track { Title = "Solo Hit", Artist = "Artist X", Album = "Best", FilePath = soloTrackPath };
+        var compAlbum = new Album("Best", AlbumGroupingResolver.VariousArtistsName, 2024, new[] { compTrack });
+        var soloAlbum = new Album("Best", "Artist X", 2024, new[] { soloTrack });
+        var albums = new ObservableCollection<Album> { compAlbum, soloAlbum };
+
+        var fakeMtp = new FakeMtpDeviceClient();
+        fakeMtp.AddDirectory(@"\Music");
+
+        try
+        {
+            // FileSystem 検証
+            using (var fsSut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { }))
+            {
+                fsSut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "CollisionFS",
+                    Type = MainViewModel.DeviceType.FileSystem,
+                    RootPath = deviceRoot
+                };
+                fsSut.CurrentDevicePath = musicDir;
+                await fsSut.CheckDeviceAlbumsAsync();
+
+                // Act 1: Artist X / Best のみ転送
+                soloAlbum.IsSelected = true;
+                await fsSut.TransferSelectedAsync();
+
+                // Assert 1: Various Artists / Best は旧配置誤衝突せず未転送のまま選択可能
+                Assert.True(File.Exists(Path.Combine(musicDir, "Artist X", "Best", "01.mp3")));
+                Assert.True(soloTrack.IsOnDevice);
+                Assert.True(soloAlbum.IsOnDevice);
+                Assert.False(compTrack.IsOnDevice);
+                Assert.False(compAlbum.IsOnDevice);
+
+                // Act 2: 続けて Various Artists / Best を転送 → 別フォルダへ分離保存
+                compAlbum.IsSelected = true;
+                Assert.True(compTrack.IsSelected);
+                await fsSut.TransferSelectedAsync();
+
+                // Assert 2
+                Assert.True(File.Exists(Path.Combine(musicDir, "Various Artists", "Best", "01.mp3")));
+                Assert.True(compTrack.IsOnDevice);
+                Assert.True(compAlbum.IsOnDevice);
+            }
+
+            // MTP 検証
+            using (var mtpSut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: (_, _) => { }))
+            {
+                mtpSut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "CollisionMTP",
+                    Type = MainViewModel.DeviceType.MTP,
+                    RootPath = @"\"
+                };
+                mtpSut.CurrentDevicePath = @"\Music";
+                await mtpSut.CheckDeviceAlbumsAsync();
+
+                soloAlbum.IsSelected = true;
+                await mtpSut.TransferSelectedAsync();
+
+                Assert.True(fakeMtp.FileExists(@"\Music\Artist X\Best\01.mp3"));
+                Assert.True(soloAlbum.IsOnDevice);
+                Assert.False(compTrack.IsOnDevice);
+                Assert.False(compAlbum.IsOnDevice);
+
+                compAlbum.IsSelected = true;
+                await mtpSut.TransferSelectedAsync();
+
+                Assert.True(fakeMtp.FileExists(@"\Music\Various Artists\Best\01.mp3"));
+                Assert.True(compAlbum.IsOnDevice);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// albums 内と別インスタンスの Track（同一 TrackId または同一 FilePath）を 1 曲だけ転送対象に渡した場合でも、所属アルバムの解決済み代表アーティスト（コンピレーション含む）へ配置されることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracksToFileSystemAsync_別インスタンスのトラック1曲のみ渡した場合_所属アルバムの代表アーティストへ解決されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_TrackClone_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source", "Summer Hits");
+        string destByIdDir = Path.Combine(tempRoot, "DestById");
+        string destByPathDir = Path.Combine(tempRoot, "DestByPath");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(destByIdDir);
+        Directory.CreateDirectory(destByPathDir);
+
+        string track1Path = Path.Combine(sourceDir, "01.mp3");
+        string track2Path = Path.Combine(sourceDir, "02.mp3");
+        File.WriteAllText(track1Path, "comp-1");
+        File.WriteAllText(track2Path, "comp-2");
+
+        var original1 = new Track { Title = "Song 1", Artist = "Singer 1", Album = "Summer Hits", TrackNumber = 1, FilePath = track1Path };
+        var original2 = new Track { Title = "Song 2", Artist = "Singer 2", Album = "Summer Hits", TrackNumber = 2, FilePath = track2Path };
+        var compAlbum = new Album("Summer Hits", AlbumGroupingResolver.VariousArtistsName, 2024, new[] { original1, original2 });
+        var albums = new ObservableCollection<Album> { compAlbum };
+
+        // 同一 TrackId を持つ別インスタンス（AlbumArtist 未設定・1 曲単独）
+        var cloneWithSameId = new Track(
+            original1.Id,
+            AudioEffector.Domain.ValueObjects.AudioPath.Create(track1Path),
+            "Song 1",
+            "Singer 1",
+            "Summer Hits",
+            TimeSpan.FromSeconds(180),
+            trackNumber: 1);
+
+        // 別 TrackId だが同一 FilePath を持つ別インスタンス（AlbumArtist 未設定・1 曲単独）
+        var cloneWithSamePath = new Track
+        {
+            Title = "Song 2",
+            Artist = "Singer 2",
+            Album = "Summer Hits",
+            TrackNumber = 2,
+            FilePath = track2Path
+        };
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L));
+
+            // Act
+            await sut.TransferTracksToFileSystemAsync(new[] { cloneWithSameId }, destByIdDir, new AudioTranscodeOptions());
+            await sut.TransferTracksToFileSystemAsync(new[] { cloneWithSamePath }, destByPathDir, new AudioTranscodeOptions());
+
+            // Assert
+            Assert.True(File.Exists(Path.Combine(destByIdDir, "Various Artists", "Summer Hits", "01.mp3")));
+            Assert.False(Directory.Exists(Path.Combine(destByIdDir, "Singer 1")));
+            Assert.True(File.Exists(Path.Combine(destByPathDir, "Various Artists", "Summer Hits", "02.mp3")));
+            Assert.False(Directory.Exists(Path.Combine(destByPathDir, "Singer 2")));
         }
         finally
         {
@@ -1933,7 +2146,6 @@ public sealed class DeviceBrowserViewModelTests
 
                 album.IsSelected = true;
                 await fsSut.TransferSelectedAsync();
-                await fsSut.CheckDeviceAlbumsAsync();
 
                 Assert.True(File.Exists(Path.Combine(deviceRoot, "M2U", "DIVERSITY", "01.mp3")));
                 Assert.True(File.Exists(Path.Combine(deviceRoot, "M2U", "DIVERSITY", "02.mp3")));
@@ -1971,7 +2183,6 @@ public sealed class DeviceBrowserViewModelTests
 
                 album.IsSelected = true;
                 await mtpSut.TransferSelectedAsync();
-                await mtpSut.CheckDeviceAlbumsAsync();
 
                 Assert.True(fakeMtp.FileExists(@"\M2U\DIVERSITY\01.mp3"));
                 Assert.True(fakeMtp.FileExists(@"\M2U\DIVERSITY\02.mp3"));
