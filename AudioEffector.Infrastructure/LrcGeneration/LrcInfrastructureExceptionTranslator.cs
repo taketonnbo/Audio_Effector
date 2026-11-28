@@ -56,20 +56,21 @@ internal static class LrcInfrastructureExceptionTranslator
                 isLogged);
         }
 
-        if (exception is FileNotFoundException or DirectoryNotFoundException or UnauthorizedAccessException or IOException)
-        {
-            return new LrcGenerationException(
-                LrcGenerationErrorCategory.AudioFileAccessFailed,
-                LrcGenerationErrorMessageResolver.AUDIO_FILE_ACCESS_FAILED_MESSAGE,
-                exception,
-                isLogged);
-        }
-
+        // EndOfStreamException 等は IOException 派生のため、ファイルアクセス失敗より先にデコード失敗を判定する
         if (IsAudioDecodeFailure(exception))
         {
             return new LrcGenerationException(
                 LrcGenerationErrorCategory.AudioDecodeFailed,
                 LrcGenerationErrorMessageResolver.AUDIO_DECODE_FAILED_MESSAGE,
+                exception,
+                isLogged);
+        }
+
+        if (exception is FileNotFoundException or DirectoryNotFoundException or UnauthorizedAccessException or IOException)
+        {
+            return new LrcGenerationException(
+                LrcGenerationErrorCategory.AudioFileAccessFailed,
+                LrcGenerationErrorMessageResolver.AUDIO_FILE_ACCESS_FAILED_MESSAGE,
                 exception,
                 isLogged);
         }
@@ -218,7 +219,8 @@ internal static class LrcInfrastructureExceptionTranslator
 
     private static bool IsAudioDecodeFailure(Exception exception)
     {
-        if (LrcGenerationErrorMessageResolver.ContainsException<FormatException>(exception)
+        if (LrcGenerationErrorMessageResolver.ContainsException<EndOfStreamException>(exception)
+            || LrcGenerationErrorMessageResolver.ContainsException<FormatException>(exception)
             || LrcGenerationErrorMessageResolver.ContainsException<InvalidDataException>(exception)
             || LrcGenerationErrorMessageResolver.ContainsException<COMException>(exception)
             || LrcGenerationErrorMessageResolver.ContainsException<MmException>(exception)

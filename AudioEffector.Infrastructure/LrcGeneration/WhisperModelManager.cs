@@ -272,7 +272,9 @@ public sealed class WhisperModelManager : ILocalSpeechModelManager
         }
         catch (Exception ex)
         {
-            bool isTimeout = ex is OperationCanceledException or TimeoutException;
+            bool isTimeout = ex is OperationCanceledException or TimeoutException
+                || LrcGenerationErrorMessageResolver.ContainsException<TimeoutException>(ex)
+                || LrcGenerationErrorMessageResolver.ContainsException<TaskCanceledException>(ex);
             Logger.Error(
                 ex,
                 "Whisper ローカルモデルのダウンロードに失敗しました: ModelId={ModelId}, DestinationPath={DestinationPath}, IsTimeout={IsTimeout}, ExceptionType={ExceptionType}",
