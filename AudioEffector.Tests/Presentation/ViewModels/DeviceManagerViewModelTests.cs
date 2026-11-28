@@ -316,6 +316,209 @@ public sealed class DeviceManagerViewModelTests
     }
 
     /// <summary>
+    /// 同名アルバムが複数アーティストに存在し、一致アーティスト側の対象曲がTrackNumber未設定（0）または端末独自ファイルの場合に、別アーティストのトラック番号が誤適用されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void SortAlbumTracks_同名タイトルで一致アーティスト側の曲がTrackNumber未設定の場合_別アーティストのトラック番号を誤適用しないこと()
+    {
+        // Arrange
+        var pcAlbums = new List<Album>
+        {
+            CreatePcAlbum(
+                "Greatest Hits",
+                "Artist X",
+                (@"C:\Music\Artist X\Greatest Hits\a.mp3", 0),
+                (@"C:\Music\Artist X\Greatest Hits\b.mp3", 1)),
+            CreatePcAlbum(
+                "Greatest Hits",
+                "Artist Y",
+                (@"C:\Music\Artist Y\Greatest Hits\a.mp3", 1),
+                (@"C:\Music\Artist Y\Greatest Hits\b.mp3", 2))
+        };
+
+        var sut = CreateDeviceAlbum("Greatest Hits", "Artist X", "a.mp3", "b.mp3");
+
+        // Act
+        DeviceManagerViewModel.SortAlbumTracks(sut, pcAlbums);
+
+        // Assert
+        Assert.Equal(new[] { "b.mp3", "a.mp3" }, sut.Tracks.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// 同名アルバムで一致アーティスト側の全曲がTrackNumber未設定（0）の場合でも、別アーティストのトラック番号が誤適用されず自然順になることを検証します。
+    /// </summary>
+    [Fact]
+    public void SortAlbumTracks_同名タイトルで一致アーティスト側が全曲TrackNumber未設定の場合_別アーティストのトラック番号を誤適用しないこと()
+    {
+        // Arrange
+        var pcAlbums = new List<Album>
+        {
+            CreatePcAlbum(
+                "Greatest Hits",
+                "Artist X",
+                (@"C:\Music\Artist X\Greatest Hits\01.mp3", 0),
+                (@"C:\Music\Artist X\Greatest Hits\02.mp3", 0)),
+            CreatePcAlbum(
+                "Greatest Hits",
+                "Artist Y",
+                (@"C:\Music\Artist Y\Greatest Hits\02.mp3", 1),
+                (@"C:\Music\Artist Y\Greatest Hits\01.mp3", 2))
+        };
+
+        var sut = CreateDeviceAlbum("Greatest Hits", "Artist X", "02.mp3", "01.mp3");
+
+        // Act
+        DeviceManagerViewModel.SortAlbumTracks(sut, pcAlbums);
+
+        // Assert
+        Assert.Equal(new[] { "01.mp3", "02.mp3" }, sut.Tracks.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// PC未登録の別アーティストによる同名アルバムに対して、PC登録済み他アーティストのトラック番号が誤適用されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void SortAlbumTracks_PC未登録の別アーティストによる同名アルバムの場合_他アーティストのトラック番号を誤適用しないこと()
+    {
+        // Arrange
+        var pcAlbums = new List<Album>
+        {
+            CreatePcAlbum(
+                "Best",
+                "Artist Y",
+                (@"C:\Music\Artist Y\Best\02.mp3", 1),
+                (@"C:\Music\Artist Y\Best\01.mp3", 2))
+        };
+
+        var sut = CreateDeviceAlbum("Best", "Artist Z", "02.mp3", "01.mp3");
+
+        // Act
+        DeviceManagerViewModel.SortAlbumTracks(sut, pcAlbums);
+
+        // Assert
+        Assert.Equal(new[] { "01.mp3", "02.mp3" }, sut.Tracks.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// 旧曲別アーティスト配置（PC側アルバムアーティストと異なる演奏者アーティストフォルダ配下）でも、該当演奏者の一致によりトラック番号順が優先されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SortAlbumTracks_旧曲別アーティスト配置の場合_演奏者アーティスト一致でPC側トラック番号順が優先されること()
+    {
+        // Arrange
+        var pcAlbum = new Album
+        {
+            Title = "Anthology",
+            Artist = "Various Artists"
+        };
+        pcAlbum.Tracks.Add(new Track
+        {
+            FilePath = @"C:\Music\Anthology\z_first.mp3",
+            TrackNumber = 1,
+            Album = "Anthology",
+            Artist = "Solo Artist",
+            Title = "z_first"
+        });
+        pcAlbum.Tracks.Add(new Track
+        {
+            FilePath = @"C:\Music\Anthology\a_second.mp3",
+            TrackNumber = 2,
+            Album = "Anthology",
+            Artist = "Solo Artist",
+            Title = "a_second"
+        });
+
+        var sut = CreateDeviceAlbum("Anthology", "Solo Artist", "a_second.mp3", "z_first.mp3");
+
+        // Act
+        DeviceManagerViewModel.SortAlbumTracks(sut, new[] { pcAlbum });
+
+        // Assert
+        Assert.Equal(new[] { "z_first.mp3", "a_second.mp3" }, sut.Tracks.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// 旧フォルダ名サニタイズ規則（禁止文字除去・旧末尾ピリオド保持）で保存された既存デバイスフォルダでもPC側トラック番号順が優先されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("ACDC", "Live Vol.1")]
+    [InlineData("AC_DC", "Live_ Vol.1_")]
+    public void SortAlbumTracks_旧禁止文字除去を含むサニタイズフォルダ名の場合_PC側トラック番号順が優先されること(string deviceArtist, string deviceAlbumTitle)
+    {
+        // Arrange
+        var pcAlbums = new List<Album>
+        {
+            CreatePcAlbum(
+                "Live: Vol.1?",
+                "AC/DC",
+                (@"C:\Music\AC_DC\Live\z_intro.mp3", 1),
+                (@"C:\Music\AC_DC\Live\a_encore.mp3", 2))
+        };
+
+        var sut = CreateDeviceAlbum(deviceAlbumTitle, deviceArtist, "a_encore.mp3", "z_intro.mp3");
+
+        // Act
+        DeviceManagerViewModel.SortAlbumTracks(sut, pcAlbums);
+
+        // Assert
+        Assert.Equal(new[] { "z_intro.mp3", "a_encore.mp3" }, sut.Tracks.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// 末尾ピリオドを含むアルバム名について、新規則（末尾ピリオド除去）と旧規則（末尾ピリオド保持・禁止文字除去）のいずれのフォルダ名でもPC側トラック番号順が優先されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("Live_ Vol")]
+    [InlineData("Live Vol")]
+    [InlineData("Live_ Vol.")]
+    [InlineData("Live Vol.")]
+    public void SortAlbumTracks_末尾ピリオド新旧サニタイズ互換フォルダ名の場合_PC側トラック番号順が優先されること(string deviceAlbumTitle)
+    {
+        // Arrange
+        var pcAlbums = new List<Album>
+        {
+            CreatePcAlbum(
+                "Live: Vol.",
+                "Band",
+                (@"C:\Music\Band\Live\z_open.mp3", 1),
+                (@"C:\Music\Band\Live\a_close.mp3", 2))
+        };
+
+        var sut = CreateDeviceAlbum(deviceAlbumTitle, "Band", "a_close.mp3", "z_open.mp3");
+
+        // Act
+        DeviceManagerViewModel.SortAlbumTracks(sut, pcAlbums);
+
+        // Assert
+        Assert.Equal(new[] { "z_open.mp3", "a_close.mp3" }, sut.Tracks.Select(t => t.Title).ToArray());
+    }
+
+    /// <summary>
+    /// SortAlbumTracksおよびSortAlbumsTracksがnull・空アルバム・単一曲アルバムに対して例外を送出せず安全に処理することを検証します。
+    /// </summary>
+    [Fact]
+    public void SortAlbumTracks_Nullおよび空アルバムと単一曲アルバム_例外なく安全に処理されること()
+    {
+        // Arrange
+        var emptyAlbum = CreateDeviceAlbum("Empty", "Artist");
+        var singleTrackAlbum = CreateDeviceAlbum("Single", "Artist", "01-only.mp3");
+        var sut = new DeviceAlbum?[] { null, emptyAlbum, singleTrackAlbum };
+
+        // Act
+        DeviceManagerViewModel.SortAlbumTracks(null, pcAlbums: null);
+        DeviceManagerViewModel.SortAlbumTracks(emptyAlbum, pcAlbums: null);
+        DeviceManagerViewModel.SortAlbumTracks(singleTrackAlbum, pcAlbums: null);
+        DeviceManagerViewModel.SortAlbumsTracks(null, pcAlbums: null);
+        DeviceManagerViewModel.SortAlbumsTracks(sut!, pcAlbums: null);
+
+        // Assert
+        Assert.Empty(emptyAlbum.Tracks);
+        var onlyTrack = Assert.Single(singleTrackAlbum.Tracks);
+        Assert.Equal("01-only.mp3", onlyTrack.Title);
+    }
+
+    /// <summary>
     /// 自然順比較がnull・空文字・大文字小文字非区別・先頭ゼロ差・長桁数値に対してオーバーフローせず一貫した順序を返すことを検証します。
     /// </summary>
     [Theory]
@@ -328,13 +531,79 @@ public sealed class DeviceManagerViewModelTests
     [InlineData("Disc 1 - 10.mp3", "Disc 2 - 1.mp3", -1)]
     public void CompareNatural_各種境界値と数値表現_期待される符号の比較結果を返すこと(string? left, string? right, int expectedSign)
     {
-        // Arrange & Act
-        int actual = DeviceManagerViewModel.CompareNatural(left, right);
-        int reversed = DeviceManagerViewModel.CompareNatural(right, left);
+        // Arrange
+        string? sutLeft = left;
+        string? sutRight = right;
+
+        // Act
+        int actual = DeviceManagerViewModel.CompareNatural(sutLeft, sutRight);
+        int reversed = DeviceManagerViewModel.CompareNatural(sutRight, sutLeft);
 
         // Assert
         Assert.Equal(expectedSign, Math.Sign(actual));
         Assert.Equal(-expectedSign, Math.Sign(reversed));
+    }
+
+    /// <summary>
+    /// 自然順比較が全ペア・全三つ組に対して厳密弱順序（反射律・反対称律・推移律）を満たすことを検証します。
+    /// </summary>
+    [Fact]
+    public void CompareNatural_境界文字列の全三つ組_反射律と反対称律および推移律を満たすこと()
+    {
+        // Arrange
+        string?[] sut =
+        {
+            null,
+            string.Empty,
+            "0",
+            "00",
+            "0-a",
+            "00-a",
+            "01-a",
+            "1-a",
+            "01-b",
+            "1-b",
+            "1",
+            "001",
+            "2",
+            "10",
+            "a",
+            "A"
+        };
+
+        // Act
+        int n = sut.Length;
+        var signs = new int[n, n];
+        for (int i = 0; i < n; i++)
+        {
+            for (int j = 0; j < n; j++)
+            {
+                signs[i, j] = Math.Sign(DeviceManagerViewModel.CompareNatural(sut[i], sut[j]));
+            }
+        }
+
+        // Assert
+        for (int i = 0; i < n; i++)
+        {
+            Assert.Equal(0, signs[i, i]);
+
+            for (int j = 0; j < n; j++)
+            {
+                Assert.Equal(-signs[i, j], signs[j, i]);
+
+                for (int k = 0; k < n; k++)
+                {
+                    if (signs[i, j] < 0 && signs[j, k] < 0)
+                    {
+                        Assert.True(signs[i, k] < 0, $"推移律違反: '{sut[i]}' < '{sut[j]}' < '{sut[k]}'");
+                    }
+                    else if (signs[i, j] == 0 && signs[j, k] == 0)
+                    {
+                        Assert.Equal(0, signs[i, k]);
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
