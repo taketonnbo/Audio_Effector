@@ -90,6 +90,7 @@ public sealed class DataDirectoryMigrationService : IDataDirectoryMigrationServi
     {
         string sourceDirectory = _dataDirectoryProvider.DataDirectory;
         string defaultDirectory = _dataDirectoryProvider.DefaultDataDirectory;
+        string? previousPersistedValue = _dataDirectoryProvider.IsCustomDirectory ? sourceDirectory : null;
 
         string resolvedTarget;
         bool isDefaultTarget;
@@ -146,6 +147,9 @@ public sealed class DataDirectoryMigrationService : IDataDirectoryMigrationServi
 
         int migratedCount = 0;
         var movedSourceFiles = new List<string>();
+        var createdDestinationFiles = new List<string>();
+        var overwrittenBackups = new List<(string DestinationPath, string BackupPath)>();
+
         if (migrationMode is DataMigrationMode.Copy or DataMigrationMode.Move)
         {
             try
@@ -159,7 +163,21 @@ public sealed class DataDirectoryMigrationService : IDataDirectoryMigrationServi
                     }
 
                     string destinationPath = Path.Combine(resolvedTarget, fileName);
+                    bool destinationExisted = File.Exists(destinationPath);
+                    string? backupPath = null;
+                    if (destinationExisted)
+                    {
+                        backupPath = $"{destinationPath}.bak_{Guid.NewGuid():N}";
+                        File.Copy(destinationPath, backupPath, overwrite: true);
+                        overwrittenBackups.Add((destinationPath, backupPath));
+                    }
+
                     CopyFileWithLocks(sourcePath, destinationPath);
+                    if (!destinationExisted)
+                    {
+                        createdDestinationFiles.Add(destinationPath);
+                    }
+
                     migratedCount++;
                     if (migrationMode == DataMigrationMode.Move)
                     {
@@ -169,18 +187,48 @@ public sealed class DataDirectoryMigrationService : IDataDirectoryMigrationServi
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TimeoutException)
             {
+                RollbackCopiedFiles(createdDestinationFiles, overwrittenBackups);
                 return new DataDirectoryChangeResult(
                     Succeeded: false,
                     Changed: false,
                     EffectivePath: sourceDirectory,
-                    MigratedFileCount: migratedCount,
+                    MigratedFileCount: 0,
                     ErrorMessage: $"データファイルの移行に失敗しました: {ex.Message}");
             }
         }
 
         string? persistedValue = isDefaultTarget ? null : resolvedTarget;
-        _settingsService.UpdateSettings(settings => settings.DataDirectoryPath = persistedValue);
-        _dataDirectoryProvider.UpdateDataDirectory(persistedValue);
+        bool settingsUpdated = false;
+        try
+        {
+            _settingsService.UpdateSettings(settings => settings.DataDirectoryPath = persistedValue);
+            settingsUpdated = true;
+            _dataDirectoryProvider.UpdateDataDirectory(persistedValue);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TimeoutException or NotSupportedException or ArgumentException)
+        {
+            if (settingsUpdated)
+            {
+                try
+                {
+                    _settingsService.UpdateSettings(settings => settings.DataDirectoryPath = previousPersistedValue);
+                }
+                catch
+                {
+                    // 設定ロールバック失敗時もアプリクラッシュは防止する
+                }
+            }
+
+            RollbackCopiedFiles(createdDestinationFiles, overwrittenBackups);
+            return new DataDirectoryChangeResult(
+                Succeeded: false,
+                Changed: false,
+                EffectivePath: sourceDirectory,
+                MigratedFileCount: 0,
+                ErrorMessage: $"データ保存先設定の反映に失敗しました: {ex.Message}");
+        }
+
+        CleanupBackups(overwrittenBackups);
 
         // Move モード時は切替確定後に元ファイルを安全に削除する（削除失敗時は新先データを保護しつつ警告メッセージを返す）
         string? cleanupWarning = null;
@@ -234,6 +282,60 @@ public sealed class DataDirectoryMigrationService : IDataDirectoryMigrationServi
 
         string content = File.ReadAllText(sourcePath);
         _fileLockHelper.WriteAllTextAtomic(destinationPath, content);
+    }
+
+    private static void RollbackCopiedFiles(
+        List<string> createdDestinationFiles,
+        List<(string DestinationPath, string BackupPath)> overwrittenBackups)
+    {
+        foreach (string createdPath in createdDestinationFiles)
+        {
+            try
+            {
+                if (File.Exists(createdPath))
+                {
+                    File.Delete(createdPath);
+                }
+            }
+            catch
+            {
+                // ロールバック時の個別削除失敗は他ファイルの復元継続を妨げない
+            }
+        }
+
+        foreach ((string destinationPath, string backupPath) in overwrittenBackups)
+        {
+            try
+            {
+                if (File.Exists(backupPath))
+                {
+                    File.Copy(backupPath, destinationPath, overwrite: true);
+                    File.Delete(backupPath);
+                }
+            }
+            catch
+            {
+                // ロールバック時の個別復元失敗は他ファイルの復元継続を妨げない
+            }
+        }
+    }
+
+    private static void CleanupBackups(List<(string DestinationPath, string BackupPath)> overwrittenBackups)
+    {
+        foreach ((_, string backupPath) in overwrittenBackups)
+        {
+            try
+            {
+                if (File.Exists(backupPath))
+                {
+                    File.Delete(backupPath);
+                }
+            }
+            catch
+            {
+                // 一時バックアップの掃除失敗は切替成功へ影響させない
+            }
+        }
     }
 
     private static void EnsureDirectoryWritable(string directoryPath)
