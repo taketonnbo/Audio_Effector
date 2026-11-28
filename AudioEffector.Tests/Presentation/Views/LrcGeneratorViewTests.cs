@@ -580,6 +580,63 @@ public sealed class LrcGeneratorViewTests
         });
     }
 
+    /// <summary>
+    /// 入力・待機状態（最小幅 260px を含む両テーマ）において、自動文字起こしセクションの誤認識・誤表現に関する注意書きが表示され、
+    /// 自動文字起こしボタンと生成機能自体は引き続き利用可能であることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("DarkTheme.xaml")]
+    [InlineData("LightTheme.xaml")]
+    public Task LrcGeneratorView_入力待機状態の自動文字起こしセクション_誤認識と誤表現の注意書きが表示され文字起こしボタンが利用可能である(string themeFileName)
+    {
+        return RunInStaThreadAsync(async () =>
+        {
+            // Arrange
+            EnsureApplicationResources();
+            using var listener = new BindingErrorTraceListener();
+            var existingPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C:\Music\DisclaimerCheck.flac" };
+            var (vm, _, _, _) = CreateViewModel(modelAvailable: true, fileExistsFunc: p => existingPaths.Contains(p));
+
+            using (vm)
+            {
+                vm.SetTargetTrack(new Track { FilePath = @"C:\Music\DisclaimerCheck.flac", Title = "DisclaimerCheck", Artist = "Artist" });
+                var sut = new LrcGeneratorView { DataContext = vm };
+                AttachThemeResources(sut.Resources, themeFileName);
+
+                // Act: 最小ペイン幅 (260px) で入力・待機状態を描画
+                await RunWithHostWindowAsync(sut, async host =>
+                {
+                    Assert.True(vm.IsInputState);
+                    host.UpdateLayout();
+
+                    var disclaimerText = Assert.IsType<TextBlock>(sut.FindName("AudioTranscriptionDisclaimerText"));
+                    var transcribeBtn = Assert.IsType<Button>(sut.FindName("TranscribeAudioButton"));
+
+                    // Assert: 注意書きの表示・折り返し・文言
+                    Assert.Equal(Visibility.Visible, disclaimerText.Visibility);
+                    Assert.Equal(TextWrapping.Wrap, disclaimerText.TextWrapping);
+                    Assert.Contains("誤認識", disclaimerText.Text, StringComparison.Ordinal);
+                    Assert.Contains("誤表現", disclaimerText.Text, StringComparison.Ordinal);
+                    Assert.Contains("手動修正", disclaimerText.Text, StringComparison.Ordinal);
+
+                    // Assert: 自動文字起こしボタンの維持・活性・ToolTip 補足・生成実行可否
+                    Assert.True(transcribeBtn.IsEnabled);
+                    string toolTipText = Assert.IsType<string>(transcribeBtn.ToolTip);
+                    Assert.Contains("誤認識", toolTipText, StringComparison.Ordinal);
+                    Assert.Contains("誤表現", toolTipText, StringComparison.Ordinal);
+
+                    await vm.TranscribeFromAudioAsync();
+                    host.UpdateLayout();
+                    Assert.True(vm.IsPreviewState);
+
+                    // Assert: バインディングエラー 0 件・高負荷エフェクト 0 件
+                    Assert.Empty(listener.Errors);
+                    Assert.False(HasHeavyEffect(sut));
+                }, width: 260, height: 520);
+            }
+        });
+    }
+
     private static List<T> FindVisualChildren<T>(DependencyObject root)
         where T : DependencyObject
     {
