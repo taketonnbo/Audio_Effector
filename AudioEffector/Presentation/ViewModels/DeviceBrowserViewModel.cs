@@ -2440,8 +2440,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
 
         string trimmedInput = name.Trim();
-        const int StackAllocThreshold = 256;
-        Span<char> buffer = trimmedInput.Length <= StackAllocThreshold
+        const int STACK_ALLOC_THRESHOLD = 256;
+        Span<char> buffer = trimmedInput.Length <= STACK_ALLOC_THRESHOLD
             ? stackalloc char[trimmedInput.Length]
             : new char[trimmedInput.Length];
 
