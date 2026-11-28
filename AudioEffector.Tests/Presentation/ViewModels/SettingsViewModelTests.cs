@@ -616,4 +616,56 @@ public class SettingsViewModelTests
             }
         }
     }
+
+    /// <summary>
+    /// 機器転送時の .lrc 歌詞ファイル同梱設定 3 プロパティが既定 false であり、変更時に PropertyChanged 発火と ISettingsService.UpdateSettings 呼び出しが行われ、同値代入では再保存されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void LrcTransferSettings_各プロパティ変更時_即時永続化とPropertyChanged発火および同値スキップが行われること()
+    {
+        // Arrange
+        var persisted = new AppSettings();
+        _settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+        _settingsServiceMock
+            .Setup(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()))
+            .Callback<Action<AppSettings>>(update => update(persisted));
+
+        var sut = new SettingsViewModel(_settingsServiceMock.Object, _audioServiceMock.Object);
+        var changedProps = new List<string>();
+        sut.PropertyChanged += (_, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.PropertyName))
+            {
+                changedProps.Add(e.PropertyName);
+            }
+        };
+
+        // Assert default
+        Assert.False(sut.TransferManualLrcFiles);
+        Assert.False(sut.TransferTextAlignedLrcFiles);
+        Assert.False(sut.TransferTranscribedLrcFiles);
+
+        // Act
+        sut.TransferManualLrcFiles = true;
+        sut.TransferManualLrcFiles = true; // 同値スキップ
+        sut.TransferTextAlignedLrcFiles = true;
+        sut.TransferTranscribedLrcFiles = true;
+
+        // Assert
+        Assert.True(sut.TransferManualLrcFiles);
+        Assert.True(sut.TransferTextAlignedLrcFiles);
+        Assert.True(sut.TransferTranscribedLrcFiles);
+        Assert.True(persisted.TransferManualLrcFiles);
+        Assert.True(persisted.TransferTextAlignedLrcFiles);
+        Assert.True(persisted.TransferTranscribedLrcFiles);
+
+        Assert.Equal(
+            [
+                nameof(SettingsViewModel.TransferManualLrcFiles),
+                nameof(SettingsViewModel.TransferTextAlignedLrcFiles),
+                nameof(SettingsViewModel.TransferTranscribedLrcFiles),
+            ],
+            changedProps);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Exactly(3));
+    }
 }

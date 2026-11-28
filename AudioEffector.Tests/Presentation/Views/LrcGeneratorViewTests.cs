@@ -145,6 +145,8 @@ public sealed class LrcGeneratorViewTests
         public LyricsDocument Parse(string content) => ParseHandler is not null ? ParseHandler(content) : LyricsDocument.Empty;
 
         public string Format(LyricsDocument document) => "[00:04.00]formatted";
+
+        public LrcOriginType ClassifyOrigin(string lrcContent) => LrcOriginType.ManualOrExternal;
     }
 
     private sealed class StubLyricsProvider : ILyricsProvider

@@ -238,4 +238,34 @@ public sealed class MtpDataTransferAdapterTests : IDisposable
         Assert.NotNull(tracks);
         Assert.NotNull(albums);
     }
+
+    /// <summary>
+    /// TransferCompanionFileAsync で補助ファイル（.lrc）が指定ファイル名で転送され、ファイル不在やパストラバーサル指定時は false を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferCompanionFileAsync_正常系と不正ファイル名および不在ファイル_安全に転送または拒否されること()
+    {
+        // Arrange
+        var sut = new MtpDataTransferAdapter();
+        string sourceLrc = Path.Combine(_sourceDirectory, "01_Track.lrc");
+        File.WriteAllText(sourceLrc, "[00:01.00]テスト歌詞");
+
+        // Act
+        bool copiedRenamed = await sut.TransferCompanionFileAsync(sourceLrc, _destinationDirectory, "01_Converted.lrc");
+        bool copiedDefault = await sut.TransferCompanionFileAsync(sourceLrc, _destinationDirectory);
+        bool rejectedTraversal = await sut.TransferCompanionFileAsync(sourceLrc, _destinationDirectory, @"..\escape.lrc");
+        bool missingSource = await sut.TransferCompanionFileAsync(Path.Combine(_sourceDirectory, "missing.lrc"), _destinationDirectory);
+
+        // Assert
+        Assert.True(copiedRenamed);
+        Assert.True(File.Exists(Path.Combine(_destinationDirectory, "01_Converted.lrc")));
+        Assert.Equal("[00:01.00]テスト歌詞", File.ReadAllText(Path.Combine(_destinationDirectory, "01_Converted.lrc")));
+
+        Assert.True(copiedDefault);
+        Assert.True(File.Exists(Path.Combine(_destinationDirectory, "01_Track.lrc")));
+
+        Assert.False(rejectedTraversal);
+        Assert.False(File.Exists(Path.Combine(_tempDirectory, "escape.lrc")));
+        Assert.False(missingSource);
+    }
 }
