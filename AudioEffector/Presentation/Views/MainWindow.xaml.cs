@@ -361,7 +361,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            vm.DeviceBrowser.CancelTransfer();
+            vm.DeviceBrowser.CancelTransfer(suppressResultDialog: true);
         }
         base.OnClosing(e);
     }

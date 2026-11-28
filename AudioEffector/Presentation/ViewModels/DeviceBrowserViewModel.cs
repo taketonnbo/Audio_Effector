@@ -48,6 +48,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private CancellationTokenSource? _storageRefreshCts;
     private CancellationTokenSource? _transferCts;
     private bool _suppressSelectionSummaryUpdates;
+    private volatile bool _isDisposed;
+    private volatile bool _suppressTransferResultNotification;
 
     private static readonly HashSet<string> SupportedAudioExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -574,7 +576,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
         RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
         TransferSelectedCommand = new RelayCommand(o => TransferSelected());
-        _cancelTransferCommand = new ExplicitRelayCommand(CancelTransfer, () => IsTransferring && !IsCancelling);
+        _cancelTransferCommand = new ExplicitRelayCommand(() => CancelTransfer(), () => IsTransferring && !IsCancelling);
         CancelTransferCommand = _cancelTransferCommand;
         NavigateDirectoryCommand = new RelayCommand(o => NavigateDirectory(o as MainViewModel.DirectoryItem));
         NavigateUpCommand = new RelayCommand(o => NavigateUp());
@@ -1723,6 +1725,9 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// </summary>
     public void Dispose()
     {
+        _isDisposed = true;
+        _suppressTransferResultNotification = true;
+
         var cts = Interlocked.Exchange(ref _checkDeviceAlbumsCts, null);
         if (cts != null)
         {
@@ -2604,16 +2609,26 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// 実行中の楽曲転送処理を安全にキャンセル要求します
     /// </summary>
-    public void CancelTransfer()
+    /// <param name="suppressResultDialog">アプリ終了時などキャンセル後の結果サマリ通知および再走査を抑止する場合は true</param>
+    public void CancelTransfer(bool suppressResultDialog = false)
     {
+        if (suppressResultDialog)
+        {
+            _suppressTransferResultNotification = true;
+        }
+
         var cts = Volatile.Read(ref _transferCts);
-        if (cts == null || !IsTransferring || IsCancelling)
+        if (cts == null || !IsTransferring)
         {
             return;
         }
 
-        IsCancelling = true;
-        TransferPhaseText = "キャンセル中...";
+        if (!IsCancelling)
+        {
+            IsCancelling = true;
+            TransferPhaseText = "キャンセル中...";
+        }
+
         try
         {
             cts.Cancel();
@@ -2716,6 +2731,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             previousTransferCts.Dispose();
         }
 
+        _suppressTransferResultNotification = false;
         IsTransferring = true;
         IsCancelling = false;
         TransferProgress = 0;
@@ -2739,8 +2755,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                     transcodeOptions,
                     progress: null,
                     lrcTransferOptions: lrcTransferOptions,
-                    cancellationToken: transferCts.Token,
-                    detailProgress: detailProgress);
+                    detailProgress: detailProgress,
+                    cancellationToken: transferCts.Token);
             }
             else if (SelectedDevice.Type == MainViewModel.DeviceType.MTP)
             {
@@ -2756,8 +2772,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                     transcodeOptions,
                     progress: null,
                     lrcTransferOptions: lrcTransferOptions,
-                    cancellationToken: transferCts.Token,
-                    detailProgress: detailProgress);
+                    detailProgress: detailProgress,
+                    cancellationToken: transferCts.Token);
+            }
+
+            if (_isDisposed || _suppressTransferResultNotification)
+            {
+                return;
             }
 
             try
@@ -2771,6 +2792,11 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 Logger.Warn(refreshEx, "転送後のデバイス再走査に失敗しました。");
             }
 
+            if (_isDisposed || _suppressTransferResultNotification)
+            {
+                return;
+            }
+
             if (resultSummary != null)
             {
                 _showTransferResult(resultSummary);
@@ -2779,6 +2805,11 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             Logger.Error(ex, "転送処理で予期しないエラーが発生しました。");
+            if (_isDisposed || _suppressTransferResultNotification)
+            {
+                return;
+            }
+
             try
             {
                 LoadDeviceDirectoriesCore(destinationFolder, showErrorMessage: false);
@@ -2790,7 +2821,10 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 // 転送失敗後の再走査エラーは元の失敗通知を優先して握りつぶす
             }
 
-            _showMessage($"Transfer failed: {ex.Message}", "Error");
+            if (!_isDisposed && !_suppressTransferResultNotification)
+            {
+                _showMessage($"Transfer failed: {ex.Message}", "Error");
+            }
         }
         finally
         {
@@ -2952,13 +2986,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                         cachedKeys.Add(expectedFileKey);
                     }
 
-                    TryTransferCompanionLrcToMtp(mtpClient, track.FilePath, destPath, effectiveLrcOptions, cancellationToken);
-
                     successCount++;
                     processed++;
                     double donePercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
                     progress?.Report(donePercent);
                     detailProgress?.Report(new TransferProgressInfo(processed, total, donePercent, targetFileName, "コピー中..."));
+
+                    TryTransferCompanionLrcToMtp(mtpClient, track.FilePath, destPath, effectiveLrcOptions, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -2982,6 +3016,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                     processed++;
                     double errPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
                     progress?.Report(errPercent);
+                    detailProgress?.Report(new TransferProgressInfo(processed, total, errPercent, sourceFileName, "エラー"));
 
                     if (IsFatalMtpTransferException(mtpClient, ex))
                     {
@@ -3350,13 +3385,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                         cachedKeys.Add(expectedFileKey);
                     }
 
-                    TryTransferCompanionLrcToFileSystem(track.FilePath, destPath, effectiveLrcOptions, cancellationToken);
-
                     successCount++;
                     processed++;
                     double donePercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
                     progress?.Report(donePercent);
                     detailProgress?.Report(new TransferProgressInfo(processed, total, donePercent, targetFileName, "コピー中..."));
+
+                    TryTransferCompanionLrcToFileSystem(track.FilePath, destPath, effectiveLrcOptions, cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
@@ -3370,6 +3405,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                     processed++;
                     double errPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
                     progress?.Report(errPercent);
+                    detailProgress?.Report(new TransferProgressInfo(processed, total, errPercent, sourceFileName, "エラー"));
 
                     if (IsFatalFileSystemTransferException(destinationFolder, ex))
                     {
@@ -3397,12 +3433,14 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     {
         const int COPY_BUFFER_SIZE = 64 * 1024;
         var buffer = new byte[COPY_BUFFER_SIZE];
+        bool destCreated = false;
         bool completed = false;
 
         try
         {
             await using var sourceStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, COPY_BUFFER_SIZE, useAsync: true);
             await using var destStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, COPY_BUFFER_SIZE, useAsync: true);
+            destCreated = true;
 
             int bytesRead;
             while ((bytesRead = await sourceStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false)) > 0)
@@ -3416,7 +3454,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
         finally
         {
-            if (!completed)
+            if (!completed && destCreated)
             {
                 TryDeleteFileQuietly(destinationPath);
             }
@@ -3643,8 +3681,19 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
     private static void DefaultShowTransferResult(TransferResultSummary summary)
     {
-        RunOnUiThread(() =>
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
+            return;
+        }
+
+        void ShowDialogCore()
+        {
+            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+
             var dialog = new TransferResultDialog(summary);
             var mainWindow = System.Windows.Application.Current?.MainWindow;
             if (mainWindow != null && mainWindow.IsVisible)
@@ -3653,7 +3702,16 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             }
 
             dialog.ShowDialog();
-        });
+        }
+
+        if (dispatcher.CheckAccess())
+        {
+            ShowDialogCore();
+        }
+        else
+        {
+            dispatcher.Invoke(ShowDialogCore);
+        }
     }
 
     private static void DefaultShowMessage(string message, string caption)
