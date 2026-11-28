@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.Common;
 using AudioEffector.Infrastructure.Audio;
+using NAudio.Wave;
 using Xunit;
 
 namespace AudioEffector.Infrastructure.Tests.Audio;
@@ -130,5 +131,136 @@ public sealed class MediaFoundationAudioTranscodeServiceTests
 
         await Assert.ThrowsAsync<OperationCanceledException>(
             () => sut.PrepareForTransferAsync(@"C:\NonExistent\missing.mp4", options, cts.Token));
+    }
+
+    /// <summary>
+    /// RequiresMp3Resampleがサンプリングレート・ビット深度・チャンネル数・エンコーディングの各種境界条件を正しく判定することを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(44100, 16, 2, WaveFormatEncoding.Pcm, false)]
+    [InlineData(48000, 16, 2, WaveFormatEncoding.Pcm, false)]
+    [InlineData(44100, 16, 1, WaveFormatEncoding.Pcm, false)]
+    [InlineData(48001, 16, 2, WaveFormatEncoding.Pcm, true)]
+    [InlineData(96000, 24, 2, WaveFormatEncoding.Pcm, true)]
+    [InlineData(44100, 8, 2, WaveFormatEncoding.Pcm, true)]
+    [InlineData(44100, 24, 2, WaveFormatEncoding.Pcm, true)]
+    [InlineData(44100, 16, 6, WaveFormatEncoding.Pcm, true)]
+    [InlineData(44100, 32, 2, WaveFormatEncoding.IeeeFloat, true)]
+    [InlineData(44100, 16, 2, WaveFormatEncoding.Extensible, true)]
+    public void RequiresMp3Resample_各種音声フォーマット境界条件_期待通りのリサンプル要否を返すこと(
+        int sampleRate,
+        int bitsPerSample,
+        int channels,
+        WaveFormatEncoding encoding,
+        bool expectedRequiresResample)
+    {
+        // Arrange
+        WaveFormat format = CreateTestWaveFormat(sampleRate, bitsPerSample, channels, encoding);
+
+        // Act
+        bool actual = MediaFoundationAudioTranscodeService.RequiresMp3Resample(format);
+
+        // Assert
+        Assert.Equal(expectedRequiresResample, actual);
+    }
+
+    /// <summary>
+    /// RequiresMp3Resampleにnullを渡した場合、ArgumentNullExceptionを送出することを検証します。
+    /// </summary>
+    [Fact]
+    public void RequiresMp3Resample_フォーマットがnullの場合_ArgumentNullExceptionを送出すること()
+    {
+        // Arrange
+        WaveFormat? format = null;
+
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => MediaFoundationAudioTranscodeService.RequiresMp3Resample(format!));
+    }
+
+    /// <summary>
+    /// BuildMp3ResampleTargetFormatが入力フォーマットを16bit PCM・最大48kHz・1〜2chへ正規化することを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(96000, 24, 2, WaveFormatEncoding.Pcm, 48000, 16, 2)]
+    [InlineData(48000, 24, 2, WaveFormatEncoding.Pcm, 48000, 16, 2)]
+    [InlineData(44100, 8, 2, WaveFormatEncoding.Pcm, 44100, 16, 2)]
+    [InlineData(44100, 16, 6, WaveFormatEncoding.Pcm, 44100, 16, 2)]
+    [InlineData(44100, 32, 1, WaveFormatEncoding.IeeeFloat, 44100, 16, 1)]
+    [InlineData(192000, 24, 6, WaveFormatEncoding.Pcm, 48000, 16, 2)]
+    public void BuildMp3ResampleTargetFormat_多様な入力フォーマット_16bitPCM最大48kHz最大2chへ正規化されること(
+        int sourceSampleRate,
+        int sourceBitsPerSample,
+        int sourceChannels,
+        WaveFormatEncoding sourceEncoding,
+        int expectedSampleRate,
+        int expectedBitsPerSample,
+        int expectedChannels)
+    {
+        // Arrange
+        WaveFormat sourceFormat = CreateTestWaveFormat(sourceSampleRate, sourceBitsPerSample, sourceChannels, sourceEncoding);
+
+        // Act
+        WaveFormat actual = MediaFoundationAudioTranscodeService.BuildMp3ResampleTargetFormat(sourceFormat);
+
+        // Assert
+        Assert.Equal(WaveFormatEncoding.Pcm, actual.Encoding);
+        Assert.Equal(expectedSampleRate, actual.SampleRate);
+        Assert.Equal(expectedBitsPerSample, actual.BitsPerSample);
+        Assert.Equal(expectedChannels, actual.Channels);
+    }
+
+    /// <summary>
+    /// BuildMp3ResampleTargetFormatにnullを渡した場合、ArgumentNullExceptionを送出することを検証します。
+    /// </summary>
+    [Fact]
+    public void BuildMp3ResampleTargetFormat_フォーマットがnullの場合_ArgumentNullExceptionを送出すること()
+    {
+        // Arrange
+        WaveFormat? sourceFormat = null;
+
+        // Act & Assert
+        Assert.Throws<ArgumentNullException>(() => MediaFoundationAudioTranscodeService.BuildMp3ResampleTargetFormat(sourceFormat!));
+    }
+
+    /// <summary>
+    /// BuildMp3ResampleTargetFormatにサンプルレートが0以下のフォーマットを渡した場合、ArgumentOutOfRangeExceptionを送出することを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-44100)]
+    public void BuildMp3ResampleTargetFormat_サンプルレートが0以下の場合_ArgumentOutOfRangeExceptionを送出すること(int invalidSampleRate)
+    {
+        // Arrange
+        WaveFormat sourceFormat = new WaveFormat(invalidSampleRate, 16, 2);
+
+        // Act & Assert
+        Assert.Throws<ArgumentOutOfRangeException>(() => MediaFoundationAudioTranscodeService.BuildMp3ResampleTargetFormat(sourceFormat));
+    }
+
+    private static WaveFormat CreateTestWaveFormat(
+        int sampleRate,
+        int bitsPerSample,
+        int channels,
+        WaveFormatEncoding encoding)
+    {
+        if (encoding == WaveFormatEncoding.IeeeFloat)
+        {
+            return WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
+        }
+
+        if (encoding == WaveFormatEncoding.Pcm)
+        {
+            return new WaveFormat(sampleRate, bitsPerSample, channels);
+        }
+
+        int blockAlign = channels * (bitsPerSample / 8);
+        int averageBytesPerSecond = sampleRate * blockAlign;
+        return WaveFormat.CreateCustomFormat(
+            encoding,
+            sampleRate,
+            channels,
+            averageBytesPerSecond,
+            blockAlign,
+            bitsPerSample);
     }
 }
