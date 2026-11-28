@@ -96,12 +96,12 @@ foreach ($f in $funcs) {{ Invoke-Expression $f.Extent.Text }}
 """
 
 
-def _wait_for_file(path: Path, timeout_sec: float = 10.0) -> bool:
+def _wait_for_file(path: Path, timeout_sec: float = 15.0) -> bool:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         if path.exists():
             return True
-        time.sleep(0.05)
+        time.sleep(0.025)
     return False
 
 
@@ -351,17 +351,27 @@ $res | ConvertTo-Json -Depth 4
     def test_ビルドロックMutexが並列実行を直列化しタイムアウトとAbandonedMutexを安全に処理すること(self) -> None:
         loader = _ps_loader_snippet(VERIFY_LOOP, ["Invoke-WithBuildLock"])
 
-        # 1) 並列直列化と待機秒数計測の検証
+        # 1) 並列直列化と待機秒数計測の検証（2 段階ハンドシェイクで起動遅延依存を排除）
         with self.subTest(case="serialization_and_wait_seconds"):
             mutex_name = f"Local\\AudioEffector_TestLock_{uuid.uuid4().hex}"
-            ready_file = self.base_dir / "holder_ready.flag"
+            holder_ready_file = self.base_dir / "holder_ready.flag"
+            waiter_ready_file = self.base_dir / "waiter_ready.flag"
+            escaped_holder_ready = str(holder_ready_file).replace("'", "''")
+            escaped_waiter_ready = str(waiter_ready_file).replace("'", "''")
             holder_script = f"""
 $m = New-Object System.Threading.Mutex($false, '{mutex_name}')
 $acquired = $m.WaitOne(5000, $false)
 if (-not $acquired) {{ exit 2 }}
 try {{
-    [System.IO.File]::WriteAllText('{str(ready_file).replace("'", "''")}', 'ready')
-    Start-Sleep -Milliseconds 1200
+    [System.IO.File]::WriteAllText('{escaped_holder_ready}', 'ready')
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    while (-not [System.IO.File]::Exists('{escaped_waiter_ready}') -and [DateTime]::UtcNow -lt $deadline) {{
+        Start-Sleep -Milliseconds 25
+    }}
+    if (-not [System.IO.File]::Exists('{escaped_waiter_ready}')) {{
+        exit 3
+    }}
+    Start-Sleep -Milliseconds 900
 }} finally {{
     $m.ReleaseMutex()
     $m.Dispose()
@@ -374,8 +384,9 @@ try {{
                 stderr=subprocess.DEVNULL,
             )
             try:
-                self.assertTrue(_wait_for_file(ready_file), "ロック保持プロセスの起動待機に失敗しました。")
+                self.assertTrue(_wait_for_file(holder_ready_file), "ロック保持プロセスの起動待機に失敗しました。")
                 waiter_script = loader + f"""
+[System.IO.File]::WriteAllText('{escaped_waiter_ready}', 'ready')
 $res = Invoke-WithBuildLock -MutexName '{mutex_name}' -TimeoutSeconds 10 -Action {{ 'build_ok' }}
 $res | ConvertTo-Json -Depth 4
 """
@@ -387,8 +398,14 @@ $res | ConvertTo-Json -Depth 4
                 self.assertFalse(payload["WasAbandoned"])
                 self.assertEqual(payload["Result"], "build_ok")
                 self.assertGreaterEqual(payload["WaitSeconds"], 0.4)
+                self.assertEqual(holder_proc.wait(timeout=15), 0, "ロック保持プロセスが異常終了しました。")
             finally:
-                holder_proc.wait(timeout=10)
+                if holder_proc.poll() is None:
+                    try:
+                        holder_proc.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        holder_proc.kill()
+                        holder_proc.wait(timeout=5)
 
         # 2) ロック取得タイムアウトの検証
         with self.subTest(case="timeout"):
@@ -400,7 +417,7 @@ $acquired = $m.WaitOne(5000, $false)
 if (-not $acquired) {{ exit 2 }}
 try {{
     [System.IO.File]::WriteAllText('{str(ready_file).replace("'", "''")}', 'ready')
-    Start-Sleep -Seconds 15
+    Start-Sleep -Seconds 30
 }} finally {{
     $m.ReleaseMutex()
     $m.Dispose()
@@ -425,7 +442,8 @@ $res | ConvertTo-Json -Depth 4
                 self.assertTrue(payload["TimedOut"])
                 self.assertIsNone(payload["Result"])
             finally:
-                holder_proc.kill()
+                if holder_proc.poll() is None:
+                    holder_proc.kill()
                 holder_proc.wait(timeout=10)
 
         # 3) 前プロセス強制終了時の AbandonedMutexException 回復と解放の検証
@@ -449,11 +467,18 @@ Start-Sleep -Seconds 30
             try:
                 self.assertTrue(_wait_for_file(ready_file), "異常終了用ロック保持プロセスの起動待機に失敗しました。")
 
-                # 待機プロセスを先に起動し、Mutex ハンドルを開いて WaitOne 待機させた状態で保持プロセスを強制終了する
+                # 待機プロセス側で先に同一 Mutex の参照ハンドルを保持してから通知することで、
+                # 高負荷で WaitOne 到達が遅延しても保持プロセス強制終了時に Mutex カーネルオブジェクトが破棄されず
+                # 確実に AbandonedMutexException を再現できる
                 recover_script = loader + f"""
-[System.IO.File]::WriteAllText('{str(waiter_started_file).replace("'", "''")}', 'waiting')
-$res = Invoke-WithBuildLock -MutexName '{mutex_name}' -TimeoutSeconds 10 -Action {{ 'recovered' }}
-$res | ConvertTo-Json -Depth 4
+$keepAliveMutex = New-Object System.Threading.Mutex($false, '{mutex_name}')
+try {{
+    [System.IO.File]::WriteAllText('{str(waiter_started_file).replace("'", "''")}', 'waiting')
+    $res = Invoke-WithBuildLock -MutexName '{mutex_name}' -TimeoutSeconds 10 -Action {{ 'recovered' }}
+    $res | ConvertTo-Json -Depth 4
+}} finally {{
+    $keepAliveMutex.Dispose()
+}}
 """
                 waiter_proc = subprocess.Popen(
                     ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", recover_script],
@@ -466,7 +491,7 @@ $res | ConvertTo-Json -Depth 4
                 )
                 try:
                     self.assertTrue(_wait_for_file(waiter_started_file), "待機プロセスの起動確認に失敗しました。")
-                    time.sleep(0.4)
+                    time.sleep(0.2)
                     # Mutex を解放せず強制終了して AbandonedMutexException を発生させる
                     holder_proc.kill()
                     holder_proc.wait(timeout=10)
