@@ -2817,14 +2817,60 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void ShowSettings()
         {
-            var settingsViewModel = new SettingsViewModel(_settingsService, _audioService);
-            var settingsDialog = new SettingsDialog(settingsViewModel);
-            if (System.Windows.Application.Current.MainWindow != null)
+            var dataDirectoryProvider = App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<IDataDirectoryProvider>(App.ServiceProvider)
+                : null;
+            var dataDirectoryMigrationService = App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<IDataDirectoryMigrationService>(App.ServiceProvider)
+                : null;
+
+            var settingsViewModel = new SettingsViewModel(
+                _settingsService,
+                _audioService,
+                dataDirectoryProvider,
+                dataDirectoryMigrationService);
+
+            void OnDataDirectoryChanged() => ReloadDataAfterDirectoryChange();
+            settingsViewModel.DataDirectoryChanged += OnDataDirectoryChanged;
+            try
             {
-                settingsDialog.Owner = System.Windows.Application.Current.MainWindow;
+                var settingsDialog = new SettingsDialog(settingsViewModel);
+                if (System.Windows.Application.Current?.MainWindow != null)
+                {
+                    settingsDialog.Owner = System.Windows.Application.Current.MainWindow;
+                }
+                settingsDialog.ShowDialog();
             }
-            settingsDialog.ShowDialog();
+            finally
+            {
+                settingsViewModel.DataDirectoryChanged -= OnDataDirectoryChanged;
+            }
+
             SettingsUpdated?.Invoke();
+        }
+
+        /// <summary>
+        /// データ保存先ディレクトリの変更完了後に各画面の永続化データ（プレイリスト・お気に入り・再生履歴・イコライザープリセット）を再読み込みします
+        /// </summary>
+        internal void ReloadDataAfterDirectoryChange()
+        {
+            Library?.ReloadFavoritesFromRepository();
+            Playlist?.LoadPlaylists();
+            if (IsFavoritesView)
+            {
+                ShowFavorites();
+            }
+
+            Recent.LoadHistory();
+            if (Equalizer != null)
+            {
+                _ = Equalizer.LoadPresetsAsync();
+            }
+
+            if (CurrentTrack != null)
+            {
+                OnPropertyChanged(nameof(CurrentTrack));
+            }
         }
 
         private static void RunOnUiThread(Action action)
