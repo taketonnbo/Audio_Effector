@@ -6,6 +6,7 @@ publish/
 *.user
 .vs/
 *.pdb
+*_wpftmp.csproj
 
 # Release binaries (GitHub Releasesで管理)
 Release_*/
