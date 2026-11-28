@@ -136,6 +136,11 @@ public class AppSettings
     public bool ConvertMp4ToM4a { get; set; }
 
     /// <summary>
+    /// 機器転送時にFLACファイルをMP3形式へ自動変換してデータ量を削減するかどうか
+    /// </summary>
+    public bool ConvertFlacToMp3 { get; set; }
+
+    /// <summary>
     /// 接続機器識別子ごとの既定転送先フォルダパス辞書
     /// </summary>
     public Dictionary<string, string> DeviceDefaultTransferFolders

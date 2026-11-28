@@ -48,6 +48,16 @@ public sealed class AudioTranscodeOptions
     /// MP4形式の音声ファイルをM4A形式へ変換するかどうかを取得または設定します
     /// </summary>
     public bool ConvertMp4ToM4a { get; init; }
+
+    /// <summary>
+    /// FLAC形式の音声ファイルをMP3形式へ変換するかどうかを取得または設定します
+    /// </summary>
+    public bool ConvertFlacToMp3 { get; init; }
+
+    /// <summary>
+    /// MP3変換時のターゲットビットレート（bps、既定 320,000 bps = 320 kbps）を取得または設定します
+    /// </summary>
+    public int Mp3Bitrate { get; init; } = 320000;
 }
 
 /// <summary>
