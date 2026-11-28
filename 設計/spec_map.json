@@ -371,17 +371,34 @@
     },
     {
       "id": "device-transfer",
-      "name": "機器転送・機器ストレージ管理（UI）",
+      "name": "機器転送（UI）",
       "code_patterns": [
-        "AudioEffector/Presentation/**/*Device*",
+        "AudioEffector/Presentation/**/*DeviceBrowser*",
+        "AudioEffector/Presentation/**/*DeviceSync*",
         "AudioEffector/Presentation/**/*DataTransfer*"
       ],
       "primary_specs": [
         "設計/画面設計/機器転送/機器転送UI仕様書.md",
-        "設計/画面設計/機器ストレージ管理/機器ストレージ管理UI仕様書.md",
         "設計/機能仕様/機器転送.md"
       ],
       "related_specs": [
+        "設計/画面設計/機器ストレージ管理/機器ストレージ管理UI仕様書.md",
+        "設計/ユースケース/05_機器転送・同期.md",
+        "設計/主要オブジェクト/06_接続機器_Device.md"
+      ]
+    },
+    {
+      "id": "device-manager",
+      "name": "機器ストレージ管理（UI）",
+      "code_patterns": [
+        "AudioEffector/Presentation/**/*DeviceManager*"
+      ],
+      "primary_specs": [
+        "設計/画面設計/機器ストレージ管理/機器ストレージ管理UI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/機能仕様/機器転送.md",
+        "設計/画面設計/機器転送/機器転送UI仕様書.md",
         "設計/ユースケース/05_機器転送・同期.md",
         "設計/主要オブジェクト/06_接続機器_Device.md"
       ]
