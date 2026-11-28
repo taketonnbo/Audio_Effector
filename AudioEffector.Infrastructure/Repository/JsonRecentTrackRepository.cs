@@ -15,10 +15,11 @@ namespace AudioEffector.Infrastructure.Repository;
 public sealed class JsonRecentTrackRepository : IRecentTrackRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private readonly string _filePath;
+    private readonly Func<string> _filePathResolver;
     private readonly IJsonFileLockHelper _fileLockHelper;
     private readonly object _syncLock = new();
     private List<RecentTrackEntry> _cachedEntries = new();
+    private string? _lastLoadedFilePath;
     private FileMetadataSnapshot _lastLoadedMetadata = FileMetadataSnapshot.Missing;
     private bool _isLoaded;
 
@@ -41,53 +42,76 @@ public sealed class JsonRecentTrackRepository : IRecentTrackRepository
     {
         _fileLockHelper = fileLockHelper ?? JsonFileLockHelper.Default;
 
+        string resolvedFilePath;
         if (string.IsNullOrWhiteSpace(filePath))
         {
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string appDir = Path.Combine(appData, "AudioEffector");
-            _filePath = Path.Combine(appDir, "RecentTracks.json");
+            resolvedFilePath = Path.Combine(appDir, "RecentTracks.json");
         }
         else
         {
-            _filePath = filePath;
+            resolvedFilePath = filePath;
         }
+
+        _filePathResolver = () => resolvedFilePath;
     }
+
+    /// <summary>
+    /// データディレクトリプロバイダを指定してJsonRecentTrackRepositoryを初期化します（保存先変更へ動的追従）
+    /// </summary>
+    /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ</param>
+    /// <param name="fileLockHelper">プロセス間ファイルロックおよび原子的書き込みヘルパー（未指定時は既定実装）</param>
+    public JsonRecentTrackRepository(IDataDirectoryProvider dataDirectoryProvider, IJsonFileLockHelper? fileLockHelper = null)
+    {
+        ArgumentNullException.ThrowIfNull(dataDirectoryProvider);
+        _fileLockHelper = fileLockHelper ?? JsonFileLockHelper.Default;
+        _filePathResolver = () => dataDirectoryProvider.GetFilePath("RecentTracks.json");
+    }
+
+    private bool IsCacheFresh(string filePath, FileMetadataSnapshot currentMetadata) =>
+        _isLoaded
+        && string.Equals(_lastLoadedFilePath, filePath, StringComparison.OrdinalIgnoreCase)
+        && currentMetadata == _lastLoadedMetadata;
 
     /// <inheritdoc />
     public IReadOnlyList<RecentTrackEntry> Load()
     {
         lock (_syncLock)
         {
-            FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(_filePath);
-            if (_isLoaded && currentMetadata == _lastLoadedMetadata)
+            string filePath = _filePathResolver();
+            FileMetadataSnapshot currentMetadata = _fileLockHelper.GetFileMetadata(filePath);
+            if (IsCacheFresh(filePath, currentMetadata))
             {
                 return _cachedEntries.ToList();
             }
 
-            using IDisposable fileLock = _fileLockHelper.AcquireLock(_filePath);
+            using IDisposable fileLock = _fileLockHelper.AcquireLock(filePath);
 
             try
             {
-                _cachedEntries = ReadEntries();
+                _cachedEntries = ReadEntries(filePath);
             }
             catch (Exception ex) when (ex is JsonException or OverflowException)
             {
                 _cachedEntries = new();
             }
-            _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+
+            _lastLoadedFilePath = filePath;
+            _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(filePath);
             _isLoaded = true;
             return _cachedEntries.ToList();
         }
     }
 
-    private List<RecentTrackEntry> ReadEntries()
+    private static List<RecentTrackEntry> ReadEntries(string filePath)
     {
-        if (!File.Exists(_filePath))
+        if (!File.Exists(filePath))
         {
             return new();
         }
 
-        string json = File.ReadAllText(_filePath);
+        string json = File.ReadAllText(filePath);
         var dtos = JsonSerializer.Deserialize<List<RecentTrackDto?>>(json);
         var result = new List<RecentTrackEntry>(dtos?.Count ?? 0);
         if (dtos != null)
@@ -120,8 +144,9 @@ public sealed class JsonRecentTrackRepository : IRecentTrackRepository
         ArgumentNullException.ThrowIfNull(entries);
         lock (_syncLock)
         {
-            using var fileLock = _fileLockHelper.AcquireLock(_filePath);
-            WriteEntries(entries);
+            string filePath = _filePathResolver();
+            using var fileLock = _fileLockHelper.AcquireLock(filePath);
+            WriteEntries(filePath, entries);
         }
     }
 
@@ -130,15 +155,16 @@ public sealed class JsonRecentTrackRepository : IRecentTrackRepository
     {
         lock (_syncLock)
         {
-            using var fileLock = _fileLockHelper.AcquireLock(_filePath);
-            var entries = ReadEntries();
+            string filePath = _filePathResolver();
+            using var fileLock = _fileLockHelper.AcquireLock(filePath);
+            var entries = ReadEntries(filePath);
             update(entries);
-            WriteEntries(entries);
+            WriteEntries(filePath, entries);
             return entries;
         }
     }
 
-    private void WriteEntries(IReadOnlyList<RecentTrackEntry> entries)
+    private void WriteEntries(string filePath, IReadOnlyList<RecentTrackEntry> entries)
     {
         var dtos = entries.Select(e => new RecentTrackDto
         {
@@ -151,10 +177,11 @@ public sealed class JsonRecentTrackRepository : IRecentTrackRepository
         }).ToList();
 
         string json = JsonSerializer.Serialize(dtos, JsonOptions);
-        _fileLockHelper.WriteAllTextAtomic(_filePath, json);
+        _fileLockHelper.WriteAllTextAtomic(filePath, json);
 
         _cachedEntries = entries.ToList();
-        _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(_filePath);
+        _lastLoadedFilePath = filePath;
+        _lastLoadedMetadata = _fileLockHelper.GetFileMetadata(filePath);
         _isLoaded = true;
     }
 }
