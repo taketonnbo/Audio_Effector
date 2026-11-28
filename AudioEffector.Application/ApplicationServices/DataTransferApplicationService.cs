@@ -188,14 +188,27 @@ public class DataTransferApplicationService
             return (new AudioTranscodeOptions(), new LrcTransferOptions());
         }
 
-        var settings = _settingsService.LoadSettings();
-        var transcodeOptions = new AudioTranscodeOptions
+        try
         {
-            ConvertMp4ToM4a = settings.ConvertMp4ToM4a,
-            ConvertFlacToMp3 = settings.ConvertFlacToMp3
-        };
-        var lrcTransferOptions = LrcTransferOptions.FromSettings(settings);
-        return (transcodeOptions, lrcTransferOptions);
+            var settings = _settingsService.LoadSettings();
+            if (settings == null)
+            {
+                return (new AudioTranscodeOptions(), new LrcTransferOptions());
+            }
+
+            var transcodeOptions = new AudioTranscodeOptions
+            {
+                ConvertMp4ToM4a = settings.ConvertMp4ToM4a,
+                ConvertFlacToMp3 = settings.ConvertFlacToMp3
+            };
+            var lrcTransferOptions = LrcTransferOptions.FromSettings(settings);
+            return (transcodeOptions, lrcTransferOptions);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"転送設定の読み込みに失敗したため既定値へフォールバックします: {ex.Message}");
+            return (new AudioTranscodeOptions(), new LrcTransferOptions());
+        }
     }
 
     /// <summary>

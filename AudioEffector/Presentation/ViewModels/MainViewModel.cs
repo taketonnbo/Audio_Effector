@@ -1050,12 +1050,15 @@ namespace AudioEffector.Presentation.ViewModels
 
             var transcodeService = App.ServiceProvider?.GetService(typeof(IAudioTranscodeService)) as IAudioTranscodeService
                 ?? new MediaFoundationAudioTranscodeService();
+            var deviceLrcParser = App.ServiceProvider?.GetService(typeof(Domain.Services.ILrcParser)) as Domain.Services.ILrcParser
+                ?? new Infrastructure.Lyrics.LrcParser();
             DeviceBrowser = new DeviceBrowserViewModel(
                 Albums,
                 () => Albums.ToList().AsReadOnly(),
                 () => { },
                 settingsService: _settingsService,
-                audioTranscodeService: transcodeService);
+                audioTranscodeService: transcodeService,
+                lrcParser: deviceLrcParser);
             ShowSettingsCommand = new RelayCommand(o => ShowSettings());
             ToggleRightPanelCommand = new RelayCommand(o => IsRightPanelOpen = !IsRightPanelOpen);
             TogglePlayQueuePanelCommand = new RelayCommand(o => IsPlayQueuePanelOpen = !IsPlayQueuePanelOpen);

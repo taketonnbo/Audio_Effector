@@ -2,7 +2,6 @@ using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
-using AudioEffector.Infrastructure.Lyrics;
 using AudioEffector.Presentation.Views;
 using MediaDevices;
 using NLog;
@@ -33,7 +32,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private readonly Action _onCheckDeviceAlbumsRequested;
     private readonly ISettingsService? _settingsService;
     private readonly IAudioTranscodeService _audioTranscodeService;
-    private readonly ILrcParser _lrcParser;
+    private readonly ILrcParser? _lrcParser;
     private readonly Func<string, long> _getFileSizeBytes;
     private readonly Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)> _readDeviceStorageSpace;
     private readonly Func<MainViewModel.DeviceViewModel, IMtpDeviceClient?> _resolveMtpClient;
@@ -394,7 +393,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="readDeviceStorageSpace">接続機器の容量取得関数（テスト差し替え用、省略時は実ストレージ読取を使用）</param>
     /// <param name="settingsService">アプリケーション設定永続化サービス（既定フォルダ記憶・形式変換・LRC同梱設定用）</param>
     /// <param name="audioTranscodeService">転送時の音声フォーマット変換サービス（省略時は変換なしのパススルー動作）</param>
-    /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は標準 <see cref="LrcParser"/> を使用）</param>
+    /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は LRC 同梱無効）</param>
     public DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
@@ -430,7 +429,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="audioTranscodeService">転送時の音声フォーマット変換サービス</param>
     /// <param name="resolveMtpClient">MTPデバイスクライアント解決関数</param>
     /// <param name="showMessage">ユーザー通知メッセージ表示関数</param>
-    /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は標準 <see cref="LrcParser"/> を使用）</param>
+    /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は LRC 同梱無効）</param>
     internal DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
@@ -450,7 +449,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         _readDeviceStorageSpace = readDeviceStorageSpace ?? ReadDeviceStorageSpace;
         _settingsService = settingsService;
         _audioTranscodeService = audioTranscodeService ?? PassthroughAudioTranscodeService.Instance;
-        _lrcParser = lrcParser ?? new LrcParser();
+        _lrcParser = lrcParser;
         _resolveMtpClient = resolveMtpClient ?? DefaultResolveMtpClient;
         _showMessage = showMessage ?? DefaultShowMessage;
 
@@ -2790,6 +2789,11 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (mtpClient.FileExists(lrcDestPath))
+            {
+                mtpClient.DeleteFile(lrcDestPath);
+            }
+
             mtpClient.UploadFile(lrcSourcePath, lrcDestPath);
         }
         catch (OperationCanceledException)
@@ -3042,6 +3046,12 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         bool FileExists(string path);
 
         /// <summary>
+        /// デバイス上の指定ファイルを削除します。
+        /// </summary>
+        /// <param name="path">削除対象デバイスファイルパス</param>
+        void DeleteFile(string path);
+
+        /// <summary>
         /// ローカルファイルをデバイスへアップロードします。
         /// </summary>
         /// <param name="sourceFilePath">転送元ローカルファイルパス</param>
@@ -3073,6 +3083,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         public IEnumerable<string> GetFiles(string path) => _device.GetFiles(path);
 
         public bool FileExists(string path) => _device.FileExists(path);
+
+        public void DeleteFile(string path) => _device.DeleteFile(path);
 
         public void UploadFile(string sourceFilePath, string destinationFilePath) => _device.UploadFile(sourceFilePath, destinationFilePath);
     }
