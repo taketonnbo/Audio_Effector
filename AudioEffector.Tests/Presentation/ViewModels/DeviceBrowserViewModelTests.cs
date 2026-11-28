@@ -3562,6 +3562,330 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// 複数曲の転送中に 1 曲目の変換・転送完了後に CancelTransfer を実行した場合、
+    /// 2 曲目以降が安全に中止され、一時ファイルや不完全ファイルが残らず、成功済み曲のみ IsOnDevice が反映されてキャンセル結果サマリが通知されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferSelectedAsync_転送中にCancelTransfer呼び出し時_安全に中止され一時ファイルが残らずキャンセルサマリが通知されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_CancelTransfer_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string track1Path = Path.Combine(sourceDir, "01.flac");
+        string track2Path = Path.Combine(sourceDir, "02.flac");
+        File.WriteAllText(track1Path, "flac-track-1");
+        File.WriteAllText(track2Path, "flac-track-2");
+
+        var t1 = new Track { Title = "Track 1", Artist = "ArtistCancel", Album = "AlbumCancel", FilePath = track1Path, IsSelected = true };
+        var t2 = new Track { Title = "Track 2", Artist = "ArtistCancel", Album = "AlbumCancel", FilePath = track2Path, IsSelected = true };
+        var album = new Album("AlbumCancel", "ArtistCancel", 2026, new[] { t1, t2 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.ConvertFlacToMp3 = true);
+
+        using var secondTrackStarted = new ManualResetEventSlim(false);
+        string? secondTempDir = null;
+        var cancelableTranscoder = new CallbackAudioTranscodeService(async (sourcePath, options, ct) =>
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"AE_CancelTmp_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            string targetName = Path.ChangeExtension(Path.GetFileName(sourcePath), ".mp3");
+            string outputPath = Path.Combine(tempDir, targetName);
+            File.WriteAllText(outputPath, "transcoded-mp3");
+
+            if (sourcePath.EndsWith("02.flac", StringComparison.OrdinalIgnoreCase))
+            {
+                secondTempDir = tempDir;
+                secondTrackStarted.Set();
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, recursive: true);
+                    }
+
+                    throw;
+                }
+            }
+
+            return new TranscodedAudioResult(sourcePath, outputPath, targetName, wasTranscoded: true, temporaryDirectoryPath: tempDir);
+        });
+
+        TransferResultSummary? capturedSummary = null;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (true, 1000L * 1024 * 1024, 500L * 1024 * 1024),
+                settingsService: settingsService,
+                audioTranscodeService: cancelableTranscoder,
+                resolveMtpClient: null,
+                showMessage: null,
+                confirmTransfer: _ => true,
+                showTransferResult: summary => capturedSummary = summary);
+
+            sut.SelectedDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "USB (C:\\)",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = deviceDir
+            };
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            var transferTask = sut.TransferSelectedAsync();
+            Assert.True(secondTrackStarted.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(sut.CancelTransferCommand.CanExecute(null));
+
+            sut.CancelTransferCommand.Execute(null);
+            Assert.True(sut.IsCancelling);
+            Assert.False(sut.CancelTransferCommand.CanExecute(null));
+
+            await transferTask;
+
+            // Assert
+            Assert.NotNull(capturedSummary);
+            Assert.True(capturedSummary!.WasCancelled);
+            Assert.Equal(1, capturedSummary.SuccessCount);
+            Assert.Equal(0, capturedSummary.FailedCount);
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistCancel", "AlbumCancel", "01.mp3")));
+            Assert.False(File.Exists(Path.Combine(deviceDir, "ArtistCancel", "AlbumCancel", "02.mp3")));
+            Assert.True(secondTempDir == null || !Directory.Exists(secondTempDir));
+            Assert.True(t1.IsOnDevice);
+            Assert.False(t2.IsOnDevice);
+            Assert.False(sut.IsTransferring);
+            Assert.False(sut.IsCancelling);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 転送対象のうち 1 曲で変換エラー・1 曲でファイル不在が発生しても残りの曲の転送が継続され、
+    /// 成功件数・スキップ件数・失敗曲一覧（曲名・エラー理由）および詳細進捗（変換中／コピー中／スキップ中）が正しく通知されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferTracksToFileSystemAsync_個別曲エラーおよび重複スキップ混在時_残り曲が継続転送され結果サマリと詳細進捗が正確であること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_PerTrackError_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string existingPath = Path.Combine(sourceDir, "01_Existing.mp3");
+        string failTranscodePath = Path.Combine(sourceDir, "02_Corrupt.flac");
+        string missingPath = Path.Combine(sourceDir, "03_Missing.mp3");
+        string okFlacPath = Path.Combine(sourceDir, "04_Success.flac");
+        File.WriteAllText(existingPath, "mp3-1");
+        File.WriteAllText(failTranscodePath, "corrupt-flac");
+        File.WriteAllText(okFlacPath, "good-flac");
+
+        // 01_Existing は既にデバイス上に存在させて重複スキップにする
+        string destAlbumDir = Path.Combine(deviceDir, "ArtistErr", "AlbumErr");
+        Directory.CreateDirectory(destAlbumDir);
+        File.WriteAllText(Path.Combine(destAlbumDir, "01_Existing.mp3"), "already-on-device");
+
+        var t1 = new Track { Title = "Existing Song", Artist = "ArtistErr", Album = "AlbumErr", FilePath = existingPath };
+        var t2 = new Track { Title = "Corrupt FLAC", Artist = "ArtistErr", Album = "AlbumErr", FilePath = failTranscodePath };
+        var t3 = new Track { Title = "Missing File", Artist = "ArtistErr", Album = "AlbumErr", FilePath = missingPath };
+        var t4 = new Track { Title = "Good FLAC", Artist = "ArtistErr", Album = "AlbumErr", FilePath = okFlacPath };
+        var album = new Album("AlbumErr", "ArtistErr", 2026, new[] { t1, t2, t3, t4 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var transcoder = new CallbackAudioTranscodeService((sourcePath, options, ct) =>
+        {
+            if (sourcePath.EndsWith("02_Corrupt.flac", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException("FLAC デコードに失敗しました");
+            }
+
+            string tempDir = Path.Combine(Path.GetTempPath(), $"AE_OkTrans_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            string targetName = Path.ChangeExtension(Path.GetFileName(sourcePath), ".mp3");
+            string outPath = Path.Combine(tempDir, targetName);
+            File.WriteAllText(outPath, "ok-mp3");
+            return Task.FromResult(new TranscodedAudioResult(sourcePath, outPath, targetName, wasTranscoded: true, temporaryDirectoryPath: tempDir));
+        });
+
+        var observedPhases = new List<string>();
+        var detailProgress = new SynchronousProgress<TransferProgressInfo>(info => observedPhases.Add(info.PhaseText));
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                audioTranscodeService: transcoder);
+
+            // Act
+            var summary = await sut.TransferTracksToFileSystemAsync(
+                new[] { t1, t2, t3, t4 },
+                deviceDir,
+                new AudioTranscodeOptions { ConvertFlacToMp3 = true },
+                detailProgress: detailProgress);
+
+            // Assert
+            Assert.False(summary.WasCancelled);
+            Assert.False(summary.WasAbortedByFatalError);
+            Assert.Equal(1, summary.SuccessCount);
+            Assert.Equal(1, summary.SkippedCount);
+            Assert.Equal(2, summary.FailedCount);
+            Assert.Contains(summary.FailedItems, item => item.TrackTitle == "Corrupt FLAC" && item.ErrorReason.Contains("FLAC デコードに失敗しました"));
+            Assert.Contains(summary.FailedItems, item => item.TrackTitle == "Missing File" && item.ErrorReason.Contains("見つかりません"));
+            Assert.True(File.Exists(Path.Combine(destAlbumDir, "04_Success.mp3")));
+            Assert.Contains("スキップ中...", observedPhases);
+            Assert.Contains("変換中 (FLAC → MP3)...", observedPhases);
+            Assert.Contains("コピー中...", observedPhases);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// MTP 転送中にデバイス切断が発生した場合、回復不能エラーとして残りの転送を安全に中断し、
+    /// WasAbortedByFatalError とエラーメッセージが結果サマリに記録されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferTracksToMtpAsync_転送中にデバイス切断発生時_回復不能エラーとして安全中断されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_MtpDisconnect_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        Directory.CreateDirectory(sourceDir);
+
+        string track1Path = Path.Combine(sourceDir, "01.mp3");
+        string track2Path = Path.Combine(sourceDir, "02.mp3");
+        File.WriteAllText(track1Path, "mp3-1");
+        File.WriteAllText(track2Path, "mp3-2");
+
+        var t1 = new Track { Title = "Track 1", Artist = "ArtistMtp", Album = "AlbumMtp", FilePath = track1Path };
+        var t2 = new Track { Title = "Track 2", Artist = "ArtistMtp", Album = "AlbumMtp", FilePath = track2Path };
+        var album = new Album("AlbumMtp", "ArtistMtp", 2026, new[] { t1, t2 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var fakeMtp = new FakeMtpDeviceClient();
+        fakeMtp.Connect();
+        fakeMtp.AddDirectory(@"\Music");
+        int uploadAttempts = 0;
+        fakeMtp.OnUploadFile = (_, _) =>
+        {
+            uploadAttempts++;
+            fakeMtp.Disconnect();
+            throw new IOException("デバイスが切断されました");
+        };
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: null);
+
+            // Act
+            var summary = await sut.TransferTracksToMtpAsync(
+                fakeMtp,
+                new[] { t1, t2 },
+                @"\Music",
+                new AudioTranscodeOptions());
+
+            // Assert
+            Assert.True(summary.WasAbortedByFatalError);
+            Assert.True(summary.HasFatalError);
+            Assert.Equal(0, summary.SuccessCount);
+            Assert.Equal(1, summary.FailedCount);
+            Assert.Equal(1, uploadAttempts);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed class SynchronousProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _onReport;
+
+        public SynchronousProgress(Action<T> onReport)
+        {
+            _onReport = onReport;
+        }
+
+        public void Report(T value) => _onReport(value);
+    }
+
+    private sealed class CallbackAudioTranscodeService : IAudioTranscodeService
+    {
+        private readonly Func<string, AudioTranscodeOptions, CancellationToken, Task<TranscodedAudioResult>> _prepare;
+
+        public CallbackAudioTranscodeService(
+            Func<string, AudioTranscodeOptions, CancellationToken, Task<TranscodedAudioResult>> prepare)
+        {
+            _prepare = prepare;
+        }
+
+        public bool NeedsTranscode(string sourceFilePath, AudioTranscodeOptions options)
+        {
+            string ext = Path.GetExtension(sourceFilePath);
+            return (options.ConvertFlacToMp3 && ext.Equals(".flac", StringComparison.OrdinalIgnoreCase))
+                || (options.ConvertMp4ToM4a && ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase));
+        }
+
+        public string ResolveTargetFileName(string sourceFilePath, AudioTranscodeOptions options)
+        {
+            string fileName = Path.GetFileName(sourceFilePath);
+            if (NeedsTranscode(sourceFilePath, options))
+            {
+                string ext = Path.GetExtension(fileName);
+                return ext.Equals(".flac", StringComparison.OrdinalIgnoreCase)
+                    ? Path.ChangeExtension(fileName, ".mp3")
+                    : Path.ChangeExtension(fileName, ".m4a");
+            }
+
+            return fileName;
+        }
+
+        public Task<TranscodedAudioResult> PrepareForTransferAsync(
+            string sourceFilePath,
+            AudioTranscodeOptions options,
+            CancellationToken cancellationToken = default)
+        {
+            if (!NeedsTranscode(sourceFilePath, options))
+            {
+                return Task.FromResult(TranscodedAudioResult.Passthrough(sourceFilePath));
+            }
+
+            return _prepare(sourceFilePath, options, cancellationToken);
+        }
+    }
+
     private sealed class FakeMtpDeviceClient : DeviceBrowserViewModel.IMtpDeviceClient
     {
         private readonly object _sync = new();
