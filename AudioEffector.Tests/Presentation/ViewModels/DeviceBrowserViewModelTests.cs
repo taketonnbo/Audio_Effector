@@ -3115,10 +3115,16 @@ public sealed class DeviceBrowserViewModelTests
     public void ApplyDeviceTrackIndex_確定済みアルバムと空白フォールバックアルバム混在時_所有者マップによる別アルバム衝突防止が等価に動作すること()
     {
         // Arrange
-        // 1. Artist/Title が確定済みの複数トラックアルバム（ショートカット経路）
+        // 1. Artist/Title が確定済みの複数トラックアルバム（前後空白付きプロパティでショートカット側の Trim() を直接検証）
         var confirmedTrack1 = new Track { Title = "Track 1", Artist = "Performer X", AlbumArtist = "A_B", Album = "Album_1", FilePath = @"C:\Music\confirmed\01.mp3" };
         var confirmedTrack2 = new Track { Title = "Track 2", Artist = "Performer Y", AlbumArtist = "A_B", Album = "Album_1", FilePath = @"C:\Music\confirmed\02.mp3" };
-        var confirmedAlbum = new Album("  Album_1  ", "  A_B  ", 2026, new[] { confirmedTrack1, confirmedTrack2 });
+        var confirmedAlbum = new Album
+        {
+            Title = "  Album_1  ",
+            Artist = "  A_B  ",
+            Year = 2026,
+            Tracks = new List<Track> { confirmedTrack1, confirmedTrack2 }
+        };
 
         // 2. 禁止文字を含む別アルバム（旧除去互換候補 "AB\Album1" が下の空白アルバム正規配置と衝突）
         var colonTrack = new Track { Title = "Colon Song", Artist = "A:B", AlbumArtist = "A:B", Album = "Album:1", FilePath = @"C:\Music\colon\01.mp3" };
