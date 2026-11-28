@@ -1,5 +1,7 @@
 using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Presentation.Views;
 using MediaDevices;
 using System;
@@ -26,6 +28,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private readonly Func<IReadOnlyList<Album>> _getAlbums;
     private readonly Action _onCheckDeviceAlbumsRequested;
     private readonly ISettingsService? _settingsService;
+    private readonly IAudioTranscodeService _audioTranscodeService;
     private readonly Func<string, long> _getFileSizeBytes;
     private readonly Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)> _readDeviceStorageSpace;
     private readonly Dictionary<string, long> _fileSizeCache = new(StringComparer.OrdinalIgnoreCase);
@@ -374,14 +377,16 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="onCheckDeviceAlbumsRequested">デバイスアルバムチェック要求コールバック</param>
     /// <param name="getFileSizeBytes">トラックのファイルサイズ取得関数（テスト差し替え用、省略時はFileInfoを使用）</param>
     /// <param name="readDeviceStorageSpace">接続機器の容量取得関数（テスト差し替え用、省略時は実ストレージ読取を使用）</param>
-    /// <param name="settingsService">アプリケーション設定永続化サービス（既定フォルダ記憶用）</param>
+    /// <param name="settingsService">アプリケーション設定永続化サービス（既定フォルダ記憶・形式変換設定用）</param>
+    /// <param name="audioTranscodeService">転送時の音声フォーマット変換サービス（省略時はMediaFoundation標準実装）</param>
     public DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
         Action onCheckDeviceAlbumsRequested,
         Func<string, long>? getFileSizeBytes = null,
         Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)>? readDeviceStorageSpace = null,
-        ISettingsService? settingsService = null)
+        ISettingsService? settingsService = null,
+        IAudioTranscodeService? audioTranscodeService = null)
     {
         _albumsRef = albumsRef ?? throw new ArgumentNullException(nameof(albumsRef));
         _getAlbums = getAlbums ?? throw new ArgumentNullException(nameof(getAlbums));
@@ -389,6 +394,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         _getFileSizeBytes = getFileSizeBytes ?? DefaultGetFileSizeBytes;
         _readDeviceStorageSpace = readDeviceStorageSpace ?? ReadDeviceStorageSpace;
         _settingsService = settingsService;
+        _audioTranscodeService = audioTranscodeService ?? new MediaFoundationAudioTranscodeService();
 
         RemovableDrives.CollectionChanged += OnRemovableDrivesCollectionChanged;
         _albumsRef.CollectionChanged += OnAlbumsCollectionChanged;
@@ -1758,48 +1764,16 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         try
         {
             var progress = new Progress<double>(p => TransferProgress = p);
+            var transcodeOptions = GetCurrentTranscodeOptions();
 
             if (SelectedDevice.Type == MainViewModel.DeviceType.FileSystem)
             {
-                await Task.Run(() =>
-                {
-                    int total = tracksToTransfer.Count;
-                    int current = 0;
-                    foreach (var track in tracksToTransfer)
-                    {
-                        if (!System.IO.File.Exists(track.FilePath)) continue;
-
-                        string artist = SanitizeFileName(track.Artist);
-                        string album = SanitizeFileName(track.Album);
-                        string fileName = System.IO.Path.GetFileName(track.FilePath);
-
-                        string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
-                        string destPath = System.IO.Path.Combine(targetDir, fileName);
-
-                        // Skip if already exists
-                        if (System.IO.File.Exists(destPath))
-                        {
-                            current++;
-                            ((IProgress<double>)progress).Report((double)current / total * 100);
-                            continue;
-                        }
-
-                        if (!System.IO.Directory.Exists(targetDir))
-                        {
-                            System.IO.Directory.CreateDirectory(targetDir);
-                        }
-
-                        System.IO.File.Copy(track.FilePath, destPath, true);
-
-                        current++;
-                        ((IProgress<double>)progress).Report((double)current / total * 100);
-                    }
-                });
+                await TransferTracksToFileSystemAsync(tracksToTransfer, destinationFolder, transcodeOptions, progress);
             }
             else if (SelectedDevice.Type == MainViewModel.DeviceType.MTP && SelectedDevice.MtpDevice != null)
             {
                 var mtpDevice = SelectedDevice.MtpDevice;
-                await Task.Run(() =>
+                await Task.Run(async () =>
                 {
                     int total = tracksToTransfer.Count;
                     int current = 0;
@@ -1809,7 +1783,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
                         string artist = SanitizeFileName(track.Artist);
                         string album = SanitizeFileName(track.Album);
-                        string fileName = System.IO.Path.GetFileName(track.FilePath);
+                        string targetFileName = _audioTranscodeService.ResolveTargetFileName(track.FilePath, transcodeOptions);
 
                         string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
 
@@ -1830,11 +1804,17 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                             System.Diagnostics.Debug.WriteLine($"Error creating MTP directory: {ex.Message}");
                         }
 
-                        string destPath = System.IO.Path.Combine(targetDir, fileName);
+                        string destPath = System.IO.Path.Combine(targetDir, targetFileName);
+                        string originalDestPath = System.IO.Path.Combine(targetDir, System.IO.Path.GetFileName(track.FilePath));
 
-                        // Skip if already exists
+                        // 変換後または元ファイル名のいずれかが既に存在する場合はスキップ（#170 重複判定整合）
                         bool fileExists = false;
-                        try { fileExists = mtpDevice.FileExists(destPath); } catch { }
+                        try
+                        {
+                            fileExists = mtpDevice.FileExists(destPath)
+                                || (!string.Equals(destPath, originalDestPath, StringComparison.OrdinalIgnoreCase) && mtpDevice.FileExists(originalDestPath));
+                        }
+                        catch { }
 
                         if (fileExists)
                         {
@@ -1843,7 +1823,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                             continue;
                         }
 
-                        mtpDevice.UploadFile(track.FilePath, destPath);
+                        using var prepared = await _audioTranscodeService.PrepareForTransferAsync(track.FilePath, transcodeOptions).ConfigureAwait(false);
+                        mtpDevice.UploadFile(prepared.OutputFilePath, destPath);
 
                         current++;
                         ((IProgress<double>)progress).Report((double)current / total * 100);
@@ -1865,6 +1846,88 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             IsTransferring = false;
             TransferProgress = 0;
         }
+    }
+
+    /// <summary>
+    /// 現在の設定から音声フォーマット変換オプションを取得します。
+    /// </summary>
+    /// <returns>音声フォーマット変換オプション</returns>
+    internal AudioTranscodeOptions GetCurrentTranscodeOptions()
+    {
+        if (_settingsService == null)
+        {
+            return new AudioTranscodeOptions();
+        }
+
+        try
+        {
+            var settings = _settingsService.LoadSettings();
+            return new AudioTranscodeOptions
+            {
+                ConvertMp4ToM4a = settings.ConvertMp4ToM4a
+            };
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error loading transcode settings: {ex.Message}");
+            return new AudioTranscodeOptions();
+        }
+    }
+
+    /// <summary>
+    /// ファイルシステムデバイスへトラック群を転送します（設定に応じて形式変換および一時ファイル後始末を実施）。
+    /// </summary>
+    /// <param name="tracksToTransfer">転送対象トラック一覧</param>
+    /// <param name="destinationFolder">転送先ルートフォルダ</param>
+    /// <param name="transcodeOptions">音声フォーマット変換オプション</param>
+    /// <param name="progress">進捗通知（0〜100）</param>
+    /// <param name="cancellationToken">キャンセルトークン</param>
+    /// <returns>非同期タスク</returns>
+    internal Task TransferTracksToFileSystemAsync(
+        IReadOnlyList<Track> tracksToTransfer,
+        string destinationFolder,
+        AudioTranscodeOptions transcodeOptions,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(async () =>
+        {
+            int total = tracksToTransfer.Count;
+            int current = 0;
+            foreach (var track in tracksToTransfer)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!System.IO.File.Exists(track.FilePath)) continue;
+
+                string artist = SanitizeFileName(track.Artist);
+                string album = SanitizeFileName(track.Album);
+                string targetFileName = _audioTranscodeService.ResolveTargetFileName(track.FilePath, transcodeOptions);
+
+                string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
+                string destPath = System.IO.Path.Combine(targetDir, targetFileName);
+                string originalDestPath = System.IO.Path.Combine(targetDir, System.IO.Path.GetFileName(track.FilePath));
+
+                // 変換後または元ファイル名のいずれかが既に存在する場合はスキップ（#170 重複判定整合）
+                if (System.IO.File.Exists(destPath)
+                    || (!string.Equals(destPath, originalDestPath, StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(originalDestPath)))
+                {
+                    current++;
+                    progress?.Report((double)current / total * 100);
+                    continue;
+                }
+
+                if (!System.IO.Directory.Exists(targetDir))
+                {
+                    System.IO.Directory.CreateDirectory(targetDir);
+                }
+
+                using var prepared = await _audioTranscodeService.PrepareForTransferAsync(track.FilePath, transcodeOptions, cancellationToken).ConfigureAwait(false);
+                System.IO.File.Copy(prepared.OutputFilePath, destPath, true);
+
+                current++;
+                progress?.Report((double)current / total * 100);
+            }
+        }, cancellationToken);
     }
 
     /// <summary>
