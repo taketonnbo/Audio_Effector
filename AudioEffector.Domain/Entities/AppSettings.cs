@@ -141,6 +141,11 @@ public class AppSettings
     public bool ConvertFlacToMp3 { get; set; }
 
     /// <summary>
+    /// LRC 自動生成機能の著作権・利用ガイドラインを確認・承諾済みかどうか
+    /// </summary>
+    public bool HasAcceptedLrcCopyrightGuideline { get; set; }
+
+    /// <summary>
     /// 接続機器識別子ごとの既定転送先フォルダパス辞書
     /// </summary>
     public Dictionary<string, string> DeviceDefaultTransferFolders

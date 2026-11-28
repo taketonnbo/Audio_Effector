@@ -490,11 +490,136 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- 状態 3: 入力・待機状態（2つの独立した生成モード＋非UTF-8警告インラインバー併存） -->
+                <!-- 状態 3: 入力・待機状態（著作権ガイドライン＋2つの独立した生成モード＋非UTF-8警告インラインバー併存） -->
                 <ScrollViewer Visibility="{Binding IsInputState, Converter={StaticResource BoolToVis}}"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="16">
+                        <!-- 初回未承諾時の著作権・利用ガイドライン警告・確認カード -->
+                        <Border x:Name="CopyrightGuidelineAcceptBanner"
+                                Background="{DynamicResource ControlBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Margin="0,0,0,12"
+                                Visibility="{Binding NeedsCopyrightGuidelineAcceptance, Converter={StaticResource BoolToVis}}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="3"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="{DynamicResource NeonCyanBrush}" CornerRadius="2,0,0,2"/>
+                                <StackPanel Grid.Column="1" Margin="12">
+                                    <TextBlock Text="⚠ 著作権・利用ガイドラインの確認"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextForegroundBrush}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,6"/>
+                                    <TextBlock Text="LRC 自動生成機能を利用する前に、以下のガイドラインをご確認ください。確認・承諾後に生成機能をご利用いただけます。"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,6"/>
+                                    <TextBlock Text="・私的使用の範囲内での利用: 入力する歌詞テキスト（.txt）・対象楽曲および生成した .lrc ファイルは、ご自身が適法に所有・入手したコンテンツを用い、個人的・家庭内など著作権法上の私的使用の範囲内でご利用ください。"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,4"/>
+                                    <TextBlock Text="・無断共有・公開・配布・商用利用の禁止: 権利者の許諾なく、生成・文字起こしした歌詞データや .lrc ファイルを Web サイト・SNS・ファイル共有サービス等へ公開・配布・転載・商用利用しないでください。"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,4"/>
+                                    <TextBlock Text="・ローカル完結処理と利用者責任: 音声解析および LRC 生成処理は端末内のローカル環境で完結し外部サーバーへ送信しませんが、著作権法その他関係法令の遵守は利用者の責任において行ってください。"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,10"/>
+                                    <WrapPanel HorizontalAlignment="Right">
+                                        <Button x:Name="AcceptCopyrightGuidelineButton"
+                                                Style="{StaticResource LrcPrimaryButtonStyle}"
+                                                Command="{Binding AcceptCopyrightGuidelineCommand}"
+                                                ToolTip="著作権・利用ガイドラインに同意し、LRC 自動生成機能を有効化します"
+                                                AutomationProperties.Name="著作権・利用ガイドラインを確認して利用する">
+                                            <TextBlock Text="ガイドラインを確認して利用する"
+                                                       TextWrapping="Wrap"
+                                                       TextAlignment="Center"/>
+                                        </Button>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- 承諾後の常設・控えめなガイドライン注意表示 -->
+                        <Border x:Name="CopyrightGuidelineNoticeBar"
+                                Background="{DynamicResource ControlBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="10,6"
+                                Margin="0,0,0,12"
+                                Visibility="{Binding HasAcceptedCopyrightGuideline, Converter={StaticResource BoolToVis}}">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="CopyrightGuidelineShortNoticeText"
+                                               Grid.Column="0"
+                                               Text="※ 生成した歌詞・LRC は私的使用の範囲内でご利用ください（無断公開・配布禁止）。"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                               TextWrapping="Wrap"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,8,0"/>
+                                    <Button x:Name="ToggleCopyrightGuidelineButton"
+                                            Grid.Column="1"
+                                            Style="{StaticResource LrcSubtleButtonStyle}"
+                                            Command="{Binding ToggleCopyrightGuidelineCommand}"
+                                            VerticalAlignment="Center"
+                                            ToolTip="著作権・利用ガイドラインの詳細を表示または折りたたみます"
+                                            AutomationProperties.Name="著作権・利用ガイドラインの詳細を切り替え">
+                                        <Button.Content>
+                                            <TextBlock>
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text" Value="詳細"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsCopyrightGuidelineExpanded}" Value="True">
+                                                                <Setter Property="Text" Value="閉じる"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Button.Content>
+                                    </Button>
+                                </Grid>
+
+                                <StackPanel x:Name="CopyrightGuidelineDetailPanel"
+                                            Margin="0,8,0,0"
+                                            Visibility="{Binding IsCopyrightGuidelineExpanded, Converter={StaticResource BoolToVis}}">
+                                    <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,0,0,8"/>
+                                    <TextBlock Text="・私的使用の範囲内での利用: 入力する歌詞テキスト（.txt）・対象楽曲および生成した .lrc ファイルは、ご自身が適法に所有・入手したコンテンツを用い、個人的・家庭内など著作権法上の私的使用の範囲内でご利用ください。"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,4"/>
+                                    <TextBlock Text="・無断共有・公開・配布・商用利用の禁止: 権利者の許諾なく、生成・文字起こしした歌詞データや .lrc ファイルを Web サイト・SNS・ファイル共有サービス等へ公開・配布・転載・商用利用しないでください。"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,4"/>
+                                    <TextBlock Text="・ローカル完結処理と利用者責任: 音声解析および LRC 生成処理は端末内のローカル環境で完結し外部サーバーへ送信しませんが、著作権法その他関係法令の遵守は利用者の責任において行ってください。"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <!-- セクション 1: テキストファイル (.txt) から生成 -->
                         <TextBlock Text="1. テキストファイル (.txt) から LRC を生成"
                                    FontSize="13"

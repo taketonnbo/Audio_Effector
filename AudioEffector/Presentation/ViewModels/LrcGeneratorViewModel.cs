@@ -12,6 +12,7 @@ using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.ValueObjects;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Win32;
 
 namespace AudioEffector.Presentation.ViewModels;
@@ -27,6 +28,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     private readonly LrcGenerationApplicationService _generationService;
     private readonly IAudioService _audioService;
     private readonly IUiDispatcher _uiDispatcher;
+    private readonly ISettingsService? _settingsService;
     private readonly Func<string?> _selectTextFileFunc;
     private readonly Func<string?> _selectModelFileFunc;
     private readonly Action<string> _openFolderAction;
@@ -35,6 +37,8 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     private readonly GeneratorCommand _downloadDefaultModelCommand;
     private readonly GeneratorCommand _selectCustomModelFileCommand;
     private readonly GeneratorCommand _cancelModelDownloadCommand;
+    private readonly GeneratorCommand _acceptCopyrightGuidelineCommand;
+    private readonly GeneratorCommand _toggleCopyrightGuidelineCommand;
     private readonly GeneratorCommand _selectTextFileCommand;
     private readonly GeneratorCommand _clearTextFileCommand;
     private readonly GeneratorCommand _confirmEncodingConversionCommand;
@@ -102,6 +106,9 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     private string _errorMessage = string.Empty;
     private bool _isModelDownloadError;
     private LrcGenerationMode _lastExecutedMode = LrcGenerationMode.TextAlignment;
+
+    private bool _hasAcceptedCopyrightGuideline;
+    private bool _isCopyrightGuidelineExpanded;
 
     /// <summary>
     /// 同期歌詞表示パネル（<c>LyricsView</c>）へ戻る操作が要求された際に発生するイベント
@@ -635,6 +642,36 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         private set => SetProperty(ref _errorMessage, value);
     }
 
+    /// <summary>
+    /// 利用者が LRC 自動生成の著作権・利用ガイドラインを確認・承諾済みかどうかを取得します
+    /// </summary>
+    public bool HasAcceptedCopyrightGuideline
+    {
+        get => _hasAcceptedCopyrightGuideline;
+        private set
+        {
+            if (SetProperty(ref _hasAcceptedCopyrightGuideline, value))
+            {
+                OnPropertyChanged(nameof(NeedsCopyrightGuidelineAcceptance));
+                InvalidateAllCommands();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 初回の著作権・利用ガイドライン警告・確認カードを表示すべきかどうかを取得します
+    /// </summary>
+    public bool NeedsCopyrightGuidelineAcceptance => !_hasAcceptedCopyrightGuideline;
+
+    /// <summary>
+    /// 承諾後の常設ガイドライン注意表示でガイドライン全文を展開表示中かどうかを取得します
+    /// </summary>
+    public bool IsCopyrightGuidelineExpanded
+    {
+        get => _isCopyrightGuidelineExpanded;
+        private set => SetProperty(ref _isCopyrightGuidelineExpanded, value);
+    }
+
     // 6 排他視覚状態プロパティ（LRC自動生成UI仕様書 §3.3・§7.2 準拠）
 
     /// <summary>モデルダウンロード中ビューを表示すべきかどうかを取得します</summary>
@@ -665,6 +702,12 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
     /// <summary>モデルダウンロードをキャンセルするコマンドを取得します</summary>
     public ICommand CancelModelDownloadCommand => _cancelModelDownloadCommand;
+
+    /// <summary>著作権・利用ガイドラインを確認・承諾して永続化するコマンドを取得します</summary>
+    public ICommand AcceptCopyrightGuidelineCommand => _acceptCopyrightGuidelineCommand;
+
+    /// <summary>承諾後の常設ガイドライン詳細表示の展開・折りたたみを切り替えるコマンドを取得します</summary>
+    public ICommand ToggleCopyrightGuidelineCommand => _toggleCopyrightGuidelineCommand;
 
     /// <summary>入力歌詞テキストファイル（.txt）を選択するコマンドを取得します</summary>
     public ICommand SelectTextFileCommand => _selectTextFileCommand;
@@ -733,7 +776,24 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         LrcGenerationApplicationService generationService,
         IAudioService audioService,
         IUiDispatcher uiDispatcher)
-        : this(generationService, audioService, uiDispatcher, null, null, null, null)
+        : this(generationService, audioService, uiDispatcher, null, null, null, null, null)
+    {
+    }
+
+    /// <summary>
+    /// アプリケーション設定サービスを注入して <see cref="LrcGeneratorViewModel"/> の新しいインスタンスを初期化します
+    /// </summary>
+    /// <param name="generationService">LRC 自動生成アプリケーションサービス</param>
+    /// <param name="audioService">オーディオ再生サービス（プレビュー行クリックシーク連携用）</param>
+    /// <param name="uiDispatcher">UI スレッドディスパッチャー</param>
+    /// <param name="settingsService">アプリケーション設定サービス（著作権ガイドライン承諾状態の読み込み・永続化用）</param>
+    [ActivatorUtilitiesConstructor]
+    public LrcGeneratorViewModel(
+        LrcGenerationApplicationService generationService,
+        IAudioService audioService,
+        IUiDispatcher uiDispatcher,
+        ISettingsService? settingsService)
+        : this(generationService, audioService, uiDispatcher, null, null, null, null, settingsService)
     {
     }
 
@@ -747,6 +807,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     /// <param name="selectModelFileFunc">`.bin` モデルファイル選択デリゲート（任意）</param>
     /// <param name="openFolderAction">保存先フォルダを開くアクション（任意）</param>
     /// <param name="fileExistsFunc">音声ファイル存在確認デリゲート（任意・既定 <see cref="File.Exists"/>）</param>
+    /// <param name="settingsService">アプリケーション設定サービス（任意）</param>
     internal LrcGeneratorViewModel(
         LrcGenerationApplicationService generationService,
         IAudioService audioService,
@@ -754,22 +815,28 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         Func<string?>? selectTextFileFunc,
         Func<string?>? selectModelFileFunc,
         Action<string>? openFolderAction,
-        Func<string, bool>? fileExistsFunc = null)
+        Func<string, bool>? fileExistsFunc = null,
+        ISettingsService? settingsService = null)
     {
         _generationService = generationService ?? throw new ArgumentNullException(nameof(generationService));
         _audioService = audioService ?? throw new ArgumentNullException(nameof(audioService));
         _uiDispatcher = uiDispatcher ?? throw new ArgumentNullException(nameof(uiDispatcher));
+        _settingsService = settingsService;
         _selectTextFileFunc = selectTextFileFunc ?? ShowSelectTextFileDialog;
         _selectModelFileFunc = selectModelFileFunc ?? ShowSelectModelFileDialog;
         _openFolderAction = openFolderAction ?? OpenFolderInExplorer;
         _fileExistsFunc = fileExistsFunc ?? File.Exists;
 
+        _hasAcceptedCopyrightGuideline = LoadCopyrightGuidelineAcceptedState(_settingsService);
         _activeModelInfo = _generationService.GetActiveModelInfo();
         _selectedLanguageOption = LanguageOptions[0];
 
         _downloadDefaultModelCommand = new GeneratorCommand(_ => _ = DownloadDefaultModelAsync(), _ => !IsBusy);
         _selectCustomModelFileCommand = new GeneratorCommand(_ => SelectCustomModelFile(), _ => !IsBusy);
         _cancelModelDownloadCommand = new GeneratorCommand(_ => CancelActiveOperation(), _ => IsModelDownloading && !IsCancelling);
+
+        _acceptCopyrightGuidelineCommand = new GeneratorCommand(_ => _ = AcceptCopyrightGuidelineAsync(), _ => !HasAcceptedCopyrightGuideline && !IsBusy);
+        _toggleCopyrightGuidelineCommand = new GeneratorCommand(_ => ToggleCopyrightGuideline(), _ => HasAcceptedCopyrightGuideline);
 
         _selectTextFileCommand = new GeneratorCommand(_ => _ = SelectTextFileAsync(), _ => !IsBusy && IsModelAvailable);
         _clearTextFileCommand = new GeneratorCommand(_ => ClearTextFile(), _ => !IsBusy && HasInputTextFile);
@@ -778,10 +845,10 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
         _generateLrcCommand = new GeneratorCommand(
             _ => _ = GenerateFromTextAsync(),
-            _ => !IsBusy && IsModelAvailable && _targetTrack is not null && !IsTargetAudioMissing && HasInputTextFile && !IsEncodingWarningVisible);
+            _ => !IsBusy && HasAcceptedCopyrightGuideline && IsModelAvailable && _targetTrack is not null && !IsTargetAudioMissing && HasInputTextFile && !IsEncodingWarningVisible);
         _transcribeAudioCommand = new GeneratorCommand(
             _ => _ = TranscribeFromAudioAsync(),
-            _ => !IsBusy && IsModelAvailable && _targetTrack is not null && !IsTargetAudioMissing);
+            _ => !IsBusy && HasAcceptedCopyrightGuideline && IsModelAvailable && _targetTrack is not null && !IsTargetAudioMissing);
         _cancelGenerationCommand = new GeneratorCommand(_ => CancelActiveOperation(), _ => IsGenerating && !IsCancelling);
 
         _adjustOffsetCommand = new GeneratorCommand(AdjustOffset, _ => HasResult && !IsBusy);
@@ -1138,12 +1205,42 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
+    /// 著作権・利用ガイドラインを承諾済みに更新し、アプリケーション設定へ非同期永続化します
+    /// </summary>
+    /// <returns>永続化完了を表す非同期タスク</returns>
+    public async Task AcceptCopyrightGuidelineAsync()
+    {
+        if (_disposed || _hasAcceptedCopyrightGuideline)
+        {
+            return;
+        }
+
+        HasAcceptedCopyrightGuideline = true;
+
+        if (_settingsService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _settingsService
+                .UpdateSettingsAsync(settings => settings.HasAcceptedLrcCopyrightGuideline = true)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"LRC 著作権ガイドライン承諾状態の保存に失敗しました: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// モード A: 選択済みテキストファイル（.txt）から LRC を非同期生成します
     /// </summary>
     /// <returns>非同期タスク</returns>
     public async Task GenerateFromTextAsync()
     {
-        if (IsBusy || _targetTrack is null || IsTargetAudioMissing || string.IsNullOrWhiteSpace(_inputTextFilePath) || IsEncodingWarningVisible)
+        if (IsBusy || !HasAcceptedCopyrightGuideline || _targetTrack is null || IsTargetAudioMissing || string.IsNullOrWhiteSpace(_inputTextFilePath) || IsEncodingWarningVisible)
         {
             return;
         }
@@ -1157,7 +1254,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     /// <returns>非同期タスク</returns>
     public async Task TranscribeFromAudioAsync()
     {
-        if (IsBusy || _targetTrack is null || IsTargetAudioMissing)
+        if (IsBusy || !HasAcceptedCopyrightGuideline || _targetTrack is null || IsTargetAudioMissing)
         {
             return;
         }
@@ -1762,11 +1859,41 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         InvalidateAllCommands();
     }
 
+    private void ToggleCopyrightGuideline()
+    {
+        if (!HasAcceptedCopyrightGuideline)
+        {
+            return;
+        }
+
+        IsCopyrightGuidelineExpanded = !IsCopyrightGuidelineExpanded;
+    }
+
+    private static bool LoadCopyrightGuidelineAcceptedState(ISettingsService? settingsService)
+    {
+        if (settingsService is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return settingsService.LoadSettings()?.HasAcceptedLrcCopyrightGuideline ?? false;
+        }
+        catch (Exception ex)
+        {
+            Trace.TraceWarning($"LRC 著作権ガイドライン承諾状態の読み込みに失敗しました: {ex.Message}");
+            return false;
+        }
+    }
+
     private void InvalidateAllCommands()
     {
         _downloadDefaultModelCommand.RaiseCanExecuteChanged();
         _selectCustomModelFileCommand.RaiseCanExecuteChanged();
         _cancelModelDownloadCommand.RaiseCanExecuteChanged();
+        _acceptCopyrightGuidelineCommand.RaiseCanExecuteChanged();
+        _toggleCopyrightGuidelineCommand.RaiseCanExecuteChanged();
         _selectTextFileCommand.RaiseCanExecuteChanged();
         _clearTextFileCommand.RaiseCanExecuteChanged();
         _confirmEncodingConversionCommand.RaiseCanExecuteChanged();

@@ -412,6 +412,9 @@ public sealed class MainViewModelTests
                 new StubModelManagerForMain(),
                 new StubLrcParserForMain(),
                 lyricsSvc);
+            var settingsMock = new Mock<ISettingsService>();
+            settingsMock.Setup(s => s.LoadSettings())
+                .Returns(new AppSettings { HasAcceptedLrcCopyrightGuideline = true });
             return new LrcGeneratorViewModel(
                 genSvc,
                 audioSvc,
@@ -419,7 +422,8 @@ public sealed class MainViewModelTests
                 selectTextFileFunc: null,
                 selectModelFileFunc: null,
                 openFolderAction: _ => { },
-                fileExistsFunc: _ => true);
+                fileExistsFunc: _ => true,
+                settingsService: settingsMock.Object);
         });
         using var sut = new MainViewModel();
         sut.IsRightPanelOpen = true;
@@ -491,6 +495,9 @@ public sealed class MainViewModelTests
                     new StubModelManagerForMain(),
                     parser,
                     lyricsSvc);
+                var settingsMock = new Mock<ISettingsService>();
+                settingsMock.Setup(s => s.LoadSettings())
+                    .Returns(new AppSettings { HasAcceptedLrcCopyrightGuideline = true });
                 return new LrcGeneratorViewModel(
                     genSvc,
                     audioSvc,
@@ -498,7 +505,8 @@ public sealed class MainViewModelTests
                     selectTextFileFunc: null,
                     selectModelFileFunc: null,
                     openFolderAction: _ => { },
-                    fileExistsFunc: System.IO.File.Exists);
+                    fileExistsFunc: System.IO.File.Exists,
+                    settingsService: settingsMock.Object);
             });
             using var sut = new MainViewModel();
             sut.IsRightPanelOpen = true;
