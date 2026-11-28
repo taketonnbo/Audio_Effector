@@ -1719,6 +1719,11 @@ namespace AudioEffector.Presentation.ViewModels
                     CurrentAlbum = null;
                 }
 
+                if (_selectedTagsTargetTrack != null && IsSameTrack(_selectedTagsTargetTrack, value))
+                {
+                    _selectedTagsTargetTrack = null;
+                }
+
                 OnPropertyChanged(nameof(HasCurrentTrack));
                 OnPropertyChanged(nameof(HasRightExtensionTarget));
                 OnPropertyChanged(nameof(CanToggleAlbumViewSizeMode));
@@ -3262,6 +3267,7 @@ namespace AudioEffector.Presentation.ViewModels
             }
 
             ActiveRightExtensionPanel = RightExtensionPanelType.Dashboard;
+            RaiseRightExtensionCommandsCanExecuteChanged();
         }
 
         /// <summary>
@@ -3347,6 +3353,7 @@ namespace AudioEffector.Presentation.ViewModels
             }
 
             ActiveRightExtensionPanel = RightExtensionPanelType.LrcGenerator;
+            RaiseRightExtensionCommandsCanExecuteChanged();
         }
 
         private void OnLrcGeneratorBackToLyricsRequested()
@@ -3402,10 +3409,13 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void RaiseRightExtensionCommandsCanExecuteChanged()
         {
-            _toggleAlbumViewSizeModeCommand?.RaiseCanExecuteChanged();
-            _selectRightExtensionTabCommand?.RaiseCanExecuteChanged();
-            _returnTagsToPlayingTrackCommand?.RaiseCanExecuteChanged();
-            CommandManager.InvalidateRequerySuggested();
+            RunOnUiThread(() =>
+            {
+                _toggleAlbumViewSizeModeCommand?.RaiseCanExecuteChanged();
+                _selectRightExtensionTabCommand?.RaiseCanExecuteChanged();
+                _returnTagsToPlayingTrackCommand?.RaiseCanExecuteChanged();
+                CommandManager.InvalidateRequerySuggested();
+            });
         }
 
         private void UpdateRightExtensionActiveViewStates()
