@@ -1124,8 +1124,8 @@ class EpicTrackerIntegrationBranchTests(unittest.TestCase):
         self.assertEqual(next_unpushed["primary_action"]["action"], "create_integration_branch")
         self.assertEqual(next_unpushed["primary_action"]["command_hint"], "git push -u origin epic/401-lyrics")
 
-    def test_子IssuePRのbase_branchが統合ブランチと一致しない場合に警告を検知しready_to_mergeから除外すること(self) -> None:
-        # Arrange
+    def test_子IssuePRのbase_branchが統合ブランチと一致しない場合に警告を検知しfix_pr_baseを優先提案すること(self) -> None:
+        # Arrange: CLEAN だが base=develop、および BEHIND かつ base=develop の 2 パターン
         children = [
             {
                 "number": 402,
@@ -1149,7 +1149,30 @@ class EpicTrackerIntegrationBranchTests(unittest.TestCase):
                     "needs_sync": False,
                 },
                 "worktree": None,
-            }
+            },
+            {
+                "number": 403,
+                "order": 1,
+                "parallel_group": 1,
+                "status": "in_review",
+                "status_reason": "PR #411 BEHIND",
+                "blocked_reason": "",
+                "pr": {
+                    "number": 411,
+                    "state": "OPEN",
+                    "is_draft": False,
+                    "head_branch": "feat/403-ui",
+                    "base_branch": "develop",
+                    "unresolved_review_threads": 0,
+                    "review_decision": "",
+                    "ci_state": "PASS",
+                    "mergeable": "MERGEABLE",
+                    "merge_state_status": "BEHIND",
+                    "has_conflict": False,
+                    "needs_sync": True,
+                },
+                "worktree": None,
+            },
         ]
         int_branch = {
             "name": "epic/401-lyrics",
@@ -1168,15 +1191,107 @@ class EpicTrackerIntegrationBranchTests(unittest.TestCase):
             integration_pr=None,
         )
 
-        # Assert
-        self.assertEqual(len(warnings), 1)
+        # Assert: 警告が 2 件出て、アクションは fix_pr_base のみ（ready_to_merge / review_pr / sync_branch へ落ちない）
+        self.assertEqual(len(warnings), 2)
         self.assertIn("PR #410", warnings[0])
         self.assertIn("base: develop", warnings[0])
         self.assertIn("gh pr edit 410 --base epic/401-lyrics", warnings[0])
+
+        fix_base_actions = [a for a in next_info["recommended_actions"] if a["action"] == "fix_pr_base"]
+        self.assertEqual(len(fix_base_actions), 2)
+        self.assertEqual(next_info["primary_action"]["action"], "fix_pr_base")
+        self.assertEqual(fix_base_actions[0]["command_hint"], 'gh pr edit 410 --base "epic/401-lyrics"')
         self.assertEqual(
-            [a for a in next_info["recommended_actions"] if a["action"] == "ready_to_merge"],
+            [a for a in next_info["recommended_actions"] if a["action"] in ("ready_to_merge", "review_pr", "sync_branch")],
             [],
         )
+
+    def test_明示統合ブランチと異なる旧統合ブランチPRや他Epic統合PRを誤認しないこと(self) -> None:
+        # Arrange
+        old_v1_pr = {
+            "number": 440,
+            "title": "[Epic] 旧統合ブランチ (#401)",
+            "body": "Closes #402",
+            "state": "OPEN",
+            "isDraft": False,
+            "headRefName": "epic/401-v1",
+            "baseRefName": "develop",
+            "url": "https://example.test/pull/440",
+            "reviewDecision": "",
+            "statusCheckRollup": [],
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+        }
+        other_epic_pr = {
+            "number": 499,
+            "title": "[Epic] 別Epic (#999)",
+            "body": "Closes #402",
+            "state": "OPEN",
+            "isDraft": False,
+            "headRefName": "epic/999-other",
+            "baseRefName": "develop",
+            "url": "https://example.test/pull/499",
+            "reviewDecision": "",
+            "statusCheckRollup": [],
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+        }
+
+        # Act & Assert 1: 関数単体で旧統合ブランチ PR と他 Epic 統合 PR を正しく区別・除外
+        self.assertFalse(
+            epic_tracker.is_integration_pr(old_v1_pr, integration_branch="epic/401-v2", epic_number=401)
+        )
+        self.assertTrue(
+            epic_tracker.is_integration_pr(old_v1_pr, integration_branch=None, epic_number=401)
+        )
+        self.assertEqual(
+            epic_tracker.match_pr_to_issue_numbers(old_v1_pr, integration_branch="epic/401-v2", epic_number=401),
+            set(),
+        )
+        self.assertEqual(
+            epic_tracker.match_pr_to_issue_numbers(other_epic_pr, integration_branch="epic/401-v2", epic_number=401),
+            set(),
+        )
+
+        # Act & Assert 2: build_state で未 Push の epic/401-v2 指定時、旧 PR #440 に引きずられず create_integration_branch になる
+        epic_issue = {
+            "number": 401,
+            "title": "Epic v2",
+            "state": "OPEN",
+            "url": "",
+            "body": "- [ ] #402 子タスク [order: 1]\n",
+        }
+        live_issues = {
+            402: {"number": 402, "title": "子タスク", "state": "OPEN", "url": "", "labels": []},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "epic_401_state.json"
+            with mock.patch.object(epic_tracker, "fetch_epic_issue", return_value=epic_issue), \
+                 mock.patch.object(epic_tracker, "fetch_child_issues_live", return_value=live_issues), \
+                 mock.patch.object(epic_tracker, "fetch_pull_requests", return_value=[old_v1_pr, other_epic_pr]), \
+                 mock.patch.object(epic_tracker, "fetch_unresolved_review_threads", return_value={}), \
+                 mock.patch.object(epic_tracker, "fetch_local_branch_names", return_value=["develop", "epic/401-v2"]), \
+                 mock.patch.object(epic_tracker, "fetch_remote_branch_names", return_value=["develop", "epic/401-v1"]), \
+                 mock.patch.object(epic_tracker, "compute_branch_ahead_behind", return_value=(0, 0)), \
+                 mock.patch.object(epic_tracker, "fetch_active_worktrees", return_value={}):
+                state = epic_tracker.build_state(
+                    epic_number=401,
+                    state_path=state_path,
+                    repo="owner/repo",
+                    timeout=10,
+                    mark_blocked=None,
+                    unblock=None,
+                    reason="",
+                    integration_branch="epic/401-v2",
+                )
+
+        self.assertEqual(state["integration_branch"]["name"], "epic/401-v2")
+        self.assertTrue(state["integration_branch"]["exists_local"])
+        self.assertFalse(state["integration_branch"]["exists_remote"])
+        self.assertIsNone(state["integration_pr"])
+        self.assertIsNone(state["children"][0]["pr"])
+        self.assertEqual(state["next"]["primary_action"]["action"], "create_integration_branch")
+        self.assertEqual(state["next"]["primary_action"]["command_hint"], "git push -u origin epic/401-v2")
 
     def test_統合PR本文に子Issue参照が含まれても子IssuePRとして誤認せずintegration_prへ分離すること(self) -> None:
         # Arrange
@@ -1356,9 +1471,10 @@ class EpicTrackerIntegrationBranchTests(unittest.TestCase):
         self.assertEqual(next_create_pr["primary_action"]["action"], "create_integration_pr")
         self.assertIn('-BaseBranch "develop"', next_create_pr["primary_action"]["command_hint"])
         self.assertIn("-BaseBranch develop -PreferOriginBase", next_create_pr["primary_action"]["command_hint"])
+        self.assertIn('git push origin "epic/401-lyrics"', next_create_pr["primary_action"]["command_hint"])
         self.assertIn('gh pr create --base develop --head "epic/401-lyrics"', next_create_pr["primary_action"]["command_hint"])
 
-        # Case 3: 統合 PR OPEN かつ BEHIND → sync_integration_branch
+        # Case 3: 統合 PR OPEN かつ BEHIND → sync_integration_branch（verify_loop 後に git push 含む）
         next_sync_int = epic_tracker.compute_next_actions(
             all_merged,
             epic_number=401,
@@ -1377,6 +1493,7 @@ class EpicTrackerIntegrationBranchTests(unittest.TestCase):
         )
         self.assertEqual(next_sync_int["primary_action"]["action"], "sync_integration_branch")
         self.assertIn('-BaseBranch "develop"', next_sync_int["primary_action"]["command_hint"])
+        self.assertIn('git push origin "epic/401-lyrics"', next_sync_int["primary_action"]["command_hint"])
 
         # Case 4: 統合 PR OPEN かつ CLEAN → await_user_merge（自動マージコマンドを提案しない）
         next_await = epic_tracker.compute_next_actions(
@@ -1398,6 +1515,31 @@ class EpicTrackerIntegrationBranchTests(unittest.TestCase):
         self.assertEqual(next_await["primary_action"]["action"], "await_user_merge")
         self.assertEqual(next_await["primary_action"]["command_hint"], "")
         self.assertNotIn("gh pr merge", next_await["primary_action"]["summary"])
+
+        # Case 4b: 統合 PR が Draft / CI FAIL の場合は要確認状態を明記しつつ自動マージ非提案を維持
+        next_await_caution = epic_tracker.compute_next_actions(
+            all_merged,
+            epic_number=401,
+            integration_branch=int_branch,
+            integration_pr={
+                "number": 450,
+                "state": "OPEN",
+                "is_draft": True,
+                "head_branch": "epic/401-lyrics",
+                "base_branch": "develop",
+                "ci_state": "FAIL",
+                "unresolved_review_threads": 1,
+                "mergeable": "MERGEABLE",
+                "merge_state_status": "CLEAN",
+                "has_conflict": False,
+                "needs_sync": False,
+            },
+        )
+        self.assertEqual(next_await_caution["primary_action"]["action"], "await_user_merge")
+        self.assertEqual(next_await_caution["primary_action"]["command_hint"], "")
+        self.assertIn("要確認状態", next_await_caution["primary_action"]["summary"])
+        self.assertIn("Draft 状態", next_await_caution["primary_action"]["summary"])
+        self.assertIn("CI 失敗", next_await_caution["primary_action"]["summary"])
 
         # Case 5: 統合 PR MERGED → complete_epic（統合ブランチ削除済みでも complete_epic になること）
         next_done = epic_tracker.compute_next_actions(
@@ -1470,6 +1612,109 @@ class EpicTrackerIntegrationBranchTests(unittest.TestCase):
         # Assert
         self.assertIn("統合ブランチ: epic/401-lyrics (local: あり, remote: あり / vs origin/develop: ahead=4, behind=1)", report)
         self.assertIn("統合 PR: PR #450 (epic/401-lyrics -> develop) [OPEN/BEHIND]", report)
+
+    def test_offlineモードでintegration_branch引き継ぎと別ブランチ上書き時のメタデータリセットが動作すること(self) -> None:
+        # Arrange
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "epic_401_offline.json"
+            saved_state = {
+                "schema_version": 1,
+                "updated_at": "2026-11-28T15:00:00+09:00",
+                "state_file": str(state_path),
+                "epic": {"number": 401, "title": "Offline統合ブランチテスト", "state": "OPEN", "url": ""},
+                "integration_branch": {
+                    "name": "epic/401-old",
+                    "exists_local": True,
+                    "exists_remote": True,
+                    "ahead_of_develop": 4,
+                    "behind_develop": 1,
+                },
+                "integration_pr": {
+                    "number": 450,
+                    "state": "OPEN",
+                    "is_draft": False,
+                    "head_branch": "epic/401-old",
+                    "base_branch": "develop",
+                    "merge_state_status": "CLEAN",
+                    "has_conflict": False,
+                    "needs_sync": False,
+                },
+                "summary": {
+                    "total": 1,
+                    "pending": 0,
+                    "waiting_deps": 0,
+                    "implementing": 0,
+                    "in_review": 1,
+                    "fixing_review": 0,
+                    "merged": 0,
+                    "blocked": 0,
+                },
+                "children": [
+                    {
+                        "number": 402,
+                        "order": 1,
+                        "parallel_group": 1,
+                        "title": "子タスク",
+                        "depends_on": [],
+                        "unmet_depends": [],
+                        "status": "in_review",
+                        "status_reason": "PR #410 レビュー待ち",
+                        "blocked_reason": "",
+                        "pr": {
+                            "number": 410,
+                            "state": "OPEN",
+                            "is_draft": False,
+                            "head_branch": "feat/402-child",
+                            "base_branch": "epic/401-old",
+                            "unresolved_review_threads": 0,
+                            "review_decision": "",
+                            "ci_state": "PASS",
+                            "mergeable": "MERGEABLE",
+                            "merge_state_status": "CLEAN",
+                            "has_conflict": False,
+                            "needs_sync": False,
+                        },
+                        "worktree": None,
+                    }
+                ],
+                "next": {"recommended_actions": [], "primary_action": None},
+                "blocked_overrides": {},
+                "warnings": [
+                    "子 Issue #402 の PR #410 のターゲットブランチ (base: develop) が Epic 統合ブランチ (epic/401-old) と一致していません。"
+                ],
+            }
+            epic_tracker.save_state(state_path, saved_state)
+
+            # Act 1: --offline のみ（既存 integration_branch / integration_pr を維持）
+            with mock.patch("sys.stdout") as fake_stdout:
+                buf1 = []
+                fake_stdout.write.side_effect = buf1.append
+                rc1 = epic_tracker.main(["--epic", "401", "--offline", "--json", "--state-file", str(state_path)])
+            out1 = json.loads("".join(buf1))
+            self.assertEqual(rc1, 0)
+            self.assertEqual(out1["integration_branch"]["name"], "epic/401-old")
+            self.assertTrue(out1["integration_branch"]["exists_remote"])
+            self.assertEqual(out1["integration_pr"]["number"], 450)
+            self.assertEqual(out1["next"]["primary_action"]["action"], "ready_to_merge")
+
+            # Act 2: --offline --integration-branch epic/401-new（別ブランチ上書き時は旧メタデータ・旧統合PR・警告をリセット）
+            with mock.patch("sys.stdout") as fake_stdout:
+                buf2 = []
+                fake_stdout.write.side_effect = buf2.append
+                rc2 = epic_tracker.main([
+                    "--epic", "401", "--offline", "--integration-branch", "epic/401-new", "--json",
+                    "--state-file", str(state_path),
+                ])
+            out2 = json.loads("".join(buf2))
+            self.assertEqual(rc2, 0)
+            self.assertEqual(out2["integration_branch"]["name"], "epic/401-new")
+            self.assertFalse(out2["integration_branch"]["exists_local"])
+            self.assertFalse(out2["integration_branch"]["exists_remote"])
+            self.assertIsNone(out2["integration_branch"]["ahead_of_develop"])
+            self.assertIsNone(out2["integration_branch"]["behind_develop"])
+            self.assertIsNone(out2["integration_pr"])
+            self.assertTrue(any("epic/401-new" in w for w in out2["warnings"]))
+            self.assertEqual(out2["next"]["primary_action"]["action"], "create_integration_branch")
 
 
 if __name__ == "__main__":

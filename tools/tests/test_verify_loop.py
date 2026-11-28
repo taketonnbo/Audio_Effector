@@ -561,6 +561,23 @@ $res | ConvertTo-Json -Depth 4
         self.assertEqual(report["resolved_base_ref"], "origin/epic/401-lyrics")
         self.assertEqual(report["resolved_base_commit"], epic_c1)
 
+        # Act 3: refs/heads/ プレフィックス・前後空白付きの指定でも origin/epic/401-lyrics へ一貫正規化され、空白のみは失敗すること
+        ps_norm_script = loader + f"""
+$rPrefixed = Resolve-BaseMergeCommit -BaseRef '  refs/heads/epic/401-lyrics  ' -PreferOriginBase -FetchBase -WorkingDirectory '{str(wt_epic).replace("'", "''")}'
+$rBlank    = Resolve-BaseMergeCommit -BaseRef '   ' -PreferOriginBase -FetchBase -WorkingDirectory '{str(wt_epic).replace("'", "''")}'
+[PSCustomObject]@{{
+    prefixed = $rPrefixed
+    blank    = $rBlank
+}} | ConvertTo-Json -Depth 4
+"""
+        norm_res = _run_ps_command(ps_norm_script, cwd=REPO_ROOT)
+        self.assertEqual(norm_res.returncode, 0, msg=norm_res.stdout + "\n" + norm_res.stderr)
+        norm_data = json.loads(norm_res.stdout)
+        self.assertTrue(norm_data["prefixed"]["Success"], msg=norm_data["prefixed"].get("Error"))
+        self.assertEqual(norm_data["prefixed"]["ResolvedRef"], "origin/epic/401-lyrics")
+        self.assertEqual(norm_data["prefixed"]["MergeBase"], epic_c1)
+        self.assertFalse(norm_data["blank"]["Success"])
+
 
 if __name__ == "__main__":
     unittest.main()
