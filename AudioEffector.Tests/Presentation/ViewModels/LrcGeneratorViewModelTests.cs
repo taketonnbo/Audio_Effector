@@ -24,6 +24,23 @@ public sealed class LrcGeneratorViewModelTests
         public void BeginInvoke(Action action) => action();
     }
 
+    private sealed class QueuedBeginInvokeDispatcherStub : IUiDispatcher
+    {
+        private readonly Queue<Action> _pendingBeginInvokes = new();
+
+        public void Invoke(Action action) => action();
+
+        public void BeginInvoke(Action action) => _pendingBeginInvokes.Enqueue(action);
+
+        public void DrainBeginInvokes()
+        {
+            while (_pendingBeginInvokes.Count > 0)
+            {
+                _pendingBeginInvokes.Dequeue()();
+            }
+        }
+    }
+
     private sealed class FakeAlignmentEngine : IAudioAlignmentEngine
     {
         public string EngineName => "FakeEngine";
@@ -68,6 +85,7 @@ public sealed class LrcGeneratorViewModelTests
         public string TextToReturn { get; set; } = "一行目の歌詞\n二行目の歌詞";
         public string? LastSavedPath { get; private set; }
         public bool LastOverwriteFlag { get; private set; }
+        public Exception? SaveException { get; set; }
 
         public Task<TextEncodingInspectionResult> InspectAsync(string textFilePath, CancellationToken cancellationToken = default)
         {
@@ -84,6 +102,11 @@ public sealed class LrcGeneratorViewModelTests
 
         public Task SaveLrcFileAsync(string destinationPath, string lrcContent, bool overwrite, CancellationToken cancellationToken = default)
         {
+            if (SaveException is not null)
+            {
+                return Task.FromException(SaveException);
+            }
+
             LastSavedPath = destinationPath;
             LastOverwriteFlag = overwrite;
             return Task.CompletedTask;
@@ -144,7 +167,9 @@ public sealed class LrcGeneratorViewModelTests
 
     private static (LrcGeneratorViewModel Sut, FakeAlignmentEngine Engine, FakeTextEncodingService TextSvc, FakeModelManager ModelMgr, LyricsApplicationService LyricsSvc) CreateSut(
         bool modelAvailable = true,
-        Mock<IAudioService>? audioMock = null)
+        Mock<IAudioService>? audioMock = null,
+        IUiDispatcher? dispatcher = null,
+        Func<string, bool>? fileExistsFunc = null)
     {
         var engine = new FakeAlignmentEngine();
         var textSvc = new FakeTextEncodingService();
@@ -157,10 +182,11 @@ public sealed class LrcGeneratorViewModelTests
         var sut = new LrcGeneratorViewModel(
             genSvc,
             audioMock.Object,
-            new ImmediateDispatcherStub(),
+            dispatcher ?? new ImmediateDispatcherStub(),
             selectTextFileFunc: () => null,
             selectModelFileFunc: () => null,
-            openFolderAction: _ => { });
+            openFolderAction: _ => { },
+            fileExistsFunc: fileExistsFunc ?? (_ => true));
 
         return (sut, engine, textSvc, modelMgr, lyricsSvc);
     }
@@ -400,6 +426,334 @@ public sealed class LrcGeneratorViewModelTests
             Assert.True(sut.IsModelAvailable);
             Assert.True(sut.IsInputState);
             Assert.False(sut.IsModelMissingState);
+        }
+    }
+
+    /// <summary>
+    /// LRC 保存失敗時に SaveErrorMessage / HasSaveError が設定され、再保存成功および再生成でクリアされることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ExecuteSaveAsync_保存失敗時_SaveErrorMessageが表示され再保存成功および再生成でクリアされる()
+    {
+        // Arrange
+        var (sut, _, textSvc, _, _) = CreateSut();
+        using (sut)
+        {
+            sut.SetTargetTrack(new Track { FilePath = @"C:\Music\SaveFail.flac", Title = "SaveFail" });
+            await sut.TranscribeFromAudioAsync();
+            textSvc.SaveException = new UnauthorizedAccessException("書き込み権限がありません。");
+
+            // Act 1: 保存失敗
+            await sut.ExecuteSaveAsync(overwrite: true);
+
+            // Assert 1
+            Assert.True(sut.IsPreviewState);
+            Assert.True(sut.HasSaveError);
+            Assert.Contains("書き込み権限", sut.SaveErrorMessage, StringComparison.Ordinal);
+            Assert.Null(sut.SavedFilePath);
+
+            // Act 2: 失敗後に再保存成功
+            textSvc.SaveException = null;
+            await sut.ExecuteSaveAsync(overwrite: true);
+
+            // Assert 2
+            Assert.False(sut.HasSaveError);
+            Assert.Equal(string.Empty, sut.SaveErrorMessage);
+            Assert.Equal(@"C:\Music\SaveFail.lrc", sut.SavedFilePath);
+
+            // Act 3: 再度失敗させた後に「再生成」で入力画面へ戻るとクリアされる
+            textSvc.SaveException = new IOException("ファイルがロックされています。");
+            await sut.ExecuteSaveAsync(overwrite: true);
+            Assert.True(sut.HasSaveError);
+
+            sut.RegenerateCommand.Execute(null);
+            Assert.False(sut.HasSaveError);
+            Assert.True(sut.IsInputState);
+        }
+    }
+
+    /// <summary>
+    /// 全体オフセット適用後に個別行をインライン編集しても、後続の全体オフセット調整およびリセットで二重加算・ズレが起きないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task PreviewEditing_オフセット適用後の個別行編集_後続オフセット調整とリセットで二重加算されない()
+    {
+        // Arrange
+        var (sut, _, _, _, _) = CreateSut();
+        using (sut)
+        {
+            sut.SetTargetTrack(new Track { FilePath = @"C:\Music\OffsetEdit.flac", Title = "OffsetEdit" });
+            await sut.TranscribeFromAudioAsync();
+
+            // Act 1: +0.5s オフセット適用（行0: 00:05.50, 行1: 00:12.50）
+            sut.AdjustOffsetCommand.Execute("0.5");
+            Assert.Equal(TimeSpan.FromSeconds(5.5), sut.PreviewLines[0].Timestamp);
+            Assert.Equal(TimeSpan.FromSeconds(12.5), sut.PreviewLines[1].Timestamp);
+
+            // Act 2: 行 0 の歌詞本文のみインライン編集して確定（時刻は 00:05.50 のまま）
+            LrcPreviewLineViewModel line0 = sut.PreviewLines[0];
+            line0.BeginEditCommand.Execute(null);
+            line0.EditingLyricText = "誤字修正後の歌詞";
+            line0.CommitEditCommand.Execute(null);
+            Assert.Equal(TimeSpan.FromSeconds(5.5), line0.Timestamp);
+
+            // Act 3: さらに +0.1s 追加調整（累計 +0.6s → 行0 は 00:05.60、行1 は 00:12.60 であるべき）
+            sut.AdjustOffsetCommand.Execute("0.1");
+            Assert.Equal(TimeSpan.FromSeconds(5.6), sut.PreviewLines[0].Timestamp);
+            Assert.Equal(TimeSpan.FromSeconds(12.6), sut.PreviewLines[1].Timestamp);
+
+            // Act 4: リセット（累計 0.0s → 行0 は 00:05.00、行1 は 00:12.00 へ一致復帰）
+            sut.ResetOffsetCommand.Execute(null);
+            Assert.Equal(TimeSpan.FromSeconds(5.0), sut.PreviewLines[0].Timestamp);
+            Assert.Equal(TimeSpan.FromSeconds(12.0), sut.PreviewLines[1].Timestamp);
+            Assert.Equal("誤字修正後の歌詞", sut.PreviewLines[0].Text);
+        }
+    }
+
+    /// <summary>
+    /// 遅延 BeginInvoke の進捗通知が完了・キャンセル・Dispose 後に進捗を上書きせず、未処理例外発生時も IsBusy が固着せずエラー状態へ復帰することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ExecuteGenerationAsync_遅延BeginInvokeと未処理例外とDispose後_古い進捗破棄およびIsBusy固着しない()
+    {
+        // Arrange 1: 遅延 BeginInvoke キューで完了後の古い進捗が破棄されること
+        var queuedDispatcher = new QueuedBeginInvokeDispatcherStub();
+        var (sut, engine, _, _, _) = CreateSut(dispatcher: queuedDispatcher);
+        var startedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.Handler = async (_, progress, ct) =>
+        {
+            progress?.Report(new AlignmentProgress(AlignmentPhase.Transcribing, 0.42, "古い進捗"));
+            startedTcs.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            throw new InvalidOperationException("unreachable");
+        };
+
+        using (sut)
+        {
+            sut.SetTargetTrack(new Track { FilePath = @"C:\Music\RaceTest.flac", Title = "RaceTest" });
+            Task running = sut.TranscribeFromAudioAsync();
+            await startedTcs.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            sut.CancelGenerationCommand.Execute(null);
+            await running.WaitAsync(TimeSpan.FromSeconds(3));
+
+            // キャンセル完了後に遅延 BeginInvoke をドレインしても Progress が 0 のまま上書きされないこと
+            queuedDispatcher.DrainBeginInvokes();
+            Assert.False(sut.IsGenerating);
+            Assert.Equal(0.0, sut.Progress);
+            Assert.Equal(string.Empty, sut.StatusMessage);
+
+            // Arrange 2: 想定外の一般例外発生時に IsBusy が固着せずエラー状態へ遷移すること
+            engine.Handler = (_, _, _) => throw new InvalidOperationException("予期しないネイティブエラー");
+            await sut.TranscribeFromAudioAsync();
+
+            Assert.False(sut.IsGenerating);
+            Assert.False(sut.IsBusy);
+            Assert.True(sut.IsErrorState);
+            Assert.Contains("予期しないネイティブエラー", sut.ErrorMessage, StringComparison.Ordinal);
+        }
+
+        // Dispose 後に遅延キューを実行しても例外を投げず安全であること
+        queuedDispatcher.DrainBeginInvokes();
+    }
+
+    /// <summary>
+    /// 音声ファイル欠損時は両生成ボタンが非活性かつ .txt 選択後も欠損警告が維持され、別楽曲切替時に前楽曲の .txt 選択と承諾状態がクリアされることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SetTargetTrack_音声ファイル欠損と別楽曲切替_生成コマンド非活性とテキスト選択クリアが正しく動作する()
+    {
+        // Arrange
+        var existingPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C:\Music\Exists.flac" };
+        var (sut, _, textSvc, _, _) = CreateSut(fileExistsFunc: p => existingPaths.Contains(p));
+        textSvc.InspectionFactory = path => new TextEncodingInspectionResult(path, false, false, "Shift-JIS (CP932)", 2, 2);
+
+        using (sut)
+        {
+            // Act 1: 音声ファイル欠損トラックを設定
+            sut.SetTargetTrack(new Track { FilePath = @"C:\Music\Missing.flac", Title = "Missing" });
+
+            // Assert 1: 欠損メッセージ表示＆両生成コマンド非活性
+            Assert.True(sut.IsTargetAudioMissing);
+            Assert.NotEmpty(sut.TargetAudioMissingMessage);
+            Assert.False(sut.GenerateLrcCommand.CanExecute(null));
+            Assert.False(sut.TranscribeAudioCommand.CanExecute(null));
+
+            // Act 2: .txt を選択しても欠損警告が消えず、生成コマンドも非活性のまま
+            await sut.InspectAndSelectTextFileAsync(@"C:\Lyrics\sjis.txt");
+            sut.ConfirmEncodingConversionCommand.Execute(null);
+            Assert.True(sut.HasInputTextFile);
+            Assert.True(sut.IsTargetAudioMissing);
+            Assert.NotEmpty(sut.TargetAudioMissingMessage);
+            Assert.False(sut.GenerateLrcCommand.CanExecute(null));
+            Assert.False(sut.TranscribeAudioCommand.CanExecute(null));
+
+            // Act 3: 別の実在トラックへ切替 → 前楽曲の .txt 選択と承諾状態がクリアされ、欠損も解除
+            sut.SetTargetTrack(new Track { FilePath = @"C:\Music\Exists.flac", Title = "Exists" });
+
+            // Assert 3
+            Assert.False(sut.IsTargetAudioMissing);
+            Assert.Equal(string.Empty, sut.TargetAudioMissingMessage);
+            Assert.False(sut.HasInputTextFile);
+            Assert.False(sut.IsEncodingWarningVisible);
+            Assert.False(sut.GenerateLrcCommand.CanExecute(null));
+            Assert.True(sut.TranscribeAudioCommand.CanExecute(null));
+        }
+    }
+
+    /// <summary>
+    /// テキスト生成エラー後の再試行でテキスト未選択・未承諾の場合は音声直接文字起こしへフォールバックせず入力画面へ案内表示することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task RetryErrorCommand_テキスト生成失敗後にテキスト未選択状態_音声文字起こしへフォールバックしない()
+    {
+        // Arrange
+        int callCount = 0;
+        var (sut, engine, _, _, _) = CreateSut();
+        engine.Handler = (_, _, _) =>
+        {
+            callCount++;
+            throw new InvalidOperationException("一時エラー");
+        };
+
+        using (sut)
+        {
+            sut.SetTargetTrack(new Track { FilePath = @"C:\Music\RetryTest.flac", Title = "RetryTest" });
+            await sut.InspectAndSelectTextFileAsync(@"C:\Lyrics\utf8.txt");
+            await sut.GenerateFromTextAsync();
+            Assert.True(sut.IsErrorState);
+            Assert.Equal(1, callCount);
+
+            // テキスト選択を解除してから再試行を実行
+            sut.ClearTextFileCommand.Execute(null);
+            sut.RetryErrorCommand.Execute(null);
+            await Task.Delay(50);
+
+            // Assert: 音声文字起こしへ誤フォールバックせず入力状態へ戻る
+            Assert.Equal(1, callCount);
+            Assert.True(sut.IsInputState);
+            Assert.True(sut.HasValidationError);
+        }
+    }
+
+    /// <summary>
+    /// 同名の既存 .lrc ファイルが存在する場合は上書き確認インラインバーを表示し、キャンセル・上書き保存確定の両経路が正しく動作することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SaveLrcRequestedAsync_既存Lrcファイルが存在する場合_上書き確認バー表示とキャンセルおよび上書き確定が動作する()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_lrc_overwrite_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "Song.flac");
+        string lrcPath = Path.Combine(tempDir, "Song.lrc");
+        File.WriteAllText(audioPath, "dummy");
+        File.WriteAllText(lrcPath, "[00:01.00]old");
+
+        try
+        {
+            var (sut, _, textSvc, _, _) = CreateSut(fileExistsFunc: File.Exists);
+            using (sut)
+            {
+                sut.SetTargetTrack(new Track { FilePath = audioPath, Title = "Song" });
+                await sut.TranscribeFromAudioAsync();
+
+                // Act 1: 既存 .lrc があるため上書き確認バー表示（まだ保存されない）
+                await sut.SaveLrcRequestedAsync();
+                Assert.True(sut.IsOverwriteConfirmVisible);
+                Assert.Contains("Song.lrc", sut.OverwriteWarningMessage, StringComparison.Ordinal);
+                Assert.Null(textSvc.LastSavedPath);
+                Assert.False(sut.SaveLrcCommand.CanExecute(null));
+                Assert.True(sut.ConfirmOverwriteSaveCommand.CanExecute(null));
+
+                // Act 2: キャンセル
+                sut.CancelOverwriteSaveCommand.Execute(null);
+                Assert.False(sut.IsOverwriteConfirmVisible);
+                Assert.True(sut.SaveLrcCommand.CanExecute(null));
+
+                // Act 3: 再度保存要求 → 上書き確定
+                await sut.SaveLrcRequestedAsync();
+                await sut.ExecuteSaveAsync(overwrite: true);
+                Assert.False(sut.IsOverwriteConfirmVisible);
+                Assert.Equal(lrcPath, textSvc.LastSavedPath);
+                Assert.True(textSvc.LastOverwriteFlag);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// プレビュー行クリックシークが対象楽曲再生中のみ SeekTo を呼び出し、インライン編集中や別楽曲再生中は抑止することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SeekToPreviewLineCommand_通常時はシーク実行し編集中および別楽曲再生時は抑止する()
+    {
+        // Arrange
+        var targetTrack = new Track { FilePath = @"C:\Music\SeekTarget.flac", Title = "SeekTarget" };
+        var otherTrack = new Track { FilePath = @"C:\Music\Other.flac", Title = "Other" };
+        var audioMock = new Mock<IAudioService>();
+        audioMock.Setup(a => a.CurrentTrack).Returns(targetTrack);
+        audioMock.Setup(a => a.TotalTime).Returns(TimeSpan.FromSeconds(100));
+
+        var (sut, _, _, _, _) = CreateSut(audioMock: audioMock);
+        using (sut)
+        {
+            sut.SetTargetTrack(targetTrack);
+            await sut.TranscribeFromAudioAsync();
+            LrcPreviewLineViewModel firstLine = sut.PreviewLines[0];
+
+            // Act 1: 通常表示時のクリックシーク（5s / 100s = 0.05）
+            sut.SeekToPreviewLineCommand.Execute(firstLine);
+            audioMock.Verify(a => a.SeekTo(It.Is<double>(r => Math.Abs(r - 0.05) < 0.001)), Times.Once);
+
+            // Act 2: 編集モード中はシーク抑止
+            firstLine.BeginEditCommand.Execute(null);
+            sut.SeekToPreviewLineCommand.Execute(firstLine);
+            audioMock.Verify(a => a.SeekTo(It.IsAny<double>()), Times.Once);
+            firstLine.CancelEditCommand.Execute(null);
+
+            // Act 3: 別楽曲再生中はシーク抑止
+            audioMock.Setup(a => a.CurrentTrack).Returns(otherTrack);
+            sut.SeekToPreviewLineCommand.Execute(firstLine);
+            audioMock.Verify(a => a.SeekTo(It.IsAny<double>()), Times.Once);
+        }
+    }
+
+    /// <summary>
+    /// モデル読み込みフェーズで IsProgressIndeterminate が true となり、文字起こし進捗フェーズで false へ切り替わることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task ExecuteGenerationAsync_モデル読み込みフェーズで不定進捗となり文字起こしフェーズで確定進捗へ切り替わる()
+    {
+        // Arrange
+        var (sut, engine, _, _, _) = CreateSut();
+        bool? indeterminateAtLoading = null;
+        bool? indeterminateAtTranscribing = null;
+
+        engine.Handler = (req, progress, _) =>
+        {
+            progress?.Report(new AlignmentProgress(AlignmentPhase.LoadingModel, 0.2, "モデル読み込み中"));
+            indeterminateAtLoading = sut.IsProgressIndeterminate;
+            progress?.Report(new AlignmentProgress(AlignmentPhase.Transcribing, 0.6, "文字起こし中"));
+            indeterminateAtTranscribing = sut.IsProgressIndeterminate;
+
+            var doc = new LyricsDocument([new LyricLine(0, TimeSpan.FromSeconds(1), "ok")], isSynced: true, title: req.Title);
+            return Task.FromResult(new AlignmentResult(doc, "[00:01.00]ok", [], req.Mode, "Fake"));
+        };
+
+        using (sut)
+        {
+            sut.SetTargetTrack(new Track { FilePath = @"C:\Music\Phase.flac", Title = "Phase" });
+            await sut.TranscribeFromAudioAsync();
+
+            Assert.True(indeterminateAtLoading);
+            Assert.False(indeterminateAtTranscribing);
+            Assert.False(sut.IsProgressIndeterminate);
         }
     }
 }

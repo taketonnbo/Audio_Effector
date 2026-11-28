@@ -217,4 +217,107 @@ public sealed class MainViewModelTests
         Assert.True(sut.IsLyricsViewVisible);
         Assert.True(sut.Lyrics.IsActiveView);
     }
+
+    /// <summary>
+    /// 最大化モードかつ右側タブ閉鎖状態から OpenLrcGenerator を呼ぶと右側タブ自動展開・自動コンパクト切替され、
+    /// LRC 生成パネル閉鎖時に元の最大化モードへ自動復帰することを検証します。
+    /// </summary>
+    [Fact]
+    public void OpenLrcGenerator_最大化かつ右側タブ閉鎖状態から展開し閉鎖_自動コンパクト後に元の最大化モードへ復帰すること()
+    {
+        // Arrange
+        using var scope = new ServiceProviderScope();
+        using var sut = new MainViewModel();
+        var track = new Track { FilePath = @"C:\Music\GeneratorTarget.flac", Title = "GeneratorTarget" };
+        sut.IsRightPanelOpen = false;
+        Assert.True(sut.IsAlbumViewMaximized);
+
+        // Act 1: LRC 生成パネル展開
+        sut.OpenLrcGenerator(track);
+
+        // Assert 1: 右側タブ自動展開・自動コンパクト切替・排他表示・Lyrics.IsActiveView は false
+        Assert.True(sut.IsRightPanelOpen);
+        Assert.False(sut.IsAlbumViewMaximized);
+        Assert.Equal(RightExtensionPanelType.LrcGenerator, sut.ActiveRightExtensionPanel);
+        Assert.True(sut.IsLrcGeneratorPanelVisible);
+        Assert.True(sut.IsLrcGeneratorViewVisible);
+        Assert.False(sut.IsLyricsViewVisible);
+        Assert.False(sut.Lyrics!.IsActiveView);
+        Assert.Same(track, sut.LrcGenerator!.TargetTrack);
+
+        // Act 2: LRC 生成パネルを閉じる
+        sut.LrcGenerator.CloseGeneratorCommand.Execute(null);
+
+        // Assert 2: 元の最大化モードへ自動復帰
+        Assert.Equal(RightExtensionPanelType.None, sut.ActiveRightExtensionPanel);
+        Assert.False(sut.IsLrcGeneratorViewVisible);
+        Assert.True(sut.IsAlbumViewMaximized);
+    }
+
+    /// <summary>
+    /// 最大化モードから OpenLrcGenerator で自動コンパクト切替した後、右上 [♪] ボタンで歌詞表示へ切り替えてから閉鎖しても
+    /// 最大化復帰フラグが維持され、元の最大化モードへ自動復帰することを検証します。
+    /// </summary>
+    [Fact]
+    public void OpenLrcGenerator_最大化から展開後に右上歌詞トグル経由で切替および閉鎖_元の最大化モードへ自動復帰すること()
+    {
+        // Arrange
+        using var scope = new ServiceProviderScope();
+        using var sut = new MainViewModel();
+        var track = new Track { FilePath = @"C:\Music\ToggleKeepMax.flac", Title = "ToggleKeepMax" };
+        sut.IsRightPanelOpen = true;
+        Assert.True(sut.IsAlbumViewMaximized);
+
+        // Act 1: 最大化モードから LRC 生成パネル展開
+        sut.OpenLrcGenerator(track);
+        Assert.False(sut.IsAlbumViewMaximized);
+        Assert.True(sut.IsLrcGeneratorViewVisible);
+        Assert.False(sut.Lyrics!.IsActiveView);
+
+        // Act 2: 右上 [♪] ボタンで歌詞表示へ切替
+        sut.ToggleLyricsPanelCommand.Execute(null);
+        Assert.False(sut.IsAlbumViewMaximized);
+        Assert.True(sut.IsLyricsViewVisible);
+        Assert.False(sut.IsLrcGeneratorViewVisible);
+        Assert.True(sut.Lyrics.IsActiveView);
+
+        // Act 3: 右上 [♪] ボタンで歌詞表示を閉鎖
+        sut.ToggleLyricsPanelCommand.Execute(null);
+
+        // Assert 3: 元の最大化モードへ自動復帰すること
+        Assert.Equal(RightExtensionPanelType.None, sut.ActiveRightExtensionPanel);
+        Assert.False(sut.IsLyricsViewVisible);
+        Assert.False(sut.Lyrics.IsActiveView);
+        Assert.True(sut.IsAlbumViewMaximized);
+    }
+
+    /// <summary>
+    /// もともとコンパクトモードから OpenLrcGenerator → [← 歌詞へ戻る] → 閉鎖とした場合、コンパクトモードを維持することを検証します。
+    /// </summary>
+    [Fact]
+    public void OpenLrcGenerator_コンパクトモードから展開し歌詞へ戻ってから閉鎖_コンパクトモードを維持すること()
+    {
+        // Arrange
+        using var scope = new ServiceProviderScope();
+        using var sut = new MainViewModel();
+        sut.IsRightPanelOpen = true;
+        sut.IsAlbumViewMaximized = false;
+
+        // Act 1: コンパクトモードから LRC 生成展開
+        sut.OpenLrcGenerator(new Track { FilePath = @"C:\Music\Compact.flac", Title = "Compact" });
+        Assert.True(sut.IsLrcGeneratorViewVisible);
+
+        // Act 2: [← 歌詞へ戻る] で歌詞表示へ切替
+        sut.LrcGenerator!.BackToLyricsCommand.Execute(null);
+        Assert.True(sut.IsLyricsViewVisible);
+        Assert.True(sut.Lyrics!.IsActiveView);
+
+        // Act 3: 歌詞パネル閉鎖
+        sut.Lyrics.ClosePanelCommand.Execute(null);
+
+        // Assert 3: もともとコンパクトだったのでコンパクト維持
+        Assert.Equal(RightExtensionPanelType.None, sut.ActiveRightExtensionPanel);
+        Assert.False(sut.IsAlbumViewMaximized);
+        Assert.False(sut.Lyrics.IsActiveView);
+    }
 }
