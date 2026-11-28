@@ -14,4 +14,9 @@ public enum RightExtensionPanelType
     /// 歌詞表示パネル
     /// </summary>
     Lyrics = 1,
+
+    /// <summary>
+    /// LRC 自動生成パネル
+    /// </summary>
+    LrcGenerator = 2,
 }
