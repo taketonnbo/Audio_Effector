@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -22,6 +23,18 @@ public sealed class TransferConfirmationDialogTests
         {
             try
             {
+                SynchronizationContext.SetSynchronizationContext(
+                    new System.Windows.Threading.DispatcherSynchronizationContext(
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher));
+
+                if (System.Windows.Application.Current == null)
+                {
+                    _ = new System.Windows.Application
+                    {
+                        ShutdownMode = ShutdownMode.OnExplicitShutdown
+                    };
+                }
+
                 action();
             }
             catch (Exception ex)
@@ -40,7 +53,7 @@ public sealed class TransferConfirmationDialogTests
 
         if (threadEx != null)
         {
-            throw threadEx;
+            ExceptionDispatchInfo.Capture(threadEx).Throw();
         }
     }
 
@@ -178,6 +191,65 @@ public sealed class TransferConfirmationDialogTests
             // Assert
             Assert.Same(themeDict["InverseTextForegroundBrush"], proceedButton.Foreground);
             Assert.Same(themeDict["NeonCyanBrush"], proceedButton.Background);
+            Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
+
+    /// <summary>
+    /// 容量不足単独（形式変換対象なし）の場合、形式変換セクションおよび概算注記が非表示となり、
+    /// ダーク／ライト両テーマでキャンセルボタンがプライマリ、転送続行ボタンが枠線付きセカンダリスタイルになることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("Presentation/Themes/DarkTheme.xaml")]
+    [InlineData("Presentation/Themes/LightTheme.xaml")]
+    public void 容量不足単独表示_ダークおよびライトテーマ描画時_変換セクション非表示で両ボタンのテーマブラシと枠線が正しく適用されること(string themePath)
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var listener = new BindingErrorTraceListener();
+            var themeDict = new ResourceDictionary
+            {
+                Source = new Uri($"pack://application:,,,/AudioEffector;component/{themePath}", UriKind.Absolute)
+            };
+
+            var request = new TransferConfirmationRequest(
+                totalTrackCount: 6,
+                requiredBytes: 600L * 1024 * 1024,
+                hasStorageInfo: true,
+                freeSpaceBytes: 200L * 1024 * 1024,
+                mp4ToM4aCount: 0,
+                flacToMp3Count: 0,
+                copyOnlyCount: 6);
+
+            var sut = new TransferConfirmationDialog(request);
+            sut.Resources.MergedDictionaries.Add(themeDict);
+
+            var rootContent = Assert.IsAssignableFrom<FrameworkElement>(sut.Content);
+
+            // Act
+            rootContent.Measure(new Size(520, 600));
+            rootContent.Arrange(new Rect(0, 0, 520, 600));
+            rootContent.UpdateLayout();
+
+            var spaceBorder = Assert.IsType<Border>(sut.FindName("InsufficientSpaceWarningBorder"));
+            var transcodeBorder = Assert.IsType<Border>(sut.FindName("TranscodeConfirmationBorder"));
+            var estimatedNote = Assert.IsType<TextBlock>(sut.FindName("EstimatedSizeNoteTextBlock"));
+            var proceedButton = Assert.IsType<Button>(sut.FindName("ProceedButton"));
+            var cancelButton = Assert.IsType<Button>(sut.FindName("CancelButton"));
+
+            // Assert
+            Assert.Equal(Visibility.Visible, spaceBorder.Visibility);
+            Assert.Equal(Visibility.Collapsed, transcodeBorder.Visibility);
+            Assert.Equal(Visibility.Collapsed, estimatedNote.Visibility);
+            Assert.True(cancelButton.IsDefault);
+            Assert.False(proceedButton.IsDefault);
+            Assert.Same(themeDict["NeonCyanBrush"], cancelButton.Background);
+            Assert.Same(themeDict["InverseTextForegroundBrush"], cancelButton.Foreground);
+            Assert.Same(themeDict["ControlBackgroundBrush"], proceedButton.Background);
+            Assert.Same(themeDict["TextForegroundBrush"], proceedButton.Foreground);
+            Assert.Same(themeDict["BorderBrush"], proceedButton.BorderBrush);
+            Assert.Equal(new Thickness(1), proceedButton.BorderThickness);
             Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
         });
     }

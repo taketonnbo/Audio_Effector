@@ -3492,6 +3492,76 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// 必要容量と空き容量が完全に一致する境界値、および容量情報未取得の機器において、
+    /// 形式変換対象がなければ容量不足として誤検知せず確認ダイアログなしで転送が開始されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(true, 100L * 1024 * 1024, 100L * 1024 * 1024)]
+    [InlineData(false, 0L, 100L * 1024 * 1024)]
+    public async Task TransferSelectedAsync_空き容量一致または容量情報未取得で変換なしの場合_確認ダイアログを表示せず転送されること(
+        bool hasStorageInfo,
+        long freeBytes,
+        long trackBytes)
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmBoundary_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string mp3Path = Path.Combine(sourceDir, "01.mp3");
+        File.WriteAllText(mp3Path, "mp3-data");
+
+        var track = new Track { Title = "Track 1", Artist = "ArtistE", Album = "AlbumE", FilePath = mp3Path, IsSelected = true };
+        var album = new Album("AlbumE", "ArtistE", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (I:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => trackBytes,
+                readDeviceStorageSpace: (_, _) => (hasStorageInfo, hasStorageInfo ? 1000L * 1024 * 1024 : 0L, freeBytes),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: _ =>
+                {
+                    confirmCallCount++;
+                    return false;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(0, confirmCallCount);
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistE", "AlbumE", "01.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private sealed class FakeMtpDeviceClient : DeviceBrowserViewModel.IMtpDeviceClient
     {
         private readonly object _sync = new();
