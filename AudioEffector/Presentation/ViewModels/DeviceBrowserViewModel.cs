@@ -18,7 +18,7 @@ namespace AudioEffector.Presentation.ViewModels;
 /// DeviceSyncView の DataContext として直接バインドされます。
 /// MainViewModel から分離されたデバイス同期ロジックの完全な実装を担当します。
 /// </summary>
-public class DeviceBrowserViewModel : ViewModelBase
+public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 {
     private readonly Func<IReadOnlyList<Album>> _getAlbums;
     private readonly Action _onCheckDeviceAlbumsRequested;
@@ -67,6 +67,9 @@ public class DeviceBrowserViewModel : ViewModelBase
                         }
                         catch (Exception ex)
                         {
+                            DeviceDirectories.Clear();
+                            CurrentDevicePath = string.Empty;
+                            CheckDeviceAlbums();
                             MessageBox.Show($"Failed to connect to device: {ex.Message}");
                         }
                     }
@@ -74,6 +77,12 @@ public class DeviceBrowserViewModel : ViewModelBase
                     {
                         LoadDeviceDirectories(_selectedDevice.Drive.RootDirectory.FullName);
                     }
+                }
+                else
+                {
+                    DeviceDirectories.Clear();
+                    CurrentDevicePath = string.Empty;
+                    CheckDeviceAlbums();
                 }
             }
         }
@@ -346,10 +355,14 @@ public class DeviceBrowserViewModel : ViewModelBase
     /// <returns>非同期タスク</returns>
     internal async Task CheckDeviceAlbumsAsync(CancellationToken externalCancellationToken = default)
     {
-        _checkDeviceAlbumsCts?.Cancel();
-        _checkDeviceAlbumsCts?.Dispose();
         var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellationToken);
-        _checkDeviceAlbumsCts = linkedCts;
+        var previousCts = Interlocked.Exchange(ref _checkDeviceAlbumsCts, linkedCts);
+        if (previousCts != null)
+        {
+            try { previousCts.Cancel(); } catch (ObjectDisposedException) { }
+            previousCts.Dispose();
+        }
+
         var ct = linkedCts.Token;
 
         var selectedDevice = SelectedDevice;
@@ -358,7 +371,15 @@ public class DeviceBrowserViewModel : ViewModelBase
 
         if (selectedDevice == null || string.IsNullOrEmpty(currentPath))
         {
-            RunOnUiThread(() => ApplyDeviceTrackIndex(albums, new HashSet<string>(StringComparer.OrdinalIgnoreCase)));
+            RunOnUiThread(() =>
+            {
+                if (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                ApplyDeviceTrackIndex(albums, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            });
             return;
         }
 
@@ -390,7 +411,15 @@ public class DeviceBrowserViewModel : ViewModelBase
                 return;
             }
 
-            RunOnUiThread(() => ApplyDeviceTrackIndex(albums, index));
+            RunOnUiThread(() =>
+            {
+                if (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                ApplyDeviceTrackIndex(albums, index);
+            });
         }
         catch (OperationCanceledException)
         {
@@ -416,6 +445,59 @@ public class DeviceBrowserViewModel : ViewModelBase
 
         string? nameWithoutExt = Path.GetFileNameWithoutExtension(fileNameOrPath);
         return string.IsNullOrWhiteSpace(nameWithoutExt) ? string.Empty : nameWithoutExt.Trim();
+    }
+
+    /// <summary>
+    /// 指定ルートパスからの相対パスと拡張子除去済みファイル名を組み合わせた重複判定キーを生成します。
+    /// </summary>
+    /// <param name="rootPath">走査基準フォルダパス</param>
+    /// <param name="fullFilePath">デバイス上のフルファイルパス</param>
+    /// <returns>正規化された相対パス基準キー（例: Artist\Album\01_Song または 01_Song）</returns>
+    internal static string BuildDeviceRelativeDuplicateKey(string rootPath, string fullFilePath)
+    {
+        string fileKey = NormalizeTrackDuplicateKey(fullFilePath);
+        if (string.IsNullOrEmpty(fileKey))
+        {
+            return string.Empty;
+        }
+
+        string normalizedRoot = (rootPath ?? string.Empty).Replace('/', '\\').TrimEnd('\\');
+        string normalizedFull = (fullFilePath ?? string.Empty).Replace('/', '\\');
+        string relativeDir = string.Empty;
+
+        int lastSep = normalizedFull.LastIndexOf('\\');
+        if (lastSep >= 0)
+        {
+            string fullDir = normalizedFull.Substring(0, lastSep).TrimEnd('\\');
+            if (string.IsNullOrEmpty(normalizedRoot))
+            {
+                relativeDir = fullDir.TrimStart('\\');
+            }
+            else if (fullDir.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                relativeDir = fullDir.Substring(normalizedRoot.Length).TrimStart('\\');
+            }
+        }
+
+        return string.IsNullOrEmpty(relativeDir) ? fileKey : $"{relativeDir}\\{fileKey}";
+    }
+
+    /// <summary>
+    /// トラックの転送先階層（Artist\Album\ファイル名）に対応する重複判定キーを生成します。
+    /// </summary>
+    /// <param name="track">対象トラック</param>
+    /// <returns>相対パス基準の重複判定キー（ファイル名が空の場合は空文字）</returns>
+    internal static string BuildExpectedTrackRelativeKey(Track track)
+    {
+        string fileKey = NormalizeTrackDuplicateKey(track.FilePath);
+        if (string.IsNullOrEmpty(fileKey))
+        {
+            return string.Empty;
+        }
+
+        string artist = SanitizeFileName(track.Artist);
+        string album = SanitizeFileName(track.Album);
+        return $"{artist}\\{album}\\{fileKey}";
     }
 
     /// <summary>
@@ -479,7 +561,7 @@ public class DeviceBrowserViewModel : ViewModelBase
                         continue;
                     }
 
-                    string key = NormalizeTrackDuplicateKey(file);
+                    string key = BuildDeviceRelativeDuplicateKey(rootPath, file);
                     if (!string.IsNullOrEmpty(key))
                     {
                         index.Add(key);
@@ -560,7 +642,7 @@ public class DeviceBrowserViewModel : ViewModelBase
                         continue;
                     }
 
-                    string key = NormalizeTrackDuplicateKey(file);
+                    string key = BuildDeviceRelativeDuplicateKey(rootPath, file);
                     if (!string.IsNullOrEmpty(key))
                     {
                         index.Add(key);
@@ -606,39 +688,54 @@ public class DeviceBrowserViewModel : ViewModelBase
     /// 構築したデバイスファイルインデックスを用いて、各トラック・アルバムの IsOnDevice 状態を一括反映します。
     /// </summary>
     /// <param name="albums">状態更新対象のアルバム一覧</param>
-    /// <param name="deviceFileNameKeys">デバイス上の正規化済みファイル名キーセット</param>
-    internal static void ApplyDeviceTrackIndex(IReadOnlyList<Album> albums, IReadOnlySet<string> deviceFileNameKeys)
+    /// <param name="deviceFileKeys">デバイス上の正規化済み相対パス／ファイル名キーセット</param>
+    internal static void ApplyDeviceTrackIndex(IReadOnlyList<Album> albums, IReadOnlySet<string> deviceFileKeys)
     {
         foreach (var album in albums)
         {
-            if (album.Tracks != null && album.Tracks.Count > 0)
+            album.ApplyTracksOnDeviceState(track =>
             {
-                foreach (var track in album.Tracks)
+                string relativeKey = BuildExpectedTrackRelativeKey(track);
+                if (!string.IsNullOrEmpty(relativeKey) && deviceFileKeys.Contains(relativeKey))
                 {
-                    string key = NormalizeTrackDuplicateKey(track.FilePath);
-                    bool exists = !string.IsNullOrEmpty(key) && deviceFileNameKeys.Contains(key);
-                    track.IsOnDevice = exists;
-                    if (exists)
-                    {
-                        track.IsSelected = false;
-                    }
+                    return true;
                 }
-            }
 
-            album.UpdateIsOnDeviceState();
-            if (album.IsOnDevice)
-            {
-                album.IsSelected = false;
-            }
+                // 指定フォルダ直下にフラット配置された既存音声ファイルとの照合フォールバック
+                string flatKey = NormalizeTrackDuplicateKey(track.FilePath);
+                return !string.IsNullOrEmpty(flatKey) && deviceFileKeys.Contains(flatKey);
+            });
         }
+    }
+
+    /// <summary>
+    /// 進行中の非同期重複スキャンをキャンセルし、保持しているリソースを解放します。
+    /// </summary>
+    public void Dispose()
+    {
+        var cts = Interlocked.Exchange(ref _checkDeviceAlbumsCts, null);
+        if (cts != null)
+        {
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+            cts.Dispose();
+        }
+
+        GC.SuppressFinalize(this);
     }
 
     private static void RunOnUiThread(Action action)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.CheckAccess())
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.HasShutdownFinished)
         {
-            dispatcher.Invoke(action);
+            if (dispatcher.CheckAccess())
+            {
+                action();
+            }
+            else
+            {
+                dispatcher.Invoke(action);
+            }
         }
         else
         {
