@@ -15,7 +15,7 @@ public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeServic
 {
     private const int DefaultAacBitrate = 192000;
     private static readonly object MediaFoundationLock = new();
-    private static bool _mediaFoundationInitialized;
+    private static volatile bool _mediaFoundationInitialized;
 
     /// <inheritdoc />
     public bool NeedsTranscode(string sourceFilePath, AudioTranscodeOptions options)

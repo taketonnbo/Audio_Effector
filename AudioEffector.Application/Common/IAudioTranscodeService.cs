@@ -55,7 +55,7 @@ public sealed class AudioTranscodeOptions
 /// </summary>
 public sealed class TranscodedAudioResult : IDisposable
 {
-    private bool _disposed;
+    private int _disposed;
 
     /// <summary>
     /// 変換元のオリジナルファイルパスを取得します
@@ -125,12 +125,10 @@ public sealed class TranscodedAudioResult : IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
-
-        _disposed = true;
 
         if (!WasTranscoded)
         {
