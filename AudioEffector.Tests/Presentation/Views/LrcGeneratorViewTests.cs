@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -503,6 +504,99 @@ public sealed class LrcGeneratorViewTests
                 });
             }
         });
+    }
+
+    /// <summary>
+    /// 結果プレビュー状態のフッターに「歌詞表示で確認」ボタンが存在せず、
+    /// 保存系フッターボタンおよびヘッダーの「← 歌詞へ戻る」ボタンが両テーマで正常動作することを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("DarkTheme.xaml")]
+    [InlineData("LightTheme.xaml")]
+    public Task LrcGeneratorView_プレビュー状態描画時_フッターに歌詞表示で確認ボタンが存在せずヘッダー戻るボタンと保存系ボタンが維持される(string themeFileName)
+    {
+        return RunInStaThreadAsync(async () =>
+        {
+            // Arrange
+            EnsureApplicationResources();
+            using var listener = new BindingErrorTraceListener();
+            var existingPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C:\Music\PreviewCheck.flac" };
+            var (vm, engine, _, _) = CreateViewModel(modelAvailable: true, fileExistsFunc: p => existingPaths.Contains(p));
+
+            using (vm)
+            {
+                vm.SetTargetTrack(new Track { FilePath = @"C:\Music\PreviewCheck.flac", Title = "PreviewCheck", Artist = "Artist" });
+                var sut = new LrcGeneratorView { DataContext = vm };
+                AttachThemeResources(sut.Resources, themeFileName);
+
+                await RunWithHostWindowAsync(sut, async host =>
+                {
+                    var backToLyricsBtn = Assert.IsType<Button>(sut.FindName("BackToLyricsButton"));
+                    var saveLrcBtn = Assert.IsType<Button>(sut.FindName("SaveLrcButton"));
+                    var openSavedFolderBtn = Assert.IsType<Button>(sut.FindName("OpenSavedFolderButton"));
+
+                    // Act: 処理中ガード → プレビュー状態へ遷移
+                    var gate = new TaskCompletionSource<AlignmentResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    engine.Handler = (_, _, _) => gate.Task;
+                    Task runTask = vm.TranscribeFromAudioAsync();
+                    host.UpdateLayout();
+
+                    // Assert: 生成処理中はヘッダーの「← 歌詞へ戻る」が非活性
+                    Assert.False(backToLyricsBtn.IsEnabled);
+
+                    var doc = new LyricsDocument([new LyricLine(0, TimeSpan.FromSeconds(3), "Line 1")], isSynced: true, title: "PreviewCheck");
+                    gate.TrySetResult(new AlignmentResult(doc, "[00:03.00]Line 1", [], LrcGenerationMode.AudioTranscription, "Stub"));
+                    await runTask;
+                    host.UpdateLayout();
+
+                    // Assert: フッターに「歌詞表示で確認」ボタンが存在しないこと
+                    List<Button> allButtons = FindVisualChildren<Button>(sut);
+                    Assert.DoesNotContain(allButtons, b => string.Equals(b.Content as string, "歌詞表示で確認", StringComparison.Ordinal));
+                    Assert.DoesNotContain(allButtons, b => string.Equals(AutomationProperties.GetName(b), "同期歌詞表示パネルで確認", StringComparison.Ordinal));
+
+                    // Assert: ヘッダーの「← 歌詞へ戻る」ボタンが維持・活性でイベント発火すること
+                    bool backRequested = false;
+                    vm.BackToLyricsRequested += () => backRequested = true;
+                    Assert.Equal("← 歌詞へ戻る", backToLyricsBtn.Content);
+                    Assert.True(backToLyricsBtn.IsEnabled);
+                    backToLyricsBtn.Command.Execute(null);
+                    Assert.True(backRequested);
+
+                    // Assert: フッターの保存系ボタンが維持され、保存前→保存後で活性遷移すること
+                    Assert.Equal("LRC を保存", saveLrcBtn.Content);
+                    Assert.True(saveLrcBtn.IsEnabled);
+                    Assert.Equal("保存先フォルダを開く", openSavedFolderBtn.Content);
+                    Assert.False(openSavedFolderBtn.IsEnabled);
+
+                    await vm.ExecuteSaveAsync(overwrite: true);
+                    host.UpdateLayout();
+                    Assert.True(openSavedFolderBtn.IsEnabled);
+
+                    // Assert: バインディングエラー 0 件・高負荷エフェクト 0 件
+                    Assert.Empty(listener.Errors);
+                    Assert.False(HasHeavyEffect(sut));
+                });
+            }
+        });
+    }
+
+    private static List<T> FindVisualChildren<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        var results = new List<T>();
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                results.Add(match);
+            }
+
+            results.AddRange(FindVisualChildren<T>(child));
+        }
+
+        return results;
     }
 
     private static T? FindVisualChild<T>(DependencyObject root)
