@@ -604,6 +604,7 @@ public sealed class MainViewModelTests
         var favoriteRepoMock = new Mock<IFavoriteRepository>();
         favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<System.Threading.CancellationToken>()))
             .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        var statsRepo = new InMemoryListeningStatsRepositoryStub();
         var recentRepoMock = new Mock<IRecentTrackRepository>();
         recentRepoMock.Setup(r => r.Load()).Returns(Array.Empty<RecentTrackEntry>());
 
@@ -630,11 +631,13 @@ public sealed class MainViewModelTests
         services.AddSingleton(settingsMock.Object);
         services.AddSingleton(audioServiceMock.Object);
         services.AddSingleton(Mock.Of<IAudioEngine>());
+        services.AddSingleton<IListeningStatsRepository>(statsRepo);
         services.AddSingleton(recentRepoMock.Object);
         services.AddSingleton(Mock.Of<IAudioTranscodeService>());
         services.AddSingleton(libraryService);
         services.AddSingleton(playlistService);
         services.AddSingleton(lyricsService);
+        services.AddSingleton<ListeningStatsApplicationService>();
         services.AddSingleton<PlayerControlViewModel>();
         services.AddSingleton<PlaylistViewModel>();
         services.AddSingleton<LibraryViewModel>();
@@ -643,6 +646,7 @@ public sealed class MainViewModelTests
         services.AddSingleton<ArtistsViewModel>();
         services.AddSingleton<RecentViewModel>();
         services.AddSingleton<LyricsViewModel>();
+        services.AddSingleton<ListeningStatsViewModel>();
 
         using var provider = services.BuildServiceProvider();
         App.ServiceProvider = provider;

@@ -209,20 +209,6 @@ public sealed class JsonListeningStatsRepositoryTests : IDisposable
         Assert.Equal("SyncedSong", reloaded.TrackStats[0].Title);
     }
 
-    private sealed class SwitchableDataDirectoryProvider : IDataDirectoryProvider
-    {
-        public SwitchableDataDirectoryProvider(string directory)
-        {
-            DataDirectory = directory;
-        }
-
-        public string DataDirectory { get; set; }
-
-        public bool IsCustomDirectory => true;
-
-        public string GetFilePath(string fileName) => Path.Combine(DataDirectory, fileName);
-    }
-
     /// <summary>
     /// DataDirectoryProvider の保存先ディレクトリが切り替わった場合、新ディレクトリの ListeningStats.json へ自動追従することを検証します。
     /// </summary>
@@ -234,7 +220,7 @@ public sealed class JsonListeningStatsRepositoryTests : IDisposable
         string dirB = Path.Combine(_tempDir, "DirB");
         Directory.CreateDirectory(dirA);
         Directory.CreateDirectory(dirB);
-        var provider = new SwitchableDataDirectoryProvider(dirA);
+        var provider = new DataDirectoryProvider(dirA);
         var sut = new JsonListeningStatsRepository(provider);
         var trackA = CreateTrack("TrackA");
         var trackB = CreateTrack("TrackB");
@@ -242,7 +228,7 @@ public sealed class JsonListeningStatsRepositoryTests : IDisposable
         sut.Update(data => data.TrackStats.Add(TrackListeningStat.FromTrack(trackA)));
 
         // Act
-        provider.DataDirectory = dirB;
+        provider.UpdateDataDirectory(dirB);
         Assert.Empty(sut.Load().TrackStats);
         sut.Update(data => data.TrackStats.Add(TrackListeningStat.FromTrack(trackB)));
 
