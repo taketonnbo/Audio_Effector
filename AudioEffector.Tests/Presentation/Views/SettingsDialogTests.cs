@@ -106,6 +106,7 @@ public sealed class SettingsDialogTests
     [InlineData("オーディオデバイス")]
     [InlineData("エフェクト・再生")]
     [InlineData("ショートカット")]
+    [InlineData("データ管理・その他")]
     public void スクロール可能状態_画面高さが不足する各カテゴリ表示時_ScrollableHeightが正かつバインディングエラーがないこと(string category)
     {
         RunInStaThread(() =>
@@ -138,17 +139,17 @@ public sealed class SettingsDialogTests
     }
 
     /// <summary>
-    /// プレースホルダー表示となる「データ管理・その他」カテゴリを選択した際、バインディングエラーが発生せず不要なスクロール領域が生じないことを検証します。
+    /// プレースホルダー表示となる未定義カテゴリを選択した際、バインディングエラーが発生せず不要なスクロール領域が生じないことを検証します。
     /// </summary>
     [Fact]
-    public void プレースホルダーカテゴリ_データ管理その他選択時_バインディングエラーがなく不要なスクロールが出ないこと()
+    public void プレースホルダーカテゴリ_未定義カテゴリ選択時_バインディングエラーがなく不要なスクロールが出ないこと()
     {
         RunInStaThread(() =>
         {
             // Arrange
             using var listener = new BindingErrorTraceListener();
             var vm = CreateViewModel();
-            vm.SelectedCategory = "データ管理・その他";
+            vm.SelectedCategory = "未実装カテゴリ";
 
             var sut = new SettingsDialog(vm);
 
@@ -370,6 +371,110 @@ public sealed class SettingsDialogTests
             // Assert
             Assert.True(vm.ConvertFlacToMp3);
             Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
+
+    /// <summary>
+    /// データ管理・その他カテゴリにデータ保存先パス表示（読み取り専用）と「参照...」「リセット」ボタンが配置され、バインディングエラー 0 件で描画されることを検証します。
+    /// </summary>
+    [Fact]
+    public void データ管理その他カテゴリ_データ保存先設定コントロール配置時_読み取り専用表示とコマンド接続が正常でバインディングエラーがないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var listener = new BindingErrorTraceListener();
+            var vm = CreateViewModel();
+            vm.SelectedCategory = "データ管理・その他";
+
+            var sut = new SettingsDialog(vm);
+            var rootContent = Assert.IsAssignableFrom<FrameworkElement>(sut.Content);
+
+            // Act
+            rootContent.Measure(new Size(760, 520));
+            rootContent.Arrange(new Rect(0, 0, 760, 520));
+            rootContent.UpdateLayout();
+
+            var pathTextBox = Assert.IsType<TextBox>(sut.FindName("DataDirectoryPathTextBox"));
+            var browseButton = Assert.IsType<Button>(sut.FindName("BrowseDataDirectoryButton"));
+            var resetButton = Assert.IsType<Button>(sut.FindName("ResetDataDirectoryButton"));
+
+            // Assert
+            Assert.True(pathTextBox.IsReadOnly);
+            Assert.Equal(vm.DataDirectoryPath, pathTextBox.Text);
+            Assert.Same(vm.BrowseDataDirectoryCommand, browseButton.Command);
+            Assert.Same(vm.ResetDataDirectoryCommand, resetButton.Command);
+            Assert.False(resetButton.IsEnabled);
+            Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
+
+    /// <summary>
+    /// 実 WPF ウィンドウ上でデータ保存先をカスタムパスへ変更およびリセットした直後、
+    /// 追加のユーザー入力なしで ResetDataDirectoryButton.IsEnabled が false→true→false へ即時遷移することを検証します。
+    /// </summary>
+    [Fact]
+    public void データ管理その他カテゴリ_保存先変更およびリセット直後_リセットボタンのIsEnabledが即時遷移すること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+            var audioServiceMock = new Mock<IAudioService>();
+            var vm = new SettingsViewModel(
+                settingsServiceMock.Object,
+                audioServiceMock.Object,
+                dataDirectoryProvider: null,
+                dataDirectoryMigrationService: null,
+                folderPicker: _ => @"D:\CustomAudioData",
+                migrationPrompt: (_, _, _) => DataMigrationChoice.Copy,
+                messageNotifier: (_, _, _) => { });
+            vm.SelectedCategory = "データ管理・その他";
+
+            var sut = new SettingsDialog(vm)
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -10000,
+                Top = -10000,
+                ShowActivated = false,
+                ShowInTaskbar = false,
+            };
+
+            try
+            {
+                sut.Show();
+                sut.UpdateLayout();
+
+                var pathTextBox = Assert.IsType<TextBox>(sut.FindName("DataDirectoryPathTextBox"));
+                var resetButton = Assert.IsType<Button>(sut.FindName("ResetDataDirectoryButton"));
+                Assert.False(resetButton.IsEnabled);
+
+                // Act 1: カスタムフォルダへ変更
+                vm.BrowseDataDirectoryCommand.Execute(null);
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                    System.Windows.Threading.DispatcherPriority.Background,
+                    new Action(() => { }));
+                sut.UpdateLayout();
+
+                // Assert 1
+                Assert.Equal(@"D:\CustomAudioData", pathTextBox.Text);
+                Assert.True(resetButton.IsEnabled);
+
+                // Act 2: リセット実行
+                vm.ResetDataDirectoryCommand.Execute(null);
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                    System.Windows.Threading.DispatcherPriority.Background,
+                    new Action(() => { }));
+                sut.UpdateLayout();
+
+                // Assert 2
+                Assert.False(resetButton.IsEnabled);
+            }
+            finally
+            {
+                sut.Close();
+            }
         });
     }
 }

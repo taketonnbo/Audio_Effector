@@ -59,7 +59,7 @@
 | **オーディオデバイス** | ・サンプルレート: `44100`（既定） / `48000` / `88200` / `96000` / `192000` Hz<br>・オーディオバッファサイズ: `50` / `100`（既定） / `200` / `300` / `500` ms |
 | **エフェクト・再生** | ・マスター音量: `0.0`〜`1.0`（既定: `1.0`、右横にパーセント `P0` 表示）<br>・ピーク・ノーマライズを有効にする: `EnableNormalize`（既定: `false`） |
 | **ショートカット** | `ShortcutInputBox` 7項目（再生/一時停止、停止、次の曲、前の曲、ミュート、音量を上げる、音量を下げる） |
-| **データ管理・その他** | ・再スキャン時に更新されたファイルのメタデータを再読み込みする: `DetectMetadataChangesOnRescan`（既定: `false`。有効時は既存ファイルの最終更新日時変更を検知してタグ情報を再解析）<br>・転送時に MP4 を M4A に変換する: `ConvertMp4ToM4a`（既定: `false`。有効時は機器転送時に `.mp4` を `.m4a`（AAC）形式へ自動変換して転送し、一時ファイルを自動クリーンアップ）<br>・転送時に FLAC を MP3 に変換してデータ量を削減する: `ConvertFlacToMp3`（既定: `false`。有効時は機器転送時に `.flac` を `.mp3`（320 kbps・メタデータおよびカバーアート引継ぎ）へ自動変換して転送し、一時ファイルを自動クリーンアップ）（他項目は関連Issue: #44, #45, #46 にて拡張計画） |
+| **データ管理・その他** | ・データ保存先フォルダ: `DataDirectoryPath`（既定: `%APPDATA%\AudioEffector`）。読み取り専用パス表示＋「参照...」（`OpenFolderDialog`）・「リセット」ボタンを配置。既存データファイル（`tracks.json` / `playlists.json` / `favorites.json` / `RecentTracks.json` / `presets.json`）が存在する場合は確認ダイアログ（`DataMigrationDialog`）でコピー／移動／移行せず切替／キャンセルを選択し（変更先にも既存データがある場合は上書き警告を表示し「移行せず切り替え」を既定ボタンへ切替）、変更後に各画面へ即時再読込反映（`settings.json` は既定フォルダに残す）<br>・再スキャン時に更新されたファイルのメタデータを再読み込みする: `DetectMetadataChangesOnRescan`（既定: `false`。有効時は既存ファイルの最終更新日時変更を検知してタグ情報を再解析）<br>・転送時に MP4 を M4A に変換する: `ConvertMp4ToM4a`（既定: `false`。有効時は機器転送時に `.mp4` を `.m4a`（AAC）形式へ自動変換して転送し、一時ファイルを自動クリーンアップ）<br>・転送時に FLAC を MP3 に変換してデータ量を削減する: `ConvertFlacToMp3`（既定: `false`。有効時は機器転送時に `.flac` を `.mp3`（320 kbps・メタデータおよびカバーアート引継ぎ）へ自動変換して転送し、一時ファイルを自動クリーンアップ）（他項目は関連Issue: #44, #46, #442 にて拡張計画） |
 
 保存・キャンセルボタンは設けず、各項目変更時に即時保存して下端の「閉じる」ボタンで終了する（追加設定項目は Issue #190, #223 等にて拡張計画）。
 
@@ -72,6 +72,7 @@
 - **ミニプレイヤーデザイン・回転設定変更 (Issue #261)**: 表示中の `MiniPlayerWindow` に対して `UpdateDesignSettings()` を即時反映し、レイアウト・ウィンドウサイズ・回転アニメーションを切り替える。
 - **サンプルレート / バッファサイズ変更**: `IAudioService.UpdateAudioProperties()` へ即時反映。
 - **ショートカット変更**: ダイアログを閉じた後に `MainViewModel.SettingsUpdated` イベント経由で `MainWindow` および `MiniPlayerWindow` の `WindowShortcutHandler` へ最新設定を反映。
+- **データ保存先変更 (Issue #45)**: `IDataDirectoryMigrationService` で保存先検証・既存データ移行（コピー／移動／移行なし）と `IDataDirectoryProvider.UpdateDataDirectory()` を実行し、`SettingsViewModel.DataDirectoryChanged` 経由で `MainViewModel` がプレイリスト・お気に入り・再生履歴・イコライザープリセットを即時再読込する。
 
 ## 7. パフォーマンス最適化要件
 

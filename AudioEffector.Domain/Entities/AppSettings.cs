@@ -131,6 +131,11 @@ public class AppSettings
     public ShortcutKeyConfig VolumeDownShortcut { get; set; } = new();
 
     /// <summary>
+    /// ユーザープリセット・プレイリスト・お気に入り・再生履歴などのデータファイル保存先ディレクトリパス（未指定時は既定の AppData\AudioEffector）
+    /// </summary>
+    public string? DataDirectoryPath { get; set; }
+
+    /// <summary>
     /// 機器転送時にMP4ファイルをM4A形式へ自動変換するかどうか
     /// </summary>
     public bool ConvertMp4ToM4a { get; set; }

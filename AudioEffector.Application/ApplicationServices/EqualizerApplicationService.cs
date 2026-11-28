@@ -18,11 +18,15 @@ namespace AudioEffector.Application.ApplicationServices;
 public class EqualizerApplicationService
 {
     private const string CUSTOM_PRESETS_SETTINGS_KEY = "Equalizer_CustomPresets";
+    private const string PRESETS_FILE_NAME = "presets.json";
+    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
     private readonly IAudioEngine _audioEngine;
     private readonly IAudioService? _legacyAudioService;
     private readonly ISettingsRepository _settingsRepository;
     private readonly IEventBus _eventBus;
-    private readonly string _presetsFilePath;
+    private readonly IDataDirectoryProvider? _dataDirectoryProvider;
+    private readonly IJsonFileLockHelper? _fileLockHelper;
+    private readonly string _fallbackPresetsFilePath;
     private readonly object _lock = new();
 
     private EqualizerPreset _currentPreset;
@@ -45,38 +49,46 @@ public class EqualizerApplicationService
     /// <param name="settingsRepository">設定リポジトリ</param>
     /// <param name="eventBus">イベントバス</param>
     /// <param name="legacyAudioService">移行期間中の既存再生サービス</param>
+    /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ（指定時はデータディレクトリ内の presets.json を使用）</param>
+    /// <param name="fileLockHelper">プロセス間ファイルロックおよび原子的書き込みヘルパー</param>
     public EqualizerApplicationService(
         IAudioEngine audioEngine,
         ISettingsRepository settingsRepository,
         IEventBus eventBus,
-        IAudioService? legacyAudioService = null)
+        IAudioService? legacyAudioService = null,
+        IDataDirectoryProvider? dataDirectoryProvider = null,
+        IJsonFileLockHelper? fileLockHelper = null)
     {
         _audioEngine = audioEngine ?? throw new ArgumentNullException(nameof(audioEngine));
         _settingsRepository = settingsRepository ?? throw new ArgumentNullException(nameof(settingsRepository));
         _eventBus = eventBus ?? throw new ArgumentNullException(nameof(eventBus));
         _legacyAudioService = legacyAudioService;
+        _dataDirectoryProvider = dataDirectoryProvider;
+        _fileLockHelper = fileLockHelper;
         _currentPreset = EqualizerPreset.CreateFlat();
 
         string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string folder = System.IO.Path.Combine(appData, "AudioEffector");
         System.IO.Directory.CreateDirectory(folder);
-        _presetsFilePath = System.IO.Path.Combine(folder, "presets.json");
+        _fallbackPresetsFilePath = System.IO.Path.Combine(folder, PRESETS_FILE_NAME);
     }
 
     /// <summary>
-    /// イコライザープリセット一覧をローカルファイル（presets.json）から読み込みます
+    /// イコライザープリセット一覧をローカルファイルから読み込みます（後方互換用）
     /// </summary>
-    /// <returns></returns>
+    /// <returns>イコライザープリセット一覧</returns>
+    [Obsolete("非同期API（GetPresetsAsync）を使用してください。")]
     public List<EqualizerPreset> LoadPresets()
     {
-        if (!System.IO.File.Exists(_presetsFilePath))
+        string filePath = _fallbackPresetsFilePath;
+        if (!System.IO.File.Exists(filePath))
         {
             return CreateDefaultPresets();
         }
 
         try
         {
-            string json = System.IO.File.ReadAllText(_presetsFilePath);
+            string json = System.IO.File.ReadAllText(filePath);
             return JsonSerializer.Deserialize<List<EqualizerPreset>>(json) ?? CreateDefaultPresets();
         }
         catch
@@ -86,9 +98,10 @@ public class EqualizerApplicationService
     }
 
     /// <summary>
-    /// イコライザープリセット一覧をローカルファイル（presets.json）へ保存します
+    /// イコライザープリセット一覧をローカルファイルへ保存します（後方互換用）
     /// </summary>
     /// <param name="presets">保存するイコライザープリセット一覧</param>
+    [Obsolete("非同期API（SaveCustomPresetAsync）を使用してください。")]
     public void SavePresets(List<EqualizerPreset> presets)
     {
         if (presets == null) return;
@@ -97,8 +110,24 @@ public class EqualizerApplicationService
         {
             presets = presets.GetRange(0, maxPresets);
         }
+
+        string filePath = _fallbackPresetsFilePath;
+        string? directory = System.IO.Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            System.IO.Directory.CreateDirectory(directory);
+        }
+
         string json = JsonSerializer.Serialize(presets);
-        System.IO.File.WriteAllText(_presetsFilePath, json);
+        if (_fileLockHelper != null)
+        {
+            using IDisposable fileLock = _fileLockHelper.AcquireLock(filePath);
+            _fileLockHelper.WriteAllTextAtomic(filePath, json);
+        }
+        else
+        {
+            System.IO.File.WriteAllText(filePath, json);
+        }
     }
 
     private static List<EqualizerPreset> CreateDefaultPresets()
@@ -174,24 +203,10 @@ public class EqualizerApplicationService
         };
 
         // カスタムプリセットの読み込み
-        string? json = await _settingsRepository.GetValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, null, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(json))
+        List<PresetDto> customDtos = await ReadCustomPresetsAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var dto in customDtos)
         {
-            try
-            {
-                var dtos = JsonSerializer.Deserialize<List<PresetDto>>(json);
-                if (dtos != null)
-                {
-                    foreach (var dto in dtos)
-                    {
-                        presets.Add(dto.ToEntity());
-                    }
-                }
-            }
-            catch
-            {
-                // デシリアライズ失敗時はスキップ
-            }
+            presets.Add(dto.ToEntity());
         }
 
         return presets;
@@ -203,11 +218,31 @@ public class EqualizerApplicationService
     /// <param name="preset">保存対象のプリセット</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>非同期タスク</returns>
-    public Task SaveCustomPresetAsync(EqualizerPreset preset, CancellationToken cancellationToken = default)
+    public async Task SaveCustomPresetAsync(EqualizerPreset preset, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(preset);
 
-        return _settingsRepository.UpdateValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, json =>
+        if (_dataDirectoryProvider != null)
+        {
+            await UpdatePresetsFileAsync(presets =>
+            {
+                int index = presets.FindIndex(p => string.Equals(p.Name, preset.Name, StringComparison.OrdinalIgnoreCase));
+                var dto = PresetDto.FromEntity(preset);
+                if (index >= 0)
+                {
+                    presets[index] = dto;
+                }
+                else
+                {
+                    presets.Add(dto);
+                }
+
+                return true;
+            }, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await _settingsRepository.UpdateValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, json =>
         {
             var presets = ReadCustomPresets(json);
             int index = presets.FindIndex(p => string.Equals(p.Name, preset.Name, StringComparison.OrdinalIgnoreCase));
@@ -222,7 +257,7 @@ public class EqualizerApplicationService
             }
 
             return JsonSerializer.Serialize(presets);
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -231,19 +266,211 @@ public class EqualizerApplicationService
     /// <param name="presetName">削除対象のプリセット名</param>
     /// <param name="cancellationToken">キャンセレーショントークン</param>
     /// <returns>削除対象が存在した場合はtrue</returns>
-    public Task<bool> DeleteCustomPresetAsync(string presetName, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteCustomPresetAsync(string presetName, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(presetName))
         {
-            return Task.FromResult(false);
+            return false;
         }
 
-        return _settingsRepository.UpdateValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, json =>
+        if (_dataDirectoryProvider != null)
+        {
+            return await UpdatePresetsFileAsync(presets =>
+            {
+                int removed = presets.RemoveAll(p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
+                return removed > 0;
+            }, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await _settingsRepository.UpdateValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, json =>
         {
             var presets = ReadCustomPresets(json);
             int removed = presets.RemoveAll(p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
             return removed > 0 ? JsonSerializer.Serialize(presets) : json;
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<List<PresetDto>> ReadCustomPresetsAsync(CancellationToken cancellationToken)
+    {
+        if (_dataDirectoryProvider != null)
+        {
+            string filePath = _dataDirectoryProvider.GetFilePath(PRESETS_FILE_NAME);
+            if (System.IO.File.Exists(filePath))
+            {
+                try
+                {
+                    if (_fileLockHelper != null)
+                    {
+                        using IDisposable fileLock = await _fileLockHelper.AcquireLockAsync(filePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+                        if (!System.IO.File.Exists(filePath))
+                        {
+                            return [];
+                        }
+
+                        string fileJson = await System.IO.File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
+                        return ReadCustomPresetsSafe(fileJson);
+                    }
+
+                    string rawJson = await System.IO.File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
+                    return ReadCustomPresetsSafe(rawJson);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    return [];
+                }
+            }
+
+            // カスタムディレクトリ選択時は既定の settings.json 旧キーへフォールバックしない（移行なし切替時の混入・復活を防止）
+            if (_dataDirectoryProvider.IsCustomDirectory)
+            {
+                return [];
+            }
+
+            // 既定ディレクトリで presets.json 未作成時のみ、旧 settings.json 保存のカスタムプリセットを読み込んで presets.json へ初回移行する
+            string? legacyJson = await _settingsRepository.GetValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, null, cancellationToken).ConfigureAwait(false);
+            List<PresetDto> legacyPresets = ReadCustomPresetsSafe(legacyJson);
+            if (legacyPresets.Count > 0)
+            {
+                await TryMigrateLegacyPresetsToFileAsync(filePath, legacyPresets, cancellationToken).ConfigureAwait(false);
+            }
+
+            return legacyPresets;
+        }
+
+        string? json = await _settingsRepository.GetValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, null, cancellationToken).ConfigureAwait(false);
+        return ReadCustomPresetsSafe(json);
+    }
+
+    private async Task TryMigrateLegacyPresetsToFileAsync(string filePath, List<PresetDto> legacyPresets, CancellationToken cancellationToken)
+    {
+        try
+        {
+            string? directory = System.IO.Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                System.IO.Directory.CreateDirectory(directory);
+            }
+
+            string serialized = JsonSerializer.Serialize(legacyPresets, _jsonOptions);
+            if (_fileLockHelper != null)
+            {
+                using IDisposable fileLock = await _fileLockHelper.AcquireLockAsync(filePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (!System.IO.File.Exists(filePath))
+                {
+                    await _fileLockHelper.WriteAllTextAtomicAsync(filePath, serialized, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            else if (!System.IO.File.Exists(filePath))
+            {
+                await System.IO.File.WriteAllTextAsync(filePath, serialized, cancellationToken).ConfigureAwait(false);
+            }
+
+            await _settingsRepository.RemoveAsync(CUSTOM_PRESETS_SETTINGS_KEY, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // 初回マイグレーションの書き込み失敗時もメモリ上の読込結果は維持する
+        }
+    }
+
+    private async Task<bool> UpdatePresetsFileAsync(Func<List<PresetDto>, bool> mutate, CancellationToken cancellationToken)
+    {
+        string filePath = _dataDirectoryProvider!.GetFilePath(PRESETS_FILE_NAME);
+        bool isCustomDirectory = _dataDirectoryProvider.IsCustomDirectory;
+        string? directory = System.IO.Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            System.IO.Directory.CreateDirectory(directory);
+        }
+
+        bool loadedFromLegacy;
+        if (_fileLockHelper != null)
+        {
+            using IDisposable fileLock = await _fileLockHelper.AcquireLockAsync(filePath, cancellationToken: cancellationToken).ConfigureAwait(false);
+            (List<PresetDto> presets, loadedFromLegacy) = await LoadForMutationAsync(filePath, isCustomDirectory, cancellationToken).ConfigureAwait(false);
+            if (!mutate(presets))
+            {
+                return false;
+            }
+
+            string serialized = JsonSerializer.Serialize(presets, _jsonOptions);
+            await _fileLockHelper.WriteAllTextAtomicAsync(filePath, serialized, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            (List<PresetDto> presets, loadedFromLegacy) = await LoadForMutationAsync(filePath, isCustomDirectory, cancellationToken).ConfigureAwait(false);
+            if (!mutate(presets))
+            {
+                return false;
+            }
+
+            string serialized = JsonSerializer.Serialize(presets, _jsonOptions);
+            await System.IO.File.WriteAllTextAsync(filePath, serialized, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (loadedFromLegacy)
+        {
+            try
+            {
+                await _settingsRepository.RemoveAsync(CUSTOM_PRESETS_SETTINGS_KEY, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // 旧キー削除失敗時は presets.json 保存成功を優先する
+            }
+        }
+
+        return true;
+    }
+
+    private async Task<(List<PresetDto> Presets, bool LoadedFromLegacy)> LoadForMutationAsync(
+        string filePath,
+        bool isCustomDirectory,
+        CancellationToken cancellationToken)
+    {
+        if (System.IO.File.Exists(filePath))
+        {
+            string fileJson = await System.IO.File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
+            return (ReadCustomPresetsSafe(fileJson), false);
+        }
+
+        if (isCustomDirectory)
+        {
+            return ([], false);
+        }
+
+        string? legacyJson = await _settingsRepository.GetValueAsync(CUSTOM_PRESETS_SETTINGS_KEY, null, cancellationToken).ConfigureAwait(false);
+        List<PresetDto> legacyPresets = ReadCustomPresetsSafe(legacyJson);
+        return (legacyPresets, legacyPresets.Count > 0);
+    }
+
+    private static List<PresetDto> ReadCustomPresetsSafe(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<PresetDto>>(json) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     private static List<PresetDto> ReadCustomPresets(string? json) =>

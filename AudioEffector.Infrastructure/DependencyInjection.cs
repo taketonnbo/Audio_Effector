@@ -40,21 +40,22 @@ public static class DependencyInjection
         services.AddSingleton<IMetadataExtractor>(sp => sp.GetRequiredService<TagLibMetadataExtractor>());
         services.AddSingleton<AlbumArtLoader>();
 
-        // リポジトリ（ファイル競合防止・メモリキャッシュ保持のためSingleton）
+        // リポジトリ（ファイル競合防止・メモリキャッシュ保持のためSingleton。データ系はIDataDirectoryProviderで動的パス解決）
         services.AddSingleton<ITrackRepository>(sp => new JsonTrackRepository(
-            sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("tracks.json"),
+            sp.GetRequiredService<IDataDirectoryProvider>(),
             sp.GetRequiredService<IJsonFileLockHelper>()));
         services.AddSingleton<IPlaylistRepository>(sp => new JsonPlaylistRepository(
-            sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("playlists.json"),
+            sp.GetRequiredService<IDataDirectoryProvider>(),
             sp.GetRequiredService<IJsonFileLockHelper>()));
         services.AddSingleton<IFavoriteRepository>(sp => new JsonFavoriteRepository(
-            sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("favorites.json"),
+            sp.GetRequiredService<IDataDirectoryProvider>(),
             sp.GetRequiredService<IJsonFileLockHelper>()));
+        // settings.json は次回起動時の設定読み込み元として固定ディレクトリへ維持する
         services.AddSingleton<ISettingsRepository>(sp => new JsonSettingsRepository(
             sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("settings.json"),
             sp.GetRequiredService<IJsonFileLockHelper>()));
         services.AddSingleton<IRecentTrackRepository>(sp => new JsonRecentTrackRepository(
-            sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("RecentTracks.json"),
+            sp.GetRequiredService<IDataDirectoryProvider>(),
             sp.GetRequiredService<IJsonFileLockHelper>()));
 
         // データ転送アダプターおよび音声変換サービス

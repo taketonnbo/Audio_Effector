@@ -1,3 +1,5 @@
+using System;
+
 namespace AudioEffector.Application.Common;
 
 /// <summary>
@@ -6,7 +8,12 @@ namespace AudioEffector.Application.Common;
 public interface IDataDirectoryProvider
 {
     /// <summary>
-    /// 解決されたデータディレクトリの絶対パスを取得します
+    /// 既定のデータディレクトリ（%APPDATA%\AudioEffector）の絶対パスを取得します
+    /// </summary>
+    string DefaultDataDirectory { get; }
+
+    /// <summary>
+    /// 解決された現在のデータディレクトリの絶対パスを取得します
     /// </summary>
     string DataDirectory { get; }
 
@@ -16,9 +23,20 @@ public interface IDataDirectoryProvider
     bool IsCustomDirectory { get; }
 
     /// <summary>
-    /// 指定されたファイル名をデータディレクトリ配下のフルパスへ結合して返します
+    /// データディレクトリが動的に変更された際に発火するイベント（引数は変更後の絶対パス）
+    /// </summary>
+    event Action<string>? DataDirectoryChanged;
+
+    /// <summary>
+    /// 指定されたファイル名を現在のデータディレクトリ配下のフルパスへ結合して返します
     /// </summary>
     /// <param name="fileName">データディレクトリ配下のファイル名</param>
     /// <returns>結合されたファイルパス</returns>
     string GetFilePath(string fileName);
+
+    /// <summary>
+    /// データディレクトリを実行時に新しいパス（null または空白時は既定ディレクトリ）へ更新します
+    /// </summary>
+    /// <param name="dataDirectory">新しいデータディレクトリパス（未指定時は既定ディレクトリへ復帰）</param>
+    void UpdateDataDirectory(string? dataDirectory);
 }

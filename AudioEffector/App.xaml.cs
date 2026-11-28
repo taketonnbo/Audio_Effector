@@ -84,9 +84,22 @@ public partial class App : System.Windows.Application
 
         ServiceProvider = services.BuildServiceProvider();
 
-        // テーマ設定の適用
+        // テーマ設定およびデータ保存先ディレクトリの適用（各 ViewModel 解決前に確定させる）
         var settingsService = ServiceProvider.GetRequiredService<ISettingsService>();
         var settings = settingsService.LoadSettings();
+        if (!string.IsNullOrWhiteSpace(settings.DataDirectoryPath))
+        {
+            var dataDirectoryProvider = ServiceProvider.GetRequiredService<IDataDirectoryProvider>();
+            try
+            {
+                dataDirectoryProvider.UpdateDataDirectory(settings.DataDirectoryPath);
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+            {
+                Logger.Warn(ex, "設定されたデータ保存先ディレクトリ ({0}) を利用できないため、既定ディレクトリへフォールバックします。", settings.DataDirectoryPath);
+            }
+        }
+
         AudioEffector.Presentation.Themes.ThemeManager.ApplyTheme(settings.Theme);
 
         // メインウィンドウの初期化と表示（DIコンテナ経由で解決）

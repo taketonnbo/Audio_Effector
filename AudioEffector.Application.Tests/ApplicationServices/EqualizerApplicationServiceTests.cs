@@ -254,6 +254,147 @@ public sealed class EqualizerApplicationServiceTests
         Assert.Equal("[]", readSaved());
     }
 
+    /// <summary>
+    /// IDataDirectoryProvider が注入された場合、カスタムプリセットが presets.json へ保存され、データディレクトリ切替後に新フォルダのプリセットが読み込まれることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DataDirectoryProvider連携時_presetsJsonへ保存されディレクトリ切替で動的追従すること()
+    {
+        // Arrange
+        string tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"AudioEffector_EqDir_{Guid.NewGuid():N}");
+        string dirA = System.IO.Path.Combine(tempRoot, "DirA");
+        string dirB = System.IO.Path.Combine(tempRoot, "DirB");
+        try
+        {
+            var provider = new DataDirectoryProvider(dirA);
+            var mockEngine = new Mock<IAudioEngine>();
+            var mockSettings = new Mock<ISettingsRepository>();
+            var mockEventBus = new Mock<IEventBus>();
+            var sut = new EqualizerApplicationService(
+                mockEngine.Object,
+                mockSettings.Object,
+                mockEventBus.Object,
+                legacyAudioService: null,
+                dataDirectoryProvider: provider);
+
+            // Act
+            await sut.SaveCustomPresetAsync(CreateSamplePreset("PresetInA"));
+            var presetsInA = await sut.GetPresetsAsync();
+
+            provider.UpdateDataDirectory(dirB);
+            var presetsInBEmpty = await sut.GetPresetsAsync();
+            await sut.SaveCustomPresetAsync(CreateSamplePreset("PresetInB"));
+            var presetsInB = await sut.GetPresetsAsync();
+
+            // Assert
+            Assert.True(System.IO.File.Exists(System.IO.Path.Combine(dirA, "presets.json")));
+            Assert.True(System.IO.File.Exists(System.IO.Path.Combine(dirB, "presets.json")));
+            Assert.Contains(presetsInA, p => p.IsCustom && p.Name == "PresetInA");
+            Assert.DoesNotContain(presetsInBEmpty, p => p.IsCustom);
+            Assert.Contains(presetsInB, p => p.IsCustom && p.Name == "PresetInB");
+            Assert.DoesNotContain(presetsInB, p => p.IsCustom && p.Name == "PresetInA");
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempRoot))
+            {
+                System.IO.Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// settings.json 側に旧カスタムプリセットが残っている状態で空のカスタムディレクトリへ切り替えても、
+    /// 旧プリセットが読み込まれず、新規保存時にも混入しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task カスタムディレクトリ切替時_旧settingsJsonのカスタムプリセットが復活または混入しないこと()
+    {
+        // Arrange
+        string tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"AudioEffector_EqCustom_{Guid.NewGuid():N}");
+        string customDir = System.IO.Path.Combine(tempRoot, "EmptyCustom");
+        try
+        {
+            var provider = new DataDirectoryProvider(customDir);
+            var mockEngine = new Mock<IAudioEngine>();
+            var mockSettings = new Mock<ISettingsRepository>();
+            mockSettings.Setup(r => r.GetValueAsync("Equalizer_CustomPresets", null, It.IsAny<CancellationToken>()))
+                .ReturnsAsync("[{\"Name\":\"LegacyGhost\",\"GainsDb\":[1,1,1,1,1,1,1,1,1,1]}]");
+            var mockEventBus = new Mock<IEventBus>();
+
+            var sut = new EqualizerApplicationService(
+                mockEngine.Object,
+                mockSettings.Object,
+                mockEventBus.Object,
+                legacyAudioService: null,
+                dataDirectoryProvider: provider);
+
+            // Act
+            var initialPresets = await sut.GetPresetsAsync();
+            await sut.SaveCustomPresetAsync(CreateSamplePreset("FreshCustom"));
+            var afterSavePresets = await sut.GetPresetsAsync();
+
+            // Assert
+            Assert.DoesNotContain(initialPresets, p => p.IsCustom);
+            Assert.DoesNotContain(afterSavePresets, p => p.Name == "LegacyGhost");
+            Assert.Single(afterSavePresets, p => p.IsCustom && p.Name == "FreshCustom");
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempRoot))
+            {
+                System.IO.Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 既定ディレクトリで presets.json が未作成かつ旧 settings.json にカスタムプリセットが存在する場合、
+    /// 初回読み込み時に presets.json へ自動移行され旧キーが削除されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task 既定ディレクトリ初回読込時_旧settingsJsonのカスタムプリセットがpresetsJsonへ移行され旧キーが削除されること()
+    {
+        // Arrange
+        string tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"AudioEffector_EqDefault_{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var providerMock = new Mock<IDataDirectoryProvider>();
+            providerMock.SetupGet(p => p.IsCustomDirectory).Returns(false);
+            providerMock.SetupGet(p => p.DataDirectory).Returns(tempRoot);
+            providerMock.Setup(p => p.GetFilePath("presets.json")).Returns(System.IO.Path.Combine(tempRoot, "presets.json"));
+
+            var mockEngine = new Mock<IAudioEngine>();
+            var mockSettings = new Mock<ISettingsRepository>();
+            mockSettings.Setup(r => r.GetValueAsync("Equalizer_CustomPresets", null, It.IsAny<CancellationToken>()))
+                .ReturnsAsync("[{\"Name\":\"MigratedPreset\",\"GainsDb\":[2,2,2,2,2,2,2,2,2,2]}]");
+            var mockEventBus = new Mock<IEventBus>();
+
+            var sut = new EqualizerApplicationService(
+                mockEngine.Object,
+                mockSettings.Object,
+                mockEventBus.Object,
+                legacyAudioService: null,
+                dataDirectoryProvider: providerMock.Object);
+
+            // Act
+            var presets = await sut.GetPresetsAsync();
+
+            // Assert
+            Assert.Contains(presets, p => p.IsCustom && p.Name == "MigratedPreset");
+            Assert.True(System.IO.File.Exists(System.IO.Path.Combine(tempRoot, "presets.json")));
+            mockSettings.Verify(r => r.RemoveAsync("Equalizer_CustomPresets", It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempRoot))
+            {
+                System.IO.Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
     private static Func<string?> CapturePresetUpdates(Mock<ISettingsRepository> mockSettings, string? value)
     {
         mockSettings.Setup(r => r.UpdateValueAsync("Equalizer_CustomPresets", It.IsAny<Func<string?, string?>>(), It.IsAny<CancellationToken>()))
