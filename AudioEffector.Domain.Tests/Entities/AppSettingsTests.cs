@@ -131,4 +131,30 @@ public sealed class AppSettingsTests
         Assert.NotNull(legacyRestored);
         Assert.False(legacyRestored!.HasAcceptedLrcCopyrightGuideline);
     }
+
+    /// <summary>
+    /// DataDirectoryPath の既定値が null であり、JSON ラウンドトリップおよび旧形式 JSON（キー欠落）からのデシリアライズ互換性が保たれることを検証します。
+    /// </summary>
+    [Fact]
+    public void DataDirectoryPath_JSONシリアライズおよび旧形式デシリアライズ_既定値nullと互換性が維持されること()
+    {
+        // Arrange
+        var defaultSettings = new AppSettings();
+        var sut = new AppSettings
+        {
+            DataDirectoryPath = @"D:\CloudSync\AudioEffector"
+        };
+
+        // Act
+        string json = JsonSerializer.Serialize(sut);
+        var restored = JsonSerializer.Deserialize<AppSettings>(json);
+        var legacyRestored = JsonSerializer.Deserialize<AppSettings>("{\"Theme\":1}");
+
+        // Assert
+        Assert.Null(defaultSettings.DataDirectoryPath);
+        Assert.NotNull(restored);
+        Assert.Equal(@"D:\CloudSync\AudioEffector", restored!.DataDirectoryPath);
+        Assert.NotNull(legacyRestored);
+        Assert.Null(legacyRestored!.DataDirectoryPath);
+    }
 }
