@@ -1,4 +1,4 @@
-using AudioEffector.Application.Common;
+﻿using AudioEffector.Application.Common;
 using AudioEffector.Presentation.Services;
 using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddSingleton<DeviceSyncViewModel>();
         services.AddSingleton<NowPlayingViewModel>();
         services.AddSingleton<LyricsViewModel>();
+        services.AddSingleton<LrcGeneratorViewModel>();
         services.AddSingleton<SettingsViewModel>();
 
         // 全体ViewModel
