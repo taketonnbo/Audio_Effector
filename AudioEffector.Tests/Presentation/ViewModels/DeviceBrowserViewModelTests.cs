@@ -766,6 +766,66 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// ConvertMp4ToM4aが無効な場合は変換を行わず元拡張子(.mp4)のまま転送され、転送先に既存(.m4a/.mp4)が存在する場合は変換をスキップすることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracksToFileSystemAsync_設定OFF時および既存ファイル重複時_不要な変換を行わず正しく処理されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_Mp4Skip_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string destDir = Path.Combine(tempRoot, "Dest");
+        string existingAlbumDir = Path.Combine(destDir, "Artist A", "Album A");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(existingAlbumDir);
+
+        string sourceMp4Off = Path.Combine(sourceDir, "01_NoConvert.mp4");
+        string sourceMp4DupM4a = Path.Combine(sourceDir, "02_DupM4a.mp4");
+        string sourceMp4DupMp4 = Path.Combine(sourceDir, "03_DupMp4.mp4");
+        File.WriteAllText(sourceMp4Off, "raw-mp4");
+        File.WriteAllText(sourceMp4DupM4a, "raw-mp4");
+        File.WriteAllText(sourceMp4DupMp4, "raw-mp4");
+        File.WriteAllText(Path.Combine(existingAlbumDir, "02_DupM4a.m4a"), "already-m4a");
+        File.WriteAllText(Path.Combine(existingAlbumDir, "03_DupMp4.mp4"), "already-mp4");
+
+        var fakeTranscoder = new FakeAudioTranscodeService();
+        var tracks = new[]
+        {
+            new Track { Title = "NoConvert", Artist = "Artist A", Album = "Album A", FilePath = sourceMp4Off },
+            new Track { Title = "DupM4a", Artist = "Artist A", Album = "Album A", FilePath = sourceMp4DupM4a },
+            new Track { Title = "DupMp4", Artist = "Artist A", Album = "Album A", FilePath = sourceMp4DupMp4 },
+        };
+        var albums = new ObservableCollection<Album> { new Album("Album A", "Artist A", 2024, tracks) };
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                audioTranscodeService: fakeTranscoder);
+
+            // Act 1: 設定 OFF で 01_NoConvert.mp4 を転送 → 変換されず .mp4 のままコピー
+            await sut.TransferTracksToFileSystemAsync(new[] { tracks[0] }, destDir, new AudioTranscodeOptions { ConvertMp4ToM4a = false });
+
+            // Act 2: 設定 ON で既存 .m4a / .mp4 がある 2 曲を転送 → どちらもスキップされ変換呼び出し 0 回
+            await sut.TransferTracksToFileSystemAsync(new[] { tracks[1], tracks[2] }, destDir, new AudioTranscodeOptions { ConvertMp4ToM4a = true });
+
+            // Assert
+            Assert.Equal(0, fakeTranscoder.TranscodeCallCount);
+            Assert.True(File.Exists(Path.Combine(existingAlbumDir, "01_NoConvert.mp4")));
+            Assert.Equal("already-m4a", File.ReadAllText(Path.Combine(existingAlbumDir, "02_DupM4a.m4a")));
+            Assert.Equal("already-mp4", File.ReadAllText(Path.Combine(existingAlbumDir, "03_DupMp4.mp4")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private sealed class FakeAudioTranscodeService : IAudioTranscodeService
     {
         public int TranscodeCallCount { get; private set; }

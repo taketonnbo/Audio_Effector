@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Entities.DataTransfer;
 using AudioEffector.Domain.Repositories;
@@ -188,5 +190,95 @@ public sealed class DataTransferApplicationServiceTests
         // Assert
         Assert.True(actual);
         mockRepo.Verify(r => r.DeleteDeviceTrackAsync(@"E:\Music\delete_me.mp3", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// ConvertMp4ToM4aが有効な場合、MP4トラックが変換サービス経由で一時M4Aファイルとして転送され、転送後に一時ファイルが自動削除されることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracksAsync_ConvertMp4ToM4a有効時_一時M4Aファイルが転送され転送後に削除されること()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AE_AppTranscode_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string tempM4a = Path.Combine(tempDir, "Song.m4a");
+        File.WriteAllText(tempM4a, "m4a-data");
+
+        var mp4Track = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\Song.mp4"),
+            title: "Song",
+            artist: "Artist",
+            album: "Album",
+            duration: TimeSpan.FromMinutes(3));
+
+        var mockRepo = new Mock<IDataTransferRepository>();
+        mockRepo.Setup(r => r.TransferTrackAsync(It.Is<AudioPath>(p => p.Value == tempM4a), @"E:\Music", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var mockSettings = new Mock<ISettingsService>();
+        mockSettings.Setup(s => s.LoadSettings()).Returns(new AppSettings { ConvertMp4ToM4a = true });
+
+        var mockTranscoder = new Mock<IAudioTranscodeService>();
+        mockTranscoder.Setup(t => t.NeedsTranscode(mp4Track.FilePath, It.Is<AudioTranscodeOptions>(o => o.ConvertMp4ToM4a)))
+            .Returns(true);
+        using var transcodedResult = new TranscodedAudioResult(
+            mp4Track.FilePath,
+            tempM4a,
+            "Song.m4a",
+            wasTranscoded: true,
+            temporaryDirectoryPath: tempDir);
+        mockTranscoder.Setup(t => t.PrepareForTransferAsync(mp4Track.FilePath, It.Is<AudioTranscodeOptions>(o => o.ConvertMp4ToM4a), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transcodedResult);
+
+        var sut = new DataTransferApplicationService(mockRepo.Object, mockTranscoder.Object, mockSettings.Object);
+
+        // Act
+        int count = await sut.TransferTracksAsync([mp4Track], @"E:\Music");
+
+        // Assert
+        Assert.Equal(1, count);
+        mockRepo.Verify(r => r.TransferTrackAsync(It.Is<AudioPath>(p => p.Value == tempM4a), @"E:\Music", null, It.IsAny<CancellationToken>()), Times.Once);
+        Assert.False(File.Exists(tempM4a));
+        Assert.False(Directory.Exists(tempDir));
+    }
+
+    /// <summary>
+    /// ConvertMp4ToM4aが無効な場合、MP4トラックは変換サービスを介さず元パスのまま転送されることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracksAsync_ConvertMp4ToM4a無効時_変換せず元MP4ファイルが転送されること()
+    {
+        // Arrange
+        var mp4Track = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\Song.mp4"),
+            title: "Song",
+            artist: "Artist",
+            album: "Album",
+            duration: TimeSpan.FromMinutes(3));
+
+        var mockRepo = new Mock<IDataTransferRepository>();
+        mockRepo.Setup(r => r.TransferTrackAsync(mp4Track.FilePath, @"E:\Music", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var mockSettings = new Mock<ISettingsService>();
+        mockSettings.Setup(s => s.LoadSettings()).Returns(new AppSettings { ConvertMp4ToM4a = false });
+
+        var mockTranscoder = new Mock<IAudioTranscodeService>();
+        mockTranscoder.Setup(t => t.NeedsTranscode(mp4Track.FilePath, It.Is<AudioTranscodeOptions>(o => !o.ConvertMp4ToM4a)))
+            .Returns(false);
+
+        var sut = new DataTransferApplicationService(mockRepo.Object, mockTranscoder.Object, mockSettings.Object);
+
+        // Act
+        int count = await sut.TransferTracksAsync([mp4Track], @"E:\Music");
+
+        // Assert
+        Assert.Equal(1, count);
+        mockTranscoder.Verify(t => t.PrepareForTransferAsync(It.IsAny<string>(), It.IsAny<AudioTranscodeOptions>(), It.IsAny<CancellationToken>()), Times.Never);
+        mockRepo.Verify(r => r.TransferTrackAsync(mp4Track.FilePath, @"E:\Music", null, It.IsAny<CancellationToken>()), Times.Once);
     }
 }
