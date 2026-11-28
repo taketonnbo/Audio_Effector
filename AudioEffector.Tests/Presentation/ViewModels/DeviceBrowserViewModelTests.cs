@@ -3756,6 +3756,91 @@ public sealed class DeviceBrowserViewModelTests
             Assert.Contains("スキップ中...", observedPhases);
             Assert.Contains("変換中 (FLAC → MP3)...", observedPhases);
             Assert.Contains("コピー中...", observedPhases);
+            Assert.Contains("エラー", observedPhases);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// アプリ終了時の CancelTransfer(suppressResultDialog: true) または転送中の Dispose() 呼び出し時に、
+    /// 転送が安全に中断され、結果サマリ通知および再走査が抑止されることを検証します
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferSelectedAsync_終了時キャンセルまたはDispose呼び出し時_結果サマリ通知が抑止され安全に終了すること(bool callDispose)
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ShutdownCancel_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string trackPath = Path.Combine(sourceDir, "01.flac");
+        File.WriteAllText(trackPath, "flac-data");
+
+        var track = new Track { Title = "Track 1", Artist = "ArtistShutdown", Album = "AlbumShutdown", FilePath = trackPath, IsSelected = true };
+        var album = new Album("AlbumShutdown", "ArtistShutdown", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.ConvertFlacToMp3 = true);
+
+        using var started = new ManualResetEventSlim(false);
+        var transcoder = new CallbackAudioTranscodeService(async (sourcePath, options, ct) =>
+        {
+            started.Set();
+            await Task.Delay(TimeSpan.FromSeconds(10), ct);
+            return TranscodedAudioResult.Passthrough(sourcePath);
+        });
+
+        int resultNotificationCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: transcoder,
+                resolveMtpClient: null,
+                showMessage: null,
+                confirmTransfer: _ => true,
+                showTransferResult: _ => resultNotificationCount++);
+
+            sut.SelectedDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "USB (Z:\\)",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = deviceDir
+            };
+            await sut.CheckDeviceAlbumsAsync();
+
+            // Act
+            var transferTask = sut.TransferSelectedAsync();
+            Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
+
+            if (callDispose)
+            {
+                sut.Dispose();
+            }
+            else
+            {
+                sut.CancelTransfer(suppressResultDialog: true);
+            }
+
+            await transferTask;
+
+            // Assert
+            Assert.Equal(0, resultNotificationCount);
+            Assert.False(sut.IsTransferring);
         }
         finally
         {

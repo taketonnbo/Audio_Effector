@@ -5,6 +5,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using AudioEffector.Application.Common;
 using AudioEffector.Presentation.Views;
 using AudioEffector.Tests.Presentation.Diagnostics;
@@ -145,5 +146,84 @@ public sealed class TransferResultDialogTests
             Assert.Same(themeDict["InverseTextForegroundBrush"], closeButton.Foreground);
             Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
         });
+    }
+
+    /// <summary>
+    /// 失敗曲が多数（30 件）存在する場合でも、FailedItemsListBox に UI 仮想化 4 属性が正しく設定され、
+    /// 実レンダリング後の内部 ScrollViewer.ViewportHeight が潰れず表示されることを検証します
+    /// </summary>
+    [Fact]
+    public void 失敗一覧仮想化_30件の失敗曲表示時_仮想化4属性とScrollViewerのViewportHeightが正常であること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var listener = new BindingErrorTraceListener();
+            var themeDict = new ResourceDictionary
+            {
+                Source = new Uri("pack://application:,,,/AudioEffector;component/Presentation/Themes/DarkTheme.xaml", UriKind.Absolute)
+            };
+
+            var failedItems = new List<TransferFailedItem>(30);
+            for (int i = 1; i <= 30; i++)
+            {
+                failedItems.Add(new TransferFailedItem($"Failed Song {i:00}", $"{i:00}.flac", $"エラー理由 {i}"));
+            }
+
+            var summary = new TransferResultSummary(successCount: 10, skippedCount: 2, failedItems: failedItems);
+            var sut = new TransferResultDialog(summary)
+            {
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Opacity = 0
+            };
+            sut.Resources.MergedDictionaries.Add(themeDict);
+
+            try
+            {
+                // Act
+                sut.Show();
+                sut.UpdateLayout();
+
+                var failedListBox = Assert.IsType<ListBox>(sut.FindName("FailedItemsListBox"));
+                var scrollViewer = FindVisualChild<ScrollViewer>(failedListBox);
+
+                // Assert
+                Assert.True(VirtualizingStackPanel.GetIsVirtualizing(failedListBox));
+                Assert.Equal(VirtualizationMode.Recycling, VirtualizingStackPanel.GetVirtualizationMode(failedListBox));
+                Assert.Equal(ScrollUnit.Pixel, VirtualizingStackPanel.GetScrollUnit(failedListBox));
+                Assert.True(ScrollViewer.GetCanContentScroll(failedListBox));
+                Assert.NotNull(scrollViewer);
+                Assert.True(scrollViewer!.ViewportHeight > 0, $"ViewportHeight が 0 以下です: {scrollViewer.ViewportHeight}");
+                Assert.True(failedListBox.ActualHeight <= 220.0 + 1.0, $"MaxHeight=220 を超過しています: {failedListBox.ActualHeight}");
+                Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T typed)
+            {
+                return typed;
+            }
+
+            var descendant = FindVisualChild<T>(child);
+            if (descendant != null)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
     }
 }
