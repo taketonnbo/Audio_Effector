@@ -1,4 +1,4 @@
-<UserControl x:Class="AudioEffector.Presentation.Views.AllSongsView"
+﻿<UserControl x:Class="AudioEffector.Presentation.Views.AllSongsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -309,6 +309,9 @@
                                                 </MenuItem>
                                                 <MenuItem Header="プレイリストに追加..."
                                                           Command="{Binding PlacementTarget.Tag.Playlist.ShowAddToPlaylistDialogCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
+                                                          CommandParameter="{Binding Track}"/>
+                                                <MenuItem Header="LRC を自動生成..."
+                                                          Command="{Binding PlacementTarget.Tag.GenerateLrcCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}, FallbackValue={x:Null}}"
                                                           CommandParameter="{Binding Track}"/>
                                                 <Separator/>
                                                 <MenuItem Header="プロパティ"

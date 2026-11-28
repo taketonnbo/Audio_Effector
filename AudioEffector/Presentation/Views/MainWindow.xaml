@@ -1,4 +1,4 @@
-<Window x:Class="AudioEffector.Presentation.Views.MainWindow"
+﻿<Window x:Class="AudioEffector.Presentation.Views.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -1546,6 +1546,11 @@
                       Visibility="{Binding IsLyricsViewVisible, Converter={StaticResource BoolToVis}}">
                     <views:LyricsView x:Name="RightPanelLyricsView"
                                       DataContext="{Binding Lyrics}"/>
+                </Grid>
+                <Grid x:Name="RightPanelLrcGeneratorHost"
+                      Visibility="{Binding IsLrcGeneratorViewVisible, Converter={StaticResource BoolToVis}}">
+                    <views:LrcGeneratorView x:Name="RightPanelLrcGeneratorView"
+                                            DataContext="{Binding LrcGenerator}"/>
                 </Grid>
             </Grid>
         </Grid>

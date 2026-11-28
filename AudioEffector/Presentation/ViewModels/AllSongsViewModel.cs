@@ -235,6 +235,9 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
     /// <summary>トラックをライブラリから削除するコマンド</summary>
     public ICommand DeleteTrackCommand { get; }
 
+    /// <summary>選択楽曲の LRC 自動生成パネルを開くコマンド</summary>
+    public ICommand GenerateLrcCommand { get; }
+
     /// <summary>
     /// 再生リスト更新および再生開始を要求するイベント（対象トラック群, 開始トラック, リスト名, サブタイトル）
     /// </summary>
@@ -244,6 +247,11 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
     /// 再生キューへの追加を要求するイベント（対象トラック群, playNext: trueなら次に再生）
     /// </summary>
     public event Action<IReadOnlyList<Track>, bool>? EnqueueRequested;
+
+    /// <summary>
+    /// 指定楽曲に対する LRC 自動生成パネル起動を要求するイベント
+    /// </summary>
+    public event Action<Track>? GenerateLrcRequested;
 
     /// <summary>
     /// AllSongsViewModelを初期化します（既定の検索デバウンス時間 200ms を適用します）
@@ -280,6 +288,13 @@ public sealed class AllSongsViewModel : ViewModelBase, IDisposable
         ShowTrackPropertiesCommand = new RelayCommand(param => _libraryViewModel.ShowTrackPropertiesCommand.Execute(param));
         OpenFileLocationCommand = new RelayCommand(param => _libraryViewModel.OpenFileLocationCommand.Execute(param));
         DeleteTrackCommand = new RelayCommand(param => _libraryViewModel.DeleteTrackCommand.Execute(param));
+        GenerateLrcCommand = new RelayCommand(param =>
+        {
+            if (param is Track track)
+            {
+                GenerateLrcRequested?.Invoke(track);
+            }
+        });
 
         _libraryViewModel.Tracks.CollectionChanged += OnTracksCollectionChanged;
         _libraryViewModel.Albums.CollectionChanged += OnAlbumsCollectionChanged;

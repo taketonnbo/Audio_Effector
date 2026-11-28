@@ -140,3 +140,4 @@
 - [ドメイン層詳細設計書](../詳細設計/アーキテクチャ/ドメイン層詳細設計書.md)（`IAudioAlignmentEngine`・`ILocalSpeechModelManager`・`ITextEncodingService`・`LyricsForcedAligner`・各種値オブジェクト）
 - [アプリケーション層詳細設計書](../詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md)（`LrcGenerationApplicationService`）
 - [インフラストラクチャ層詳細設計書](../詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md)（`WhisperLocalAlignmentEngine`・`WhisperModelManager`・`TextEncodingService`・`AudioPcmDecoder`）
+- [プレゼンテーション層詳細設計書](../詳細設計/アーキテクチャ/プレゼンテーション層詳細設計書.md)（`LrcGeneratorViewModel`・`LrcPreviewLineViewModel`・`LrcGeneratorView`・`RightExtensionPanelType.LrcGenerator`）

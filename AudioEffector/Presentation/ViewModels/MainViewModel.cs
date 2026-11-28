@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -42,6 +42,7 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly bool _ownsRecent;
         private readonly bool _ownsAlbumDetail;
         private readonly bool _ownsLyrics;
+        private readonly bool _ownsLrcGenerator;
         private RightExtensionPanelType _activeRightExtensionPanel = RightExtensionPanelType.None;
         private bool _wasMaximizedBeforeLyrics;
         private bool _isSuppressingMaximizedLyricsClose;
@@ -106,6 +107,11 @@ namespace AudioEffector.Presentation.ViewModels
         /// 歌詞表示専用ViewModel
         /// </summary>
         public Presentation.ViewModels.LyricsViewModel? Lyrics { get; }
+
+        /// <summary>
+        /// LRC 自動生成専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.LrcGeneratorViewModel? LrcGenerator { get; }
 
         /// <summary>
         /// フォルダーブラウズ専用ViewModel
@@ -207,6 +213,7 @@ namespace AudioEffector.Presentation.ViewModels
                     _isRightPanelOpen = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(IsLyricsViewVisible));
+                    OnPropertyChanged(nameof(IsLrcGeneratorViewVisible));
                     UpdateLyricsActiveViewState();
                 }
             }
@@ -295,13 +302,15 @@ namespace AudioEffector.Presentation.ViewModels
                     if (value && !_isSuppressingMaximizedLyricsClose)
                     {
                         _wasMaximizedBeforeLyrics = false;
-                        if (_activeRightExtensionPanel == RightExtensionPanelType.Lyrics)
+                        if (_activeRightExtensionPanel == RightExtensionPanelType.Lyrics
+                            || _activeRightExtensionPanel == RightExtensionPanelType.LrcGenerator)
                         {
                             ActiveRightExtensionPanel = RightExtensionPanelType.None;
                         }
                     }
 
                     OnPropertyChanged(nameof(IsLyricsViewVisible));
+                    OnPropertyChanged(nameof(IsLrcGeneratorViewVisible));
                     UpdateLyricsActiveViewState();
                 }
             }
@@ -326,6 +335,8 @@ namespace AudioEffector.Presentation.ViewModels
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(IsLyricsPanelVisible));
                     OnPropertyChanged(nameof(IsLyricsViewVisible));
+                    OnPropertyChanged(nameof(IsLrcGeneratorPanelVisible));
+                    OnPropertyChanged(nameof(IsLrcGeneratorViewVisible));
                     UpdateLyricsActiveViewState();
                 }
             }
@@ -342,6 +353,16 @@ namespace AudioEffector.Presentation.ViewModels
         public bool IsLyricsViewVisible => IsRightPanelOpen && !IsAlbumViewMaximized && IsLyricsPanelVisible;
 
         /// <summary>
+        /// LRC 自動生成パネルが選択状態かどうかを取得します
+        /// </summary>
+        public bool IsLrcGeneratorPanelVisible => _activeRightExtensionPanel == RightExtensionPanelType.LrcGenerator;
+
+        /// <summary>
+        /// LRC 自動生成パネルが画面上に実際に表示されているかどうかを取得します（非表示時は Collapsed 連動）
+        /// </summary>
+        public bool IsLrcGeneratorViewVisible => IsRightPanelOpen && !IsAlbumViewMaximized && IsLrcGeneratorPanelVisible;
+
+        /// <summary>
         /// 右側タブの歌詞表示パネルを ON / OFF 切り替えするコマンドを取得します
         /// </summary>
         public ICommand ToggleLyricsPanelCommand { get; }
@@ -350,6 +371,11 @@ namespace AudioEffector.Presentation.ViewModels
         /// 右側タブの歌詞表示パネルを閉じるコマンドを取得します
         /// </summary>
         public ICommand CloseLyricsPanelCommand { get; }
+
+        /// <summary>
+        /// 指定楽曲（未指定時は現在再生中楽曲）を対象に LRC 自動生成パネルを開くコマンドを取得します
+        /// </summary>
+        public ICommand OpenLrcGeneratorCommand { get; }
 
         private bool _isLibraryVisible = true;
         private bool _isFolderViewVisible;
@@ -811,6 +837,7 @@ namespace AudioEffector.Presentation.ViewModels
 
             AllSongs.PlaybackRequested += OnAllSongsPlaybackRequested;
             AllSongs.EnqueueRequested += OnAllSongsEnqueueRequested;
+            AllSongs.GenerateLrcRequested += OpenLrcGenerator;
 
             var resolvedArtists = App.ServiceProvider != null
                 ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.ArtistsViewModel>(App.ServiceProvider)
@@ -853,6 +880,9 @@ namespace AudioEffector.Presentation.ViewModels
             var resolvedLyrics = App.ServiceProvider != null
                 ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.LyricsViewModel>(App.ServiceProvider)
                 : null;
+            LyricsApplicationService? sharedLyricsAppService = App.ServiceProvider?.GetService(typeof(LyricsApplicationService)) as LyricsApplicationService;
+            IUiDispatcher sharedUiDispatcher = App.ServiceProvider?.GetService(typeof(IUiDispatcher)) as IUiDispatcher
+                ?? new Presentation.Services.WpfUiDispatcher();
             if (resolvedLyrics != null)
             {
                 Lyrics = resolvedLyrics;
@@ -862,21 +892,53 @@ namespace AudioEffector.Presentation.ViewModels
             {
                 var lyricsEventBus = App.ServiceProvider?.GetService(typeof(IEventBus)) as IEventBus
                     ?? new InMemoryEventBus();
-                var lyricsAppService = App.ServiceProvider?.GetService(typeof(LyricsApplicationService)) as LyricsApplicationService
-                    ?? new LyricsApplicationService(
-                        new Infrastructure.Lyrics.LocalLyricsProvider(new Infrastructure.Lyrics.LrcParser()),
-                        lyricsEventBus);
-                var lyricsUiDispatcher = App.ServiceProvider?.GetService(typeof(IUiDispatcher)) as IUiDispatcher
-                    ?? new Presentation.Services.WpfUiDispatcher();
+                sharedLyricsAppService ??= new LyricsApplicationService(
+                    new Infrastructure.Lyrics.LocalLyricsProvider(new Infrastructure.Lyrics.LrcParser()),
+                    lyricsEventBus);
                 Lyrics = new Presentation.ViewModels.LyricsViewModel(
                     _audioService,
                     lyricsEventBus,
-                    lyricsAppService,
-                    lyricsUiDispatcher);
+                    sharedLyricsAppService,
+                    sharedUiDispatcher);
                 _ownsLyrics = true;
             }
 
             Lyrics.CloseRequested += OnLyricsCloseRequested;
+            Lyrics.GenerateLrcRequested += OpenLrcGenerator;
+
+            var resolvedLrcGenerator = App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.LrcGeneratorViewModel>(App.ServiceProvider)
+                : null;
+            if (resolvedLrcGenerator != null)
+            {
+                LrcGenerator = resolvedLrcGenerator;
+                _ownsLrcGenerator = false;
+            }
+            else
+            {
+                var lrcParser = new Infrastructure.Lyrics.LrcParser();
+                var modelManager = new Infrastructure.LrcGeneration.WhisperModelManager();
+                var aligner = new Domain.Services.LyricsForcedAligner();
+                var alignmentEngine = new Infrastructure.LrcGeneration.WhisperLocalAlignmentEngine(modelManager, lrcParser, aligner);
+                var textEncodingService = new Infrastructure.LrcGeneration.TextEncodingService();
+                var fallbackLyricsSvc = sharedLyricsAppService ?? new LyricsApplicationService(
+                    new Infrastructure.Lyrics.LocalLyricsProvider(lrcParser),
+                    new InMemoryEventBus());
+                var lrcGenAppService = new LrcGenerationApplicationService(
+                    alignmentEngine,
+                    textEncodingService,
+                    modelManager,
+                    lrcParser,
+                    fallbackLyricsSvc);
+                LrcGenerator = new Presentation.ViewModels.LrcGeneratorViewModel(
+                    lrcGenAppService,
+                    _audioService,
+                    sharedUiDispatcher);
+                _ownsLrcGenerator = true;
+            }
+
+            LrcGenerator.BackToLyricsRequested += OnLrcGeneratorBackToLyricsRequested;
+            LrcGenerator.CloseRequested += OnLrcGeneratorCloseRequested;
 
             var appSettings = _settingsService.LoadSettings();
             _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
@@ -970,6 +1032,7 @@ namespace AudioEffector.Presentation.ViewModels
             ToggleAlbumViewSizeModeCommand = new RelayCommand(o => IsAlbumViewMaximized = !IsAlbumViewMaximized);
             ToggleLyricsPanelCommand = new RelayCommand(_ => ToggleLyricsPanel());
             CloseLyricsPanelCommand = new RelayCommand(_ => CloseLyricsPanel());
+            OpenLrcGeneratorCommand = new RelayCommand(param => OpenLrcGenerator(param as Track ?? CurrentTrack));
             UpdateLyricsActiveViewState();
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
@@ -2855,7 +2918,7 @@ namespace AudioEffector.Presentation.ViewModels
                 _wasMaximizedBeforeLyrics = true;
                 IsAlbumViewMaximized = false;
             }
-            else
+            else if (ActiveRightExtensionPanel == RightExtensionPanelType.None)
             {
                 _wasMaximizedBeforeLyrics = false;
             }
@@ -2884,6 +2947,49 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         private void OnLyricsCloseRequested()
+        {
+            CloseLyricsPanel();
+        }
+
+        /// <summary>
+        /// 指定楽曲を対象に右側タブ下部拡張領域へ LRC 自動生成パネルを展開します
+        /// </summary>
+        /// <param name="targetTrack">対象楽曲（未指定時は現在再生中楽曲）</param>
+        public void OpenLrcGenerator(Track? targetTrack = null)
+        {
+            Track? effectiveTrack = targetTrack ?? CurrentTrack;
+            LrcGenerator?.SetTargetTrack(effectiveTrack);
+
+            if (!IsRightPanelOpen)
+            {
+                IsRightPanelOpen = true;
+            }
+
+            if (IsAlbumViewMaximized)
+            {
+                _wasMaximizedBeforeLyrics = true;
+                IsAlbumViewMaximized = false;
+            }
+            else if (ActiveRightExtensionPanel == RightExtensionPanelType.None)
+            {
+                _wasMaximizedBeforeLyrics = false;
+            }
+
+            ActiveRightExtensionPanel = RightExtensionPanelType.LrcGenerator;
+        }
+
+        private void OnLrcGeneratorBackToLyricsRequested()
+        {
+            if (IsAlbumViewMaximized)
+            {
+                _wasMaximizedBeforeLyrics = true;
+                IsAlbumViewMaximized = false;
+            }
+
+            ActiveRightExtensionPanel = RightExtensionPanelType.Lyrics;
+        }
+
+        private void OnLrcGeneratorCloseRequested()
         {
             CloseLyricsPanel();
         }
@@ -2930,6 +3036,7 @@ namespace AudioEffector.Presentation.ViewModels
                     {
                         AllSongs.PlaybackRequested -= OnAllSongsPlaybackRequested;
                         AllSongs.EnqueueRequested -= OnAllSongsEnqueueRequested;
+                        AllSongs.GenerateLrcRequested -= OpenLrcGenerator;
                         if (_ownsAllSongs)
                         {
                             AllSongs.Dispose();
@@ -2956,10 +3063,20 @@ namespace AudioEffector.Presentation.ViewModels
                     if (Lyrics != null)
                     {
                         Lyrics.CloseRequested -= OnLyricsCloseRequested;
+                        Lyrics.GenerateLrcRequested -= OpenLrcGenerator;
                         Lyrics.IsActiveView = false;
                         if (_ownsLyrics)
                         {
                             Lyrics.Dispose();
+                        }
+                    }
+                    if (LrcGenerator != null)
+                    {
+                        LrcGenerator.BackToLyricsRequested -= OnLrcGeneratorBackToLyricsRequested;
+                        LrcGenerator.CloseRequested -= OnLrcGeneratorCloseRequested;
+                        if (_ownsLrcGenerator)
+                        {
+                            LrcGenerator.Dispose();
                         }
                     }
                     Folder?.Dispose();
