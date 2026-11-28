@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -21,6 +22,12 @@ public class DeviceBrowserViewModel : ViewModelBase
 {
     private readonly Func<IReadOnlyList<Album>> _getAlbums;
     private readonly Action _onCheckDeviceAlbumsRequested;
+    private CancellationTokenSource? _checkDeviceAlbumsCts;
+
+    private static readonly HashSet<string> SupportedAudioExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp3", ".flac", ".wav", ".m4a", ".mp4", ".aac", ".ogg", ".wma", ".aiff", ".aif", ".alac", ".opus", ".dsf", ".dff"
+    };
 
     /// <summary>
     /// 接続されている外部デバイス一覧を取得または設定します
@@ -325,63 +332,318 @@ public class DeviceBrowserViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// ライブラリ内のアルバムがデバイス上に存在するかどうかをチェックし、ステータスを更新します。
+    /// ライブラリ内のアルバム・楽曲がデバイス上の指定フォルダ配下に存在するかどうかを高速インデックス化して判定し、ステータスを更新します。
     /// </summary>
-    private async void CheckDeviceAlbums()
+    private void CheckDeviceAlbums()
     {
-        if (SelectedDevice == null || string.IsNullOrEmpty(CurrentDevicePath)) return;
+        _ = CheckDeviceAlbumsAsync();
+    }
 
+    /// <summary>
+    /// 指定フォルダ配下の既存音声ファイルを非同期でインデックス化し、曲単位・アルバム単位の IsOnDevice 状態を更新します。
+    /// </summary>
+    /// <param name="externalCancellationToken">外部キャンセルトークン</param>
+    /// <returns>非同期タスク</returns>
+    internal async Task CheckDeviceAlbumsAsync(CancellationToken externalCancellationToken = default)
+    {
+        _checkDeviceAlbumsCts?.Cancel();
+        _checkDeviceAlbumsCts?.Dispose();
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellationToken);
+        _checkDeviceAlbumsCts = linkedCts;
+        var ct = linkedCts.Token;
+
+        var selectedDevice = SelectedDevice;
+        var currentPath = CurrentDevicePath;
         var albums = _getAlbums();
 
-        await Task.Run(() =>
+        if (selectedDevice == null || string.IsNullOrEmpty(currentPath))
         {
-            foreach (var album in albums)
+            RunOnUiThread(() => ApplyDeviceTrackIndex(albums, new HashSet<string>(StringComparer.OrdinalIgnoreCase)));
+            return;
+        }
+
+        try
+        {
+            bool recursive = !IsDeviceRootPath(selectedDevice, currentPath);
+
+            var index = await Task.Run(() =>
             {
-                bool allTracksExist = true;
+                ct.ThrowIfCancellationRequested();
 
-                if (album.Tracks != null && album.Tracks.Count > 0)
+                if (selectedDevice.Type == MainViewModel.DeviceType.FileSystem)
                 {
-                    foreach (var track in album.Tracks)
+                    return BuildFileSystemAudioIndex(currentPath, recursive, ct);
+                }
+
+                if (selectedDevice.Type == MainViewModel.DeviceType.MTP
+                    && selectedDevice.MtpDevice != null
+                    && selectedDevice.MtpDevice.IsConnected)
+                {
+                    return BuildMtpAudioIndex(selectedDevice.MtpDevice, currentPath, recursive, ct);
+                }
+
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }, ct);
+
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
+
+            RunOnUiThread(() => ApplyDeviceTrackIndex(albums, index));
+        }
+        catch (OperationCanceledException)
+        {
+            // 新しいフォルダ遷移・再スキャンによりキャンセルされた場合は無視
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error checking device albums: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 重複判定用にファイルパスまたはファイル名から拡張子を除去・正規化したキーを生成します。
+    /// </summary>
+    /// <param name="fileNameOrPath">ファイル名またはファイルパス</param>
+    /// <returns>正規化された重複判定キー（空文字の場合は判定不可）</returns>
+    internal static string NormalizeTrackDuplicateKey(string? fileNameOrPath)
+    {
+        if (string.IsNullOrWhiteSpace(fileNameOrPath))
+        {
+            return string.Empty;
+        }
+
+        string? nameWithoutExt = Path.GetFileNameWithoutExtension(fileNameOrPath);
+        return string.IsNullOrWhiteSpace(nameWithoutExt) ? string.Empty : nameWithoutExt.Trim();
+    }
+
+    /// <summary>
+    /// 指定パスがデバイスのルートディレクトリ直下であるかを判定します。
+    /// ルート直下での不要な全階層再帰スキャンを防止するために使用します。
+    /// </summary>
+    /// <param name="device">対象デバイス</param>
+    /// <param name="path">判定対象のディレクトリパス</param>
+    /// <returns>ルートディレクトリ直下の場合はtrue、それ以外はfalse</returns>
+    internal static bool IsDeviceRootPath(MainViewModel.DeviceViewModel device, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return true;
+        }
+
+        string normalizedPath = path.Trim().TrimEnd('\\', '/');
+        if (device.Type == MainViewModel.DeviceType.MTP)
+        {
+            return string.IsNullOrEmpty(normalizedPath);
+        }
+
+        string normalizedRoot = (device.RootPath ?? string.Empty).Trim().TrimEnd('\\', '/');
+        return string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// ファイルシステム上の指定フォルダ配下にある音声ファイルの重複判定インデックスを構築します。
+    /// </summary>
+    /// <param name="rootPath">走査対象のルートパス</param>
+    /// <param name="recursive">サブフォルダを再帰走査する場合はtrue</param>
+    /// <param name="cancellationToken">キャンセルトークン</param>
+    /// <returns>正規化された重複判定キーのセット</returns>
+    internal static HashSet<string> BuildFileSystemAudioIndex(
+        string rootPath,
+        bool recursive,
+        CancellationToken cancellationToken = default)
+    {
+        var index = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+        {
+            return index;
+        }
+
+        var pendingDirs = new Stack<string>();
+        pendingDirs.Push(rootPath);
+
+        while (pendingDirs.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string dir = pendingDirs.Pop();
+
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(dir))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    string ext = Path.GetExtension(file);
+                    if (!SupportedAudioExtensions.Contains(ext))
                     {
-                        string artist = SanitizeFileName(track.Artist);
-                        string albumName = SanitizeFileName(track.Album);
-                        string fileName = System.IO.Path.GetFileName(track.FilePath);
-                        bool trackExists = false;
+                        continue;
+                    }
 
-                        try
-                        {
-                            if (SelectedDevice.Type == MainViewModel.DeviceType.FileSystem)
-                            {
-                                string path = System.IO.Path.Combine(CurrentDevicePath, artist, albumName, fileName);
-                                trackExists = System.IO.File.Exists(path);
-                            }
-                            else if (SelectedDevice.Type == MainViewModel.DeviceType.MTP && SelectedDevice.MtpDevice != null && SelectedDevice.MtpDevice.IsConnected)
-                            {
-                                string path = System.IO.Path.Combine(CurrentDevicePath, artist, albumName, fileName);
-                                trackExists = SelectedDevice.MtpDevice.FileExists(path);
-                            }
-                        }
-                        catch { }
-
-                        if (!trackExists)
-                        {
-                            allTracksExist = false;
-                            break;
-                        }
+                    string key = NormalizeTrackDuplicateKey(file);
+                    if (!string.IsNullOrEmpty(key))
+                    {
+                        index.Add(key);
                     }
                 }
-                else
-                {
-                    allTracksExist = false;
-                }
-
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                {
-                    album.IsOnDevice = allTracksExist;
-                    if (allTracksExist) album.IsSelected = false;
-                });
             }
-        });
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error enumerating files in {dir}: {ex.Message}");
+            }
+
+            if (!recursive)
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var subDir in Directory.EnumerateDirectories(dir))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    pendingDirs.Push(subDir);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error enumerating subdirectories in {dir}: {ex.Message}");
+            }
+        }
+
+        return index;
+    }
+
+    /// <summary>
+    /// MTP デバイスの指定フォルダ配下にある音声ファイルの重複判定インデックスを構築します。
+    /// </summary>
+    /// <param name="mtpDevice">接続済みのMTPデバイス</param>
+    /// <param name="rootPath">走査対象のルートパス</param>
+    /// <param name="recursive">サブフォルダを再帰走査する場合はtrue</param>
+    /// <param name="cancellationToken">キャンセルトークン</param>
+    /// <returns>正規化された重複判定キーのセット</returns>
+    internal static HashSet<string> BuildMtpAudioIndex(
+        MediaDevice mtpDevice,
+        string rootPath,
+        bool recursive,
+        CancellationToken cancellationToken = default)
+    {
+        var index = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (mtpDevice == null || !mtpDevice.IsConnected || string.IsNullOrWhiteSpace(rootPath))
+        {
+            return index;
+        }
+
+        var pendingDirs = new Stack<string>();
+        pendingDirs.Push(rootPath);
+
+        while (pendingDirs.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string dir = pendingDirs.Pop();
+
+            try
+            {
+                foreach (var file in mtpDevice.GetFiles(dir))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    string ext = Path.GetExtension(file);
+                    if (!SupportedAudioExtensions.Contains(ext))
+                    {
+                        continue;
+                    }
+
+                    string key = NormalizeTrackDuplicateKey(file);
+                    if (!string.IsNullOrEmpty(key))
+                    {
+                        index.Add(key);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error enumerating MTP files in {dir}: {ex.Message}");
+            }
+
+            if (!recursive)
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var subDir in mtpDevice.GetDirectories(dir))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    pendingDirs.Push(subDir);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error enumerating MTP subdirectories in {dir}: {ex.Message}");
+            }
+        }
+
+        return index;
+    }
+
+    /// <summary>
+    /// 構築したデバイスファイルインデックスを用いて、各トラック・アルバムの IsOnDevice 状態を一括反映します。
+    /// </summary>
+    /// <param name="albums">状態更新対象のアルバム一覧</param>
+    /// <param name="deviceFileNameKeys">デバイス上の正規化済みファイル名キーセット</param>
+    internal static void ApplyDeviceTrackIndex(IReadOnlyList<Album> albums, IReadOnlySet<string> deviceFileNameKeys)
+    {
+        foreach (var album in albums)
+        {
+            if (album.Tracks != null && album.Tracks.Count > 0)
+            {
+                foreach (var track in album.Tracks)
+                {
+                    string key = NormalizeTrackDuplicateKey(track.FilePath);
+                    bool exists = !string.IsNullOrEmpty(key) && deviceFileNameKeys.Contains(key);
+                    track.IsOnDevice = exists;
+                    if (exists)
+                    {
+                        track.IsSelected = false;
+                    }
+                }
+            }
+
+            album.UpdateIsOnDeviceState();
+            if (album.IsOnDevice)
+            {
+                album.IsSelected = false;
+            }
+        }
+    }
+
+    private static void RunOnUiThread(Action action)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(action);
+        }
+        else
+        {
+            action();
+        }
     }
 
     private void NavigateDirectory(MainViewModel.DirectoryItem? dir)
@@ -446,23 +708,7 @@ public class DeviceBrowserViewModel : ViewModelBase
         }
 
         var albums = _getAlbums();
-        var tracksToTransfer = new List<Track>();
-
-        foreach (var album in albums.Where(a => a.IsSelected))
-        {
-            tracksToTransfer.AddRange(album.Tracks);
-        }
-
-        foreach (var album in albums)
-        {
-            foreach (var track in album.Tracks.Where(t => t.IsSelected))
-            {
-                if (!tracksToTransfer.Contains(track))
-                {
-                    tracksToTransfer.Add(track);
-                }
-            }
-        }
+        var tracksToTransfer = CollectTransferTargetTracks(albums);
 
         if (tracksToTransfer.Count == 0)
         {
@@ -570,7 +816,6 @@ public class DeviceBrowserViewModel : ViewModelBase
             }
 
             LoadDeviceDirectories(destinationFolder);
-            CheckDeviceAlbums(); // Refresh status
 
             MessageBox.Show("Transfer completed successfully!", "Success");
         }
@@ -585,6 +830,40 @@ public class DeviceBrowserViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// 選択中のアルバム・トラックから未転送（IsOnDevice == false）の転送対象トラック一覧を重複なく収集します。
+    /// </summary>
+    /// <param name="albums">対象アルバム一覧</param>
+    /// <returns>未転送の転送対象トラック一覧</returns>
+    internal static List<Track> CollectTransferTargetTracks(IReadOnlyList<Album> albums)
+    {
+        var tracksToTransfer = new List<Track>();
+
+        foreach (var album in albums.Where(a => a.IsSelected && !a.IsOnDevice))
+        {
+            foreach (var track in album.Tracks.Where(t => !t.IsOnDevice))
+            {
+                if (!tracksToTransfer.Contains(track))
+                {
+                    tracksToTransfer.Add(track);
+                }
+            }
+        }
+
+        foreach (var album in albums)
+        {
+            foreach (var track in album.Tracks.Where(t => t.IsSelected && !t.IsOnDevice))
+            {
+                if (!tracksToTransfer.Contains(track))
+                {
+                    tracksToTransfer.Add(track);
+                }
+            }
+        }
+
+        return tracksToTransfer;
+    }
+
     private void ShowDeviceManager()
     {
         if (SelectedDevice == null) return;
@@ -595,13 +874,14 @@ public class DeviceBrowserViewModel : ViewModelBase
         var dialog = new DeviceManagerDialog(dialogViewModel);
         dialog.ShowDialog();
 
-        // デバイス管理ダイアログを閉じた後、デバイス上のアルバム状況が変更されている可能性があるためチェックを再実行
-        CheckDeviceAlbums();
-
-        // 現在のディレクトリ表示も更新する
+        // デバイス管理ダイアログを閉じた後、ディレクトリ表示およびデバイス上の曲・アルバム存在状態を最新化する
         if (!string.IsNullOrEmpty(CurrentDevicePath))
         {
             LoadDeviceDirectories(CurrentDevicePath);
+        }
+        else
+        {
+            CheckDeviceAlbums();
         }
     }
 }

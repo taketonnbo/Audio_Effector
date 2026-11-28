@@ -162,6 +162,15 @@
                                         </Border>
                                     </Grid>
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="10,0,0,0">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsOnDevice}" Value="True">
+                                                        <Setter Property="Opacity" Value="0.5"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
                                         <TextBlock Text="{Binding Title}" Foreground="{DynamicResource TextForegroundBrush}" FontSize="14" TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Text="{Binding Artist}" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
@@ -180,7 +189,7 @@
                                                     <Style TargetType="CheckBox">
                                                         <Setter Property="Visibility" Value="Visible"/>
                                                         <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding DataContext.IsOnDevice, RelativeSource={RelativeSource AncestorType=Expander}}" Value="True">
+                                                            <DataTrigger Binding="{Binding IsOnDevice}" Value="True">
                                                                 <Setter Property="IsEnabled" Value="False"/>
                                                                 <Setter Property="IsChecked" Value="False"/>
                                                                 <Setter Property="Opacity" Value="0.5"/>
@@ -193,7 +202,7 @@
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock">
                                                         <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding DataContext.IsOnDevice, RelativeSource={RelativeSource AncestorType=Expander}}" Value="True">
+                                                            <DataTrigger Binding="{Binding IsOnDevice}" Value="True">
                                                                 <Setter Property="Opacity" Value="0.5"/>
                                                             </DataTrigger>
                                                         </Style.Triggers>
