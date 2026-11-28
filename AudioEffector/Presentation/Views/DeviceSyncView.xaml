@@ -64,11 +64,11 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <Border Grid.Column="0" Background="{DynamicResource ControlBackgroundHighlightBrush}" CornerRadius="3" Padding="6,2" Margin="0,0,8,0" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding SelectedDevice.ConnectionTypeLabel}" Foreground="#00FFFF" FontSize="11" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding SelectedDevice.ConnectionTypeLabel}" Foreground="{DynamicResource NeonCyanBrush}" FontSize="11" FontWeight="SemiBold"/>
                     </Border>
                     <ProgressBar Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding SelectedDevice.UsedSpaceRatio, Mode=OneWay}"
                                  Height="8" VerticalAlignment="Center" Margin="0,0,10,0"
-                                 Background="{DynamicResource ControlBackgroundBrush}" Foreground="#00FFFF" BorderThickness="0"/>
+                                 Background="{DynamicResource ControlBackgroundBrush}" Foreground="{DynamicResource NeonCyanBrush}" BorderThickness="0"/>
                     <TextBlock Grid.Column="2" Text="{Binding SelectedDevice.StorageSummaryText}" Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="11" VerticalAlignment="Center"/>
                 </Grid>
             </StackPanel>
