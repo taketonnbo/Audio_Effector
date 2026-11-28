@@ -149,13 +149,13 @@ public sealed class ListeningStatsApplicationService : IDisposable
     /// 指定されたアルバムに属する楽曲のみを対象として、累計再生回数降順でよく聴く曲 TOP N を取得します
     /// </summary>
     /// <param name="albumTrackFilePaths">
-    /// 対象アルバムに属する全楽曲のファイルパス一覧（指定された場合はファイルパス一致で厳密に絞り込みます）
+    /// 対象アルバムに属する全楽曲のファイルパス一覧（非 null の場合は厳密パス一致のみで絞り込み、有効パス 0 件なら空一覧を返します。null の場合のみメタデータ一致へフォールバックします）
     /// </param>
     /// <param name="albumName">
     /// ファイルパス一覧を解決できない場合のフォールバック用アルバム名（空または既定の不明アルバム名は無効）
     /// </param>
     /// <param name="artistName">
-    /// フォールバック時に同名別アーティストのアルバム混入を防ぐためのアーティスト名（省略可）
+    /// フォールバック時に同名別アーティストのアルバム混入を防ぐためのアーティスト名（空または既定の不明アーティスト名の場合は同様に不明アーティスト曲のみ一致）
     /// </param>
     /// <param name="count">取得件数上限（1 以上、既定 5 件）</param>
     /// <returns>対象アルバム内で再生回数降順に並んだ楽曲統計一覧</returns>
@@ -170,10 +170,9 @@ public sealed class ListeningStatsApplicationService : IDisposable
             return Array.Empty<TrackListeningStat>();
         }
 
-        HashSet<string>? pathSet = null;
-        if (albumTrackFilePaths != null && albumTrackFilePaths.Count > 0)
+        if (albumTrackFilePaths != null)
         {
-            pathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var pathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string path in albumTrackFilePaths)
             {
                 if (!string.IsNullOrWhiteSpace(path))
@@ -181,32 +180,49 @@ public sealed class ListeningStatsApplicationService : IDisposable
                     pathSet.Add(path);
                 }
             }
+
+            if (pathSet.Count == 0)
+            {
+                return Array.Empty<TrackListeningStat>();
+            }
+
+            try
+            {
+                ListeningStatsData data = _repository.Load();
+                return SelectTopPlayed(
+                    data.TrackStats.Where(stat => pathSet.Contains(stat.FilePath)),
+                    count);
+            }
+            catch (Exception ex) when (IsStorageUnavailable(ex))
+            {
+                Trace.TraceWarning($"アルバム内よく聴く曲ランキングの取得に失敗しました: {ex.Message}");
+                return Array.Empty<TrackListeningStat>();
+            }
         }
 
         string? normalizedAlbum = NormalizeMeaningfulMetadata(albumName, UnknownAlbumName);
-        string? normalizedArtist = NormalizeMeaningfulMetadata(artistName, UnknownArtistName);
-
-        if ((pathSet == null || pathSet.Count == 0) && normalizedAlbum == null)
+        if (normalizedAlbum == null)
         {
             return Array.Empty<TrackListeningStat>();
         }
 
+        string? normalizedArtist = NormalizeMeaningfulMetadata(artistName, UnknownArtistName);
+
         try
         {
             ListeningStatsData data = _repository.Load();
-            IEnumerable<TrackListeningStat> filtered;
+            IEnumerable<TrackListeningStat> filtered = data.TrackStats.Where(stat =>
+            {
+                if (!string.Equals(stat.Album?.Trim(), normalizedAlbum, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
 
-            if (pathSet != null && pathSet.Count > 0)
-            {
-                filtered = data.TrackStats.Where(stat => pathSet.Contains(stat.FilePath));
-            }
-            else
-            {
-                filtered = data.TrackStats.Where(stat =>
-                    string.Equals(stat.Album?.Trim(), normalizedAlbum, StringComparison.OrdinalIgnoreCase) &&
-                    (normalizedArtist == null ||
-                     string.Equals(stat.Artist?.Trim(), normalizedArtist, StringComparison.OrdinalIgnoreCase)));
-            }
+                string? statArtist = NormalizeMeaningfulMetadata(stat.Artist, UnknownArtistName);
+                return normalizedArtist == null
+                    ? statArtist == null
+                    : string.Equals(statArtist, normalizedArtist, StringComparison.OrdinalIgnoreCase);
+            });
 
             return SelectTopPlayed(filtered, count);
         }
