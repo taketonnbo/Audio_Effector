@@ -340,6 +340,57 @@ public sealed class LrcGenerationApplicationServiceTests
         }
     }
 
+    /// <summary>
+    /// 既存 .lrc ファイルがタイムタグのないプレーン歌詞（IsSynced == false）または読み込み時 I/O 例外の場合、
+    /// LoadExistingLrcAsync が安全に失敗 Result を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadExistingLrcAsync_非同期歌詞および読み込み例外発生時_失敗Resultを返す()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_app_unsynced_lrc_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "Unsynced.flac");
+        string lrcPath = Path.Combine(tempDir, "Unsynced.lrc");
+        File.WriteAllText(audioPath, "dummy");
+        File.WriteAllText(lrcPath, "タイムタグのない歌詞行");
+
+        try
+        {
+            var plainParser = new StubLrcParser
+            {
+                ParseHandler = _ => new LyricsDocument(
+                    [new LyricLine(0, null, "タイムタグのない歌詞行")],
+                    isSynced: false),
+            };
+            var textService = new FakeTextEncodingService { TextContent = "タイムタグのない歌詞行" };
+            LrcGenerationApplicationService sutUnsynced = CreateSut(textService: textService, lrcParser: plainParser);
+            var track = new Track { FilePath = audioPath, Title = "Unsynced" };
+
+            // Act 1: IsSynced == false のドキュメント
+            Result<LyricsDocument?> unsyncedResult = await sutUnsynced.LoadExistingLrcAsync(track);
+
+            // Assert 1
+            Assert.True(unsyncedResult.IsFailure);
+
+            // Act 2: ReadAsUtf8TextAsync で例外発生
+            textService.ThrowOnRead = new IOException("読み込み失敗テスト");
+            LrcGenerationApplicationService sutReadError = CreateSut(textService: textService, lrcParser: plainParser);
+            Result<LyricsDocument?> errorResult = await sutReadError.LoadExistingLrcAsync(track);
+
+            // Assert 2
+            Assert.True(errorResult.IsFailure);
+            Assert.Contains("読み込み失敗テスト", errorResult.ErrorMessage, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static LrcGenerationApplicationService CreateSut(
         FakeAudioAlignmentEngine? engine = null,
         FakeTextEncodingService? textService = null,
@@ -389,6 +440,7 @@ public sealed class LrcGenerationApplicationServiceTests
         public Func<string, TextEncodingInspectionResult>? InspectionFactory { get; set; }
         public string TextContent { get; set; } = "デフォルト歌詞";
         public bool ThrowIoOnSave { get; set; }
+        public Exception? ThrowOnRead { get; set; }
         public string? LastSavedPath { get; private set; }
         public bool LastAllowEncodingConversion { get; private set; }
 
@@ -405,6 +457,11 @@ public sealed class LrcGenerationApplicationServiceTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             LastAllowEncodingConversion = allowEncodingConversion;
+            if (ThrowOnRead is not null)
+            {
+                return Task.FromException<string>(ThrowOnRead);
+            }
+
             return Task.FromResult(TextContent);
         }
 

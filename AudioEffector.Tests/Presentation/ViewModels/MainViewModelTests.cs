@@ -504,13 +504,12 @@ public sealed class MainViewModelTests
             sut.IsRightPanelOpen = true;
             await sut.Lyrics!.HandleAsync(new TrackChangedEvent(track, TimeSpan.Zero));
 
-            // Act 1: 歌詞パネルヘッダーの「LRC 自動生成・再生成」から既存 .lrc 付き楽曲を開く
+            // Act 1: 歌詞パネルヘッダーの「LRC 自動生成・再生成」から既存 .lrc 付き楽曲を開く（OpenLrcGenerator 単体経路を検証）
             sut.Lyrics.RequestGenerateLrcCommand.Execute(null);
-            await sut.LrcGenerator!.SetTargetTrackAsync(track);
 
             // Assert 1: 既存 .lrc の手動編集画面がメイン表示される
             Assert.True(sut.IsLrcGeneratorViewVisible);
-            Assert.True(sut.LrcGenerator.IsPreviewState);
+            Assert.True(sut.LrcGenerator!.IsPreviewState);
             Assert.Single(sut.LrcGenerator.PreviewLines);
             Assert.Equal("既存保存済み歌詞", sut.LrcGenerator.PreviewLines[0].Text);
 

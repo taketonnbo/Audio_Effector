@@ -1073,6 +1073,124 @@ public sealed class LrcGeneratorViewModelTests
                 await sut.GenerateFromTextAsync();
                 Assert.True(sut.IsPreviewState);
                 Assert.Equal(LrcGenerationMode.TextAlignment, engine.LastRequest!.Mode);
+
+                // Act 5: 再度「↺ 再生成」から音声直接文字起こしを実行し、上書き確認〜上書き保存まで完了できる
+                sut.RegenerateCommand.Execute(null);
+                Assert.True(sut.IsInputState);
+                await sut.TranscribeFromAudioAsync();
+                Assert.True(sut.IsPreviewState);
+                Assert.Equal(LrcGenerationMode.AudioTranscription, engine.LastRequest!.Mode);
+
+                await sut.SaveLrcRequestedAsync();
+                Assert.True(sut.IsOverwriteConfirmVisible);
+                await sut.ExecuteSaveAsync(overwrite: true);
+                Assert.False(sut.IsOverwriteConfirmVisible);
+                Assert.Equal(lrcPath, textSvc.LastSavedPath);
+                Assert.True(textSvc.LastOverwriteFlag);
+                Assert.Equal(2, updatedCount);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// [offset:] タグを含む既存 .lrc を読み込んだ際に、実効タイムスタンプへ正規化されてプレビュー表示・シーク・再保存され、
+    /// [offset:] 消失によるタイミングズレが発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SetTargetTrackAsync_Offset付き既存Lrcを読み込む_実効タイムスタンプへ正規化され保存後もタイミングを維持する()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_lrc_offset_load_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "OffsetSong.flac");
+        string lrcPath = Path.Combine(tempDir, "OffsetSong.lrc");
+        File.WriteAllText(audioPath, "dummy");
+        File.WriteAllText(lrcPath, "[offset:2000]\r\n[00:10.00]オフセット行");
+
+        try
+        {
+            // Offset = +2秒（GetEffectiveTimestamp は 10s - 2s = 8s または 0s クランプ）
+            var offsetDoc = new LyricsDocument(
+                [
+                    new LyricLine(0, TimeSpan.FromSeconds(1), "先頭クランプ行"),
+                    new LyricLine(1, TimeSpan.FromSeconds(10), "オフセット行"),
+                ],
+                isSynced: true,
+                title: "OffsetSong",
+                offset: TimeSpan.FromSeconds(2));
+            TimeSpan expectedFirst = offsetDoc.GetEffectiveTimestamp(0)!.Value;
+            TimeSpan expectedSecond = offsetDoc.GetEffectiveTimestamp(1)!.Value;
+
+            var parser = new StubLrcParser { ParseHandler = _ => offsetDoc };
+            var (sut, _, textSvc, _, _) = CreateSut(fileExistsFunc: File.Exists, lrcParser: parser);
+            textSvc.TextToReturn = "[offset:2000]\n[00:10.00]オフセット行";
+            var track = new Track { FilePath = audioPath, Title = "OffsetSong" };
+
+            using (sut)
+            {
+                // Act
+                await sut.SetTargetTrackAsync(track);
+
+                // Assert: PreviewLines と GeneratedDocument の両方が Offset 適用済みの実効タイムスタンプへ正規化される
+                Assert.True(sut.IsPreviewState);
+                Assert.Equal(expectedFirst, sut.PreviewLines[0].Timestamp);
+                Assert.Equal(expectedSecond, sut.PreviewLines[1].Timestamp);
+                Assert.NotNull(sut.GeneratedDocument);
+                Assert.Equal(TimeSpan.Zero, sut.GeneratedDocument!.Offset);
+                Assert.Equal(expectedFirst, sut.GeneratedDocument.Lines[0].Timestamp);
+                Assert.Equal(expectedSecond, sut.GeneratedDocument.Lines[1].Timestamp);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 既存 .lrc の読み込みに失敗した場合に ValidationErrorMessage が設定され、
+    /// モデル配置済み時は入力・待機画面、モデル未配置時はモデル未配置ガイドへ安全にフォールバックすることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SetTargetTrackAsync_既存Lrc読み込み失敗時_案内表示のうえ適切な待機画面へフォールバックする(bool modelAvailable)
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_lrc_load_fail_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "Corrupt.flac");
+        string lrcPath = Path.Combine(tempDir, "Corrupt.lrc");
+        File.WriteAllText(audioPath, "dummy");
+        File.WriteAllText(lrcPath, "broken");
+
+        try
+        {
+            var (sut, _, textSvc, _, _) = CreateSut(modelAvailable: modelAvailable, fileExistsFunc: File.Exists);
+            textSvc.ReadHandler = (_, _, _) => Task.FromException<string>(new IOException("ファイル破損テスト"));
+            var track = new Track { FilePath = audioPath, Title = "Corrupt" };
+
+            using (sut)
+            {
+                // Act
+                await sut.SetTargetTrackAsync(track);
+
+                // Assert
+                Assert.False(sut.IsPreviewState);
+                Assert.True(sut.HasValidationError);
+                Assert.Contains("ファイル破損テスト", sut.ValidationErrorMessage, StringComparison.Ordinal);
+                Assert.Equal(modelAvailable, sut.IsInputState);
+                Assert.Equal(!modelAvailable, sut.IsModelMissingState);
             }
         }
         finally
