@@ -1,10 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Domain.Events;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.Services;
+using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Library;
 using AudioEffector.Presentation.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,7 +44,8 @@ public sealed class MainViewModelTests
         private readonly IServiceProvider? _previous;
         private readonly ServiceProvider _provider;
 
-        public ServiceProviderScope()
+        public ServiceProviderScope(
+            Func<LyricsApplicationService, IAudioService, IUiDispatcher, LrcGeneratorViewModel>? lrcGeneratorFactory = null)
         {
             _previous = App.ServiceProvider;
 
@@ -90,6 +95,11 @@ public sealed class MainViewModelTests
             services.AddSingleton<ArtistsViewModel>();
             services.AddSingleton<RecentViewModel>();
             services.AddSingleton<LyricsViewModel>();
+
+            if (lrcGeneratorFactory != null)
+            {
+                services.AddSingleton(lrcGeneratorFactory(lyricsService, audioServiceMock.Object, dispatcher));
+            }
 
             _provider = services.BuildServiceProvider();
             App.ServiceProvider = _provider;
@@ -319,5 +329,207 @@ public sealed class MainViewModelTests
         Assert.Equal(RightExtensionPanelType.None, sut.ActiveRightExtensionPanel);
         Assert.False(sut.IsAlbumViewMaximized);
         Assert.False(sut.Lyrics.IsActiveView);
+    }
+
+    private sealed class StubAlignmentEngineForMain : IAudioAlignmentEngine
+    {
+        public string EngineName => "StubMainEngine";
+        public LrcGenerationMode? LastMode { get; private set; }
+
+        public Task<AlignmentResult> GenerateAsync(
+            AlignmentRequest request,
+            IProgress<AlignmentProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastMode = request.Mode;
+            var doc = new LyricsDocument(
+                [new LyricLine(0, TimeSpan.FromSeconds(4), "再作成テスト歌詞")],
+                isSynced: true,
+                title: request.Title);
+            return Task.FromResult(new AlignmentResult(
+                doc,
+                "[00:04.00]再作成テスト歌詞",
+                Array.Empty<AlignmentSegment>(),
+                request.Mode,
+                EngineName));
+        }
+    }
+
+    private sealed class StubTextEncodingServiceForMain : ITextEncodingService
+    {
+        public Task<TextEncodingInspectionResult> InspectAsync(string textFilePath, CancellationToken cancellationToken = default)
+            => Task.FromResult(new TextEncodingInspectionResult(textFilePath, true, false, "UTF-8", 2, 2));
+
+        public Task<string> ReadAsUtf8TextAsync(string textFilePath, bool allowEncodingConversion, CancellationToken cancellationToken = default)
+            => Task.FromResult("歌詞1\n歌詞2");
+
+        public Task SaveLrcFileAsync(string destinationPath, string lrcContent, bool overwrite, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
+
+    private sealed class StubModelManagerForMain : ILocalSpeechModelManager
+    {
+        public LocalSpeechModelInfo GetActiveModelInfo()
+            => new("base", "Whisper (base)", "ggml-base.bin", @"C:\models\ggml-base.bin", true, 140_000_000);
+
+        public IReadOnlyList<LocalSpeechModelInfo> GetSupportedModels() => [GetActiveModelInfo()];
+
+        public void SelectModel(string modelId) { }
+
+        public void SetCustomModelPath(string? modelFilePath) { }
+
+        public Task<LocalSpeechModelInfo> DownloadModelAsync(
+            string? modelId = null,
+            IProgress<double>? progress = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(GetActiveModelInfo());
+    }
+
+    private sealed class StubLrcParserForMain : ILrcParser
+    {
+        public Func<string, LyricsDocument>? ParseHandler { get; set; }
+
+        public LyricsDocument Parse(string content) => ParseHandler is not null ? ParseHandler(content) : LyricsDocument.Empty;
+
+        public string Format(LyricsDocument document) => "[00:04.00]再作成テスト歌詞";
+    }
+
+    /// <summary>
+    /// 同一楽曲で自動文字起こし→保存→歌詞表示へ戻る→Lyrics.RequestGenerateLrcCommand で再起動した際に、
+    /// LrcGenerator.IsInputState が true となりテキスト生成と自動文字起こしの双方を再開できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task OpenLrcGenerator_自動文字起こし保存後に歌詞パネルのLRC生成コマンドで再起動_入力状態へ復帰しテキスト生成と自動文字起こしを再開できること()
+    {
+        // Arrange
+        var engine = new StubAlignmentEngineForMain();
+        var track = new Track { FilePath = @"C:\Music\MainRecreate.flac", Title = "MainRecreate", Artist = "Artist" };
+        using var scope = new ServiceProviderScope((lyricsSvc, audioSvc, dispatcher) =>
+        {
+            var genSvc = new LrcGenerationApplicationService(
+                engine,
+                new StubTextEncodingServiceForMain(),
+                new StubModelManagerForMain(),
+                new StubLrcParserForMain(),
+                lyricsSvc);
+            return new LrcGeneratorViewModel(
+                genSvc,
+                audioSvc,
+                dispatcher,
+                selectTextFileFunc: null,
+                selectModelFileFunc: null,
+                openFolderAction: _ => { },
+                fileExistsFunc: _ => true);
+        });
+        using var sut = new MainViewModel();
+        sut.IsRightPanelOpen = true;
+        await sut.Lyrics!.HandleAsync(new TrackChangedEvent(track, TimeSpan.Zero));
+
+        // 初回: LRC 自動生成を起動 → 自動文字起こし実行 → 保存 → 歌詞表示へ戻る
+        sut.OpenLrcGenerator(track);
+        Assert.True(sut.IsLrcGeneratorViewVisible);
+        await sut.LrcGenerator!.TranscribeFromAudioAsync();
+        Assert.True(sut.LrcGenerator.IsPreviewState);
+        await sut.LrcGenerator.ExecuteSaveAsync(overwrite: true);
+        Assert.True(sut.LrcGenerator.HasSavedFile);
+
+        sut.LrcGenerator.BackToLyricsCommand.Execute(null);
+        Assert.True(sut.IsLyricsViewVisible);
+
+        // Act 1: 歌詞パネルヘッダーの「LRC を自動生成・再生成」（RequestGenerateLrcCommand → OpenLrcGenerator）で再起動
+        Assert.True(sut.Lyrics.RequestGenerateLrcCommand.CanExecute(null));
+        sut.Lyrics.RequestGenerateLrcCommand.Execute(null);
+
+        // Assert 1: 入力・待機状態へ復帰し、自動文字起こしが即座に実行可能
+        Assert.True(sut.IsLrcGeneratorViewVisible);
+        Assert.True(sut.LrcGenerator.IsInputState);
+        Assert.False(sut.LrcGenerator.HasSavedFile);
+        Assert.True(sut.LrcGenerator.TranscribeAudioCommand.CanExecute(null));
+
+        // Act 2: テキストファイルを選択してテキストからの LRC 生成を実行
+        await sut.LrcGenerator.InspectAndSelectTextFileAsync(@"C:\Lyrics\MainRecreate.txt");
+        Assert.True(sut.LrcGenerator.GenerateLrcCommand.CanExecute(null));
+        await sut.LrcGenerator.GenerateFromTextAsync();
+
+        // Assert 2: テキスト生成が TextAlignment モードで完了
+        Assert.True(sut.LrcGenerator.IsPreviewState);
+        Assert.Equal(LrcGenerationMode.TextAlignment, engine.LastMode);
+    }
+
+    /// <summary>
+    /// 既存 .lrc ファイルが存在する楽曲に対して歌詞パネルの RequestGenerateLrcCommand から開いた場合、
+    /// LRC 編集画面（IsPreviewState == true）がメイン表示され、「↺ 再生成」操作時のみ入力画面へ遷移してテキスト生成・自動文字起こしを再開できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task OpenLrcGenerator_既存Lrcが存在する楽曲を歌詞パネルから再起動_編集画面をメイン表示し再生成押下時のみ入力画面へ遷移すること()
+    {
+        // Arrange
+        string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ae_main_lrc_edit_{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempDir);
+        string audioPath = System.IO.Path.Combine(tempDir, "ExistingMain.flac");
+        string lrcPath = System.IO.Path.Combine(tempDir, "ExistingMain.lrc");
+        System.IO.File.WriteAllText(audioPath, "dummy");
+        System.IO.File.WriteAllText(lrcPath, "[00:08.00]既存保存済み歌詞");
+
+        try
+        {
+            var engine = new StubAlignmentEngineForMain();
+            var parser = new StubLrcParserForMain
+            {
+                ParseHandler = _ => new LyricsDocument(
+                    [new LyricLine(0, TimeSpan.FromSeconds(8), "既存保存済み歌詞")],
+                    isSynced: true,
+                    title: "ExistingMain"),
+            };
+            var track = new Track { FilePath = audioPath, Title = "ExistingMain", Artist = "Artist" };
+
+            using var scope = new ServiceProviderScope((lyricsSvc, audioSvc, dispatcher) =>
+            {
+                var genSvc = new LrcGenerationApplicationService(
+                    engine,
+                    new StubTextEncodingServiceForMain(),
+                    new StubModelManagerForMain(),
+                    parser,
+                    lyricsSvc);
+                return new LrcGeneratorViewModel(
+                    genSvc,
+                    audioSvc,
+                    dispatcher,
+                    selectTextFileFunc: null,
+                    selectModelFileFunc: null,
+                    openFolderAction: _ => { },
+                    fileExistsFunc: System.IO.File.Exists);
+            });
+            using var sut = new MainViewModel();
+            sut.IsRightPanelOpen = true;
+            await sut.Lyrics!.HandleAsync(new TrackChangedEvent(track, TimeSpan.Zero));
+
+            // Act 1: 歌詞パネルヘッダーの「LRC 自動生成・再生成」から既存 .lrc 付き楽曲を開く（OpenLrcGenerator 単体経路を検証）
+            sut.Lyrics.RequestGenerateLrcCommand.Execute(null);
+
+            // Assert 1: 既存 .lrc の手動編集画面がメイン表示される
+            Assert.True(sut.IsLrcGeneratorViewVisible);
+            Assert.True(sut.LrcGenerator!.IsPreviewState);
+            Assert.Single(sut.LrcGenerator.PreviewLines);
+            Assert.Equal("既存保存済み歌詞", sut.LrcGenerator.PreviewLines[0].Text);
+
+            // Act 2: 「↺ 再生成」クリック時のみ入力・待機画面へ遷移し、テキスト生成・自動文字起こしを再開可能
+            sut.LrcGenerator.RegenerateCommand.Execute(null);
+            Assert.True(sut.LrcGenerator.IsInputState);
+            Assert.True(sut.LrcGenerator.TranscribeAudioCommand.CanExecute(null));
+
+            await sut.LrcGenerator.InspectAndSelectTextFileAsync(@"C:\Lyrics\ExistingMain.txt");
+            Assert.True(sut.LrcGenerator.GenerateLrcCommand.CanExecute(null));
+            await sut.LrcGenerator.GenerateFromTextAsync();
+            Assert.True(sut.LrcGenerator.IsPreviewState);
+            Assert.Equal(LrcGenerationMode.TextAlignment, engine.LastMode);
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempDir))
+            {
+                System.IO.Directory.Delete(tempDir, recursive: true);
+            }
+        }
     }
 }

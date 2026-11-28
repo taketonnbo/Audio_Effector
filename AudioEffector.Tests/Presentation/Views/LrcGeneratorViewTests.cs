@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -139,7 +140,9 @@ public sealed class LrcGeneratorViewTests
 
     private sealed class StubLrcParser : ILrcParser
     {
-        public LyricsDocument Parse(string content) => LyricsDocument.Empty;
+        public Func<string, LyricsDocument>? ParseHandler { get; set; }
+
+        public LyricsDocument Parse(string content) => ParseHandler is not null ? ParseHandler(content) : LyricsDocument.Empty;
 
         public string Format(LyricsDocument document) => "[00:04.00]formatted";
     }
@@ -280,14 +283,15 @@ public sealed class LrcGeneratorViewTests
 
     private static (LrcGeneratorViewModel ViewModel, StubAlignmentEngine Engine, StubTextEncodingService TextSvc, StubModelManager ModelMgr) CreateViewModel(
         bool modelAvailable,
-        Func<string, bool>? fileExistsFunc = null)
+        Func<string, bool>? fileExistsFunc = null,
+        StubLrcParser? lrcParser = null)
     {
         var engine = new StubAlignmentEngine();
         var textSvc = new StubTextEncodingService();
         var modelMgr = new StubModelManager(modelAvailable);
         var eventBus = new InMemoryEventBus();
         var lyricsSvc = new LyricsApplicationService(new StubLyricsProvider(), eventBus);
-        var genSvc = new LrcGenerationApplicationService(engine, textSvc, modelMgr, new StubLrcParser(), lyricsSvc);
+        var genSvc = new LrcGenerationApplicationService(engine, textSvc, modelMgr, lrcParser ?? new StubLrcParser(), lyricsSvc);
         var audioMock = new Mock<IAudioService>();
         var vm = new LrcGeneratorViewModel(
             genSvc,
@@ -503,6 +507,301 @@ public sealed class LrcGeneratorViewTests
                 });
             }
         });
+    }
+
+    /// <summary>
+    /// 結果プレビュー状態のフッターに「歌詞表示で確認」ボタンが存在せず、
+    /// 保存系フッターボタンおよびヘッダーの「← 歌詞へ戻る」ボタンが両テーマで正常動作することを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("DarkTheme.xaml")]
+    [InlineData("LightTheme.xaml")]
+    public Task LrcGeneratorView_プレビュー状態描画時_フッターに歌詞表示で確認ボタンが存在せずヘッダー戻るボタンと保存系ボタンが維持される(string themeFileName)
+    {
+        return RunInStaThreadAsync(async () =>
+        {
+            // Arrange
+            EnsureApplicationResources();
+            using var listener = new BindingErrorTraceListener();
+            var existingPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C:\Music\PreviewCheck.flac" };
+            var (vm, engine, _, _) = CreateViewModel(modelAvailable: true, fileExistsFunc: p => existingPaths.Contains(p));
+
+            using (vm)
+            {
+                vm.SetTargetTrack(new Track { FilePath = @"C:\Music\PreviewCheck.flac", Title = "PreviewCheck", Artist = "Artist" });
+                var sut = new LrcGeneratorView { DataContext = vm };
+                AttachThemeResources(sut.Resources, themeFileName);
+
+                await RunWithHostWindowAsync(sut, async host =>
+                {
+                    var backToLyricsBtn = Assert.IsType<Button>(sut.FindName("BackToLyricsButton"));
+                    var saveLrcBtn = Assert.IsType<Button>(sut.FindName("SaveLrcButton"));
+                    var openSavedFolderBtn = Assert.IsType<Button>(sut.FindName("OpenSavedFolderButton"));
+
+                    // Act: 処理中ガード → プレビュー状態へ遷移
+                    var gate = new TaskCompletionSource<AlignmentResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    engine.Handler = (_, _, _) => gate.Task;
+                    Task runTask = vm.TranscribeFromAudioAsync();
+                    host.UpdateLayout();
+
+                    // Assert: 生成処理中はヘッダーの「← 歌詞へ戻る」が非活性
+                    Assert.False(backToLyricsBtn.IsEnabled);
+
+                    var doc = new LyricsDocument([new LyricLine(0, TimeSpan.FromSeconds(3), "Line 1")], isSynced: true, title: "PreviewCheck");
+                    gate.TrySetResult(new AlignmentResult(doc, "[00:03.00]Line 1", [], LrcGenerationMode.AudioTranscription, "Stub"));
+                    await runTask;
+                    host.UpdateLayout();
+
+                    // Assert: フッターに「歌詞表示で確認」ボタンが存在しないこと
+                    List<Button> allButtons = FindVisualChildren<Button>(sut);
+                    Assert.DoesNotContain(allButtons, b => string.Equals(b.Content as string, "歌詞表示で確認", StringComparison.Ordinal));
+                    Assert.DoesNotContain(allButtons, b => string.Equals(AutomationProperties.GetName(b), "同期歌詞表示パネルで確認", StringComparison.Ordinal));
+
+                    // Assert: ヘッダーの「← 歌詞へ戻る」ボタンが維持・活性でイベント発火すること
+                    bool backRequested = false;
+                    vm.BackToLyricsRequested += () => backRequested = true;
+                    Assert.Equal("← 歌詞へ戻る", backToLyricsBtn.Content);
+                    Assert.True(backToLyricsBtn.IsEnabled);
+                    backToLyricsBtn.Command.Execute(null);
+                    Assert.True(backRequested);
+
+                    // Assert: フッターの保存系ボタンが維持され、保存前→保存後で活性遷移すること
+                    Assert.Equal("LRC を保存", saveLrcBtn.Content);
+                    Assert.True(saveLrcBtn.IsEnabled);
+                    Assert.Equal("保存先フォルダを開く", openSavedFolderBtn.Content);
+                    Assert.False(openSavedFolderBtn.IsEnabled);
+
+                    await vm.ExecuteSaveAsync(overwrite: true);
+                    host.UpdateLayout();
+                    Assert.True(openSavedFolderBtn.IsEnabled);
+
+                    // Assert: バインディングエラー 0 件・高負荷エフェクト 0 件
+                    Assert.Empty(listener.Errors);
+                    Assert.False(HasHeavyEffect(sut));
+                });
+            }
+        });
+    }
+
+    /// <summary>
+    /// 入力・待機状態（最小幅 260px を含む両テーマ）において、自動文字起こしセクションの誤認識・誤表現に関する注意書きが表示され、
+    /// 自動文字起こしボタンと生成機能自体は引き続き利用可能であることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("DarkTheme.xaml")]
+    [InlineData("LightTheme.xaml")]
+    public Task LrcGeneratorView_入力待機状態の自動文字起こしセクション_誤認識と誤表現の注意書きが表示され文字起こしボタンが利用可能である(string themeFileName)
+    {
+        return RunInStaThreadAsync(async () =>
+        {
+            // Arrange
+            EnsureApplicationResources();
+            using var listener = new BindingErrorTraceListener();
+            var existingPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C:\Music\DisclaimerCheck.flac" };
+            var (vm, _, _, _) = CreateViewModel(modelAvailable: true, fileExistsFunc: p => existingPaths.Contains(p));
+
+            using (vm)
+            {
+                vm.SetTargetTrack(new Track { FilePath = @"C:\Music\DisclaimerCheck.flac", Title = "DisclaimerCheck", Artist = "Artist" });
+                var sut = new LrcGeneratorView { DataContext = vm };
+                AttachThemeResources(sut.Resources, themeFileName);
+
+                // Act: 最小ペイン幅 (260px) で入力・待機状態を描画
+                await RunWithHostWindowAsync(sut, async host =>
+                {
+                    Assert.True(vm.IsInputState);
+                    host.UpdateLayout();
+
+                    var disclaimerText = Assert.IsType<TextBlock>(sut.FindName("AudioTranscriptionDisclaimerText"));
+                    var transcribeBtn = Assert.IsType<Button>(sut.FindName("TranscribeAudioButton"));
+
+                    // Assert: 注意書きの表示・折り返し・文言
+                    Assert.Equal(Visibility.Visible, disclaimerText.Visibility);
+                    Assert.Equal(TextWrapping.Wrap, disclaimerText.TextWrapping);
+                    Assert.Contains("誤認識", disclaimerText.Text, StringComparison.Ordinal);
+                    Assert.Contains("誤表現", disclaimerText.Text, StringComparison.Ordinal);
+                    Assert.Contains("手動修正", disclaimerText.Text, StringComparison.Ordinal);
+
+                    // Assert: 自動文字起こしボタンの維持・活性・ToolTip 補足・生成実行可否
+                    Assert.True(transcribeBtn.IsEnabled);
+                    string toolTipText = Assert.IsType<string>(transcribeBtn.ToolTip);
+                    Assert.Contains("誤認識", toolTipText, StringComparison.Ordinal);
+                    Assert.Contains("誤表現", toolTipText, StringComparison.Ordinal);
+
+                    await vm.TranscribeFromAudioAsync();
+                    host.UpdateLayout();
+                    Assert.True(vm.IsPreviewState);
+
+                    // Assert: バインディングエラー 0 件・高負荷エフェクト 0 件
+                    Assert.Empty(listener.Errors);
+                    Assert.False(HasHeavyEffect(sut));
+                }, width: 260, height: 520);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 自動文字起こしおよび .lrc 保存後の再作成フローで入力状態へ復帰した際に、
+    /// TranscribeAudioButton.IsEnabled（true）および .txt 選択後の GenerateFromTextButton.IsEnabled（true）が WPF UI 上へ即時反映されることを検証します。
+    /// </summary>
+    [Fact]
+    public Task LrcGeneratorView_自動文字起こし保存後の再作成で入力状態へ復帰_テキスト生成と自動文字起こしボタンのIsEnabledが即時反映される()
+    {
+        return RunInStaThreadAsync(async () =>
+        {
+            // Arrange
+            EnsureApplicationResources();
+            using var listener = new BindingErrorTraceListener();
+            var existingPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C:\Music\RecreateUi.flac" };
+            var (vm, _, textSvc, _) = CreateViewModel(modelAvailable: true, fileExistsFunc: p => existingPaths.Contains(p));
+            var track = new Track { FilePath = @"C:\Music\RecreateUi.flac", Title = "RecreateUi", Artist = "Artist" };
+
+            using (vm)
+            {
+                var sut = new LrcGeneratorView { DataContext = vm };
+                AttachThemeResources(sut.Resources, "DarkTheme.xaml");
+
+                await RunWithHostWindowAsync(sut, async host =>
+                {
+                    var generateFromTextBtn = Assert.IsType<Button>(sut.FindName("GenerateFromTextButton"));
+                    var transcribeAudioBtn = Assert.IsType<Button>(sut.FindName("TranscribeAudioButton"));
+
+                    // 初回: 自動文字起こし → 保存
+                    vm.SetTargetTrack(track);
+                    await vm.TranscribeFromAudioAsync();
+                    await vm.ExecuteSaveAsync(overwrite: true);
+                    host.UpdateLayout();
+                    Assert.True(vm.IsPreviewState);
+                    Assert.True(vm.HasSavedFile);
+
+                    // Act 1: 同一楽曲で再作成を開始 → 入力状態へ復帰
+                    vm.SetTargetTrack(track);
+                    host.UpdateLayout();
+
+                    // Assert 1: 入力状態へ復帰し、自動文字起こしボタンは即座に活性・テキスト生成ボタンは .txt 未選択のため非活性
+                    Assert.True(vm.IsInputState);
+                    Assert.True(transcribeAudioBtn.IsEnabled);
+                    Assert.False(generateFromTextBtn.IsEnabled);
+
+                    // Act 2: UTF-8 テキストファイルを選択（StubTextEncodingService は既定 Shift-JIS なので変換承諾まで実施）
+                    await vm.InspectAndSelectTextFileAsync(@"C:\Lyrics\RecreateUi.txt");
+                    vm.ConfirmEncodingConversionCommand.Execute(null);
+                    host.UpdateLayout();
+
+                    // Assert 2: テキスト生成ボタンおよび自動文字起こしボタンの双方が即時活性
+                    Assert.True(generateFromTextBtn.IsEnabled);
+                    Assert.True(transcribeAudioBtn.IsEnabled);
+                    Assert.Null(textSvc.SaveException);
+                    Assert.Empty(listener.Errors);
+                    Assert.False(HasHeavyEffect(sut));
+                });
+            }
+        });
+    }
+
+    /// <summary>
+    /// 既存 .lrc ファイルを持つ楽曲を開いた際に両テーマで .lrc 編集画面がメイン表示され、
+    /// 「↺ 再生成」ボタン実行時のみ入力画面へ遷移し生成ボタンの IsEnabled が即時反映されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("DarkTheme.xaml")]
+    [InlineData("LightTheme.xaml")]
+    public Task LrcGeneratorView_既存Lrcあり楽曲で編集画面メイン表示後に再生成ボタン実行_入力画面とボタン活性が即時反映される(string themeFileName)
+    {
+        return RunInStaThreadAsync(async () =>
+        {
+            // Arrange
+            string tempDir = Path.Combine(Path.GetTempPath(), $"ae_view_lrc_editor_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            string audioPath = Path.Combine(tempDir, "EditorUi.flac");
+            string lrcPath = Path.Combine(tempDir, "EditorUi.lrc");
+            File.WriteAllText(audioPath, "dummy");
+            File.WriteAllText(lrcPath, "[00:05.00]既存UI歌詞");
+
+            try
+            {
+                EnsureApplicationResources();
+                using var listener = new BindingErrorTraceListener();
+                var parser = new StubLrcParser
+                {
+                    ParseHandler = _ => new LyricsDocument(
+                        [new LyricLine(0, TimeSpan.FromSeconds(5), "既存UI歌詞")],
+                        isSynced: true,
+                        title: "EditorUi"),
+                };
+                var (vm, _, _, _) = CreateViewModel(modelAvailable: true, fileExistsFunc: File.Exists, lrcParser: parser);
+                var track = new Track { FilePath = audioPath, Title = "EditorUi", Artist = "Artist" };
+
+                using (vm)
+                {
+                    var sut = new LrcGeneratorView { DataContext = vm };
+                    AttachThemeResources(sut.Resources, themeFileName);
+
+                    await RunWithHostWindowAsync(sut, async host =>
+                    {
+                        var regenerateBtn = Assert.IsType<Button>(sut.FindName("RegenerateButton"));
+                        var generateFromTextBtn = Assert.IsType<Button>(sut.FindName("GenerateFromTextButton"));
+                        var transcribeAudioBtn = Assert.IsType<Button>(sut.FindName("TranscribeAudioButton"));
+                        var listBox = Assert.IsType<ListBox>(sut.FindName("PreviewLinesListBox"));
+
+                        // Act 1: 既存 .lrc を持つ楽曲を開く → .lrc 編集画面がメイン表示される
+                        await vm.SetTargetTrackAsync(track);
+                        host.UpdateLayout();
+
+                        // Assert 1
+                        Assert.True(vm.IsPreviewState);
+                        Assert.Equal(Visibility.Visible, listBox.Visibility);
+                        Assert.True(regenerateBtn.IsEnabled);
+                        Assert.Single(vm.PreviewLines);
+                        Assert.Equal("既存UI歌詞", vm.PreviewLines[0].Text);
+
+                        // Act 2: 「↺ 再生成」クリック → 入力画面へ遷移
+                        regenerateBtn.Command.Execute(null);
+                        host.UpdateLayout();
+
+                        // Assert 2: 入力状態へ遷移し、自動文字起こし活性・.txt 選択承諾後にテキスト生成も即時活性
+                        Assert.True(vm.IsInputState);
+                        Assert.Equal(Visibility.Collapsed, listBox.Visibility);
+                        Assert.True(transcribeAudioBtn.IsEnabled);
+                        Assert.False(generateFromTextBtn.IsEnabled);
+
+                        await vm.InspectAndSelectTextFileAsync(@"C:\Lyrics\EditorUi.txt");
+                        vm.ConfirmEncodingConversionCommand.Execute(null);
+                        host.UpdateLayout();
+
+                        Assert.True(generateFromTextBtn.IsEnabled);
+                        Assert.Empty(listener.Errors);
+                        Assert.False(HasHeavyEffect(sut));
+                    });
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                }
+            }
+        });
+    }
+
+    private static List<T> FindVisualChildren<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        var results = new List<T>();
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                results.Add(match);
+            }
+
+            results.AddRange(FindVisualChildren<T>(child));
+        }
+
+        return results;
     }
 
     private static T? FindVisualChild<T>(DependencyObject root)

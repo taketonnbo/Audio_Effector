@@ -391,12 +391,14 @@
                                        Margin="4,0,0,0"/>
                         </WrapPanel>
 
-                        <Button Grid.Column="1"
+                        <Button x:Name="RegenerateButton"
+                                Grid.Column="1"
                                 Content="↺ 再生成"
                                 Style="{StaticResource LrcSubtleButtonStyle}"
                                 Command="{Binding RegenerateCommand}"
                                 VerticalAlignment="Center"
-                                ToolTip="入力画面へ戻って再生成する"/>
+                                ToolTip="テキストファイルまたは音声文字起こしから LRC を一から再生成する"
+                                AutomationProperties.Name="LRCを一から再生成"/>
                     </Grid>
                 </Border>
             </Grid>
@@ -656,13 +658,19 @@
                                    FontSize="11"
                                    Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                                    TextWrapping="Wrap"
+                                   Margin="0,0,0,4"/>
+                        <TextBlock x:Name="AudioTranscriptionDisclaimerText"
+                                   Text="※ ローカル AI モデルによる自動文字起こしのため、誤認識や誤表現が含まれる場合があります（生成後のプレビュー画面で手動修正できます）。"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                   TextWrapping="Wrap"
                                    Margin="0,0,0,12"/>
                         <WrapPanel>
                             <Button x:Name="TranscribeAudioButton"
                                     Content="音声から文字起こしして LRC を生成"
                                     Style="{StaticResource LrcAccentSecondaryButtonStyle}"
                                     Command="{Binding TranscribeAudioCommand}"
-                                    ToolTip="テキストファイルを使わず楽曲音声から直接文字起こしして LRC を生成します"
+                                    ToolTip="テキストファイルを使わず楽曲音声から直接文字起こしして LRC を生成します（AI 文字起こしのため誤認識・誤表現が含まれる場合があります）"
                                     AutomationProperties.Name="音声から文字起こししてLRCを生成"/>
                         </WrapPanel>
                     </StackPanel>
@@ -988,13 +996,8 @@
                                     Content="保存先フォルダを開く"
                                     Style="{StaticResource LrcSecondaryButtonStyle}"
                                     Command="{Binding OpenSavedFolderCommand}"
-                                    Margin="0,0,8,4"
-                                    AutomationProperties.Name="保存先フォルダを開く"/>
-                            <Button Content="歌詞表示で確認"
-                                    Style="{StaticResource LrcSubtleButtonStyle}"
-                                    Command="{Binding BackToLyricsCommand}"
                                     Margin="0,0,0,4"
-                                    AutomationProperties.Name="同期歌詞表示パネルで確認"/>
+                                    AutomationProperties.Name="保存先フォルダを開く"/>
                         </WrapPanel>
                     </StackPanel>
                 </Border>
