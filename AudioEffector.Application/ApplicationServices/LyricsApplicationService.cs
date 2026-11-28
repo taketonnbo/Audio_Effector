@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,12 +10,12 @@ using AudioEffector.Domain.Services;
 namespace AudioEffector.Application.ApplicationServices;
 
 /// <summary>
-/// 楽曲に対する歌詞の非同期取得・メモリキャッシュ管理・キャッシュ無効化および更新通知を統括するアプリケーションサービスです。
+/// 楽曲に対する歌詞の非同期取得・メモリキャッシュ管理・キャッシュ無効化および更新通知を統括するアプリケーションサービスです
 /// </summary>
 public class LyricsApplicationService
 {
     /// <summary>
-    /// メモリキャッシュに保持する楽曲歌詞の既定最大件数。
+    /// メモリキャッシュに保持する楽曲歌詞の既定最大件数
     /// </summary>
     public const int DEFAULT_MAX_CACHE_ENTRIES = 64;
 
@@ -25,28 +25,29 @@ public class LyricsApplicationService
     private readonly object _cacheLock = new();
     private readonly Dictionary<string, LinkedListNode<CacheEntry>> _cacheMap = new(StringComparer.OrdinalIgnoreCase);
     private readonly LinkedList<CacheEntry> _lruList = new();
+    private long _cacheVersion;
 
     /// <summary>
-    /// キャッシュ無効化または外部からの歌詞更新時に発行されるイベントです。
+    /// キャッシュ無効化または外部からの歌詞更新時に発行されるイベントです
     /// </summary>
     public event EventHandler<LyricsUpdatedEvent>? LyricsUpdated;
 
     /// <summary>
-    /// <see cref="LyricsApplicationService"/> の新しいインスタンスを初期化します。
+    /// <see cref="LyricsApplicationService"/> の新しいインスタンスを初期化します
     /// </summary>
-    /// <param name="lyricsProvider">歌詞データプロバイダー。</param>
-    /// <param name="eventBus">ドメインイベントバス。</param>
+    /// <param name="lyricsProvider">歌詞データプロバイダー</param>
+    /// <param name="eventBus">ドメインイベントバス</param>
     public LyricsApplicationService(ILyricsProvider lyricsProvider, IEventBus eventBus)
         : this(lyricsProvider, eventBus, DEFAULT_MAX_CACHE_ENTRIES)
     {
     }
 
     /// <summary>
-    /// キャッシュ上限件数を指定して <see cref="LyricsApplicationService"/> の新しいインスタンスを初期化します。
+    /// キャッシュ上限件数を指定して <see cref="LyricsApplicationService"/> の新しいインスタンスを初期化します
     /// </summary>
-    /// <param name="lyricsProvider">歌詞データプロバイダー。</param>
-    /// <param name="eventBus">ドメインイベントバス。</param>
-    /// <param name="maxCacheEntries">メモリキャッシュの上限件数（1 以上）。</param>
+    /// <param name="lyricsProvider">歌詞データプロバイダー</param>
+    /// <param name="eventBus">ドメインイベントバス</param>
+    /// <param name="maxCacheEntries">メモリキャッシュの上限件数（1 以上）</param>
     internal LyricsApplicationService(ILyricsProvider lyricsProvider, IEventBus eventBus, int maxCacheEntries)
     {
         _lyricsProvider = lyricsProvider ?? throw new ArgumentNullException(nameof(lyricsProvider));
@@ -61,13 +62,12 @@ public class LyricsApplicationService
     }
 
     /// <summary>
-    /// 指定された楽曲の歌詞データを非同期で取得します。
-    /// キャッシュ済みの場合は重複 I/O を回避して即座に返却し、<paramref name="forceReload"/> が <see langword="true"/> の場合はキャッシュをバイパスして最新内容を読み込みます。
+    /// 指定された楽曲の歌詞データを非同期で取得します（キャッシュ済みの場合は重複 I/O を回避し、<paramref name="forceReload"/> 指定時は再読み込みを実行）
     /// </summary>
-    /// <param name="track">歌詞を取得する対象楽曲。</param>
-    /// <param name="forceReload">キャッシュを無視して強制再読み込みを行う場合は <see langword="true"/>。</param>
-    /// <param name="cancellationToken">キャンセレーショントークン。</param>
-    /// <returns>取得された <see cref="LyricsDocument"/>（該当歌詞が存在しない場合は <see langword="null"/>）。</returns>
+    /// <param name="track">歌詞を取得する対象楽曲</param>
+    /// <param name="forceReload">キャッシュを無視して強制再読み込みを行う場合は <see langword="true"/></param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>取得された <see cref="LyricsDocument"/>（該当歌詞が存在しない場合は <see langword="null"/>）</returns>
     public async Task<LyricsDocument?> LoadForTrackAsync(
         Track track,
         bool forceReload = false,
@@ -82,9 +82,17 @@ public class LyricsApplicationService
             return null;
         }
 
-        if (!forceReload && TryGetFromCache(key, out LyricsDocument? cached))
+        long loadVersion;
+        if (!forceReload)
         {
-            return cached;
+            if (TryGetFromCacheOrVersion(key, out LyricsDocument? cached, out loadVersion))
+            {
+                return cached;
+            }
+        }
+        else
+        {
+            loadVersion = GetCacheVersion();
         }
 
         LyricsDocument? loaded = await _lyricsProvider
@@ -93,15 +101,14 @@ public class LyricsApplicationService
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        SetCache(key, loaded);
+        SetCacheIfVersionMatches(key, loaded, loadVersion);
         return loaded;
     }
 
     /// <summary>
-    /// 指定された楽曲ファイルパスに対応するキャッシュを破棄し、更新通知（イベントおよび <see cref="IEventBus"/>）を発行します。
-    /// LRC 自動生成機能等で外部 <c>.lrc</c> ファイルが保存・更新された際の即時反映に使用します。
+    /// 指定された楽曲ファイルパスに対応するキャッシュを破棄し、更新通知（イベントおよび <see cref="IEventBus"/>）を発行します
     /// </summary>
-    /// <param name="trackFilePath">キャッシュを破棄する対象楽曲のファイルパス。</param>
+    /// <param name="trackFilePath">キャッシュを破棄する対象楽曲のファイルパス</param>
     public void InvalidateCache(string trackFilePath)
     {
         string key = NormalizeKey(trackFilePath);
@@ -110,20 +117,20 @@ public class LyricsApplicationService
             return;
         }
 
-        RemoveFromCache(key);
+        RemoveFromCacheAndBumpVersion(key);
 
         var updatedEvent = new LyricsUpdatedEvent(key, Document: null);
-        LyricsUpdated?.Invoke(this, updatedEvent);
+        RaiseLyricsUpdatedSafe(updatedEvent);
         _ = PublishEventSafeAsync(updatedEvent, CancellationToken.None);
     }
 
     /// <summary>
-    /// 指定された楽曲ファイルパスに対応するキャッシュを破棄し、更新通知（イベントおよび <see cref="IEventBus"/>）を非同期で発行します。
+    /// 指定された楽曲ファイルパスに対応するキャッシュを破棄し、更新通知（イベントおよび <see cref="IEventBus"/>）を非同期で発行します
     /// </summary>
-    /// <param name="trackFilePath">キャッシュを破棄する対象楽曲のファイルパス。</param>
-    /// <param name="updatedDocument">更新後の歌詞ドキュメント（再読み込みを購読側へ委ねる場合は <see langword="null"/>）。</param>
-    /// <param name="cancellationToken">キャンセレーショントークン。</param>
-    /// <returns>非同期タスク。</returns>
+    /// <param name="trackFilePath">キャッシュを破棄する対象楽曲のファイルパス</param>
+    /// <param name="updatedDocument">更新後の歌詞ドキュメント（再読み込みを購読側へ委ねる場合は <see langword="null"/>）</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>非同期タスク</returns>
     public async Task InvalidateCacheAsync(
         string trackFilePath,
         LyricsDocument? updatedDocument = null,
@@ -135,15 +142,15 @@ public class LyricsApplicationService
             return;
         }
 
-        RemoveFromCache(key);
+        RemoveFromCacheAndBumpVersion(key);
 
         var updatedEvent = new LyricsUpdatedEvent(key, updatedDocument);
-        LyricsUpdated?.Invoke(this, updatedEvent);
+        RaiseLyricsUpdatedSafe(updatedEvent);
         await _eventBus.PublishAsync(updatedEvent, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// 保持しているすべての歌詞キャッシュを消去します。
+    /// 保持しているすべての歌詞キャッシュを消去します
     /// </summary>
     public void ClearCache()
     {
@@ -151,15 +158,16 @@ public class LyricsApplicationService
         {
             _cacheMap.Clear();
             _lruList.Clear();
+            _cacheVersion++;
         }
     }
 
     /// <summary>
-    /// 指定された楽曲ファイルパスが現在キャッシュに存在するかどうかを確認します。
+    /// 指定された楽曲ファイルパスが現在キャッシュに存在するかどうかを確認します
     /// </summary>
-    /// <param name="trackFilePath">確認対象の楽曲ファイルパス。</param>
-    /// <param name="document">キャッシュされていた歌詞ドキュメント（歌詞なしキャッシュの場合は <see langword="null"/>）。</param>
-    /// <returns>キャッシュに存在する場合は <see langword="true"/>。</returns>
+    /// <param name="trackFilePath">確認対象の楽曲ファイルパス</param>
+    /// <param name="document">キャッシュされていた歌詞ドキュメント（歌詞なしキャッシュの場合は <see langword="null"/>）</param>
+    /// <returns>キャッシュに存在する場合は <see langword="true"/></returns>
     public bool TryGetCached(string trackFilePath, out LyricsDocument? document)
     {
         string key = NormalizeKey(trackFilePath);
@@ -169,13 +177,22 @@ public class LyricsApplicationService
             return false;
         }
 
-        return TryGetFromCache(key, out document);
+        return TryGetFromCacheOrVersion(key, out document, out _);
     }
 
-    private bool TryGetFromCache(string key, out LyricsDocument? document)
+    private long GetCacheVersion()
     {
         lock (_cacheLock)
         {
+            return _cacheVersion;
+        }
+    }
+
+    private bool TryGetFromCacheOrVersion(string key, out LyricsDocument? document, out long version)
+    {
+        lock (_cacheLock)
+        {
+            version = _cacheVersion;
             if (_cacheMap.TryGetValue(key, out LinkedListNode<CacheEntry>? node))
             {
                 _lruList.Remove(node);
@@ -189,10 +206,16 @@ public class LyricsApplicationService
         return false;
     }
 
-    private void SetCache(string key, LyricsDocument? document)
+    private void SetCacheIfVersionMatches(string key, LyricsDocument? document, long expectedVersion)
     {
         lock (_cacheLock)
         {
+            // 非同期読み込み中に InvalidateCache / ClearCache が割り込んだ場合は古い結果で汚染しない
+            if (_cacheVersion != expectedVersion)
+            {
+                return;
+            }
+
             if (_cacheMap.TryGetValue(key, out LinkedListNode<CacheEntry>? existingNode))
             {
                 existingNode.Value = new CacheEntry(key, document);
@@ -214,14 +237,39 @@ public class LyricsApplicationService
         }
     }
 
-    private void RemoveFromCache(string key)
+    private void RemoveFromCacheAndBumpVersion(string key)
     {
         lock (_cacheLock)
         {
+            _cacheVersion++;
             if (_cacheMap.TryGetValue(key, out LinkedListNode<CacheEntry>? node))
             {
                 _lruList.Remove(node);
                 _cacheMap.Remove(key);
+            }
+        }
+    }
+
+    private void RaiseLyricsUpdatedSafe(LyricsUpdatedEvent updatedEvent)
+    {
+        EventHandler<LyricsUpdatedEvent>? handlers = LyricsUpdated;
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (Delegate invocation in handlers.GetInvocationList())
+        {
+            if (invocation is EventHandler<LyricsUpdatedEvent> handler)
+            {
+                try
+                {
+                    handler(this, updatedEvent);
+                }
+                catch
+                {
+                    // 個々の購読者の例外で後続購読者や EventBus 配信が阻害されないよう保護
+                }
             }
         }
     }
