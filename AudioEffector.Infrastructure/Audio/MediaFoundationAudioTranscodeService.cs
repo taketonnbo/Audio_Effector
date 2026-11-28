@@ -14,6 +14,8 @@ namespace AudioEffector.Infrastructure.Audio;
 public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeService
 {
     private const int DefaultAacBitrate = 192000;
+    private const int DefaultMp3Bitrate = 320000;
+    private const int MaxMp3SampleRate = 48000;
     private static readonly object MediaFoundationLock = new();
     private static volatile bool _mediaFoundationInitialized;
 
@@ -28,6 +30,11 @@ public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeServic
 
         string ext = Path.GetExtension(sourceFilePath);
         if (options.ConvertMp4ToM4a && string.Equals(ext, ".mp4", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (options.ConvertFlacToMp3 && string.Equals(ext, ".flac", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -50,6 +57,11 @@ public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeServic
         if (options.ConvertMp4ToM4a && string.Equals(ext, ".mp4", StringComparison.OrdinalIgnoreCase))
         {
             return Path.ChangeExtension(fileName, ".m4a");
+        }
+
+        if (options.ConvertFlacToMp3 && string.Equals(ext, ".flac", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.ChangeExtension(fileName, ".mp3");
         }
 
         return fileName;
@@ -77,12 +89,14 @@ public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeServic
         }
 
         string targetFileName = ResolveTargetFileName(sourceFilePath, options);
-        return Task.Run(() => TranscodeToTemporaryFile(sourceFilePath, targetFileName, cancellationToken), cancellationToken);
+        int mp3Bitrate = options.Mp3Bitrate > 0 ? options.Mp3Bitrate : DefaultMp3Bitrate;
+        return Task.Run(() => TranscodeToTemporaryFile(sourceFilePath, targetFileName, mp3Bitrate, cancellationToken), cancellationToken);
     }
 
     private static TranscodedAudioResult TranscodeToTemporaryFile(
         string sourceFilePath,
         string targetFileName,
+        int mp3Bitrate,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -102,6 +116,12 @@ public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeServic
                 using var reader = new MediaFoundationReader(sourceFilePath);
                 cancellationToken.ThrowIfCancellationRequested();
                 MediaFoundationEncoder.EncodeToAac(reader, outputPath, DefaultAacBitrate);
+            }
+            else if (string.Equals(targetExt, ".mp3", StringComparison.OrdinalIgnoreCase))
+            {
+                using var reader = new MediaFoundationReader(sourceFilePath);
+                cancellationToken.ThrowIfCancellationRequested();
+                EncodeReaderToMp3(reader, outputPath, mp3Bitrate);
             }
             else
             {
@@ -123,6 +143,30 @@ public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeServic
             CleanupDirectorySafe(tempDir);
             throw;
         }
+    }
+
+    private static void EncodeReaderToMp3(MediaFoundationReader reader, string outputPath, int mp3Bitrate)
+    {
+        var format = reader.WaveFormat;
+        bool requiresResample = format.SampleRate > MaxMp3SampleRate
+            || format.BitsPerSample > 16
+            || format.Channels > 2
+            || format.Encoding != WaveFormatEncoding.Pcm;
+
+        if (!requiresResample)
+        {
+            MediaFoundationEncoder.EncodeToMp3(reader, outputPath, mp3Bitrate);
+            return;
+        }
+
+        int targetSampleRate = format.SampleRate > MaxMp3SampleRate ? MaxMp3SampleRate : format.SampleRate;
+        int targetChannels = Math.Clamp(format.Channels, 1, 2);
+        var targetFormat = new WaveFormat(targetSampleRate, 16, targetChannels);
+        using var resampler = new MediaFoundationResampler(reader, targetFormat)
+        {
+            ResamplerQuality = 60
+        };
+        MediaFoundationEncoder.EncodeToMp3(resampler, outputPath, mp3Bitrate);
     }
 
     private static void EnsureMediaFoundationInitialized()
