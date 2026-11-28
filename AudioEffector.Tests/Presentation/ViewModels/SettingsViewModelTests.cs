@@ -278,6 +278,7 @@ public class SettingsViewModelTests
         var migrationMock = new Mock<IDataDirectoryMigrationService>();
         migrationMock.Setup(m => m.IsSameDirectory(It.IsAny<string?>(), It.IsAny<string?>())).Returns(false);
         migrationMock.Setup(m => m.HasExistingDataFiles(currentPath)).Returns(true);
+        migrationMock.Setup(m => m.HasExistingDataFiles(@"D:\SyncData")).Returns(true);
         migrationMock.Setup(m => m.ChangeDataDirectory(@"D:\SyncData", DataMigrationMode.Copy))
             .Callback(() =>
             {
@@ -286,13 +287,18 @@ public class SettingsViewModelTests
             })
             .Returns(new DataDirectoryChangeResult(true, true, @"D:\SyncData", 3));
 
+        bool? observedDestinationHasExisting = null;
         var sut = new SettingsViewModel(
             _settingsServiceMock.Object,
             _audioServiceMock.Object,
             providerMock.Object,
             migrationMock.Object,
             folderPicker: _ => @"D:\SyncData",
-            migrationPrompt: (_, _) => DataMigrationChoice.Copy,
+            migrationPrompt: (_, _, destExists) =>
+            {
+                observedDestinationHasExisting = destExists;
+                return DataMigrationChoice.Copy;
+            },
             messageNotifier: (_, _, _) => { });
 
         var notified = new List<string?>();
@@ -304,6 +310,7 @@ public class SettingsViewModelTests
         sut.BrowseDataDirectoryCommand.Execute(null);
 
         // Assert
+        Assert.True(observedDestinationHasExisting);
         Assert.Equal(@"D:\SyncData", sut.DataDirectoryPath);
         Assert.True(sut.IsCustomDataDirectory);
         Assert.Contains(nameof(SettingsViewModel.DataDirectoryPath), notified);
@@ -334,7 +341,7 @@ public class SettingsViewModelTests
             providerMock.Object,
             migrationMock.Object,
             folderPicker: _ => @"D:\Other",
-            migrationPrompt: (_, _) => DataMigrationChoice.Cancel,
+            migrationPrompt: (_, _, _) => DataMigrationChoice.Cancel,
             messageNotifier: (_, _, _) => { });
 
         // Act
@@ -376,7 +383,7 @@ public class SettingsViewModelTests
             providerMock.Object,
             migrationMock.Object,
             folderPicker: _ => null,
-            migrationPrompt: (_, _) => DataMigrationChoice.Cancel,
+            migrationPrompt: (_, _, _) => DataMigrationChoice.Cancel,
             messageNotifier: (_, _, _) => { });
 
         // Act

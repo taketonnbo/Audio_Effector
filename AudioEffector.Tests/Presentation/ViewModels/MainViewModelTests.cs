@@ -540,4 +540,96 @@ public sealed class MainViewModelTests
             }
         }
     }
+
+    /// <summary>
+    /// プレイリスト詳細表示中にデータ保存先変更で ReloadDataAfterDirectoryChange が実行された際、
+    /// 新ディレクトリに存在しない旧プレイリストがクリアされプレイリスト一覧画面へ安全遷移することを検証します。
+    /// </summary>
+    [Fact]
+    public async System.Threading.Tasks.Task ReloadDataAfterDirectoryChange_プレイリスト詳細表示中に新フォルダへ切替時_不在プレイリストをクリアして一覧へ戻ること()
+    {
+        // Arrange
+        var previousProvider = App.ServiceProvider;
+        var services = new ServiceCollection();
+        var eventBus = new InMemoryEventBus();
+        var dispatcher = new ImmediateDispatcherStub();
+        var settingsMock = new Mock<ISettingsService>();
+        settingsMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+        var audioServiceMock = new Mock<IAudioService>();
+        audioServiceMock.Setup(a => a.UserQueue).Returns(Array.Empty<Track>());
+        audioServiceMock.Setup(a => a.AlbumQueue).Returns(Array.Empty<Track>());
+
+        var trackRepoMock = new Mock<ITrackRepository>();
+        trackRepoMock.Setup(r => r.GetAllAsync(It.IsAny<System.Threading.CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Track>());
+        var favoriteRepoMock = new Mock<IFavoriteRepository>();
+        favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<System.Threading.CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        var recentRepoMock = new Mock<IRecentTrackRepository>();
+        recentRepoMock.Setup(r => r.Load()).Returns(Array.Empty<RecentTrackEntry>());
+
+        var oldPlaylist = new UserPlaylist(AudioEffector.Domain.ValueObjects.PlaylistId.From(Guid.NewGuid()), "OldList");
+        IReadOnlyList<UserPlaylist> currentPlaylists = [oldPlaylist];
+        var playlistRepoMock = new Mock<IPlaylistRepository>();
+        playlistRepoMock.Setup(r => r.GetAllAsync(It.IsAny<System.Threading.CancellationToken>()))
+            .ReturnsAsync(() => currentPlaylists);
+
+        var libraryService = new LibraryApplicationService(
+            trackRepoMock.Object,
+            favoriteRepoMock.Object,
+            new TagLibMetadataExtractor(),
+            eventBus);
+        var playlistService = new PlaylistApplicationService(
+            playlistRepoMock.Object,
+            trackRepoMock.Object,
+            eventBus,
+            favoriteRepoMock.Object);
+        var lyricsService = new LyricsApplicationService(new EmptyLyricsProviderStub(), eventBus);
+
+        services.AddSingleton<IEventBus>(eventBus);
+        services.AddSingleton<IUiDispatcher>(dispatcher);
+        services.AddSingleton(settingsMock.Object);
+        services.AddSingleton(audioServiceMock.Object);
+        services.AddSingleton(Mock.Of<IAudioEngine>());
+        services.AddSingleton(recentRepoMock.Object);
+        services.AddSingleton(Mock.Of<IAudioTranscodeService>());
+        services.AddSingleton(libraryService);
+        services.AddSingleton(playlistService);
+        services.AddSingleton(lyricsService);
+        services.AddSingleton<PlayerControlViewModel>();
+        services.AddSingleton<PlaylistViewModel>();
+        services.AddSingleton<LibraryViewModel>();
+        services.AddSingleton<AlbumDetailViewModel>();
+        services.AddSingleton<AllSongsViewModel>();
+        services.AddSingleton<ArtistsViewModel>();
+        services.AddSingleton<RecentViewModel>();
+        services.AddSingleton<LyricsViewModel>();
+
+        using var provider = services.BuildServiceProvider();
+        App.ServiceProvider = provider;
+        try
+        {
+            using var sut = new MainViewModel();
+            Assert.NotNull(sut.Playlist);
+            Assert.Single(sut.Playlist!.UserPlaylists);
+
+            sut.CurrentViewType = ViewType.PlaylistTracks;
+            await sut.Playlist.SelectPlaylistAsync(oldPlaylist);
+            Assert.Equal("OldList", sut.Playlist.CurrentPlaylistName);
+
+            // Act: 新ディレクトリは空のプレイリスト一覧へ切替
+            currentPlaylists = [];
+            sut.ReloadDataAfterDirectoryChange();
+
+            // Assert
+            Assert.Empty(sut.Playlist.UserPlaylists);
+            Assert.Null(sut.Playlist.SelectedPlaylist);
+            Assert.Equal(string.Empty, sut.Playlist.CurrentPlaylistName);
+            Assert.Equal(ViewType.Playlists, sut.CurrentViewType);
+        }
+        finally
+        {
+            App.ServiceProvider = previousProvider;
+        }
+    }
 }

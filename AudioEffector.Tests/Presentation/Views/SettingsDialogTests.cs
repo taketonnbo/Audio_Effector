@@ -408,4 +408,73 @@ public sealed class SettingsDialogTests
             Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
         });
     }
+
+    /// <summary>
+    /// 実 WPF ウィンドウ上でデータ保存先をカスタムパスへ変更およびリセットした直後、
+    /// 追加のユーザー入力なしで ResetDataDirectoryButton.IsEnabled が false→true→false へ即時遷移することを検証します。
+    /// </summary>
+    [Fact]
+    public void データ管理その他カテゴリ_保存先変更およびリセット直後_リセットボタンのIsEnabledが即時遷移すること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+            var audioServiceMock = new Mock<IAudioService>();
+            var vm = new SettingsViewModel(
+                settingsServiceMock.Object,
+                audioServiceMock.Object,
+                dataDirectoryProvider: null,
+                dataDirectoryMigrationService: null,
+                folderPicker: _ => @"D:\CustomAudioData",
+                migrationPrompt: (_, _, _) => DataMigrationChoice.Copy,
+                messageNotifier: (_, _, _) => { });
+            vm.SelectedCategory = "データ管理・その他";
+
+            var sut = new SettingsDialog(vm)
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -10000,
+                Top = -10000,
+                ShowActivated = false,
+                ShowInTaskbar = false,
+            };
+
+            try
+            {
+                sut.Show();
+                sut.UpdateLayout();
+
+                var pathTextBox = Assert.IsType<TextBox>(sut.FindName("DataDirectoryPathTextBox"));
+                var resetButton = Assert.IsType<Button>(sut.FindName("ResetDataDirectoryButton"));
+                Assert.False(resetButton.IsEnabled);
+
+                // Act 1: カスタムフォルダへ変更
+                vm.BrowseDataDirectoryCommand.Execute(null);
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                    System.Windows.Threading.DispatcherPriority.Background,
+                    new Action(() => { }));
+                sut.UpdateLayout();
+
+                // Assert 1
+                Assert.Equal(@"D:\CustomAudioData", pathTextBox.Text);
+                Assert.True(resetButton.IsEnabled);
+
+                // Act 2: リセット実行
+                vm.ResetDataDirectoryCommand.Execute(null);
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                    System.Windows.Threading.DispatcherPriority.Background,
+                    new Action(() => { }));
+                sut.UpdateLayout();
+
+                // Assert 2
+                Assert.False(resetButton.IsEnabled);
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
 }
