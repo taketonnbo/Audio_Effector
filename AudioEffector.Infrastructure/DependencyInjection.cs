@@ -1,9 +1,11 @@
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Repositories;
+using AudioEffector.Domain.Services;
 using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Infrastructure.DataTransfer;
 using AudioEffector.Infrastructure.Library;
 using AudioEffector.Infrastructure.Logging;
+using AudioEffector.Infrastructure.Lyrics;
 using AudioEffector.Infrastructure.Repository;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -57,6 +59,10 @@ public static class DependencyInjection
         // データ転送アダプターおよび音声変換サービス
         services.AddSingleton<IDataTransferRepository, MtpDataTransferAdapter>();
         services.AddSingleton<IAudioTranscodeService, MediaFoundationAudioTranscodeService>();
+
+        // 歌詞解析およびローカル歌詞プロバイダー
+        services.AddSingleton<ILrcParser, LrcParser>();
+        services.AddSingleton<ILyricsProvider, LocalLyricsProvider>();
 
         // ロギングサービス
         services.AddSingleton<NLogService>();
