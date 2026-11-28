@@ -11,17 +11,17 @@ namespace AudioEffector.Presentation.Views;
 public partial class TransferConfirmationDialog : Window
 {
     /// <summary>
-    /// 転送前確認リクエスト情報を取得します。
+    /// 転送前確認リクエスト情報を取得します
     /// </summary>
     public TransferConfirmationRequest Request { get; }
 
     /// <summary>
-    /// ユーザーが転送の開始（続行）を選択したかどうかを取得します。
+    /// ユーザーが転送の開始（続行）を選択したかどうかを取得します
     /// </summary>
     public bool IsConfirmed { get; private set; }
 
     /// <summary>
-    /// 事前チェック結果を指定してダイアログを初期化します。
+    /// 事前チェック結果を指定してダイアログを初期化します
     /// </summary>
     /// <param name="request">転送前確認リクエスト</param>
     public TransferConfirmationDialog(TransferConfirmationRequest request)
@@ -35,8 +35,10 @@ public partial class TransferConfirmationDialog : Window
             // 容量不足警告時は誤って Enter キーで転送開始しないよう、キャンセルを既定ボタンとする
             ProceedButton.IsDefault = false;
             ProceedButton.FontWeight = FontWeights.Normal;
-            ProceedButton.SetResourceReference(Control.BackgroundProperty, "ControlBackgroundHighlightBrush");
+            ProceedButton.SetResourceReference(Control.BackgroundProperty, "ControlBackgroundBrush");
             ProceedButton.SetResourceReference(Control.ForegroundProperty, "TextForegroundBrush");
+            ProceedButton.SetResourceReference(Control.BorderBrushProperty, "BorderBrush");
+            ProceedButton.BorderThickness = new Thickness(1);
 
             CancelButton.IsDefault = true;
             CancelButton.FontWeight = FontWeights.SemiBold;
