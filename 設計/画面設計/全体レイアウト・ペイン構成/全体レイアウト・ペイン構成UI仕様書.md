@@ -33,7 +33,7 @@
   ^ 左サイドバー (50px)                                                      ^ 開閉ハンドル (< / >)
 ```
 
-> **構想要素に関する注記**: モックアップ内のタイトルバー再生曲表示、上部プレイヤー内音量スライダー、右パネル内歌詞/タグ表示は拡張構想（関連Issue: #121, #233）です。`MainWindow.xaml` ではタイトルバー中央は `"AudioEffector"` 固定、上部プレイヤー右端はミュートボタンのみ、右パネルは `1* : 1*` 分割のアルバム情報・Player Pod・収録曲リスト構成となります。
+> **構想要素に関する注記**: モックアップ内のタイトルバー再生曲表示、上部プレイヤー内音量スライダー、右パネル内タグ表示は拡張構想（関連Issue: #121, #233）です。右パネル右上の歌詞表示ボタンおよび下部拡張領域（`Grid.Row="1"`）の歌詞表示パネル（`LyricsView`）は[歌詞表示UI仕様書](../歌詞表示/歌詞表示UI仕様書.md)（関連Issue: #401, #403）で定義します。`MainWindow.xaml` ではタイトルバー中央は `"AudioEffector"` 固定、上部プレイヤー右端はミュートボタンのみ、右パネルは `1* : 1*` 分割のアルバム情報・Player Pod・収録曲リスト構成となります。
 
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
@@ -60,7 +60,7 @@
 | :--- | :--- |
 | ワークスペース | `CurrentViewType`（初期値: `ViewType.Albums`）の11値を `ContentControl.ContentTemplate` の `DataTrigger` で切り替える |
 | 上部プレイヤー | 通常高 `60px`。右パネルの開状態（`IsRightPanelOpen = True`）に連動して高 `0px` へ格納 |
-| 右側情報パネル | `IsRightPanelOpen`（初期 `false`）で開閉、`IsAlbumViewMaximized`（初期 `true`）で最大化/コンパクトを切替 |
+| 右側情報パネル | `IsRightPanelOpen`（初期 `false`）で開閉、`IsAlbumViewMaximized`（初期 `true`）で最大化/コンパクトを切替。右上に歌詞表示トグルボタンおよび表示サイズ切替ボタンを並列配置し、コンパクト時の下部拡張領域（`Grid.Row="1"`）で歌詞パネル（`LyricsView`）・LRC 自動生成パネル（#98）・拡張ウィジェット（#121）を排他表示 |
 | 読込中オーバーレイ | `IsMainLoadingOverlayVisible = True`（`IsLoading = True` かつ `CurrentViewType != ViewType.Folders`）でワークスペース上に半透明オーバーレイと `"LOADING..."` テキストを表示（フォルダタブ表示中はフォルダタブ内の専用プログレスインジケーターへ表示を委譲） |
 | 下部スペクトラム | 高 `22px` の開閉バーと高 `0 / 140px` の64バンド描画領域（`ViewType.DeviceSync` 遷移時は自動で `IsSpectrumVisible = false` に格納） |
 
@@ -86,6 +86,8 @@
 - [左サイドバーUI仕様書](../左サイドバー/左サイドバーUI仕様書.md)
 - [再生操作UI仕様書](../再生操作/再生操作UI仕様書.md)
 - [右側タブ開閉機能UI仕様書](../右側タブ開閉機能/右側タブ開閉機能UI仕様書.md)
+- [右側アルバム情報表示サイズ切り替え機能UI仕様書](../右側アルバム情報表示サイズ切り替え機能/右側アルバム情報表示サイズ切り替え機能UI仕様書.md)
+- [歌詞表示UI仕様書](../歌詞表示/歌詞表示UI仕様書.md)
 - [コードビハインド](../../../AudioEffector/Presentation/Views/MainWindow.xaml.cs)
 - [MainViewModel](../../../AudioEffector/Presentation/ViewModels/MainViewModel.cs)
-- 関連Issue（設計経緯）: [#96](https://github.com/taketonnbo/Audio_Effector/issues/96)、[#233](https://github.com/taketonnbo/Audio_Effector/issues/233)、[#239](https://github.com/taketonnbo/Audio_Effector/issues/239)、[#240](https://github.com/taketonnbo/Audio_Effector/issues/240)、[#241](https://github.com/taketonnbo/Audio_Effector/issues/241)、[#242](https://github.com/taketonnbo/Audio_Effector/issues/242)、[#384](https://github.com/taketonnbo/Audio_Effector/issues/384)、[#385](https://github.com/taketonnbo/Audio_Effector/issues/385)
+- 関連Issue（設計経緯）: [#96](https://github.com/taketonnbo/Audio_Effector/issues/96)、[#233](https://github.com/taketonnbo/Audio_Effector/issues/233)、[#239](https://github.com/taketonnbo/Audio_Effector/issues/239)、[#240](https://github.com/taketonnbo/Audio_Effector/issues/240)、[#241](https://github.com/taketonnbo/Audio_Effector/issues/241)、[#242](https://github.com/taketonnbo/Audio_Effector/issues/242)、[#384](https://github.com/taketonnbo/Audio_Effector/issues/384)、[#385](https://github.com/taketonnbo/Audio_Effector/issues/385)、[#401](https://github.com/taketonnbo/Audio_Effector/issues/401)、[#403](https://github.com/taketonnbo/Audio_Effector/issues/403)
