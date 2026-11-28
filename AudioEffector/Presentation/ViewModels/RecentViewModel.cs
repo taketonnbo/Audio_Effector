@@ -157,12 +157,14 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
     /// <param name="libraryViewModel">ライブラリViewModel</param>
     /// <param name="audioService">音声再生サービス</param>
     /// <param name="clock">現在時刻プロバイダ（テスト用、省略時はDateTime.Now）</param>
+    /// <param name="listeningStatsService">全リセット通知を購読するリスニング統計アプリケーションサービス（任意）</param>
     internal RecentViewModel(
         IRecentTrackRepository repository,
         LibraryViewModel libraryViewModel,
         IAudioService audioService,
-        Func<DateTime>? clock = null)
-        : this(repository ?? throw new ArgumentNullException(nameof(repository)), null, libraryViewModel, audioService, clock, listeningStatsService: null)
+        Func<DateTime>? clock = null,
+        ListeningStatsApplicationService? listeningStatsService = null)
+        : this(repository ?? throw new ArgumentNullException(nameof(repository)), null, libraryViewModel, audioService, clock, listeningStatsService)
     {
     }
 
