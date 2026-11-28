@@ -85,6 +85,40 @@ public sealed class MainWindowTests
         Assert.Equal("{Binding AlbumDetail}", (string?)albumDetailViewElement.Attribute("DataContext"));
     }
 
+    /// <summary>
+    /// MainWindow.xaml の右側タブ右上へ歌詞トグルボタン、コンパクト上部情報行へ干渉防止マージン、下部拡張領域へ LyricsView が統合されていることを検証します。
+    /// </summary>
+    [Fact]
+    public void MainWindowXaml_右側タブ歌詞表示統合_トグルボタンとマージンとLyricsViewが仕様通り定義されていること()
+    {
+        // Arrange
+        string? repoRoot = FindRepositoryRoot(AppContext.BaseDirectory);
+        Assert.NotNull(repoRoot);
+        string mainWindowXamlPath = Path.Combine(repoRoot!, "AudioEffector", "Presentation", "Views", "MainWindow.xaml");
+        var sut = XDocument.Load(mainWindowXamlPath);
+        XNamespace wpfn = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace xNs = "http://schemas.microsoft.com/winfx/2006/xaml";
+        XNamespace viewsNs = "clr-namespace:AudioEffector.Presentation.Views";
+
+        // Act
+        var lyricsToggleButton = System.Linq.Enumerable.Single(
+            sut.Descendants(wpfn + "ToggleButton"),
+            el => string.Equals((string?)el.Attribute(xNs + "Name"), "LyricsToggleButton", StringComparison.Ordinal));
+        var compactInfoGrid = System.Linq.Enumerable.Single(
+            sut.Descendants(wpfn + "Grid"),
+            el => string.Equals((string?)el.Attribute(xNs + "Name"), "RightPanelCompactInfoGrid", StringComparison.Ordinal));
+        var lyricsView = System.Linq.Enumerable.Single(
+            sut.Descendants(viewsNs + "LyricsView"),
+            el => string.Equals((string?)el.Attribute(xNs + "Name"), "RightPanelLyricsView", StringComparison.Ordinal));
+
+        // Assert
+        Assert.Equal("{Binding ToggleLyricsPanelCommand}", (string?)lyricsToggleButton.Attribute("Command"));
+        Assert.Equal("28", (string?)lyricsToggleButton.Attribute("Width"));
+        Assert.Equal("28", (string?)lyricsToggleButton.Attribute("Height"));
+        Assert.Equal("0,0,68,8", (string?)compactInfoGrid.Attribute("Margin"));
+        Assert.Equal("{Binding Lyrics}", (string?)lyricsView.Attribute("DataContext"));
+    }
+
     private static string? FindRepositoryRoot(string startDir)
     {
         var dir = new DirectoryInfo(startDir);
