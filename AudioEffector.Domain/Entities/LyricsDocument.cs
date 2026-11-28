@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -7,12 +7,12 @@ using AudioEffector.Domain.ValueObjects;
 namespace AudioEffector.Domain.Entities;
 
 /// <summary>
-/// 楽曲に対応する歌詞データ全体（歌詞行コレクション・同期フラグ・メタデータ・タイミング補正）を表す不変エンティティです。
+/// 楽曲に対応する歌詞データ全体（歌詞行コレクション・同期フラグ・メタデータ・タイミング補正）を表す不変エンティティです
 /// </summary>
 public sealed class LyricsDocument
 {
     /// <summary>
-    /// 空の歌詞ドキュメントインスタンスを取得します。
+    /// 空の歌詞ドキュメントインスタンスを取得します
     /// </summary>
     public static LyricsDocument Empty { get; } = new(
         Array.Empty<LyricLine>(),
@@ -22,73 +22,72 @@ public sealed class LyricsDocument
     private readonly LyricLine[] _lines;
 
     /// <summary>
-    /// 歌詞行の不変コレクションを取得します。
+    /// 歌詞行の不変コレクションを取得します
     /// </summary>
     public IReadOnlyList<LyricLine> Lines { get; }
 
     /// <summary>
-    /// タイムタグによる再生位置同期に対応した歌詞かどうかを取得します。
+    /// タイムタグによる再生位置同期に対応した歌詞かどうかを取得します
     /// </summary>
     public bool IsSynced { get; }
 
     /// <summary>
-    /// メタデータタグ（<c>[ti:]</c>）から取得した楽曲タイトルを取得します。
+    /// メタデータタグ（<c>[ti:]</c>）から取得した楽曲タイトルを取得します
     /// </summary>
     public string? Title { get; }
 
     /// <summary>
-    /// メタデータタグ（<c>[ar:]</c>）から取得したアーティスト名を取得します。
+    /// メタデータタグ（<c>[ar:]</c>）から取得したアーティスト名を取得します
     /// </summary>
     public string? Artist { get; }
 
     /// <summary>
-    /// メタデータタグ（<c>[al:]</c>）から取得したアルバム名を取得します。
+    /// メタデータタグ（<c>[al:]</c>）から取得したアルバム名を取得します
     /// </summary>
     public string? Album { get; }
 
     /// <summary>
-    /// メタデータタグ（<c>[by:]</c>）から取得した LRC 作成者名を取得します。
+    /// メタデータタグ（<c>[by:]</c>）から取得した LRC 作成者名を取得します
     /// </summary>
     public string? Author { get; }
 
     /// <summary>
-    /// メタデータタグ（<c>[offset:]</c>）に基づく全体タイミング補正値を取得します。
-    /// 正の値で表示タイミングを早め、負の値で表示タイミングを遅らせます。
+    /// メタデータタグ（<c>[offset:]</c>）に基づく全体タイミング補正値を取得します（正の値で表示を早め、負の値で遅らせる）
     /// </summary>
     public TimeSpan Offset { get; }
 
     /// <summary>
-    /// 歌詞データの取得元ソース種別を取得します。
+    /// 歌詞データの取得元ソース種別を取得します
     /// </summary>
     public LyricsSourceType SourceType { get; }
 
     /// <summary>
-    /// 歌詞データの取得元ファイルパス（.lrc パスまたは音声ファイルパス）を取得します。
+    /// 歌詞データの取得元ファイルパス（.lrc パスまたは音声ファイルパス）を取得します
     /// </summary>
     public string? SourcePath { get; }
 
     /// <summary>
-    /// 歌詞行を 1 行以上保持しているかどうかを取得します。
+    /// 歌詞行を 1 行以上保持しているかどうかを取得します
     /// </summary>
     public bool HasLines => _lines.Length > 0;
 
     /// <summary>
-    /// 表示可能なテキストを含む歌詞行を 1 行以上保持しているかどうかを取得します。
+    /// 表示可能なテキストを含む歌詞行を 1 行以上保持しているかどうかを取得します
     /// </summary>
     public bool HasVisibleLyrics { get; }
 
     /// <summary>
-    /// <see cref="LyricsDocument"/> の新しいインスタンスを初期化します。
+    /// <see cref="LyricsDocument"/> の新しいインスタンスを初期化します
     /// </summary>
-    /// <param name="lines">歌詞行コレクション（同期歌詞の場合はタイムスタンプ昇順であること）。</param>
-    /// <param name="isSynced">同期歌詞フラグ。</param>
-    /// <param name="title">曲名メタデータ（任意）。</param>
-    /// <param name="artist">アーティスト名メタデータ（任意）。</param>
-    /// <param name="album">アルバム名メタデータ（任意）。</param>
-    /// <param name="author">LRC 作成者メタデータ（任意）。</param>
-    /// <param name="offset">全体タイミング補正値（既定: <see cref="TimeSpan.Zero"/>）。</param>
-    /// <param name="sourceType">歌詞ソース種別（既定: <see cref="LyricsSourceType.None"/>）。</param>
-    /// <param name="sourcePath">読み込み元ファイルパス（任意）。</param>
+    /// <param name="lines">歌詞行コレクション（同期歌詞で未ソートの場合はタイムスタンプ昇順に安定ソートされます）</param>
+    /// <param name="isSynced">同期歌詞フラグ</param>
+    /// <param name="title">曲名メタデータ（任意）</param>
+    /// <param name="artist">アーティスト名メタデータ（任意）</param>
+    /// <param name="album">アルバム名メタデータ（任意）</param>
+    /// <param name="author">LRC 作成者メタデータ（任意）</param>
+    /// <param name="offset">全体タイミング補正値（既定: <see cref="TimeSpan.Zero"/>）</param>
+    /// <param name="sourceType">歌詞ソース種別（既定: <see cref="LyricsSourceType.None"/>）</param>
+    /// <param name="sourcePath">読み込み元ファイルパス（任意）</param>
     public LyricsDocument(
         IEnumerable<LyricLine>? lines,
         bool isSynced,
@@ -104,6 +103,19 @@ public sealed class LyricsDocument
             ? Array.Empty<LyricLine>()
             : lines.Where(l => l is not null).ToArray();
 
+        bool effectiveSynced = isSynced && copiedLines.Length > 0 && copiedLines.All(l => l.HasTimestamp);
+
+        // 同期歌詞の二分探索前提（タイムスタンプ昇順）を不変条件として保証する（既ソート入力は O(N) チェックのみで通過）
+        if (effectiveSynced && !IsTimestampSorted(copiedLines))
+        {
+            copiedLines = copiedLines
+                .Select((line, order) => (Line: line, Order: order))
+                .OrderBy(entry => entry.Line.Timestamp!.Value)
+                .ThenBy(entry => entry.Order)
+                .Select(entry => entry.Line)
+                .ToArray();
+        }
+
         // 行インデックスを 0..Count-1 へ整合させて不変性を保証
         for (int i = 0; i < copiedLines.Length; i++)
         {
@@ -115,7 +127,7 @@ public sealed class LyricsDocument
 
         _lines = copiedLines;
         Lines = new ReadOnlyCollection<LyricLine>(_lines);
-        IsSynced = isSynced && _lines.Length > 0 && _lines.All(l => l.HasTimestamp);
+        IsSynced = effectiveSynced;
         Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim();
         Artist = string.IsNullOrWhiteSpace(artist) ? null : artist.Trim();
         Album = string.IsNullOrWhiteSpace(album) ? null : album.Trim();
@@ -127,11 +139,11 @@ public sealed class LyricsDocument
     }
 
     /// <summary>
-    /// ソース種別およびソースパスを付与した新しい <see cref="LyricsDocument"/> インスタンスを返します。
+    /// ソース種別およびソースパスを付与した新しい <see cref="LyricsDocument"/> インスタンスを返します
     /// </summary>
-    /// <param name="sourceType">歌詞ソース種別。</param>
-    /// <param name="sourcePath">読み込み元ファイルパス（任意）。</param>
-    /// <returns>ソース情報が更新された <see cref="LyricsDocument"/>。</returns>
+    /// <param name="sourceType">歌詞ソース種別</param>
+    /// <param name="sourcePath">読み込み元ファイルパス（任意）</param>
+    /// <returns>ソース情報が更新された <see cref="LyricsDocument"/></returns>
     public LyricsDocument WithSource(LyricsSourceType sourceType, string? sourcePath = null)
     {
         return new LyricsDocument(
@@ -147,11 +159,10 @@ public sealed class LyricsDocument
     }
 
     /// <summary>
-    /// 指定された歌詞行の <see cref="Offset"/> 補正後タイムスタンプを計算します。
-    /// 補正後の値が 0 秒未満となる場合は <see cref="TimeSpan.Zero"/> にクランプします。
+    /// 指定された歌詞行の <see cref="Offset"/> 補正後タイムスタンプを計算します（0 秒未満は <see cref="TimeSpan.Zero"/> にクランプ）
     /// </summary>
-    /// <param name="lineIndex">対象の行インデックス。</param>
-    /// <returns>補正後の有効タイムスタンプ（範囲外または非同期行の場合は <see langword="null"/>）。</returns>
+    /// <param name="lineIndex">対象の行インデックス</param>
+    /// <returns>補正後の有効タイムスタンプ（範囲外または非同期行の場合は <see langword="null"/>）</returns>
     public TimeSpan? GetEffectiveTimestamp(int lineIndex)
     {
         if ((uint)lineIndex >= (uint)_lines.Length)
@@ -163,10 +174,10 @@ public sealed class LyricsDocument
     }
 
     /// <summary>
-    /// 指定された <see cref="LyricLine"/> の <see cref="Offset"/> 補正後タイムスタンプを計算します。
+    /// 指定された <see cref="LyricLine"/> の <see cref="Offset"/> 補正後タイムスタンプを計算します
     /// </summary>
-    /// <param name="line">対象の歌詞行。</param>
-    /// <returns>補正後の有効タイムスタンプ（タイムスタンプ未設定時は <see langword="null"/>）。</returns>
+    /// <param name="line">対象の歌詞行</param>
+    /// <returns>補正後の有効タイムスタンプ（タイムスタンプ未設定時は <see langword="null"/>）</returns>
     public TimeSpan? GetEffectiveTimestamp(LyricLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
@@ -180,11 +191,10 @@ public sealed class LyricsDocument
     }
 
     /// <summary>
-    /// 指定された歌詞行をクリックした際のシーク先再生位置を返します。
-    /// 同期歌詞かつテキストを含む行のみ有効なシーク位置を返し、間奏空行・非同期歌詞・範囲外は <see langword="null"/> を返します。
+    /// 指定された歌詞行をクリックした際のシーク先再生位置を返します（同期歌詞かつテキストを含む行のみ対象）
     /// </summary>
-    /// <param name="lineIndex">対象の行インデックス。</param>
-    /// <returns>シーク先の再生位置（シーク対象外の場合は <see langword="null"/>）。</returns>
+    /// <param name="lineIndex">対象の行インデックス</param>
+    /// <returns>シーク先の再生位置（シーク対象外の場合は <see langword="null"/>）</returns>
     public TimeSpan? GetSeekPosition(int lineIndex)
     {
         if (!IsSynced || (uint)lineIndex >= (uint)_lines.Length)
@@ -202,17 +212,17 @@ public sealed class LyricsDocument
     }
 
     /// <summary>
-    /// 指定された再生位置に対応するアクティブ行のインデックスを O(log N) の二分探索で特定します。
+    /// 指定された再生位置に対応するアクティブ行のインデックスを O(log N) の二分探索で特定します
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    /// <item><description>非同期歌詞・空ドキュメント・先頭行より前のイントロ区間では <c>-1</c> を返します。</description></item>
-    /// <item><description>同一の有効タイムスタンプを持つ複数行（訳詞併記など）が存在する場合は、該当グループの先頭インデックスを返します。</description></item>
-    /// <item><description>間奏・歌唱休止用の空行に到達した場合は、直前歌詞のハイライトを解除するため <c>-1</c> を返します。</description></item>
+    /// <item><description>非同期歌詞・空ドキュメント・先頭行より前のイントロ区間では <c>-1</c> を返します</description></item>
+    /// <item><description>同一の有効タイムスタンプを持つ複数行（訳詞併記など）が存在する場合は、間奏空行を除いた先頭インデックスを返します</description></item>
+    /// <item><description>間奏・歌唱休止用の空行のみに到達した場合は、直前歌詞のハイライトを解除するため <c>-1</c> を返します</description></item>
     /// </list>
     /// </remarks>
-    /// <param name="position">現在の楽曲再生位置。</param>
-    /// <returns>アクティブ行（グループの場合は先頭行）のインデックス。該当行がない場合は <c>-1</c>。</returns>
+    /// <param name="position">現在の楽曲再生位置</param>
+    /// <returns>アクティブ行（グループの場合は先頭行）のインデックス。該当行がない場合は <c>-1</c></returns>
     public int FindActiveLineIndex(TimeSpan position)
     {
         (int startIndex, _) = FindActiveLineRange(position);
@@ -220,13 +230,10 @@ public sealed class LyricsDocument
     }
 
     /// <summary>
-    /// 指定された再生位置に対応するアクティブ行の範囲（同一有効タイムスタンプの複数行グループを含む）を O(log N) で特定します。
+    /// 指定された再生位置に対応するアクティブ行の範囲（同一有効タイムスタンプの複数行グループを含む）を O(log N) で特定します
     /// </summary>
-    /// <param name="position">現在の楽曲再生位置。</param>
-    /// <returns>
-    /// アクティブな行範囲 <c>(StartIndex, EndIndex)</c>（両端を含む）。
-    /// 非同期歌詞・イントロ区間・間奏休止区間の場合は <c>(-1, -1)</c> を返します。
-    /// </returns>
+    /// <param name="position">現在の楽曲再生位置</param>
+    /// <returns>アクティブな行範囲 <c>(StartIndex, EndIndex)</c>（両端を含み、間奏空行を除外。該当なし時は <c>(-1, -1)</c>）</returns>
     public (int StartIndex, int EndIndex) FindActiveLineRange(TimeSpan position)
     {
         if (!IsSynced || _lines.Length == 0)
@@ -282,23 +289,36 @@ public sealed class LyricsDocument
             }
         }
 
-        // 同一タイムスタンプグループ内の全行が間奏空行であれば歌唱休止区間として -1 を返す
-        bool hasAnyTextLine = false;
-        for (int i = start; i <= upper; i++)
+        // 同一有効タイムスタンプ範囲の両端から間奏空行を除外する（正の offset による 0 秒クランプ衝突時も含む）
+        while (start <= upper && _lines[start].IsInstrumental)
         {
-            if (!_lines[i].IsInstrumental)
-            {
-                hasAnyTextLine = true;
-                break;
-            }
+            start++;
         }
 
-        if (!hasAnyTextLine)
+        while (upper >= start && _lines[upper].IsInstrumental)
+        {
+            upper--;
+        }
+
+        if (start > upper)
         {
             return (-1, -1);
         }
 
         return (start, upper);
+    }
+
+    private static bool IsTimestampSorted(LyricLine[] lines)
+    {
+        for (int i = 1; i < lines.Length; i++)
+        {
+            if (lines[i - 1].Timestamp!.Value > lines[i].Timestamp!.Value)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private TimeSpan ComputeEffectiveTimestamp(TimeSpan rawTimestamp)
