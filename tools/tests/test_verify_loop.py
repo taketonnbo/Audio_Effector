@@ -498,6 +498,69 @@ $res | ConvertTo-Json -Depth 4
             self.assertFalse(next_payload["WasAbandoned"])
             self.assertEqual(next_payload["Result"], "next_ok")
 
+    def test_スラッシュを含む統合ブランチ名でFetchBaseとPreflight比較ベース解決が正常動作すること(self) -> None:
+        # Arrange: origin に epic/401-lyrics ブランチを作成し、子 Issue ワークツリーを分岐させる
+        sb = self._create_diverged_origin_sandbox()
+        repo_dir = Path(sb["repo_dir"])
+        pusher_dir = Path(sb["pusher_dir"])
+
+        _run_git(["checkout", "-b", "epic/401-lyrics", "develop"], cwd=pusher_dir)
+        (pusher_dir / "epic_file.txt").write_text("epic v1\n", encoding="utf-8")
+        _run_git(["add", "epic_file.txt"], cwd=pusher_dir)
+        _run_git(["commit", "-m", "chore: #401 epic base"], cwd=pusher_dir)
+        _run_git(["push", "-u", "origin", "epic/401-lyrics"], cwd=pusher_dir)
+        epic_c1 = _run_git(["rev-parse", "HEAD"], cwd=pusher_dir).stdout.strip()
+
+        # repo_dir 側で一度 fetch してワークツリーを origin/epic/401-lyrics から分岐
+        _run_git(["fetch", "origin", "+refs/heads/epic/401-lyrics:refs/remotes/origin/epic/401-lyrics"], cwd=repo_dir)
+        wt_epic = repo_dir / ".agent_worktrees" / "issue-402"
+        _run_git(["worktree", "add", "-b", "feat/402-child", str(wt_epic), "origin/epic/401-lyrics"], cwd=repo_dir)
+        (wt_epic / "child.txt").write_text("child\n", encoding="utf-8")
+        _run_git(["add", "child.txt"], cwd=wt_epic)
+        _run_git(["commit", "-m", "feat: #402 child"], cwd=wt_epic)
+
+        # リモート側の epic/401-lyrics をさらに 1 コミット前進させる
+        (pusher_dir / "epic_file.txt").write_text("epic v2\n", encoding="utf-8")
+        _run_git(["add", "epic_file.txt"], cwd=pusher_dir)
+        _run_git(["commit", "-m", "chore: #401 epic v2"], cwd=pusher_dir)
+        _run_git(["push", "origin", "epic/401-lyrics"], cwd=pusher_dir)
+        epic_c2 = _run_git(["rev-parse", "HEAD"], cwd=pusher_dir).stdout.strip()
+
+        loader = _ps_loader_snippet(
+            VERIFY_LOOP,
+            ["Stop-ProcessTree", "Invoke-ExternalCommand", "Test-IsGitWorktree", "Resolve-BaseMergeCommit"],
+        )
+        ps_script = loader + f"""
+$res = Resolve-BaseMergeCommit -BaseRef 'epic/401-lyrics' -PreferOriginBase -FetchBase -WorkingDirectory '{str(wt_epic).replace("'", "''")}'
+$res | ConvertTo-Json -Depth 4
+"""
+        # Act 1: -FetchBase 付きで origin/epic/401-lyrics が最新化され、マージベースが epic_c1 に解決されること
+        res = _run_ps_command(ps_script, cwd=REPO_ROOT)
+        self.assertEqual(res.returncode, 0, msg=res.stdout + "\n" + res.stderr)
+        data = json.loads(res.stdout)
+        self.assertTrue(data["Success"], msg=data.get("Error"))
+        self.assertEqual(data["ResolvedRef"], "origin/epic/401-lyrics")
+        self.assertEqual(data["MergeBase"], epic_c1)
+        self.assertEqual(_run_git(["rev-parse", "origin/epic/401-lyrics"], cwd=wt_epic).stdout.strip(), epic_c2)
+
+        # Act 2: ワークツリー内の verify_loop.ps1 エンドツーエンド実行で -BaseBranch "epic/401-lyrics" がレポートに記録されること
+        wt_tools = wt_epic / "tools"
+        wt_tools.mkdir(parents=True, exist_ok=True)
+        wt_script = wt_tools / "verify_loop.ps1"
+        shutil.copy2(VERIFY_LOOP, wt_script)
+        json_out = self.base_dir / "epic_verify_report.json"
+
+        run_res = _run_ps1_file(
+            wt_script,
+            ["-Full", "-TestFilter", "Dummy", "-BaseBranch", "epic/401-lyrics", "-PreferOriginBase", "-JsonOut", str(json_out)],
+            cwd=wt_epic,
+        )
+        self.assertEqual(run_res.returncode, 1, msg=run_res.stdout + "\n" + run_res.stderr)
+        report = json.loads(json_out.read_text(encoding="utf-8"))
+        self.assertEqual(report["base_branch"], "epic/401-lyrics")
+        self.assertEqual(report["resolved_base_ref"], "origin/epic/401-lyrics")
+        self.assertEqual(report["resolved_base_commit"], epic_c1)
+
 
 if __name__ == "__main__":
     unittest.main()

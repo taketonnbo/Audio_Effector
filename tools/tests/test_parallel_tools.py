@@ -242,6 +242,41 @@ class WorktreeManagerTests(unittest.TestCase):
         self.assertTrue(out_file.is_file())
         self.assertEqual(json.loads(out_file.read_text(encoding="utf-8"))["status"], "OK")
 
+    def test_スラッシュを含む統合ブランチをBaseBranchに指定してワークツリー作成できること(self) -> None:
+        # Arrange: 別クローンからリモートへスラッシュ入りの統合ブランチ epic/401-lyrics を作成・Push
+        pusher = self.base_dir / "epic_pusher"
+        _run_git(["clone", "-b", "develop", str(self.origin_dir), str(pusher)], cwd=self.base_dir)
+        _run_git(["config", "user.name", "Epic Dev"], cwd=pusher)
+        _run_git(["config", "user.email", "epic@example.com"], cwd=pusher)
+        _run_git(["checkout", "-b", "epic/401-lyrics"], cwd=pusher)
+        (pusher / "epic_base.txt").write_text("from epic integration branch\n", encoding="utf-8")
+        _run_git(["add", "epic_base.txt"], cwd=pusher)
+        _run_git(["commit", "-m", "chore: #401 init epic integration branch"], cwd=pusher)
+        _run_git(["push", "-u", "origin", "epic/401-lyrics"], cwd=pusher)
+        expected_base_commit = _run_git(["rev-parse", "HEAD"], cwd=pusher).stdout.strip()
+
+        # Act: repo_dir にまだ origin/epic/401-lyrics がない状態から -BaseBranch 指定で作成
+        create_res = _run_ps1(
+            WORKTREE_MANAGER,
+            [
+                "-Action", "create",
+                "-IssueNumber", "402",
+                "-BranchName", "feat/402-lyrics-parser",
+                "-BaseBranch", "epic/401-lyrics",
+                "-Json",
+            ],
+            cwd=self.repo_dir,
+        )
+
+        # Assert
+        self.assertEqual(create_res.returncode, 0, msg=create_res.stdout + "\n" + create_res.stderr)
+        payload = json.loads(create_res.stdout)
+        self.assertEqual(payload["status"], "CREATED")
+        self.assertEqual(payload["base_ref"], "origin/epic/401-lyrics")
+        wt_path = Path(payload["worktree_path"])
+        self.assertTrue((wt_path / "epic_base.txt").is_file())
+        self.assertEqual(_run_git(["rev-parse", "HEAD"], cwd=wt_path).stdout.strip(), expected_base_commit)
+
 
 class SyncBranchTests(unittest.TestCase):
     """tools/sync_branch.ps1 の UP_TO_DATE / DRY_RUN / MERGED / CONFLICT / ABORTED テスト。"""
@@ -404,6 +439,67 @@ class SyncBranchTests(unittest.TestCase):
         # 後片付け: -Abort
         res_abort = _run_ps1(SYNC_BRANCH, ["-Abort", "-Json"], cwd=wt_path)
         self.assertEqual(res_abort.returncode, 0)
+
+    def test_スラッシュを含む統合ブランチへの追従同期および統合ブランチからdevelopへの同期が正常動作すること(self) -> None:
+        # Arrange: epic/401-lyrics を作成して origin へ Push
+        _run_git(["checkout", "-b", "epic/401-lyrics", "develop"], cwd=self.repo_dir)
+        (self.repo_dir / "epic_init.txt").write_text("epic init\n", encoding="utf-8")
+        _run_git(["add", "epic_init.txt"], cwd=self.repo_dir)
+        _run_git(["commit", "-m", "chore: #401 epic init"], cwd=self.repo_dir)
+        _run_git(["push", "-u", "origin", "epic/401-lyrics"], cwd=self.repo_dir)
+
+        # 子 Issue ワークツリーを epic/401-lyrics から作成
+        create_res = _run_ps1(
+            WORKTREE_MANAGER,
+            [
+                "-Action", "create",
+                "-IssueNumber", "402",
+                "-BranchName", "feat/402-child",
+                "-BaseBranch", "epic/401-lyrics",
+                "-Json",
+            ],
+            cwd=self.repo_dir,
+        )
+        self.assertEqual(create_res.returncode, 0, msg=create_res.stdout + "\n" + create_res.stderr)
+        wt_path = Path(json.loads(create_res.stdout)["worktree_path"])
+        (wt_path / "child.txt").write_text("child work\n", encoding="utf-8")
+        _run_git(["add", "child.txt"], cwd=wt_path)
+        _run_git(["commit", "-m", "feat: #402 child work"], cwd=wt_path)
+
+        # 別クローンから origin/epic/401-lyrics を前進させる（先行子 Issue マージ相当）
+        epic_pusher = self.base_dir / "epic_sync_pusher"
+        _run_git(["clone", "-b", "epic/401-lyrics", str(self.origin_dir), str(epic_pusher)], cwd=self.base_dir)
+        _run_git(["config", "user.name", "Other Dev"], cwd=epic_pusher)
+        _run_git(["config", "user.email", "other@example.com"], cwd=epic_pusher)
+        (epic_pusher / "sibling.txt").write_text("from sibling PR\n", encoding="utf-8")
+        _run_git(["add", "sibling.txt"], cwd=epic_pusher)
+        _run_git(["commit", "-m", "feat: #403 sibling merged"], cwd=epic_pusher)
+        _run_git(["push", "origin", "epic/401-lyrics"], cwd=epic_pusher)
+
+        # Act 1: 子 Issue ワークツリーから -BaseBranch "epic/401-lyrics" で非破壊同期
+        res_child_sync = _run_ps1(
+            SYNC_BRANCH,
+            ["-BaseBranch", "epic/401-lyrics", "-Json"],
+            cwd=wt_path,
+        )
+        self.assertEqual(res_child_sync.returncode, 0, msg=res_child_sync.stdout + "\n" + res_child_sync.stderr)
+        child_payload = json.loads(res_child_sync.stdout)
+        self.assertEqual(child_payload["status"], "MERGED")
+        self.assertEqual(child_payload["base_ref"], "origin/epic/401-lyrics")
+        self.assertTrue((wt_path / "sibling.txt").is_file())
+
+        # Act 2: origin/develop を前進させ、統合ブランチ自身で -BaseBranch "develop" 追従同期
+        self._push_develop_change("develop_hotfix.txt", "hotfix\n", "fix: hotfix on develop")
+        res_epic_sync = _run_ps1(
+            SYNC_BRANCH,
+            ["-BaseBranch", "develop", "-Json"],
+            cwd=self.repo_dir,
+        )
+        self.assertEqual(res_epic_sync.returncode, 0, msg=res_epic_sync.stdout + "\n" + res_epic_sync.stderr)
+        epic_payload = json.loads(res_epic_sync.stdout)
+        self.assertEqual(epic_payload["status"], "MERGED")
+        self.assertEqual(epic_payload["base_ref"], "origin/develop")
+        self.assertTrue((self.repo_dir / "develop_hotfix.txt").is_file())
 
 
 if __name__ == "__main__":
