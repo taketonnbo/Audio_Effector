@@ -25,10 +25,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private readonly Func<IReadOnlyList<Album>> _getAlbums;
     private readonly Action _onCheckDeviceAlbumsRequested;
     private readonly Func<string, long> _getFileSizeBytes;
+    private readonly Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)> _readDeviceStorageSpace;
+    private readonly Dictionary<string, long> _fileSizeCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<Album> _subscribedAlbums = new();
     private readonly HashSet<Track> _subscribedTracks = new();
     private CancellationTokenSource? _checkDeviceAlbumsCts;
     private CancellationTokenSource? _storageRefreshCts;
+    private bool _suppressSelectionSummaryUpdates;
 
     private static readonly HashSet<string> SupportedAudioExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -143,6 +146,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 }
                 else
                 {
+                    CancelPendingStorageRefresh();
                     DeviceDirectories.Clear();
                     CurrentDevicePath = string.Empty;
                     CheckDeviceAlbums();
@@ -257,16 +261,19 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="getAlbums">PCアルバム一覧を取得するコールバック</param>
     /// <param name="onCheckDeviceAlbumsRequested">デバイスアルバムチェック要求コールバック</param>
     /// <param name="getFileSizeBytes">トラックのファイルサイズ取得関数（テスト差し替え用、省略時はFileInfoを使用）</param>
+    /// <param name="readDeviceStorageSpace">接続機器の容量取得関数（テスト差し替え用、省略時は実ストレージ読取を使用）</param>
     public DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
         Action onCheckDeviceAlbumsRequested,
-        Func<string, long>? getFileSizeBytes = null)
+        Func<string, long>? getFileSizeBytes = null,
+        Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)>? readDeviceStorageSpace = null)
     {
         _albumsRef = albumsRef ?? throw new ArgumentNullException(nameof(albumsRef));
         _getAlbums = getAlbums ?? throw new ArgumentNullException(nameof(getAlbums));
         _onCheckDeviceAlbumsRequested = onCheckDeviceAlbumsRequested ?? throw new ArgumentNullException(nameof(onCheckDeviceAlbumsRequested));
         _getFileSizeBytes = getFileSizeBytes ?? DefaultGetFileSizeBytes;
+        _readDeviceStorageSpace = readDeviceStorageSpace ?? ReadDeviceStorageSpace;
 
         RemovableDrives.CollectionChanged += OnRemovableDrivesCollectionChanged;
         _albumsRef.CollectionChanged += OnAlbumsCollectionChanged;
@@ -414,6 +421,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
 
         CheckDeviceAlbums();
+        _ = RefreshSelectedDeviceStorageAsync();
     }
 
     /// <summary>
@@ -454,7 +462,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                     return;
                 }
 
-                ApplyDeviceTrackIndex(albums, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                ApplyDeviceTrackIndexWithBatchSummary(albums, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             });
             return;
         }
@@ -494,8 +502,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                     return;
                 }
 
-                ApplyDeviceTrackIndex(albums, index);
-                UpdateSelectionSummary();
+                ApplyDeviceTrackIndexWithBatchSummary(albums, index);
             });
         }
         catch (OperationCanceledException)
@@ -847,7 +854,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             var (hasInfo, totalBytes, freeBytes) = await Task.Run(() =>
             {
                 ct.ThrowIfCancellationRequested();
-                return ReadDeviceStorageSpace(device, currentPath);
+                return _readDeviceStorageSpace(device, currentPath);
             }, ct);
 
             if (ct.IsCancellationRequested)
@@ -913,7 +920,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         long totalBytes = 0L;
         foreach (var track in targets)
         {
-            totalBytes += Math.Max(0L, _getFileSizeBytes(track.FilePath));
+            totalBytes += GetCachedFileSizeBytes(track.FilePath);
         }
 
         bool hasStorageInfo = SelectedDevice?.HasStorageInfo == true;
@@ -1059,6 +1066,48 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private void CancelPendingStorageRefresh()
+    {
+        var storageCts = Interlocked.Exchange(ref _storageRefreshCts, null);
+        if (storageCts != null)
+        {
+            try { storageCts.Cancel(); } catch (ObjectDisposedException) { }
+            storageCts.Dispose();
+        }
+    }
+
+    private void ApplyDeviceTrackIndexWithBatchSummary(IReadOnlyList<Album> albums, IReadOnlySet<string> index)
+    {
+        _suppressSelectionSummaryUpdates = true;
+        try
+        {
+            ApplyDeviceTrackIndex(albums, index);
+        }
+        finally
+        {
+            _suppressSelectionSummaryUpdates = false;
+        }
+
+        UpdateSelectionSummary();
+    }
+
+    private long GetCachedFileSizeBytes(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return 0L;
+        }
+
+        if (_fileSizeCache.TryGetValue(filePath, out long cached))
+        {
+            return cached;
+        }
+
+        long size = Math.Max(0L, _getFileSizeBytes(filePath));
+        _fileSizeCache[filePath] = size;
+        return size;
+    }
+
     private void OnRemovableDrivesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         OnPropertyChanged(nameof(HasConnectedDevices));
@@ -1066,8 +1115,98 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
     private void OnAlbumsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        SyncAlbumSubscriptions(_albumsRef);
-        UpdateSelectionSummary();
+        if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems != null)
+        {
+            foreach (var item in e.NewItems)
+            {
+                if (item is Album album)
+                {
+                    SubscribeAlbumAndTracks(album);
+                }
+            }
+        }
+        else if (e.Action == NotifyCollectionChangedAction.Remove && e.OldItems != null)
+        {
+            foreach (var item in e.OldItems)
+            {
+                if (item is Album album)
+                {
+                    UnsubscribeAlbumAndTracks(album);
+                }
+            }
+        }
+        else if (e.Action == NotifyCollectionChangedAction.Replace)
+        {
+            if (e.OldItems != null)
+            {
+                foreach (var item in e.OldItems)
+                {
+                    if (item is Album album)
+                    {
+                        UnsubscribeAlbumAndTracks(album);
+                    }
+                }
+            }
+
+            if (e.NewItems != null)
+            {
+                foreach (var item in e.NewItems)
+                {
+                    if (item is Album album)
+                    {
+                        SubscribeAlbumAndTracks(album);
+                    }
+                }
+            }
+        }
+        else
+        {
+            _fileSizeCache.Clear();
+            SyncAlbumSubscriptions(_albumsRef);
+        }
+
+        if (!_suppressSelectionSummaryUpdates)
+        {
+            UpdateSelectionSummary();
+        }
+    }
+
+    private void SubscribeAlbumAndTracks(Album album)
+    {
+        if (_subscribedAlbums.Add(album))
+        {
+            album.PropertyChanged += OnAlbumSelectionPropertyChanged;
+        }
+
+        if (album.Tracks != null)
+        {
+            foreach (var track in album.Tracks)
+            {
+                if (_subscribedTracks.Add(track))
+                {
+                    track.PropertyChanged += OnTrackSelectionPropertyChanged;
+                }
+            }
+        }
+    }
+
+    private void UnsubscribeAlbumAndTracks(Album album)
+    {
+        if (_subscribedAlbums.Remove(album))
+        {
+            album.PropertyChanged -= OnAlbumSelectionPropertyChanged;
+        }
+
+        if (album.Tracks != null)
+        {
+            foreach (var track in album.Tracks)
+            {
+                if (_subscribedTracks.Remove(track))
+                {
+                    track.PropertyChanged -= OnTrackSelectionPropertyChanged;
+                }
+            }
+        }
     }
 
     private void SyncAlbumSubscriptions(IEnumerable<Album> currentAlbums)
@@ -1129,11 +1268,17 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         if (e.PropertyName == nameof(Album.Tracks))
         {
             SyncAlbumSubscriptions(_albumsRef);
-            UpdateSelectionSummary();
+            if (!_suppressSelectionSummaryUpdates)
+            {
+                UpdateSelectionSummary();
+            }
         }
         else if (e.PropertyName == nameof(Album.IsSelected) || e.PropertyName == nameof(Album.IsOnDevice))
         {
-            UpdateSelectionSummary();
+            if (!_suppressSelectionSummaryUpdates)
+            {
+                UpdateSelectionSummary();
+            }
         }
     }
 
@@ -1141,7 +1286,10 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     {
         if (e.PropertyName == nameof(Track.IsSelected) || e.PropertyName == nameof(Track.IsOnDevice))
         {
-            UpdateSelectionSummary();
+            if (!_suppressSelectionSummaryUpdates)
+            {
+                UpdateSelectionSummary();
+            }
         }
     }
 
