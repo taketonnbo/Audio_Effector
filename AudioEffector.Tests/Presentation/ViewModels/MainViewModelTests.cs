@@ -392,6 +392,8 @@ public sealed class MainViewModelTests
         public LyricsDocument Parse(string content) => ParseHandler is not null ? ParseHandler(content) : LyricsDocument.Empty;
 
         public string Format(LyricsDocument document) => "[00:04.00]再作成テスト歌詞";
+
+        public LrcOriginType ClassifyOrigin(string lrcContent) => LrcOriginType.ManualOrExternal;
     }
 
     /// <summary>
