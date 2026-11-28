@@ -160,6 +160,13 @@ public void IsHiRes判定_サンプリングレートとビット深度の組み
      - `CommandManager.RequerySuggested` 委譲型のコマンド（`RelayCommand` 等）をバインドする UI 要素は、ViewModel 単体の `CanExecute(...)` 呼び出し検証だけでは `CommandManager.InvalidateRequerySuggested()`（または明示的 `CanExecuteChanged` 発火）の漏れによるボタン非活性固着を検知できない。
      - 実 WPF ホスト `Window` 上にビューを展開した状態で状態遷移（手動スクロール一時停止、イベント購読の接続／解除、ローディング遷移等）を起こし、追加のユーザー入力なしで `UpdateLayout()` 直後に `Button.IsEnabled` が期待通り `true` / `false` へ遷移することを検証すること。
      - **参照実装**: `AudioEffector.Tests\Presentation\Views\LyricsViewTests.cs` の `LyricsView_手動スクロール一時停止およびLRC生成フック接続直後_対応ボタンのIsEnabledが即時Trueになること`。
+   - **実ホスト `Window` STA テストにおける `IUiDispatcher` スタブ方針**:
+     - **アンチパターン**: 実 WPF `Window` / `UserControl` を描画しつつ `async Task` 非同期コマンドを検証するテストで、スレッド判定なしに直接 `action()` を呼ぶ `ImmediateDispatcherStub` を注入すること。`ConfigureAwait(false)` や `TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)` 後のワーカースレッド継続から `RaiseCanExecuteChanged()`（`ButtonBase.UpdateCanExecute()`）や `PropertyChanged` が実 WPF コントロールへ直接到達し、`Dispatcher.VerifyAccess()` のスレッド所有権違反による `InvalidOperationException` を引き起こす。
+     - **推奨パターン**: STA スレッドの `Dispatcher.CurrentDispatcher` をラップし、`dispatcher.CheckAccess()` が `true` なら即時実行、`false` なら `dispatcher.Invoke(action)` / `dispatcher.BeginInvoke(action)` へマーシャリングするスタブ（例: `DispatcherUiDispatcherStub`）を使用すること。あわせて非同期 STA テストでは `DispatcherSynchronizationContext` と `DispatcherFrame` を用いたメッセージポンプ（`RunInStaThreadAsync`）と組み合わせ、`finally` で `dispatcher.InvokeShutdown()` を確実に実行すること。
+     - **参照実装**: `AudioEffector.Tests\Presentation\Views\LrcGeneratorViewTests.cs` の `DispatcherUiDispatcherStub` および `RunInStaThreadAsync`。
+   - **`BindsTwoWayByDefault` コントロール（`ProgressBar.Value` 等）の XAML バインディング検証補足**:
+     - `ProgressBar.Value`（`RangeBase.Value`）など WPF 既定メタデータで `BindsTwoWayByDefault = true` となる依存関係プロパティへ ViewModel 側の `private set` / getter 専用の読み取り専用プロパティ（例: `ModelDownloadProgress`, `Progress`）をバインドする場合は、XAML 側で `Mode=OneWay` を明示すること（省略すると実 WPF インスタンス化時に `InvalidOperationException` が発生する）。
+     - ViewModel 単体テストのみではこの実行時例外を検知できないため、実 WPF ホスト `Window` 描画テスト（`BindingErrorTraceListener` 併用）で例外・バインディングエラー 0 件を検証すること。
    - **WPF アニメーション（`AnimationClock` / `Storyboard`）の一時停止・状態反映検証**:
      - **アンチパターン**: `Thread.Sleep` のみや固定間隔ポーリングで「プロパティ値が複数回変化しなかったこと」をもって一時停止完了・静止とみなす手法。並列テスト実行時などの CPU 高負荷下では WPF `TimeManager` ティックが遅延し、`AnimationClock.Controller.Pause()` 適用前の同一フレーム値を複数回読み取って誤判定（フレーク）します。
      - **推奨パターン**: `CompositionTarget.Rendering` イベントを購読して WPF レンダリングフレーム（`TimeManager` ティック）を確実に跨ぐ待機ヘルパーを用います。
