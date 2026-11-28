@@ -37,6 +37,7 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly ISettingsService _settingsService;
         private readonly IDataDirectoryProvider? _dataDirectoryProvider;
         private readonly IDataDirectoryMigrationService? _dataDirectoryMigrationService;
+        private readonly ILogConfigurationManager? _logConfigurationManager;
         private readonly Infrastructure.Repository.JsonSettingsRepository? _fallbackSettingsRepository;
         private readonly SettingsApplicationService? _fallbackSettings;
         private readonly bool _ownsAllSongs;
@@ -605,19 +606,21 @@ namespace AudioEffector.Presentation.ViewModels
         /// ViewModelの初期化を行い、各サービスのインスタンス生成、データの読み込み、コマンドの初期化を行います。
         /// </summary>
         public MainViewModel()
-            : this(dataDirectoryProvider: null, dataDirectoryMigrationService: null)
+            : this(dataDirectoryProvider: null, dataDirectoryMigrationService: null, logConfigurationManager: null)
         {
         }
 
         /// <summary>
-        /// DI コンテナからデータディレクトリ関連サービスを受け取り、ViewModel を初期化します。
+        /// DI コンテナからデータディレクトリ・ログ設定関連サービスを受け取り、ViewModel を初期化します。
         /// </summary>
         /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ（任意）</param>
         /// <param name="dataDirectoryMigrationService">データディレクトリ移行サービス（任意）</param>
+        /// <param name="logConfigurationManager">ログ出力構成マネージャ（任意）</param>
         [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
         public MainViewModel(
             IDataDirectoryProvider? dataDirectoryProvider,
-            IDataDirectoryMigrationService? dataDirectoryMigrationService)
+            IDataDirectoryMigrationService? dataDirectoryMigrationService,
+            ILogConfigurationManager? logConfigurationManager = null)
         {
             _dataDirectoryProvider = dataDirectoryProvider
                 ?? (App.ServiceProvider != null
@@ -626,6 +629,10 @@ namespace AudioEffector.Presentation.ViewModels
             _dataDirectoryMigrationService = dataDirectoryMigrationService
                 ?? (App.ServiceProvider != null
                     ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<IDataDirectoryMigrationService>(App.ServiceProvider)
+                    : null);
+            _logConfigurationManager = logConfigurationManager
+                ?? (App.ServiceProvider != null
+                    ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<ILogConfigurationManager>(App.ServiceProvider)
                     : null);
 
             if (App.ServiceProvider != null)
@@ -2844,7 +2851,8 @@ namespace AudioEffector.Presentation.ViewModels
                 _settingsService,
                 _audioService,
                 _dataDirectoryProvider,
-                _dataDirectoryMigrationService);
+                _dataDirectoryMigrationService,
+                _logConfigurationManager);
 
             void OnDataDirectoryChanged() => ReloadDataAfterDirectoryChange();
             settingsViewModel.DataDirectoryChanged += OnDataDirectoryChanged;
