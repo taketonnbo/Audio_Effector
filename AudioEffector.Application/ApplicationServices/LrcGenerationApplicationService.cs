@@ -144,8 +144,7 @@ public class LrcGenerationApplicationService
             return Result.Failure<TextEncodingInspectionResult>("歌詞テキストファイルが選択されていません。");
         }
 
-        string extension = Path.GetExtension(textFilePath);
-        if (!SupportedTextExtensions.Any(ext => string.Equals(ext, extension, StringComparison.OrdinalIgnoreCase)))
+        if (!IsSupportedTextExtension(textFilePath))
         {
             return Result.Failure<TextEncodingInspectionResult>(
                 "未対応のファイル形式です。プレーンテキストファイル（.txt）を指定してください。");
@@ -205,6 +204,12 @@ public class LrcGenerationApplicationService
         if (string.IsNullOrWhiteSpace(textFilePath))
         {
             return Result.Failure<AlignmentResult>("歌詞テキストファイルが選択されていません。");
+        }
+
+        if (!IsSupportedTextExtension(textFilePath))
+        {
+            return Result.Failure<AlignmentResult>(
+                "未対応のファイル形式です。プレーンテキストファイル（.txt）を指定してください。");
         }
 
         try
@@ -403,10 +408,15 @@ public class LrcGenerationApplicationService
                 .SaveLrcFileAsync(targetPath, lrcContent, overwrite, cancellationToken)
                 .ConfigureAwait(false);
 
-            LyricsDocument savedDocument = document.WithSource(LyricsSourceType.LrcFile, targetPath);
-            await _lyricsApplicationService
-                .InvalidateCacheAsync(track.FilePath, savedDocument, cancellationToken)
-                .ConfigureAwait(false);
+            // 既定の探索先（楽曲と同階層・同名 .lrc）へ保存した場合のみ歌詞表示キャッシュを更新通知する
+            string defaultLrcPath = Path.GetFullPath(ResolveDefaultLrcPath(track));
+            if (string.Equals(targetPath, defaultLrcPath, StringComparison.OrdinalIgnoreCase))
+            {
+                LyricsDocument savedDocument = document.WithSource(LyricsSourceType.LrcFile, targetPath);
+                await _lyricsApplicationService
+                    .InvalidateCacheAsync(track.FilePath, savedDocument, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             return Result.Success(targetPath);
         }
@@ -418,5 +428,11 @@ public class LrcGenerationApplicationService
         {
             return Result.Failure<string>($"LRC ファイルの保存に失敗しました: {ex.Message}");
         }
+    }
+
+    private static bool IsSupportedTextExtension(string textFilePath)
+    {
+        string extension = Path.GetExtension(textFilePath);
+        return SupportedTextExtensions.Any(ext => string.Equals(ext, extension, StringComparison.OrdinalIgnoreCase));
     }
 }
