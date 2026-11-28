@@ -45,7 +45,7 @@
 [全体レイアウト・ペイン構成UI仕様書](../全体レイアウト・ペイン構成/全体レイアウト・ペイン構成UI仕様書.md) における中央ワークスペースの `ContentControl` 内に、`CurrentViewType == ViewType.ListeningStats` の `DataTrigger` で `LibraryStatsView`（`DataContext="{Binding LibraryStats}"`）を表示する。
 
 - ルートは `Grid` の 2 行構成：
-  - Row 0（`Auto`）: 上部ヘッダー（`Padding="20,14"`、左: 画面タイトル、中央: 期間フィルタ 4 セグメント、右: クイックアクション 2 ボタン）。
+  - Row 0（`Auto`）: 上部ヘッダー（`Padding="20,12"`、`WrapPanel` により右パネル展開時などの狭幅でもタイトル・期間フィルタ 4 セグメント・クイックアクション 2 ボタンが折り返して全操作可能）。
   - Row 1（`*`）: 縦スクロール可能なオールインワン本体（`ScrollViewer`、`Padding="20,16"`）。
 - 本体内部はデータ 0 件時のエンプティ状態カードと、データあり時の 3 段ダッシュボード構成（上段: 4 カラム KPI `UniformGrid`、中段: `1* / 16px / 1*` 2 カラムランキング、下段: `1* / 16px / 1*` 2 カラムバーチャート）を排他表示する。
 
@@ -77,7 +77,7 @@
   - `＋ プレイリスト化`（`StatsSecondaryButtonStyle`、`CreateTopTracksPlaylistCommand`）
   - データ 0 件時は `IsEnabled = false`（`Opacity = 0.4`）で非活性化。
 - **ランキング行（`StatsRankingRowButtonStyle`）**: 順位（`#1`〜`#10`）、`AlbumArtLoader.SourcePath` サムネイル（`30×30`）、名称・副情報、再生回数、`StatsGaugeProgressBarStyle`（`Value="{Binding RatioPercent, Mode=OneWay}"`）。
-- **バーチャート（`UniformGrid Rows="1"`）**: 各バケットを `Border`（`Height="{Binding BarHeight}"`、`VerticalAlignment="Bottom"`）で軽量描画し、ピークバーは `NeonCyanBrush`、通常バーは `DarkNeonCyanBrush`、0 件バーは `BorderBrush` で色分けする。
+- **バーチャート（`UniformGrid Rows="1"`）**: 各バケットを `Border`（`Height="{Binding BarHeight}"`、`VerticalAlignment="Bottom"`、`Margin="0.5,0"`）で軽量描画し、ピークバーは `NeonCyanBrush`、通常バーは `DarkNeonCyanBrush`、0 件バーは `BorderBrush` で色分けする。15 本超の日別推移（5 日おき）および 24 本の時間帯別傾向（3 時間おき）は横軸ラベルを間引き表示して判読性を維持し、全バケットの詳細情報をツールチップで提供する。
 
 ## 6. アニメーションとインタラクション
 
