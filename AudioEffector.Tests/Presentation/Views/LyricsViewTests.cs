@@ -64,7 +64,10 @@ public sealed class LyricsViewTests
 
                 if (System.Windows.Application.Current == null)
                 {
-                    _ = new System.Windows.Application();
+                    _ = new System.Windows.Application
+                    {
+                        ShutdownMode = ShutdownMode.OnExplicitShutdown
+                    };
                 }
 
                 action();
@@ -85,7 +88,7 @@ public sealed class LyricsViewTests
 
         if (threadEx != null)
         {
-            throw threadEx;
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(threadEx).Throw();
         }
     }
 
@@ -128,13 +131,52 @@ public sealed class LyricsViewTests
         target["NullToVis"] = new NullToVisConverter();
     }
 
-    private static void RunWithHostWindow(LyricsView view, Action<Window> action)
+    private sealed class AsyncLyricsProviderStub : ILyricsProvider
+    {
+        private readonly Func<Track, CancellationToken, Task<LyricsDocument?>> _handler;
+
+        public AsyncLyricsProviderStub(Func<Track, CancellationToken, Task<LyricsDocument?>> handler)
+        {
+            _handler = handler;
+        }
+
+        public Task<LyricsDocument?> LoadLyricsAsync(Track track, CancellationToken cancellationToken = default)
+        {
+            return _handler(track, cancellationToken);
+        }
+    }
+
+    private static LyricsDocument CreateMultiLineSyncedDocument(int lineCount)
+    {
+        var lines = Enumerable.Range(0, lineCount)
+            .Select(i => new LyricLine(i, TimeSpan.FromSeconds((i + 1) * 5), $"Lyric line #{i + 1:00} sample text"))
+            .ToArray();
+
+        return new LyricsDocument(
+            lines,
+            isSynced: true,
+            sourceType: LyricsSourceType.LrcFile);
+    }
+
+    private static LyricsDocument CreateSampleUnsyncedDocument()
+    {
+        return new LyricsDocument(
+            new[]
+            {
+                new LyricLine(0, null, "Unsynced lyric line 1"),
+                new LyricLine(1, null, "Unsynced lyric line 2"),
+            },
+            isSynced: false,
+            sourceType: LyricsSourceType.EmbeddedTag);
+    }
+
+    private static void RunWithHostWindow(LyricsView view, Action<Window> action, double width = 420, double height = 360)
     {
         var hostWindow = new Window
         {
             Content = view,
-            Width = 420,
-            Height = 360,
+            Width = width,
+            Height = height,
             Left = -32000,
             Top = -32000,
             WindowStyle = WindowStyle.None,
@@ -394,6 +436,203 @@ public sealed class LyricsViewTests
 
                 audioMock.Verify(a => a.SeekTo(It.IsAny<double>()), Times.Once);
                 Assert.Null(listBox.SelectedItem);
+            });
+        });
+    }
+
+    /// <summary>
+    /// 事前ロード済み 30 行同期歌詞を通常モード（420x360）およびコンパクトモード（350x136）で表示した際、ScrollViewer.ViewportHeight が潰れず自動中央スクロール後にアクティブ行がビューポート中央付近に収まることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(false, 420, 360)]
+    [InlineData(true, 350, 136)]
+    public void LyricsView_通常およびコンパクトモードで30行同期歌詞表示時_ViewportHeightが潰れずアクティブ行が中央付近に収まること(
+        bool isCompactMode,
+        double hostWidth,
+        double hostHeight)
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var track = CreateSampleTrack(@"C:\Music\thirty_lines.flac");
+            var audioMock = new Mock<IAudioService>();
+            audioMock.Setup(a => a.CurrentTrack).Returns(track);
+            audioMock.Setup(a => a.CurrentTime).Returns(TimeSpan.FromSeconds(82));
+            audioMock.Setup(a => a.TotalTime).Returns(TimeSpan.FromSeconds(240));
+            var eventBus = new InMemoryEventBus();
+            var provider = new FixedLyricsProviderStub(_ => CreateMultiLineSyncedDocument(30));
+            var appService = new LyricsApplicationService(provider, eventBus);
+            using var vm = new LyricsViewModel(audioMock.Object, eventBus, appService, new ImmediateDispatcherStub());
+
+            EnsureApplicationResources();
+            var sut = new LyricsView
+            {
+                DataContext = vm,
+                IsCompactMode = isCompactMode
+            };
+            AttachThemeResources(sut.Resources, "DarkTheme.xaml");
+
+            // Act & Assert
+            RunWithHostWindow(sut, host =>
+            {
+                var listBox = Assert.IsType<ListBox>(sut.FindName("LyricsListBox"));
+                Assert.Equal(Visibility.Visible, listBox.Visibility);
+                var scrollViewer = FindVisualChildren<ScrollViewer>(listBox).First();
+
+                // ScrollViewer.ViewportHeight が ListBox 実高とほぼ一致し潰れていないこと
+                Assert.True(listBox.ActualHeight >= 100.0, $"ListBox.ActualHeight が想定より小さすぎます: {listBox.ActualHeight}");
+                Assert.True(
+                    scrollViewer.ViewportHeight >= listBox.ActualHeight - 4.0,
+                    $"ScrollViewer.ViewportHeight ({scrollViewer.ViewportHeight}) が ListBox.ActualHeight ({listBox.ActualHeight}) に対して潰れています");
+
+                // 16 行目（index 15: 80秒）へ同期移動し、中央付近に可視表示されること
+                vm.UpdatePlaybackPosition(TimeSpan.FromSeconds(82));
+                host.UpdateLayout();
+
+                Assert.Equal(15, vm.CurrentLineIndex);
+                var activeContainer = Assert.IsAssignableFrom<FrameworkElement>(
+                    listBox.ItemContainerGenerator.ContainerFromIndex(15));
+                Point pos = activeContainer.TransformToAncestor(scrollViewer).Transform(new Point(0, 0));
+                double top = pos.Y;
+                double bottom = pos.Y + activeContainer.ActualHeight;
+                double center = pos.Y + (activeContainer.ActualHeight / 2.0);
+                double expectedCenter = scrollViewer.ActualHeight / 2.0;
+
+                Assert.True(top >= -1.0 && bottom <= scrollViewer.ActualHeight + 1.0, $"アクティブ行がビューポート外です (top={top}, bottom={bottom}, viewport={scrollViewer.ActualHeight})");
+                Assert.True(
+                    Math.Abs(center - expectedCenter) <= activeContainer.ActualHeight + 8.0,
+                    $"アクティブ行がビューポート中央付近にありません (center={center}, expected={expectedCenter}, rowHeight={activeContainer.ActualHeight})");
+            }, hostWidth, hostHeight);
+        });
+    }
+
+    /// <summary>
+    /// 手動スクロール一時停止直後に ResumeAutoScrollButton.IsEnabled が true になり、GenerateLrcRequested 接続直後に HeaderGenerateLrcButton.IsEnabled が true になることを検証します。
+    /// </summary>
+    [Fact]
+    public void LyricsView_手動スクロール一時停止およびLRC生成フック接続直後_対応ボタンのIsEnabledが即時Trueになること()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var track = CreateSampleTrack(@"C:\Music\canexecute_check.flac");
+            var audioMock = new Mock<IAudioService>();
+            audioMock.Setup(a => a.CurrentTrack).Returns(track);
+            audioMock.Setup(a => a.TotalTime).Returns(TimeSpan.FromSeconds(240));
+            var eventBus = new InMemoryEventBus();
+            var provider = new FixedLyricsProviderStub(_ => CreateSampleSyncedDocument());
+            var appService = new LyricsApplicationService(provider, eventBus);
+            using var vm = new LyricsViewModel(audioMock.Object, eventBus, appService, new ImmediateDispatcherStub());
+
+            EnsureApplicationResources();
+            var sut = new LyricsView { DataContext = vm };
+            AttachThemeResources(sut.Resources, "DarkTheme.xaml");
+
+            // Act & Assert
+            RunWithHostWindow(sut, host =>
+            {
+                var resumeButton = Assert.IsType<Button>(sut.FindName("ResumeAutoScrollButton"));
+                var headerGenerateButton = Assert.IsType<Button>(sut.FindName("HeaderGenerateLrcButton"));
+
+                Assert.Equal(Visibility.Collapsed, resumeButton.Visibility);
+                Assert.False(headerGenerateButton.IsEnabled);
+
+                // 手動スクロール一時停止直後に追加入力なしで ResumeAutoScrollButton が有効化されること
+                vm.NotifyManualScroll();
+                host.UpdateLayout();
+                Assert.Equal(Visibility.Visible, resumeButton.Visibility);
+                Assert.True(resumeButton.IsEnabled);
+
+                // GenerateLrcRequested 接続直後に追加入力なしで HeaderGenerateLrcButton が有効化されること
+                Action<Track> handler = _ => { };
+                vm.GenerateLrcRequested += handler;
+                host.UpdateLayout();
+                Assert.True(headerGenerateButton.IsEnabled);
+
+                // 解除時は再び非活性に戻ること
+                vm.GenerateLrcRequested -= handler;
+                host.UpdateLayout();
+                Assert.False(headerGenerateButton.IsEnabled);
+            });
+        });
+    }
+
+    /// <summary>
+    /// 非同期プレーン歌詞・ローディング状態・エラー状態の 3 状態すべてでダーク・ライト両テーマ描画時にバインディングエラーが 0 件であることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("DarkTheme.xaml")]
+    [InlineData("LightTheme.xaml")]
+    public void LyricsView_非同期歌詞およびローディングおよびエラー状態_ダークライト両テーマでバインディングエラーが0件であること(string themeFileName)
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            var trackUnsynced = CreateSampleTrack(@"C:\Music\plain_view.flac");
+            var trackLoading = CreateSampleTrack(@"C:\Music\loading_view.flac");
+            var trackError = CreateSampleTrack(@"C:\Music\error_view.flac");
+            var loadingTcs = new TaskCompletionSource<LyricsDocument?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var audioMock = new Mock<IAudioService>();
+            audioMock.Setup(a => a.TotalTime).Returns(TimeSpan.FromSeconds(180));
+            var eventBus = new InMemoryEventBus();
+            var provider = new AsyncLyricsProviderStub((track, _) =>
+            {
+                if (track.FilePath == trackUnsynced.FilePath)
+                {
+                    return Task.FromResult<LyricsDocument?>(CreateSampleUnsyncedDocument());
+                }
+
+                if (track.FilePath == trackLoading.FilePath)
+                {
+                    return loadingTcs.Task;
+                }
+
+                throw new InvalidOperationException("Simulated lyrics load failure");
+            });
+            var appService = new LyricsApplicationService(provider, eventBus);
+            using var vm = new LyricsViewModel(audioMock.Object, eventBus, appService, new ImmediateDispatcherStub());
+
+            using var listener = new BindingErrorTraceListener();
+            EnsureApplicationResources();
+
+            var sut = new LyricsView { DataContext = vm };
+            AttachThemeResources(sut.Resources, themeFileName);
+
+            // Act & Assert
+            RunWithHostWindow(sut, host =>
+            {
+                // 1. 非同期プレーン歌詞
+                audioMock.Raise(a => a.TrackChanged += null, trackUnsynced);
+                host.UpdateLayout();
+
+                var listBox = Assert.IsType<ListBox>(sut.FindName("LyricsListBox"));
+                var badgeText = Assert.IsType<TextBlock>(sut.FindName("SourceTypeBadgeText"));
+                Assert.Equal(Visibility.Visible, listBox.Visibility);
+                Assert.Equal("同期なし", badgeText.Text);
+
+                // 2. ローディング状態
+                audioMock.Raise(a => a.TrackChanged += null, trackLoading);
+                host.UpdateLayout();
+
+                var loadingContainer = Assert.IsType<Grid>(sut.FindName("LoadingContainer"));
+                var reloadButton = Assert.IsType<Button>(sut.FindName("HeaderReloadButton"));
+                Assert.Equal(Visibility.Visible, loadingContainer.Visibility);
+                Assert.False(reloadButton.IsEnabled);
+
+                // 3. エラー状態
+                audioMock.Raise(a => a.TrackChanged += null, trackError);
+                loadingTcs.TrySetCanceled();
+                host.UpdateLayout();
+
+                var errorContainer = Assert.IsType<Grid>(sut.FindName("ErrorContainer"));
+                var errorTitle = Assert.IsType<TextBlock>(sut.FindName("ErrorTitleText"));
+                Assert.Equal(Visibility.Visible, errorContainer.Visibility);
+                Assert.Equal("歌詞を読み込めませんでした", errorTitle.Text);
+
+                Assert.False(
+                    listener.HasErrors,
+                    $"LyricsView 残状態 ({themeFileName}) でバインディングエラーが検出されました: {string.Join("; ", listener.Errors)}");
             });
         });
     }
