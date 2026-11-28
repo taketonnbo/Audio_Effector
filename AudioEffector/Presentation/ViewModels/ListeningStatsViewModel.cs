@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Linq;
 using System.Windows.Input;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
@@ -11,7 +12,7 @@ namespace AudioEffector.Presentation.ViewModels;
 
 /// <summary>
 /// 右側タブ下部「ダッシュボード」パネルを担当する ViewModel。
-/// 対象楽曲（再生中またはプレイリスト右クリック選択曲）の累計統計およびよく聴く曲 TOP N を提供します。
+/// 対象楽曲（再生中またはプレイリスト右クリック選択曲）の累計統計および所属アルバム内のよく聴く曲 TOP N を提供します。
 /// </summary>
 public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
 {
@@ -23,6 +24,7 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
     private readonly ListeningStatsApplicationService _statsService;
     private readonly IAudioService _audioService;
     private readonly IUiDispatcher _uiDispatcher;
+    private readonly LibraryViewModel? _libraryViewModel;
     private readonly DashboardCommand _returnToPlayingTrackCommand;
     private readonly DashboardCommand _refreshCommand;
     private readonly DashboardCommand _selectTopTrackCommand;
@@ -49,6 +51,7 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
 
     private Track? _targetTrack;
     private Track? _currentPlayingTrack;
+    private string _resolvedAlbumTitle = string.Empty;
     private bool _isPinnedToSelectedTrack;
     private bool _isActiveView;
     private bool _isDirty;
@@ -58,7 +61,7 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
     private bool _disposed;
 
     /// <summary>
-    /// よく聴く曲 TOP N コレクション
+    /// 対象アルバム内のよく聴く曲 TOP N コレクション
     /// </summary>
     public ObservableCollection<TopPlayedTrackItemViewModel> TopPlayedTracks { get; } = new();
 
@@ -76,6 +79,9 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
                 OnPropertyChanged(nameof(TargetTrackTitle));
                 OnPropertyChanged(nameof(TargetTrackArtist));
                 OnPropertyChanged(nameof(TargetTrackAlbum));
+                OnPropertyChanged(nameof(TargetAlbumDisplay));
+                OnPropertyChanged(nameof(HasTargetAlbumDisplay));
+                OnPropertyChanged(nameof(TopTracksEmptyMessage));
                 NotifyTargetModeProperties();
             }
         }
@@ -202,9 +208,33 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
     public bool HasTargetTrackStats => _totalPlayCount > 0;
 
     /// <summary>
-    /// よく聴く曲 TOP N に 1 件以上のデータが存在するかどうか
+    /// 対象アルバム内のよく聴く曲 TOP N に 1 件以上のデータが存在するかどうか
     /// </summary>
     public bool HasTopPlayedTracks => TopPlayedTracks.Count > 0;
+
+    /// <summary>
+    /// ランキングセクションの見出し文字列
+    /// </summary>
+    public string TopTracksSectionTitle => "アルバム内でよく聴く曲 TOP 5";
+
+    /// <summary>
+    /// ランキング集計対象となっているアルバムの表示名
+    /// </summary>
+    public string TargetAlbumDisplay =>
+        !string.IsNullOrWhiteSpace(_resolvedAlbumTitle) ? _resolvedAlbumTitle : TargetTrackAlbum;
+
+    /// <summary>
+    /// ランキング集計対象のアルバム表示名が存在するかどうか
+    /// </summary>
+    public bool HasTargetAlbumDisplay => !string.IsNullOrWhiteSpace(TargetAlbumDisplay);
+
+    /// <summary>
+    /// ランキングが空の場合に表示する案内メッセージ
+    /// </summary>
+    public string TopTracksEmptyMessage =>
+        _targetTrack == null
+            ? "楽曲を再生または選択すると、アルバム内のランキングが表示されます。"
+            : "このアルバムの再生統計はまだ記録されていません。楽曲を最後まで再生すると統計が蓄積されます。";
 
     /// <summary>
     /// ダッシュボードが現在画面上に表示中かどうか（非表示時は統計更新時の UI 再描画を遅延します）
@@ -243,14 +273,17 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
     /// <param name="statsService">リスニング統計アプリケーションサービス</param>
     /// <param name="audioService">音声再生サービス</param>
     /// <param name="uiDispatcher">UI スレッドディスパッチャー</param>
+    /// <param name="libraryViewModel">アルバム所属曲の厳密解決に用いるライブラリ ViewModel（任意）</param>
     public ListeningStatsViewModel(
         ListeningStatsApplicationService statsService,
         IAudioService audioService,
-        IUiDispatcher uiDispatcher)
+        IUiDispatcher uiDispatcher,
+        LibraryViewModel? libraryViewModel = null)
     {
         _statsService = statsService ?? throw new ArgumentNullException(nameof(statsService));
         _audioService = audioService ?? throw new ArgumentNullException(nameof(audioService));
         _uiDispatcher = uiDispatcher ?? throw new ArgumentNullException(nameof(uiDispatcher));
+        _libraryViewModel = libraryViewModel;
 
         _returnToPlayingTrackCommand = new DashboardCommand(
             _ => ReturnToPlayingTrack(),
@@ -263,6 +296,12 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
 
         _audioService.TrackChanged += OnAudioTrackChanged;
         _statsService.StatsUpdated += OnStatsUpdated;
+        if (_libraryViewModel != null)
+        {
+            _libraryViewModel.LibrarySynced += OnLibrarySynced;
+            _libraryViewModel.TrackRemoved += OnLibraryTrackRemoved;
+            _libraryViewModel.AlbumRemoved += OnLibraryAlbumRemoved;
+        }
 
         RefreshCore();
     }
@@ -385,8 +424,53 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
     {
         if (parameter is TopPlayedTrackItemViewModel item)
         {
-            SetTargetTrack(item.Stat.ToTrack());
+            Track selectedTrack = ResolveTrackFromLibrary(item.Stat.FilePath) ?? item.Stat.ToTrack();
+            SetTargetTrack(selectedTrack);
         }
+    }
+
+    private void OnLibrarySynced(LibrarySyncResult syncResult)
+    {
+        _ = syncResult;
+        ScheduleRefreshOnLibraryUpdated();
+    }
+
+    private void OnLibraryTrackRemoved(Track removedTrack)
+    {
+        _ = removedTrack;
+        ScheduleRefreshOnLibraryUpdated();
+    }
+
+    private void OnLibraryAlbumRemoved(Album removedAlbum)
+    {
+        _ = removedAlbum;
+        ScheduleRefreshOnLibraryUpdated();
+    }
+
+    private void ScheduleRefreshOnLibraryUpdated()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _uiDispatcher.BeginInvoke(() =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_isActiveView)
+            {
+                _isDirty = false;
+                RefreshCore();
+            }
+            else
+            {
+                _isDirty = true;
+            }
+        });
     }
 
     private void OnAudioTrackChanged(Track? track)
@@ -473,7 +557,33 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
             LastPlayedAt = null;
         }
 
-        IReadOnlyList<TrackListeningStat> topStats = _statsService.GetTopPlayedTracks(DefaultTopTracksCount);
+        IReadOnlyList<TrackListeningStat> topStats;
+        if (_targetTrack == null)
+        {
+            _resolvedAlbumTitle = string.Empty;
+            topStats = Array.Empty<TrackListeningStat>();
+        }
+        else
+        {
+            Album? resolvedAlbum = ResolveAlbumForTrack(_targetTrack);
+            _resolvedAlbumTitle = resolvedAlbum != null && !string.IsNullOrWhiteSpace(resolvedAlbum.Title)
+                ? resolvedAlbum.Title
+                : TargetTrackAlbum;
+
+            IReadOnlyCollection<string>? albumTrackFilePaths = resolvedAlbum != null
+                ? resolvedAlbum.Tracks
+                    .Where(t => !string.IsNullOrWhiteSpace(t.FilePath))
+                    .Select(t => t.FilePath)
+                    .ToList()
+                : null;
+
+            topStats = _statsService.GetTopPlayedTracksForAlbum(
+                albumTrackFilePaths,
+                _targetTrack.Album,
+                _targetTrack.Artist,
+                DefaultTopTracksCount);
+        }
+
         int maxPlayCount = topStats.Count > 0 ? topStats[0].PlayCount : 0;
 
         TopPlayedTracks.Clear();
@@ -483,7 +593,67 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
         }
 
         OnPropertyChanged(nameof(HasTopPlayedTracks));
+        OnPropertyChanged(nameof(TargetAlbumDisplay));
+        OnPropertyChanged(nameof(HasTargetAlbumDisplay));
+        OnPropertyChanged(nameof(TopTracksEmptyMessage));
         NotifyTargetModeProperties();
+    }
+
+    private Album? ResolveAlbumForTrack(Track track)
+    {
+        if (_libraryViewModel == null || _libraryViewModel.Albums.Count == 0)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(track.FilePath))
+        {
+            foreach (Album album in _libraryViewModel.Albums)
+            {
+                if (album.Tracks.Any(t =>
+                    !string.IsNullOrWhiteSpace(t.FilePath) &&
+                    string.Equals(t.FilePath, track.FilePath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return album;
+                }
+            }
+        }
+
+        if (track.AlbumId.Value != Guid.Empty)
+        {
+            foreach (Album album in _libraryViewModel.Albums)
+            {
+                if (album.Id == track.AlbumId)
+                {
+                    return album;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private Track? ResolveTrackFromLibrary(string? filePath)
+    {
+        if (_libraryViewModel == null || string.IsNullOrWhiteSpace(filePath))
+        {
+            return null;
+        }
+
+        foreach (Album album in _libraryViewModel.Albums)
+        {
+            Track? matched = album.Tracks.FirstOrDefault(t =>
+                !string.IsNullOrWhiteSpace(t.FilePath) &&
+                string.Equals(t.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+            if (matched != null)
+            {
+                return matched;
+            }
+        }
+
+        return _libraryViewModel.Tracks.FirstOrDefault(t =>
+            !string.IsNullOrWhiteSpace(t.FilePath) &&
+            string.Equals(t.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
     }
 
     private void NotifyTargetModeProperties()
@@ -524,6 +694,12 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
             _disposed = true;
             _audioService.TrackChanged -= OnAudioTrackChanged;
             _statsService.StatsUpdated -= OnStatsUpdated;
+            if (_libraryViewModel != null)
+            {
+                _libraryViewModel.LibrarySynced -= OnLibrarySynced;
+                _libraryViewModel.TrackRemoved -= OnLibraryTrackRemoved;
+                _libraryViewModel.AlbumRemoved -= OnLibraryAlbumRemoved;
+            }
         }
     }
 }

@@ -1128,7 +1128,8 @@ namespace AudioEffector.Presentation.ViewModels
                 ListeningStats = new Presentation.ViewModels.ListeningStatsViewModel(
                     resolvedStatsService,
                     _audioService,
-                    sharedUiDispatcher);
+                    sharedUiDispatcher,
+                    Library);
                 _ownsListeningStats = true;
             }
 
