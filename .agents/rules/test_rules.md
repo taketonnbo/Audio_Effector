@@ -147,9 +147,19 @@ public void IsHiRes判定_サンプリングレートとビット深度の組み
 3. **UI / WPFスレッドの取り扱いとリソース解放・デッドロック防止（必須厳守）**:
    - **プロダクションコード変更の禁止**:
      テストを通しやすくする（テストの都合に合わせる）目的で、本体（プロダクションコード）を安易に変更してはなりません。テスト側でリソース管理・後始末を徹底してください。
-   - **STAスレッド終了時のDispatcherシャットダウン必須化**:
-     STAスレッド内で `System.Windows.Application` を生成・使用した場合、スレッド終了時に必ず `finally` 句で `System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();` を呼び出してDispatcherリソースを明示的に解放・シャットダウンすること。
-     これを怠ると、プロセス内に生存しないスレッドに紐づく `Application.Current` / `Dispatcher` が残留し、後続テストでの `dispatcher.Invoke()` が完了せず永久ハング・デッドロックを引き起こします。
+   - **STAスレッド用 `Application` の終了モード設定と Dispatcher シャットダウン必須化**:
+     - STA スレッド内で `System.Windows.Application` を生成して複数ウィンドウ／コントロールを検証する場合は、`ShutdownMode = ShutdownMode.OnExplicitShutdown` を設定すること（既定の `OnLastWindowClose` のままだと、1 つ目のテスト用ホスト `Window` を `Close()` したタイミングで `Application` が自動終了し、同一スレッド内や後続テストのウィンドウ描画が失敗する原因となる）。
+     - あわせて、スレッド終了時に必ず `finally` 句で `System.Windows.Threading.Dispatcher.CurrentDispatcher.InvokeShutdown();` を呼び出して Dispatcher リソースを明示的に解放・シャットダウンすること。これを怠ると、プロセス内に生存しないスレッドに紐づく `Application.Current` / `Dispatcher` が残留し、後続テストでの `dispatcher.Invoke()` が完了せず永久ハング・デッドロックを引き起こします。
+     - **参照実装**: `AudioEffector.Tests\Presentation\Views\LyricsViewTests.cs` の `RunInStaThread(Action action)`。
+   - **仮想化 `ListBox`（`VirtualizingStackPanel` + `ScrollViewer.CanContentScroll="True"`）の実レンダリング検証パターン**:
+     - UI 仮想化を用いる `ListBox` ビューでは、単なる `BindingErrorTraceListener` によるバインディングエラー 0 件検証や添付プロパティ値の確認にとどまらず、実サイズレイアウト（オフスクリーンホスト `Window` での `Show()` および `UpdateLayout()`）上で以下を検証すること。
+       - 内部 `ScrollViewer.ViewportHeight` が `ItemsPresenter.Margin` 等のレイアウト設定により圧縮・潰れていないこと（`ListBox.ActualHeight` と概ね一致すること）。
+       - 複数行データに対する自動スクロール実行後に、アクティブ行コンテナが `ItemContainerGenerator.ContainerFromIndex(...)` で `null` にならず取得でき、`TransformToAncestor(scrollViewer)` による描画座標がビューポート内に収まっていること（中央スクロール仕様の場合はビューポート中央付近に収まっていること）。
+     - **参照実装**: `AudioEffector.Tests\Presentation\Views\LyricsViewTests.cs` の `LyricsView_通常およびコンパクトモードで30行同期歌詞表示時_ViewportHeightが潰れずアクティブ行が中央付近に収まること`。
+   - **コマンド活性（`Button.IsEnabled`）の実 WPF 反映検証パターン**:
+     - `CommandManager.RequerySuggested` 委譲型のコマンド（`RelayCommand` 等）をバインドする UI 要素は、ViewModel 単体の `CanExecute(...)` 呼び出し検証だけでは `CommandManager.InvalidateRequerySuggested()`（または明示的 `CanExecuteChanged` 発火）の漏れによるボタン非活性固着を検知できない。
+     - 実 WPF ホスト `Window` 上にビューを展開した状態で状態遷移（手動スクロール一時停止、イベント購読の接続／解除、ローディング遷移等）を起こし、追加のユーザー入力なしで `UpdateLayout()` 直後に `Button.IsEnabled` が期待通り `true` / `false` へ遷移することを検証すること。
+     - **参照実装**: `AudioEffector.Tests\Presentation\Views\LyricsViewTests.cs` の `LyricsView_手動スクロール一時停止およびLRC生成フック接続直後_対応ボタンのIsEnabledが即時Trueになること`。
    - **WPF アニメーション（`AnimationClock` / `Storyboard`）の一時停止・状態反映検証**:
      - **アンチパターン**: `Thread.Sleep` のみや固定間隔ポーリングで「プロパティ値が複数回変化しなかったこと」をもって一時停止完了・静止とみなす手法。並列テスト実行時などの CPU 高負荷下では WPF `TimeManager` ティックが遅延し、`AnimationClock.Controller.Pause()` 適用前の同一フレーム値を複数回読み取って誤判定（フレーク）します。
      - **推奨パターン**: `CompositionTarget.Rendering` イベントを購読して WPF レンダリングフレーム（`TimeManager` ティック）を確実に跨ぐ待機ヘルパーを用います。
