@@ -222,6 +222,21 @@ public sealed class MediaFoundationAudioTranscodeServiceTests
         Assert.Throws<ArgumentNullException>(() => MediaFoundationAudioTranscodeService.BuildMp3ResampleTargetFormat(sourceFormat!));
     }
 
+    /// <summary>
+    /// BuildMp3ResampleTargetFormatにサンプルレートが0以下のフォーマットを渡した場合、ArgumentOutOfRangeExceptionを送出することを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-44100)]
+    public void BuildMp3ResampleTargetFormat_サンプルレートが0以下の場合_ArgumentOutOfRangeExceptionを送出すること(int invalidSampleRate)
+    {
+        // Arrange
+        WaveFormat sourceFormat = new WaveFormat(invalidSampleRate, 16, 2);
+
+        // Act & Assert
+        Assert.Throws<ArgumentOutOfRangeException>(() => MediaFoundationAudioTranscodeService.BuildMp3ResampleTargetFormat(sourceFormat));
+    }
+
     private static WaveFormat CreateTestWaveFormat(
         int sampleRate,
         int bitsPerSample,
