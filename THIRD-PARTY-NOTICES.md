@@ -1,13 +1,24 @@
 # Third-Party Notices
 
-This software uses the following third-party libraries:
+This software (Audio Effector and AudioEffector.McpServer) uses the following third-party libraries, native runtimes, and downloadable speech recognition models.
+
+## Distribution & Packaging Policy (LGPL v2.1 / TagLibSharp)
+
+- **Dynamic Linking Preservation (`TagLibSharp.dll`)**: This software uses `TagLibSharp` under the GNU Lesser General Public License v2.1 (LGPL-2.1). Both `AudioEffector` and `AudioEffector.McpServer` maintain standard dynamic linking distribution with `TagLibSharp.dll` placed as a separate shared library file in the output directory, allowing users to replace it with an interface-compatible modified version in accordance with LGPL v2.1 Section 6(b).
+- **Prohibition of `PublishSingleFile` Static Bundling**: Do **not** enable `PublishSingleFile=true` (or static bundling that merges `TagLibSharp.dll` into a single executable) in product `.csproj` files, `Directory.Build.props`, or publish profiles (`*.pubxml`). If single-file bundling or static linking is ever considered in the future, you must first satisfy all LGPL v2.1 Section 6 relinking requirements (providing corresponding object/source files for relinking) or replace `TagLibSharp` with a non-LGPL library.
+- **Automatic Notice Inclusion**: Product build and publish outputs (`AudioEffector` and `AudioEffector.McpServer`) automatically copy both `LICENSE` and `THIRD-PARTY-NOTICES.md` into the output directory so that all required copyright notices and license texts accompany distributed binaries.
+
+---
+
+## Direct Dependencies
 
 ## NAudio
 - **Version:** 2.2.1
 - **License:** MIT License
+- **Copyright:** Copyright (c) 2020 Mark Heath (© Mark Heath 2023)
 - **Source:** [https://github.com/naudio/NAudio](https://github.com/naudio/NAudio)
 
-```
+```text
 MIT License
 
 Copyright (c) 2020 Mark Heath
@@ -34,12 +45,13 @@ SOFTWARE.
 ## MediaDevices
 - **Version:** 1.10.0
 - **License:** MIT License
-- **Source:** [https://github.com/RalfKlammer/MediaDevices](https://github.com/RalfKlammer/MediaDevices)
+- **Copyright:** Copyright (c) 2016 - 2022 Ralf Beckers
+- **Source:** [https://github.com/Bassman2/MediaDevices](https://github.com/Bassman2/MediaDevices)
 
-```
-MIT License
+```text
+The MIT License (MIT)
 
-Copyright (c) 2016-2022 Ralf Klammer
+Copyright (c) 2016 - 2022 Ralf Beckers.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -62,10 +74,12 @@ SOFTWARE.
 
 ## TagLibSharp
 - **Version:** 2.3.0
-- **License:** GNU Lesser General Public License v2.1
+- **License:** GNU Lesser General Public License v2.1 (LGPL-2.1-only)
+- **Copyright:** Copyright (c) 2006-2007 Brian Nickel; Copyright (c) 2009-2020 Other contributors
 - **Source:** [https://github.com/mono/taglib-sharp](https://github.com/mono/taglib-sharp)
+- **Distribution Note:** Distributed as a separate dynamically linked assembly (`TagLibSharp.dll`). See "Distribution & Packaging Policy (LGPL v2.1 / TagLibSharp)" above.
 
-```
+```text
 GNU LESSER GENERAL PUBLIC LICENSE
 Version 2.1, February 1999
 
@@ -430,8 +444,8 @@ Library), you indicate your acceptance of this License to do so, and
 all its terms and conditions for copying, distributing or modifying
 the Library or works based on it.
 
-  10. Each time you redistribute the Library (or any work based on the
-Library), the recipient automatically receives a license from the
+  10. Each time you redistribute the Library (or any work based on
+the Library), the recipient automatically receives a license from the
 original licensor to copy, distribute, link with or modify the Library
 subject to these terms and conditions.  You may not impose any further
 restrictions on the recipients' exercise of the rights granted herein.
@@ -524,3 +538,479 @@ DAMAGES.
 
 END OF TERMS AND CONDITIONS
 ```
+
+## Whisper.net
+- **Version:** 1.9.0
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2024 sandrohanea
+- **Source:** [https://github.com/sandrohanea/whisper.net](https://github.com/sandrohanea/whisper.net)
+
+```text
+MIT License
+
+Copyright (c) 2024 sandrohanea
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Whisper.net.Runtime
+- **Version:** 1.9.0
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2024 sandrohanea (bundles native binaries derived from `whisper.cpp` / `ggml`, see `whisper.cpp` section below)
+- **Source:** [https://github.com/sandrohanea/whisper.net](https://github.com/sandrohanea/whisper.net)
+
+Licensed under the MIT License (same terms as `Whisper.net` above). The bundled native libraries (`whisper.dll`, `ggml-whisper.dll`, `ggml-base-whisper.dll`, `ggml-cpu-whisper.dll`, etc.) are built from `whisper.cpp` (MIT License; see the `whisper.cpp` notice below).
+
+## NLog
+- **Version:** 6.2.0
+- **License:** BSD 3-Clause License (BSD-3-Clause)
+- **Copyright:** Copyright (c) 2004-2026 NLog Project (`https://nlog-project.org/`) / Jaroslaw Kowalski, Kim Christensen, Julian Verdurmen
+- **Source:** [https://github.com/NLog/NLog](https://github.com/NLog/NLog)
+
+```text
+Copyright (c) 2004-2024 Jaroslaw Kowalski <jaak@jkowalski.net>, Kim Christensen, Julian Verdurmen
+Copyright (c) 2004-2026 NLog Project - https://nlog-project.org/
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+* Redistributions of source code must retain the above copyright notice,
+  this list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of Jaroslaw Kowalski nor the names of its
+  contributors may be used to endorse or promote products derived from this
+  software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+## ModelContextProtocol
+- **Version:** 2.4.0
+- **License:** Apache License, Version 2.0 (Apache-2.0; legacy contributions prior to relicensing consent remain under the MIT License)
+- **Copyright:** © Model Context Protocol a Series of LF Projects, LLC.
+- **Source:** [https://github.com/modelcontextprotocol/csharp-sdk](https://github.com/modelcontextprotocol/csharp-sdk)
+- **Related Transitive Package:** `ModelContextProtocol.Core` (2.4.0, same repository and license)
+
+```text
+The MCP project is undergoing a licensing transition from the MIT License to the Apache License, Version 2.0 ("Apache-2.0"). All new code and specification contributions to the project are licensed under Apache-2.0. Documentation contributions (excluding specifications) are licensed under CC-BY-4.0.
+
+Contributions for which relicensing consent has been obtained are licensed under Apache-2.0. Contributions made by authors who originally licensed their work under the MIT License and who have not yet granted explicit permission to relicense remain licensed under the MIT License.
+
+No rights beyond those granted by the applicable original license are conveyed for such contributions.
+
+---
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to the Licensor for inclusion in the Work by the copyright
+      owner or by an individual or Legal Entity authorized to submit on behalf
+      of the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, or indemnity
+      obligations and/or other liability obligations and/or rights consistent
+      with this License. However, in accepting such obligations, You may
+      act only on Your own behalf and on Your own sole responsibility, not
+      on behalf of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+---
+
+MIT License (for legacy contributions prior to Apache-2.0 relicensing)
+
+Copyright (c) 2024-2026 Model Context Protocol a Series of LF Projects, LLC.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+Additional embedded third-party notices from `modelcontextprotocol/csharp-sdk` (`THIRD-PARTY-NOTICES.txt`):
+- `mcpdotnet`: Copyright (c) 2024 Peder Holdgaard Pedersen (MIT License)
+- `Polyfills`: Copyright (c) .NET Foundation and Contributors (MIT License)
+- `URI Template Tests`: Copyright 2011- The Authors (Apache License, Version 2.0)
+
+## Microsoft.Extensions.DependencyInjection
+- **Version:** 8.0.0
+- **License:** MIT License
+- **Copyright:** Copyright (c) .NET Foundation and Contributors / © Microsoft Corporation. All rights reserved.
+- **Source:** [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime)
+- **Note:** Resolved to `8.0.1` transitively in `AudioEffector.McpServer` (same MIT License).
+
+```text
+The MIT License (MIT)
+
+Copyright (c) .NET Foundation and Contributors
+
+All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Microsoft.Extensions.DependencyInjection.Abstractions
+- **Version:** 8.0.0
+- **License:** MIT License
+- **Copyright:** Copyright (c) .NET Foundation and Contributors / © Microsoft Corporation. All rights reserved.
+- **Source:** [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime)
+- **Note:** Resolved to `10.0.14` transitively in `AudioEffector.McpServer` (same MIT License as `Microsoft.Extensions.DependencyInjection` above).
+
+## Microsoft.Extensions.Hosting
+- **Version:** 8.0.1
+- **License:** MIT License
+- **Copyright:** Copyright (c) .NET Foundation and Contributors / © Microsoft Corporation. All rights reserved.
+- **Source:** [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime)
+- **Note:** Licensed under the MIT License (same terms as `Microsoft.Extensions.DependencyInjection` above).
+
+## System.Text.Encoding.CodePages
+- **Version:** 8.0.0
+- **License:** MIT License
+- **Copyright:** Copyright (c) .NET Foundation and Contributors / © Microsoft Corporation. All rights reserved.
+- **Source:** [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime)
+- **Note:** Licensed under the MIT License (same terms as `Microsoft.Extensions.DependencyInjection` above).
+
+---
+
+## Native Inference Engine & In-App Downloadable Models
+
+### whisper.cpp
+- **Component:** Native inference binaries bundled by `Whisper.net.Runtime` (`whisper.dll`, `ggml-whisper.dll`, `ggml-base-whisper.dll`, `ggml-cpu-whisper.dll`)
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2023-2026 The ggml authors
+- **Source:** [https://github.com/ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp) (formerly `https://github.com/ggerganov/whisper.cpp`)
+
+```text
+MIT License
+
+Copyright (c) 2023-2026 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### OpenAI Whisper / Whisper GGML Models
+- **Models Downloaded In-App (`AudioEffector.Infrastructure/LrcGeneration/WhisperModelManager.cs`):** `ggml-tiny.bin`, `ggml-base.bin`, `ggml-small.bin`
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2022 OpenAI (GGML conversion and distribution by `whisper.cpp` / `ggerganov/whisper.cpp`)
+- **Sources:**
+  - OpenAI Whisper: [https://github.com/openai/whisper](https://github.com/openai/whisper)
+  - GGML Model Repository: [https://huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)
+
+```text
+MIT License
+
+Copyright (c) 2022 OpenAI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+---
+
+## Transitive Runtime Dependencies
+
+The following transitive packages are resolved by the product projects (`AudioEffector` and/or `AudioEffector.McpServer`). Their full license texts correspond to the respective MIT or Apache-2.0 sections listed above.
+
+| Package | Version | License | Copyright / Author | Source |
+| :--- | :--- | :--- | :--- | :--- |
+| `NAudio.Asio` | `2.2.1` | MIT | © Mark Heath 2023 | [https://github.com/naudio/NAudio](https://github.com/naudio/NAudio) |
+| `NAudio.Core` | `2.2.1` | MIT | © Mark Heath 2023 | [https://github.com/naudio/NAudio](https://github.com/naudio/NAudio) |
+| `NAudio.Midi` | `2.2.1` | MIT | © Mark Heath 2023 | [https://github.com/naudio/NAudio](https://github.com/naudio/NAudio) |
+| `NAudio.Wasapi` | `2.2.1` | MIT | © Mark Heath 2023 | [https://github.com/naudio/NAudio](https://github.com/naudio/NAudio) |
+| `NAudio.WinForms` | `2.2.1` | MIT | © Mark Heath 2023 | [https://github.com/naudio/NAudio](https://github.com/naudio/NAudio) |
+| `NAudio.WinMM` | `2.2.1` | MIT | © Mark Heath 2023 | [https://github.com/naudio/NAudio](https://github.com/naudio/NAudio) |
+| `Whisper.net.Runtime.Metal` | `1.9.0` | MIT | Sandro Hanea (macOS transitive reference) | [https://github.com/sandrohanea/whisper.net](https://github.com/sandrohanea/whisper.net) |
+| `ModelContextProtocol.Core` | `2.4.0` | Apache-2.0 / MIT transition | © Model Context Protocol a Series of LF Projects, LLC. | [https://github.com/modelcontextprotocol/csharp-sdk](https://github.com/modelcontextprotocol/csharp-sdk) |
+| `Microsoft.Extensions.AI.Abstractions` | `10.0.0` / `10.11.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/extensions](https://github.com/dotnet/extensions) |
+| `Microsoft.Extensions.Caching.Abstractions` | `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `Microsoft.Extensions.Configuration` | `8.0.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Configuration.Abstractions` | `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `Microsoft.Extensions.Configuration.Binder` | `8.0.2` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Configuration.CommandLine` | `8.0.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Configuration.EnvironmentVariables` | `8.0.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Configuration.FileExtensions` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Configuration.Json` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Configuration.UserSecrets` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Diagnostics` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Diagnostics.Abstractions` | `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `Microsoft.Extensions.FileProviders.Abstractions` | `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `Microsoft.Extensions.FileProviders.Physical` | `8.0.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.FileSystemGlobbing` | `8.0.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Hosting.Abstractions` | `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `Microsoft.Extensions.Logging` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Logging.Abstractions` | `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `Microsoft.Extensions.Logging.Configuration` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Logging.Console` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Logging.Debug` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Logging.EventLog` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Logging.EventSource` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Options` | `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `Microsoft.Extensions.Options.ConfigurationExtensions` | `8.0.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `Microsoft.Extensions.Primitives` | `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `Microsoft.NETCore.Platforms` | `3.1.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/corefx](https://github.com/dotnet/corefx) |
+| `Microsoft.Win32.Registry` | `4.7.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/corefx](https://github.com/dotnet/corefx) |
+| `System.Diagnostics.DiagnosticSource` | `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `System.Diagnostics.EventLog` | `8.0.1` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/runtime](https://github.com/dotnet/runtime) |
+| `System.IO.Pipelines` | `10.0.0` / `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `System.Net.ServerSentEvents` | `10.0.14` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `System.Security.AccessControl` | `4.7.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/corefx](https://github.com/dotnet/corefx) |
+| `System.Security.Principal.Windows` | `4.7.0` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/corefx](https://github.com/dotnet/corefx) |
+| `System.Text.Encodings.Web` | `10.0.0` / `10.0.13` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+| `System.Text.Json` | `10.0.0` / `10.0.13` | MIT | © Microsoft Corporation / .NET Foundation | [https://github.com/dotnet/dotnet](https://github.com/dotnet/dotnet) |
+
+*Note: Build-time static analyzer packages (`StyleCop.Analyzers` and `StyleCop.Analyzers.Unstable`, MIT License, `PrivateAssets="all"`) and test-only packages (`xunit`, `Moq`, `Microsoft.NET.Test.Sdk`, `coverlet.collector`) are not distributed in product runtime binaries.*
