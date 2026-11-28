@@ -1,6 +1,7 @@
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Domain.Services;
 using AudioEffector.Presentation.Views;
 using MediaDevices;
 using System;
@@ -757,11 +758,16 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// トラックの転送先階層（Artist\Album\ファイル名）に対応する重複判定キーを生成します。
+    /// トラックの転送先階層（代表Artist\Album\ファイル名）に対応する重複判定キーを生成します。
     /// </summary>
     /// <param name="track">対象トラック</param>
+    /// <param name="representativeArtist">所属アルバムの代表アーティスト名（省略時は Track.AlbumArtist 優先、未設定時は Track.Artist を使用）</param>
+    /// <param name="representativeAlbum">所属アルバム名（省略時は Track.Album を使用）</param>
     /// <returns>相対パス基準の重複判定キー（ファイル名が空の場合は空文字）</returns>
-    internal static string BuildExpectedTrackRelativeKey(Track track)
+    internal static string BuildExpectedTrackRelativeKey(
+        Track track,
+        string? representativeArtist = null,
+        string? representativeAlbum = null)
     {
         string fileKey = NormalizeTrackDuplicateKey(track.FilePath);
         if (string.IsNullOrEmpty(fileKey))
@@ -769,17 +775,24 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             return string.Empty;
         }
 
-        string artist = SanitizeFileName(track.Artist);
-        string album = SanitizeFileName(track.Album);
+        string effectiveArtist = ResolveEffectiveDestinationArtist(track, representativeArtist);
+        string effectiveAlbum = ResolveEffectiveDestinationAlbum(track, representativeAlbum);
+        string artist = SanitizeFileName(effectiveArtist);
+        string album = SanitizeFileName(effectiveAlbum);
         return $"{artist}\\{album}\\{fileKey}";
     }
 
     /// <summary>
-    /// トラックの正規化済み転送先キーおよび旧フォルダ名規則（末尾ピリオド保持）の互換キーを列挙します。
+    /// トラックの正規化済み転送先キー（代表アーティスト配下）に加え、旧フォルダ名規則（末尾ピリオド保持）および旧配置（曲別アーティスト配下）の互換キーを列挙します。
     /// </summary>
     /// <param name="track">対象トラック</param>
+    /// <param name="representativeArtist">所属アルバムの代表アーティスト名（省略時は Track.AlbumArtist 優先、未設定時は Track.Artist を使用）</param>
+    /// <param name="representativeAlbum">所属アルバム名（省略時は Track.Album を使用）</param>
     /// <returns>照合対象となる相対パス基準キー一覧</returns>
-    internal static IReadOnlyList<string> BuildExpectedTrackRelativeKeys(Track track)
+    internal static IReadOnlyList<string> BuildExpectedTrackRelativeKeys(
+        Track track,
+        string? representativeArtist = null,
+        string? representativeAlbum = null)
     {
         string fileKey = NormalizeTrackDuplicateKey(track.FilePath);
         if (string.IsNullOrEmpty(fileKey))
@@ -787,31 +800,179 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             return Array.Empty<string>();
         }
 
-        string artist = SanitizeFileName(track.Artist);
-        string album = SanitizeFileName(track.Album);
-        string primaryKey = $"{artist}\\{album}\\{fileKey}";
-
-        string legacyArtist = SanitizeLegacyFileName(track.Artist);
-        string legacyAlbum = SanitizeLegacyFileName(track.Album);
-        string legacyKey = $"{legacyArtist}\\{legacyAlbum}\\{fileKey}";
-
-        if (string.Equals(primaryKey, legacyKey, StringComparison.OrdinalIgnoreCase))
+        var candidateDirs = BuildTrackCandidateDirectories(track, representativeArtist, representativeAlbum);
+        var keys = new List<string>(candidateDirs.Count);
+        foreach (var (artistFolder, albumFolder) in candidateDirs)
         {
-            return new[] { primaryKey };
+            keys.Add($"{artistFolder}\\{albumFolder}\\{fileKey}");
         }
 
-        return new[] { primaryKey, legacyKey };
+        return keys;
+    }
+
+    /// <summary>
+    /// トラックの新配置（代表アーティスト配下）および互換配置（旧末尾ピリオド規則・旧曲別アーティスト配下）の候補フォルダ一覧を重複なく生成します。
+    /// </summary>
+    /// <param name="track">対象トラック</param>
+    /// <param name="representativeArtist">所属アルバムの代表アーティスト名（省略可）</param>
+    /// <param name="representativeAlbum">所属アルバム名（省略可）</param>
+    /// <returns>候補となる (アーティストフォルダ名, アルバムフォルダ名) の一覧（先頭が正規の新配置）</returns>
+    internal static IReadOnlyList<(string ArtistFolder, string AlbumFolder)> BuildTrackCandidateDirectories(
+        Track track,
+        string? representativeArtist = null,
+        string? representativeAlbum = null)
+    {
+        var candidates = new List<(string ArtistFolder, string AlbumFolder)>(4);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddCandidate(string artistFolder, string albumFolder)
+        {
+            if (string.IsNullOrWhiteSpace(artistFolder) || string.IsNullOrWhiteSpace(albumFolder))
+            {
+                return;
+            }
+
+            string key = $"{artistFolder}\\{albumFolder}";
+            if (seen.Add(key))
+            {
+                candidates.Add((artistFolder, albumFolder));
+            }
+        }
+
+        string effectiveArtist = ResolveEffectiveDestinationArtist(track, representativeArtist);
+        string effectiveAlbum = ResolveEffectiveDestinationAlbum(track, representativeAlbum);
+
+        // 1. 新配置（代表アーティスト・正規化フォルダ名）
+        AddCandidate(SanitizeFileName(effectiveArtist), SanitizeFileName(effectiveAlbum));
+
+        // 2. 新配置（代表アーティスト・旧末尾ピリオド保持フォルダ名）
+        AddCandidate(SanitizeLegacyFileName(effectiveArtist), SanitizeLegacyFileName(effectiveAlbum));
+
+        // 3. 旧配置（曲別アーティスト・正規化フォルダ名）
+        AddCandidate(SanitizeFileName(track.Artist), SanitizeFileName(track.Album));
+
+        // 4. 旧配置（曲別アーティスト・旧末尾ピリオド保持フォルダ名）
+        AddCandidate(SanitizeLegacyFileName(track.Artist), SanitizeLegacyFileName(track.Album));
+
+        return candidates;
+    }
+
+    private static string ResolveEffectiveDestinationArtist(Track track, string? representativeArtist)
+    {
+        if (!string.IsNullOrWhiteSpace(representativeArtist))
+        {
+            return representativeArtist.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(track.AlbumArtist))
+        {
+            return track.AlbumArtist.Trim();
+        }
+
+        return track.Artist;
+    }
+
+    private static string ResolveEffectiveDestinationAlbum(Track track, string? representativeAlbum)
+    {
+        if (!string.IsNullOrWhiteSpace(representativeAlbum))
+        {
+            return representativeAlbum.Trim();
+        }
+
+        return track.Album;
+    }
+
+    private static string ResolveAlbumRepresentativeArtist(
+        Album album,
+        Track track,
+        IReadOnlyDictionary<AudioEffector.Domain.ValueObjects.TrackId, ResolvedAlbumIdentity>? fallbackIdentities)
+    {
+        if (!string.IsNullOrWhiteSpace(album.Artist))
+        {
+            return album.Artist.Trim();
+        }
+
+        if (fallbackIdentities != null && fallbackIdentities.TryGetValue(track.Id, out var identity) && !string.IsNullOrWhiteSpace(identity.AlbumArtist))
+        {
+            return identity.AlbumArtist;
+        }
+
+        return ResolveEffectiveDestinationArtist(track, representativeArtist: null);
+    }
+
+    private static IReadOnlyDictionary<AudioEffector.Domain.ValueObjects.TrackId, ResolvedAlbumIdentity>? BuildFallbackAlbumIdentitiesIfNeeded(
+        IReadOnlyList<Album> albums)
+    {
+        List<Track>? tracksNeedingResolution = null;
+        foreach (var album in albums)
+        {
+            if (string.IsNullOrWhiteSpace(album.Artist) && album.Tracks != null && album.Tracks.Count > 0)
+            {
+                tracksNeedingResolution ??= new List<Track>();
+                tracksNeedingResolution.AddRange(album.Tracks);
+            }
+        }
+
+        return tracksNeedingResolution != null ? AlbumGroupingResolver.Resolve(tracksNeedingResolution) : null;
+    }
+
+    private static Dictionary<Track, (string RepresentativeArtist, string RepresentativeAlbum)> BuildTrackDestinationMetadataMap(
+        IReadOnlyList<Album> albums,
+        IReadOnlyList<Track> tracksToTransfer)
+    {
+        var map = new Dictionary<Track, (string RepresentativeArtist, string RepresentativeAlbum)>(ReferenceEqualityComparer.Instance);
+        var fallbackIdentities = BuildFallbackAlbumIdentitiesIfNeeded(albums);
+
+        foreach (var album in albums)
+        {
+            if (album.Tracks == null)
+            {
+                continue;
+            }
+
+            foreach (var track in album.Tracks)
+            {
+                string repArtist = ResolveAlbumRepresentativeArtist(album, track, fallbackIdentities);
+                string repAlbum = ResolveEffectiveDestinationAlbum(track, album.Title);
+                map.TryAdd(track, (repArtist, repAlbum));
+            }
+        }
+
+        List<Track>? unmappedTracks = null;
+        foreach (var track in tracksToTransfer)
+        {
+            if (!map.ContainsKey(track))
+            {
+                unmappedTracks ??= new List<Track>();
+                unmappedTracks.Add(track);
+            }
+        }
+
+        if (unmappedTracks != null)
+        {
+            var resolved = AlbumGroupingResolver.Resolve(unmappedTracks);
+            foreach (var track in unmappedTracks)
+            {
+                string repArtist = resolved.TryGetValue(track.Id, out var identity) && !string.IsNullOrWhiteSpace(identity.AlbumArtist)
+                    ? identity.AlbumArtist
+                    : ResolveEffectiveDestinationArtist(track, representativeArtist: null);
+                map.TryAdd(track, (repArtist, track.Album));
+            }
+        }
+
+        return map;
     }
 
     /// <summary>
     /// PCライブラリ内の楽曲から、転送先となり得る既知の「アーティストフォルダ -> アルバムフォルダ集合」マップを構築します。
-    /// 機器ルート選択時に全階層再帰走査を避けつつ既知の転送先のみを照合するために使用します。
+    /// 機器ルート選択時に全階層再帰走査を避けつつ既知の転送先（代表アーティスト新配置および曲別アーティスト旧配置）のみを照合するために使用します。
     /// </summary>
     /// <param name="albums">対象アルバム一覧</param>
     /// <returns>アーティストフォルダ名をキー、配下の候補アルバムフォルダ名集合を値とするマップ</returns>
     internal static Dictionary<string, HashSet<string>> CollectKnownTrackFolderTargets(IReadOnlyList<Album> albums)
     {
         var targets = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var fallbackIdentities = BuildFallbackAlbumIdentitiesIfNeeded(albums);
 
         static void AddTarget(Dictionary<string, HashSet<string>> map, string artistFolder, string albumFolder)
         {
@@ -838,16 +999,11 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
             foreach (var track in album.Tracks)
             {
-                string artist = SanitizeFileName(track.Artist);
-                string albumFolder = SanitizeFileName(track.Album);
-                AddTarget(targets, artist, albumFolder);
-
-                string legacyArtist = SanitizeLegacyFileName(track.Artist);
-                string legacyAlbumFolder = SanitizeLegacyFileName(track.Album);
-                if (!string.Equals(artist, legacyArtist, StringComparison.OrdinalIgnoreCase)
-                    || !string.Equals(albumFolder, legacyAlbumFolder, StringComparison.OrdinalIgnoreCase))
+                string repArtist = ResolveAlbumRepresentativeArtist(album, track, fallbackIdentities);
+                string repAlbum = ResolveEffectiveDestinationAlbum(track, album.Title);
+                foreach (var (artistFolder, albumFolder) in BuildTrackCandidateDirectories(track, repArtist, repAlbum))
                 {
-                    AddTarget(targets, legacyArtist, legacyAlbumFolder);
+                    AddTarget(targets, artistFolder, albumFolder);
                 }
             }
         }
@@ -1230,11 +1386,15 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="deviceFileKeys">デバイス上の正規化済み相対パス／ファイル名キーセット</param>
     internal static void ApplyDeviceTrackIndex(IReadOnlyList<Album> albums, IReadOnlySet<string> deviceFileKeys)
     {
+        var fallbackIdentities = BuildFallbackAlbumIdentitiesIfNeeded(albums);
+
         foreach (var album in albums)
         {
             album.ApplyTracksOnDeviceState(track =>
             {
-                foreach (var relativeKey in BuildExpectedTrackRelativeKeys(track))
+                string repArtist = ResolveAlbumRepresentativeArtist(album, track, fallbackIdentities);
+                string repAlbum = ResolveEffectiveDestinationAlbum(track, album.Title);
+                foreach (var relativeKey in BuildExpectedTrackRelativeKeys(track, repArtist, repAlbum))
                 {
                     if (!string.IsNullOrEmpty(relativeKey) && deviceFileKeys.Contains(relativeKey))
                     {
@@ -2223,6 +2383,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     {
         ArgumentNullException.ThrowIfNull(mtpClient);
 
+        var destinationMetadataByTrack = BuildTrackDestinationMetadataMap(_getAlbums(), tracksToTransfer);
+
         return Task.Run(async () =>
         {
             int total = tracksToTransfer.Count;
@@ -2232,8 +2394,12 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!File.Exists(track.FilePath)) continue;
 
-                string artist = SanitizeFileName(track.Artist);
-                string album = SanitizeFileName(track.Album);
+                var (repArtist, repAlbum) = destinationMetadataByTrack.TryGetValue(track, out var metadata)
+                    ? metadata
+                    : (ResolveEffectiveDestinationArtist(track, representativeArtist: null), track.Album);
+                var candidateDirs = BuildTrackCandidateDirectories(track, repArtist, repAlbum);
+                var (artist, album) = candidateDirs[0];
+
                 string targetFileName = _audioTranscodeService.ResolveTargetFileName(track.FilePath, transcodeOptions);
                 string originalFileName = Path.GetFileName(track.FilePath);
 
@@ -2241,15 +2407,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 string targetDir = Path.Combine(artistDir, album);
                 string destPath = Path.Combine(targetDir, targetFileName);
 
-                // 変換後または元ファイル名のいずれかが既に存在する場合はスキップ（旧末尾ピリオド配置含む）
+                // 変換後または元ファイル名のいずれかが新配置または旧配置に既に存在する場合はスキップ
                 bool fileExists = CheckMtpTrackAlreadyExists(
                     mtpClient,
                     destinationFolder,
-                    artist,
-                    album,
+                    candidateDirs,
                     targetFileName,
-                    originalFileName,
-                    track);
+                    originalFileName);
 
                 if (fileExists)
                 {
@@ -2286,40 +2450,45 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private static bool CheckMtpTrackAlreadyExists(
         IMtpDeviceClient mtpClient,
         string destinationFolder,
-        string artist,
-        string album,
+        IReadOnlyList<(string ArtistFolder, string AlbumFolder)> candidateDirs,
         string targetFileName,
-        string originalFileName,
-        Track track)
+        string originalFileName)
     {
-        static bool ExistsInDirectory(IMtpDeviceClient client, string dir, string targetFile, string origFile)
+        foreach (var (artistFolder, albumFolder) in candidateDirs)
         {
-            string destPath = Path.Combine(dir, targetFile);
-            string originalDestPath = Path.Combine(dir, origFile);
+            string dir = Path.Combine(destinationFolder, artistFolder, albumFolder);
+            string destPath = Path.Combine(dir, targetFileName);
+            string originalDestPath = Path.Combine(dir, originalFileName);
             try
             {
-                return client.FileExists(destPath)
-                    || (!string.Equals(destPath, originalDestPath, StringComparison.OrdinalIgnoreCase) && client.FileExists(originalDestPath));
+                if (mtpClient.FileExists(destPath)
+                    || (!string.Equals(destPath, originalDestPath, StringComparison.OrdinalIgnoreCase) && mtpClient.FileExists(originalDestPath)))
+                {
+                    return true;
+                }
             }
             catch
             {
-                return false;
+                // 単一候補の確認失敗時は他候補チェックを継続
             }
         }
 
-        string targetDir = Path.Combine(destinationFolder, artist, album);
-        if (ExistsInDirectory(mtpClient, targetDir, targetFileName, originalFileName))
-        {
-            return true;
-        }
+        return false;
+    }
 
-        string legacyArtist = SanitizeLegacyFileName(track.Artist);
-        string legacyAlbum = SanitizeLegacyFileName(track.Album);
-        if (!string.Equals(artist, legacyArtist, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(album, legacyAlbum, StringComparison.OrdinalIgnoreCase))
+    private static bool CheckFileSystemTrackAlreadyExists(
+        string destinationFolder,
+        IReadOnlyList<(string ArtistFolder, string AlbumFolder)> candidateDirs,
+        string targetFileName,
+        string originalFileName)
+    {
+        foreach (var (artistFolder, albumFolder) in candidateDirs)
         {
-            string legacyDir = Path.Combine(destinationFolder, legacyArtist, legacyAlbum);
-            if (ExistsInDirectory(mtpClient, legacyDir, targetFileName, originalFileName))
+            string dir = Path.Combine(destinationFolder, artistFolder, albumFolder);
+            string destPath = Path.Combine(dir, targetFileName);
+            string originalDestPath = Path.Combine(dir, originalFileName);
+            if (File.Exists(destPath)
+                || (!string.Equals(destPath, originalDestPath, StringComparison.OrdinalIgnoreCase) && File.Exists(originalDestPath)))
             {
                 return true;
             }
@@ -2371,6 +2540,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        var destinationMetadataByTrack = BuildTrackDestinationMetadataMap(_getAlbums(), tracksToTransfer);
+
         return Task.Run(async () =>
         {
             int total = tracksToTransfer.Count;
@@ -2380,17 +2551,19 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!System.IO.File.Exists(track.FilePath)) continue;
 
-                string artist = SanitizeFileName(track.Artist);
-                string album = SanitizeFileName(track.Album);
+                var (repArtist, repAlbum) = destinationMetadataByTrack.TryGetValue(track, out var metadata)
+                    ? metadata
+                    : (ResolveEffectiveDestinationArtist(track, representativeArtist: null), track.Album);
+                var candidateDirs = BuildTrackCandidateDirectories(track, repArtist, repAlbum);
+                var (artist, album) = candidateDirs[0];
                 string targetFileName = _audioTranscodeService.ResolveTargetFileName(track.FilePath, transcodeOptions);
+                string originalFileName = System.IO.Path.GetFileName(track.FilePath);
 
                 string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
                 string destPath = System.IO.Path.Combine(targetDir, targetFileName);
-                string originalDestPath = System.IO.Path.Combine(targetDir, System.IO.Path.GetFileName(track.FilePath));
 
-                // 変換後または元ファイル名のいずれかが既に存在する場合はスキップ（#170 重複判定整合）
-                if (System.IO.File.Exists(destPath)
-                    || (!string.Equals(destPath, originalDestPath, StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(originalDestPath)))
+                // 変換後または元ファイル名のいずれかが新配置または旧配置に既に存在する場合はスキップ（#170 / #398 重複判定整合）
+                if (CheckFileSystemTrackAlreadyExists(destinationFolder, candidateDirs, targetFileName, originalFileName))
                 {
                     current++;
                     progress?.Report((double)current / total * 100);
