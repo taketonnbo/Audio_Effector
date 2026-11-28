@@ -390,6 +390,34 @@
                                    Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                                    Margin="20,0,0,15"
                                    TextWrapping="Wrap"/>
+
+                        <TextBlock Text="歌詞ファイル（.lrc）の同梱転送" Margin="0,5,0,8" Foreground="{DynamicResource SecondaryTextForegroundBrush}"/>
+
+                        <CheckBox x:Name="TransferManualLrcFilesCheckBox"
+                                  Content="自動生成以外（手動作成・外部取得等）の .lrc ファイルを転送に含める"
+                                  IsChecked="{Binding TransferManualLrcFiles, Mode=TwoWay}"
+                                  Margin="0,0,0,8"
+                                  Foreground="{DynamicResource TextForegroundBrush}"
+                                  VerticalContentAlignment="Center"/>
+
+                        <CheckBox x:Name="TransferTextAlignedLrcFilesCheckBox"
+                                  Content="テキストから自動生成した .lrc ファイルを転送に含める"
+                                  IsChecked="{Binding TransferTextAlignedLrcFiles, Mode=TwoWay}"
+                                  Margin="0,0,0,8"
+                                  Foreground="{DynamicResource TextForegroundBrush}"
+                                  VerticalContentAlignment="Center"/>
+
+                        <CheckBox x:Name="TransferTranscribedLrcFilesCheckBox"
+                                  Content="音声から自動文字起こし生成した .lrc ファイルを転送に含める"
+                                  IsChecked="{Binding TransferTranscribedLrcFiles, Mode=TwoWay}"
+                                  Margin="0,0,0,5"
+                                  Foreground="{DynamicResource TextForegroundBrush}"
+                                  VerticalContentAlignment="Center"/>
+                        <TextBlock Text="※音声ファイルと同階層・同名の .lrc ファイルが存在し、該当する種別が有効な場合のみ音声ファイルと同じ転送先フォルダへ同名ベースで同梱転送されます。識別タグが付与されていない既存の .lrc は「自動生成以外（手動・外部）」として扱われます。音声からの自動文字起こし .lrc には誤認識が含まれる場合があります。"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                   Margin="20,0,0,15"
+                                   TextWrapping="Wrap"/>
                     </StackPanel>
 
                     <!-- Placeholder for other categories -->
