@@ -281,7 +281,18 @@ public class DeviceManagerViewModel : ViewModelBase
     /// </summary>
     private sealed class PcAlbumTrackIndex
     {
+        private static readonly HashSet<char> InvalidFileNameChars = new(Path.GetInvalidFileNameChars());
+
+        private static readonly (bool ReplaceInvalidWithUnderscore, bool TrimTrailingDots)[] DirectorySanitizeModes =
+        {
+            (true, true),   // 新規則: 禁止文字 _ 置換 + 末尾ピリオド除去（正規新配置）
+            (false, true),  // 互換: 旧禁止文字除去 + 末尾ピリオド除去
+            (true, false),  // 互換: 禁止文字 _ 置換 + 旧末尾ピリオド保持
+            (false, false)  // 互換: 旧禁止文字除去 + 旧末尾ピリオド保持
+        };
+
         private readonly Dictionary<ArtistTitleKey, TrackNumberLookup> _byArtistAndTitle = new(ArtistTitleKeyComparer.Instance);
+        private readonly Dictionary<ArtistTitleKey, TrackNumberLookup> _byPerformerAndTitle = new(ArtistTitleKeyComparer.Instance);
         private readonly Dictionary<string, TrackNumberLookup> _byTitle = new(StringComparer.OrdinalIgnoreCase);
 
         public static PcAlbumTrackIndex? Create(IReadOnlyList<Album>? pcAlbums)
@@ -296,7 +307,7 @@ public class DeviceManagerViewModel : ViewModelBase
 
             foreach (var album in pcAlbums)
             {
-                if (album == null || album.Tracks == null || album.Tracks.Count == 0)
+                if (album == null)
                 {
                     continue;
                 }
@@ -308,6 +319,25 @@ public class DeviceManagerViewModel : ViewModelBase
                 }
 
                 var artistKeys = BuildNormalizedFolderKeys(album.Artist);
+
+                // TrackNumber == 0 のみのアルバムも既知の (Artist, Title) として登録し、
+                // 同名タイトルの別アーティストアルバムへ誤フォールバックしないようにする
+                foreach (var titleKey in titleKeys)
+                {
+                    foreach (var artistKey in artistKeys)
+                    {
+                        var pairKey = new ArtistTitleKey(artistKey, titleKey);
+                        if (!index._byArtistAndTitle.ContainsKey(pairKey))
+                        {
+                            index._byArtistAndTitle[pairKey] = new TrackNumberLookup();
+                        }
+                    }
+                }
+
+                if (album.Tracks == null || album.Tracks.Count == 0)
+                {
+                    continue;
+                }
 
                 foreach (var track in album.Tracks)
                 {
@@ -330,12 +360,27 @@ public class DeviceManagerViewModel : ViewModelBase
                         foreach (var artistKey in artistKeys)
                         {
                             var pairKey = new ArtistTitleKey(artistKey, titleKey);
-                            if (!index._byArtistAndTitle.TryGetValue(pairKey, out var pairLookup))
+                            index._byArtistAndTitle[pairKey].Register(track);
+                        }
+                    }
+
+                    // 旧曲別アーティスト配置（Track.Artist 配下）との互換照合用に補助登録する
+                    if (!string.IsNullOrWhiteSpace(track.Artist)
+                        && !string.Equals(track.Artist.Trim(), album.Artist?.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        var performerKeys = BuildNormalizedFolderKeys(track.Artist);
+                        foreach (var titleKey in titleKeys)
+                        {
+                            foreach (var performerKey in performerKeys)
                             {
-                                pairLookup = new TrackNumberLookup();
-                                index._byArtistAndTitle[pairKey] = pairLookup;
+                                var performerPairKey = new ArtistTitleKey(performerKey, titleKey);
+                                if (!index._byPerformerAndTitle.TryGetValue(performerPairKey, out var performerLookup))
+                                {
+                                    performerLookup = new TrackNumberLookup();
+                                    index._byPerformerAndTitle[performerPairKey] = performerLookup;
+                                }
+                                performerLookup.Register(track);
                             }
-                            pairLookup.Register(track);
                         }
                     }
                 }
@@ -355,13 +400,45 @@ public class DeviceManagerViewModel : ViewModelBase
             string trimmedTitle = album.Title.Trim();
             string trimmedArtist = album.Artist?.Trim() ?? string.Empty;
 
-            if (!string.IsNullOrEmpty(trimmedArtist)
-                && _byArtistAndTitle.TryGetValue(new ArtistTitleKey(trimmedArtist, trimmedTitle), out var pairLookup)
-                && pairLookup.TryGetTrackNumber(track, out trackNumber))
+            if (!IsAmbiguousArtist(trimmedArtist))
             {
-                return true;
+                var artistTitleKey = new ArtistTitleKey(trimmedArtist, trimmedTitle);
+
+                // (Artist, Title) が既知のPC側アルバムと一致した場合はその結果で確定し、
+                // 対象曲が TrackNumber == 0 または端末独自ファイルでも他アーティストの _byTitle へフォールバックしない
+                if (_byArtistAndTitle.TryGetValue(artistTitleKey, out var pairLookup))
+                {
+                    return pairLookup.TryGetTrackNumber(track, out trackNumber);
+                }
+
+                // 旧曲別アーティスト配置（Track.Artist 配下）での一致を確認する
+                if (_byPerformerAndTitle.TryGetValue(artistTitleKey, out var performerLookup))
+                {
+                    return performerLookup.TryGetTrackNumber(track, out trackNumber);
+                }
+
+                // 明確な別アーティスト（PC未登録）の場合は同名タイトルの他アーティストへ誤フォールバックしない
+                return false;
             }
 
+            // 複数フォルダ結合（Various Artists）や Unknown Artist / 空文字の場合:
+            // まずトラックの実パスから親アーティストフォルダ名を抽出して高精度照合する
+            string trackArtist = ExtractParentArtistName(track.Path);
+            if (!IsAmbiguousArtist(trackArtist))
+            {
+                var trackArtistKey = new ArtistTitleKey(trackArtist, trimmedTitle);
+                if (_byArtistAndTitle.TryGetValue(trackArtistKey, out var trackPairLookup))
+                {
+                    return trackPairLookup.TryGetTrackNumber(track, out trackNumber);
+                }
+
+                if (_byPerformerAndTitle.TryGetValue(trackArtistKey, out var trackPerformerLookup))
+                {
+                    return trackPerformerLookup.TryGetTrackNumber(track, out trackNumber);
+                }
+            }
+
+            // アーティスト名が特定できない結合アルバム等に限定してタイトル一致へフォールバックする
             if (_byTitle.TryGetValue(trimmedTitle, out var titleLookup)
                 && titleLookup.TryGetTrackNumber(track, out trackNumber))
             {
@@ -371,25 +448,114 @@ public class DeviceManagerViewModel : ViewModelBase
             return false;
         }
 
+        private static bool IsAmbiguousArtist(string? artist)
+            => string.IsNullOrWhiteSpace(artist)
+                || string.Equals(artist, "Unknown Artist", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(artist, "Various Artists", StringComparison.OrdinalIgnoreCase);
+
+        private static string ExtractParentArtistName(string? trackPath)
+        {
+            if (string.IsNullOrWhiteSpace(trackPath))
+            {
+                return string.Empty;
+            }
+
+            string normalized = trackPath.Replace('/', '\\');
+            string albumDir = GetParentDirectory(normalized);
+            if (string.IsNullOrEmpty(albumDir) || albumDir == @"\")
+            {
+                return string.Empty;
+            }
+
+            string artistDir = GetParentDirectory(albumDir);
+            if (string.IsNullOrEmpty(artistDir) || artistDir == @"\")
+            {
+                return string.Empty;
+            }
+
+            return Path.GetFileName(artistDir) ?? string.Empty;
+        }
+
         private static List<string> BuildNormalizedFolderKeys(string? rawName)
         {
-            var keys = new List<string>(2);
+            var keys = new List<string>(DirectorySanitizeModes.Length + 1);
             if (string.IsNullOrWhiteSpace(rawName))
             {
                 return keys;
             }
 
             string trimmed = rawName.Trim();
-            keys.Add(trimmed);
+            AddUniqueKey(keys, trimmed);
 
-            string sanitized = DeviceBrowserViewModel.SanitizeFileName(trimmed);
-            if (!string.IsNullOrWhiteSpace(sanitized)
-                && !string.Equals(sanitized, trimmed, StringComparison.OrdinalIgnoreCase))
+            foreach (var (replaceInvalidWithUnderscore, trimTrailingDots) in DirectorySanitizeModes)
             {
-                keys.Add(sanitized);
+                string sanitized = SanitizeFolderName(trimmed, replaceInvalidWithUnderscore, trimTrailingDots);
+                AddUniqueKey(keys, sanitized);
             }
 
             return keys;
+        }
+
+        private static void AddUniqueKey(List<string> keys, string candidate)
+        {
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                return;
+            }
+
+            for (int i = 0; i < keys.Count; i++)
+            {
+                if (string.Equals(keys[i], candidate, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            keys.Add(candidate);
+        }
+
+        private static string SanitizeFolderName(string trimmedInput, bool replaceInvalidWithUnderscore, bool trimTrailingDots)
+        {
+            string cleaned;
+            if (replaceInvalidWithUnderscore)
+            {
+                var chars = new char[trimmedInput.Length];
+                for (int i = 0; i < trimmedInput.Length; i++)
+                {
+                    char c = trimmedInput[i];
+                    chars[i] = InvalidFileNameChars.Contains(c) ? '_' : c;
+                }
+
+                cleaned = new string(chars).Trim();
+            }
+            else
+            {
+                var buffer = new char[trimmedInput.Length];
+                int length = 0;
+                for (int i = 0; i < trimmedInput.Length; i++)
+                {
+                    char c = trimmedInput[i];
+                    if (!InvalidFileNameChars.Contains(c))
+                    {
+                        buffer[length++] = c;
+                    }
+                }
+
+                cleaned = new string(buffer, 0, length).Trim();
+            }
+
+            int end = cleaned.Length;
+            while (end > 0 && (cleaned[end - 1] == '.' || char.IsWhiteSpace(cleaned[end - 1])))
+            {
+                end--;
+            }
+
+            if (end == 0)
+            {
+                return "Unknown";
+            }
+
+            return trimTrailingDots ? cleaned.Substring(0, end) : cleaned;
         }
 
         private readonly struct ArtistTitleKey
@@ -836,7 +1002,7 @@ public class DeviceManagerViewModel : ViewModelBase
         }
     }
 
-    private string GetParentDirectory(string path)
+    private static string GetParentDirectory(string path)
     {
         if (string.IsNullOrEmpty(path)) return string.Empty;
         path = path.TrimEnd('\\');
