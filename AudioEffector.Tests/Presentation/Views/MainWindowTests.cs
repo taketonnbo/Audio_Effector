@@ -86,10 +86,11 @@ public sealed class MainWindowTests
     }
 
     /// <summary>
-    /// MainWindow.xaml の右側タブ右上へ歌詞トグルボタン、コンパクト上部情報行へ干渉防止マージン、下部拡張領域へ LyricsView が統合されていることを検証します。
+    /// MainWindow.xaml の右側タブ右上に拡大／縮小の単一ボタン、コンパクト上部情報行へ干渉防止マージン、
+    /// 下部拡張領域へ 3 タブバーおよび LyricsView / ListeningStatsView が仕様通り定義されていることを検証します。
     /// </summary>
     [Fact]
-    public void MainWindowXaml_右側タブ歌詞表示統合_トグルボタンとマージンとLyricsViewが仕様通り定義されていること()
+    public void MainWindowXaml_右側タブ3タブ統合_単一サイズ切替ボタンとマージンと3タブおよびビューが仕様通り定義されていること()
     {
         // Arrange
         string? repoRoot = FindRepositoryRoot(AppContext.BaseDirectory);
@@ -101,22 +102,42 @@ public sealed class MainWindowTests
         XNamespace viewsNs = "clr-namespace:AudioEffector.Presentation.Views";
 
         // Act
-        var lyricsToggleButton = System.Linq.Enumerable.Single(
+        var legacyLyricsToggle = System.Linq.Enumerable.FirstOrDefault(
             sut.Descendants(wpfn + "ToggleButton"),
             el => string.Equals((string?)el.Attribute(xNs + "Name"), "LyricsToggleButton", StringComparison.Ordinal));
+        var sizeModeButton = System.Linq.Enumerable.Single(
+            sut.Descendants(wpfn + "Button"),
+            el => string.Equals((string?)el.Attribute(xNs + "Name"), "AlbumViewSizeModeButton", StringComparison.Ordinal));
         var compactInfoGrid = System.Linq.Enumerable.Single(
             sut.Descendants(wpfn + "Grid"),
             el => string.Equals((string?)el.Attribute(xNs + "Name"), "RightPanelCompactInfoGrid", StringComparison.Ordinal));
+        var lyricsTabButton = System.Linq.Enumerable.Single(
+            sut.Descendants(wpfn + "Button"),
+            el => string.Equals((string?)el.Attribute(xNs + "Name"), "RightExtensionLyricsTabButton", StringComparison.Ordinal));
+        var dashboardTabButton = System.Linq.Enumerable.Single(
+            sut.Descendants(wpfn + "Button"),
+            el => string.Equals((string?)el.Attribute(xNs + "Name"), "RightExtensionDashboardTabButton", StringComparison.Ordinal));
+        var tagsTabButton = System.Linq.Enumerable.Single(
+            sut.Descendants(wpfn + "Button"),
+            el => string.Equals((string?)el.Attribute(xNs + "Name"), "RightExtensionTagsTabButton", StringComparison.Ordinal));
         var lyricsView = System.Linq.Enumerable.Single(
             sut.Descendants(viewsNs + "LyricsView"),
             el => string.Equals((string?)el.Attribute(xNs + "Name"), "RightPanelLyricsView", StringComparison.Ordinal));
+        var dashboardView = System.Linq.Enumerable.Single(
+            sut.Descendants(viewsNs + "ListeningStatsView"),
+            el => string.Equals((string?)el.Attribute(xNs + "Name"), "RightPanelDashboardView", StringComparison.Ordinal));
 
         // Assert
-        Assert.Equal("{Binding ToggleLyricsPanelCommand}", (string?)lyricsToggleButton.Attribute("Command"));
-        Assert.Equal("28", (string?)lyricsToggleButton.Attribute("Width"));
-        Assert.Equal("28", (string?)lyricsToggleButton.Attribute("Height"));
-        Assert.Equal("0,0,68,8", (string?)compactInfoGrid.Attribute("Margin"));
+        Assert.Null(legacyLyricsToggle);
+        Assert.Equal("{Binding ToggleAlbumViewSizeModeCommand}", (string?)sizeModeButton.Attribute("Command"));
+        Assert.Equal("28", (string?)sizeModeButton.Attribute("Width"));
+        Assert.Equal("28", (string?)sizeModeButton.Attribute("Height"));
+        Assert.Equal("0,0,38,8", (string?)compactInfoGrid.Attribute("Margin"));
+        Assert.Equal("{Binding SelectRightExtensionTabCommand}", (string?)lyricsTabButton.Attribute("Command"));
+        Assert.Equal("{Binding SelectRightExtensionTabCommand}", (string?)dashboardTabButton.Attribute("Command"));
+        Assert.Equal("{Binding SelectRightExtensionTabCommand}", (string?)tagsTabButton.Attribute("Command"));
         Assert.Equal("{Binding Lyrics}", (string?)lyricsView.Attribute("DataContext"));
+        Assert.Equal("{Binding ListeningStats}", (string?)dashboardView.Attribute("DataContext"));
     }
 
     private static string? FindRepositoryRoot(string startDir)

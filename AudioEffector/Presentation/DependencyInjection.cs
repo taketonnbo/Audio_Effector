@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.AddSingleton<NowPlayingViewModel>();
         services.AddSingleton<LyricsViewModel>();
         services.AddSingleton<LrcGeneratorViewModel>();
+        services.AddSingleton<ListeningStatsViewModel>();
         services.AddSingleton<SettingsViewModel>();
 
         // 全体ViewModel

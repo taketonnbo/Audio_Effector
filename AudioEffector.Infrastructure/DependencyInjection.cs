@@ -54,9 +54,11 @@ public static class DependencyInjection
         services.AddSingleton<ISettingsRepository>(sp => new JsonSettingsRepository(
             sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("settings.json"),
             sp.GetRequiredService<IJsonFileLockHelper>()));
-        services.AddSingleton<IRecentTrackRepository>(sp => new JsonRecentTrackRepository(
+        services.AddSingleton<JsonListeningStatsRepository>(sp => new JsonListeningStatsRepository(
             sp.GetRequiredService<IDataDirectoryProvider>(),
             sp.GetRequiredService<IJsonFileLockHelper>()));
+        services.AddSingleton<IListeningStatsRepository>(sp => sp.GetRequiredService<JsonListeningStatsRepository>());
+        services.AddSingleton<IRecentTrackRepository>(sp => sp.GetRequiredService<JsonListeningStatsRepository>());
 
         // データ転送アダプターおよび音声変換サービス
         services.AddSingleton<IDataTransferRepository, MtpDataTransferAdapter>();

@@ -391,6 +391,65 @@ public sealed class RecentViewModelTests
         Assert.True(sut.IsEmpty);
     }
 
+    /// <summary>
+    /// 統合リスニング統計リポジトリ（IListeningStatsRepository）使用時、100件を超えて記録しても表示側のみ100件に絞り、
+    /// 永続化側の全曲統計や日時毎再生イベントは切り捨てられず履歴削除でも保持されることを検証します。
+    /// </summary>
+    [Fact]
+    public void 統合リポジトリ連携_100件超記録および履歴クリア実行時_表示100件制限と全曲統計保全を両立すること()
+    {
+        // Arrange
+        var (owner, _, audio, library) = CreateSut();
+        using var ownedLibrary = library;
+        using var ownedView = owner;
+        var directory = System.IO.Directory.CreateTempSubdirectory();
+        try
+        {
+            string statsPath = System.IO.Path.Combine(directory.FullName, "ListeningStats.json");
+            var statsRepo = new AudioEffector.Infrastructure.Repository.JsonListeningStatsRepository(statsPath);
+            var baseTime = new DateTime(2026, 11, 29, 0, 0, 0);
+            int tick = 0;
+
+            var firstTrack = CreateTrack("StatTrack 1");
+            statsRepo.Update(data =>
+            {
+                var stat = TrackListeningStat.FromTrack(firstTrack);
+                stat.RecordPlaybackCompleted(firstTrack, baseTime, firstTrack.Duration);
+                data.TrackStats.Add(stat);
+                data.PlayEvents.Add(TrackPlayEvent.FromTrack(firstTrack, baseTime));
+            });
+
+            using var sut = new RecentViewModel((IListeningStatsRepository)statsRepo, library, audio, () => baseTime.AddMinutes(++tick));
+
+            // Act 1: 105曲を記録（表示は100件に絞られる）
+            for (int i = 1; i <= 105; i++)
+            {
+                sut.RecordTrack(CreateTrack($"StatTrack {i}"));
+            }
+
+            // Assert 1: 表示は100件だが、永続化側の全105曲統計・PlayEventsは切り捨てられない
+            Assert.Equal(RecentViewModel.MaxHistoryCount, sut.FilteredEntries.Count);
+            ListeningStatsData afterRecord = statsRepo.Load();
+            Assert.Equal(105, afterRecord.TrackStats.Count);
+            Assert.Equal(1, afterRecord.FindTrackStat(firstTrack.FilePath)!.PlayCount);
+            Assert.Single(afterRecord.PlayEvents);
+
+            // Act 2: 履歴クリア
+            sut.ClearHistory();
+
+            // Assert 2: 履歴表示は空になるが、統計本体とPlayEventsは保持される
+            Assert.Empty(sut.FilteredEntries);
+            ListeningStatsData afterClear = statsRepo.Load();
+            Assert.Equal(105, afterClear.TrackStats.Count);
+            Assert.Equal(1, afterClear.FindTrackStat(firstTrack.FilePath)!.PlayCount);
+            Assert.Single(afterClear.PlayEvents);
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
+    }
+
     private sealed class InMemoryRecentRepository : IRecentTrackRepository
     {
         public List<RecentTrackEntry> SavedEntries { get; private set; } = new();
