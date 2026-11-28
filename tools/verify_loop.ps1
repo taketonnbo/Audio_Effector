@@ -4,15 +4,16 @@
 
 .DESCRIPTION
     AI エージェントが自律開発ループの各イテレーション完了判定として単一コマンドで実行できる品質ゲートスクリプトです。
-    以下の 5 ゲートを順次実行し、全ゲート合格時に終了コード 0、いずれか失敗時に終了コード 1 を返します。
+    以下の 6 ゲートを順次実行し、全ゲート合格時に終了コード 0、いずれか失敗時に終了コード 1 を返します。
       1. 隔離ビルド検証 (build_rules.md 準拠、警告 0 必須、終了時 .agent_build 自動削除)
       2. 単体テスト検証 (ソリューション単位 dotnet test、フィルタおよびタイムアウト保護対応)
       3. 仕様書同期検証 (check_spec_sync.py --strict、最終ゲート必須、途中反復時のみ -SkipSpecSync 許可)
       4. XAML バインディング・インデクサ等価性検証 (XAML 変更時または -Full 指定時に check_equivalence.py を実行)
       5. Python ツール単体テスト検証 (tools/ 変更時または -Full 指定時に tools/tests の unittest を実行)
+      6. サードパーティライセンス記載同期検証 (対象ファイル変更時または -Full 指定時に check_license_sync.py --strict を実行)
 
 .PARAMETER BaseBranch
-    仕様書同期チェックおよび XAML 変更検出の比較ベースブランチ (既定: develop)
+    仕様書同期チェック、XAML 変更検出、およびライセンス同期チェックの比較ベースブランチ (既定: develop)
 
 .PARAMETER PreferOriginBase
     比較元コミット解決時にローカルブランチより origin/<BaseBranch> を優先する。
@@ -30,6 +31,9 @@
 .PARAMETER BuildTimeoutSeconds
     dotnet build のタイムアウト秒数 (既定: 120)
 
+.PARAMETER PythonTestTimeoutSeconds
+    Python ツール単体テスト (Gate 5) のタイムアウト秒数 (既定: 240)
+
 .PARAMETER BuildLockTimeoutSeconds
     並列ワークツリー実行時のビルド競合保護用名前付き Mutex の待機タイムアウト秒数 (既定: 300)
 
@@ -39,8 +43,14 @@
 .PARAMETER SkipSpecSync
     実装途中の高速イテレーション時のみ仕様書同期検証をスキップする (最終ゲート・PR 作成前は使用禁止、-Full 指定時は無視される)
 
+.PARAMETER SkipLicenseSync
+    実装途中の高速イテレーション時のみライセンス記載同期検証をスキップする (最終ゲート・PR 作成前は使用禁止、-Full 指定時は無視される)
+
+.PARAMETER StrictAllLicenses
+    ライセンス記載同期検証で比較ベース以前からの既存未記載パッケージも含めて失敗扱いとする (--strict-all を転送)
+
 .PARAMETER Full
-    最終完了ゲートモード。-SkipSpecSync を無効化し、XAML 変更の有無に関わらず XAML 等価性検証を含めた全ゲートを実行する
+    最終完了ゲートモード。-SkipSpecSync / -SkipLicenseSync を無効化し、XAML 等価性・Python ツールテスト・ライセンス記載同期を含めた全 6 ゲートを実行する
 
 .PARAMETER StrictWarnings
     ビルド警告が 1 件以上ある場合に失敗とする厳格モード (本ソリューションは現状警告 0 のため既定で有効)
@@ -65,9 +75,12 @@ param(
     [string]$TestFilter = "",
     [int]$TestTimeoutSeconds = 180,
     [int]$BuildTimeoutSeconds = 120,
+    [int]$PythonTestTimeoutSeconds = 240,
     [int]$BuildLockTimeoutSeconds = 300,
     [switch]$NoBuildLock,
     [switch]$SkipSpecSync,
+    [switch]$SkipLicenseSync,
+    [switch]$StrictAllLicenses,
     [switch]$Full,
     [switch]$StrictWarnings,
     [string]$JsonOut = ""
@@ -772,12 +785,141 @@ function New-GateResult {
     }
 }
 
+function Invoke-LicenseSyncGate {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRootPath,
+        [Parameter(Mandatory = $true)][string]$BaseCommit,
+        [string[]]$ChangedFiles = @(),
+        [switch]$Full,
+        [switch]$SkipLicenseSync,
+        [switch]$StrictAllLicenses,
+        [int]$TimeoutSeconds = 60
+    )
+
+    if ($SkipLicenseSync -and -not $Full) {
+        $msg = "-SkipLicenseSync 指定によりスキップしました (最終ゲート・PR 作成前はスキップ禁止)。"
+        return [PSCustomObject]@{
+            Passed     = $true
+            GateResult = (New-GateResult -Name "license_sync" -Status "SKIPPED" -DurationSeconds 0 -Summary $msg)
+            Report     = $null
+        }
+    }
+
+    $licenseScript = Join-Path $RepoRootPath "tools\check_license_sync.py"
+    if (-not (Test-Path -LiteralPath $licenseScript)) {
+        $msg = "tools/check_license_sync.py が見つからないためライセンス同期検証に失敗しました。"
+        return [PSCustomObject]@{
+            Passed     = $false
+            GateResult = (New-GateResult -Name "license_sync" -Status "FAILED" -DurationSeconds 0 -ErrorCount 1 -Summary $msg)
+            Report     = $null
+        }
+    }
+
+    $licenseTriggerFiles = @($ChangedFiles | Where-Object {
+        $_ -match '(?i)(\.csproj$|\.pubxml$|Directory\.Build\.props$|THIRD-PARTY-NOTICES\.md$|^AudioEffector/Assets/|Model.*\.cs$|(^|/)bin/.*\.dll$|^tools/check_license_sync\.py$)'
+    })
+
+    if (-not $Full -and $licenseTriggerFiles.Count -eq 0) {
+        $msg = "ライセンス関連ファイルの変更がないためスキップしました (-Full 指定で強制実行可能)。"
+        return [PSCustomObject]@{
+            Passed     = $true
+            GateResult = (New-GateResult -Name "license_sync" -Status "SKIPPED" -DurationSeconds 0 -Summary $msg)
+            Report     = $null
+        }
+    }
+
+    $licenseArgs = @("-B", $licenseScript, "--base", $BaseCommit, "--strict", "--json", "--repo-root", $RepoRootPath)
+    if ($StrictAllLicenses) {
+        $licenseArgs += "--strict-all"
+    }
+
+    $licExec = Invoke-ExternalCommand -FilePath "python" -ArgumentList $licenseArgs -WorkingDirectory $RepoRootPath -TimeoutSeconds $TimeoutSeconds
+    if ($licExec.StartFailed) {
+        $msg = "コマンド '$($licExec.FilePath)' の起動に失敗しました: $($licExec.StartError)"
+        return [PSCustomObject]@{
+            Passed     = $false
+            GateResult = (New-GateResult -Name "license_sync" -Status "FAILED" -DurationSeconds $licExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details @($licExec.Command, $licExec.StartError))
+            Report     = $null
+        }
+    }
+
+    if ($licExec.TimedOut) {
+        $msg = "サードパーティライセンス記載同期チェックがタイムアウトしました (${TimeoutSeconds}秒)。"
+        return [PSCustomObject]@{
+            Passed     = $false
+            GateResult = (New-GateResult -Name "license_sync" -Status "FAILED" -DurationSeconds $licExec.DurationSeconds -ErrorCount 1 -Summary $msg)
+            Report     = $null
+        }
+    }
+
+    $licJson = $null
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($licExec.StdOut)) {
+            $licJson = $licExec.StdOut | ConvertFrom-Json
+        }
+    }
+    catch {
+        $licJson = $null
+    }
+
+    if ($null -eq $licJson) {
+        $msg = "check_license_sync.py の出力解析に失敗しました (ExitCode=$($licExec.ExitCode))。"
+        $detailLines = @(($licExec.StdOut + "`n" + $licExec.StdErr) -split "`r?`n" | Where-Object { $_.Trim() -ne "" } | Select-Object -Last 15)
+        return [PSCustomObject]@{
+            Passed     = $false
+            GateResult = (New-GateResult -Name "license_sync" -Status "FAILED" -DurationSeconds $licExec.DurationSeconds -ErrorCount 1 -Summary $msg -Details $detailLines)
+            Report     = $null
+        }
+    }
+
+    $blockingErrors = @($licJson.blocking_errors)
+    $warnings = @($licJson.warnings)
+    $missingPkgs = @($licJson.missing_packages)
+    $versionMismatches = @($licJson.version_mismatches)
+    $diffViolations = @($licJson.diff_package_violations)
+    $reviewTriggers = @($licJson.review_triggers)
+    $lgplRisks = @($licJson.lgpl_single_file_risks)
+    $trackedDlls = @($licJson.tracked_bin_dlls)
+
+    $reportSummary = [PSCustomObject][ordered]@{
+        notices_updated         = [bool]$licJson.notices_updated
+        needs_update            = [bool]$licJson.needs_update
+        missing_packages        = @($missingPkgs | ForEach-Object { $_.name })
+        version_mismatches      = @($versionMismatches | ForEach-Object { $_.name })
+        diff_package_violations = @($diffViolations | ForEach-Object { $_.reason })
+        review_triggers         = @($reviewTriggers | ForEach-Object { $_.message })
+        lgpl_single_file_risks  = @($lgplRisks | ForEach-Object { $_.message })
+        tracked_bin_dlls        = @($trackedDlls)
+        summary                 = [string]$licJson.summary
+    }
+
+    if ($licExec.ExitCode -ne 0 -or $blockingErrors.Count -gt 0) {
+        $errCount = [Math]::Max($blockingErrors.Count, 1)
+        $msg = [string]$licJson.summary
+        $detailLines = @($blockingErrors | Select-Object -First 20)
+        return [PSCustomObject]@{
+            Passed     = $false
+            GateResult = (New-GateResult -Name "license_sync" -Status "FAILED" -DurationSeconds $licExec.DurationSeconds -WarningCount $warnings.Count -ErrorCount $errCount -Summary $msg -Details $detailLines)
+            Report     = $reportSummary
+        }
+    }
+
+    $msg = [string]$licJson.summary
+    $warnDetails = @($warnings | Select-Object -First 20)
+    return [PSCustomObject]@{
+        Passed     = $true
+        GateResult = (New-GateResult -Name "license_sync" -Status "PASSED" -DurationSeconds $licExec.DurationSeconds -WarningCount $warnings.Count -ErrorCount 0 -Summary $msg -Details $warnDetails)
+        Report     = $reportSummary
+    }
+}
+
 $gateResults = New-Object System.Collections.Generic.List[object]
 $overallPassed = $true
 $cleanupSucceeded = $true
 $resolvedBaseRef = ""
 $resolvedBaseCommit = ""
 $buildLockWaitSeconds = 0.0
+$licenseSyncReport = $null
 $branchName = Get-CurrentBranchName -WorkingDirectory $repoRoot
 $isWorktree = Test-IsGitWorktree -RepoPath $repoRoot
 $buildLockMutexName = "Local\AudioEffector_VerifyLoop_BuildLock"
@@ -812,6 +954,11 @@ try {
         $preflightErrors.Add("-BuildLockTimeoutSeconds には 1 以上の整数を指定してください (指定値: $BuildLockTimeoutSeconds)。")
     }
 
+    if ($PythonTestTimeoutSeconds -le 0) {
+        $preflightOk = $false
+        $preflightErrors.Add("-PythonTestTimeoutSeconds には 1 以上の整数を指定してください (指定値: $PythonTestTimeoutSeconds)。")
+    }
+
     $baseRes = Resolve-BaseMergeCommit -BaseRef $BaseBranch -PreferOriginBase:$PreferOriginBase -FetchBase:$FetchBase -WorkingDirectory $repoRoot
     if (-not $baseRes.Success) {
         $preflightOk = $false
@@ -837,7 +984,7 @@ try {
     # ==========================================================================
     # Gate 1: 隔離ビルド検証 (build_rules.md 準拠・名前付き Mutex 直列化)
     # ==========================================================================
-    Write-GateHeader -Title "Gate 1/5: 隔離ビルド検証 (dotnet build)"
+    Write-GateHeader -Title "Gate 1/6: 隔離ビルド検証 (dotnet build)"
 
     $lockRes = Invoke-WithBuildLock -MutexName $buildLockMutexName -TimeoutSeconds $BuildLockTimeoutSeconds -Bypass:$NoBuildLock -Action {
         param($LockInfo)
@@ -851,7 +998,8 @@ try {
             }
         }
 
-        $buildArgs = @("build", $solutionPath) + $artifactsOutputArgs + @("--nologo")
+        # 他ワークツリーとの MSBuild 共有ノード競合 (MSB4166) を防ぐため -nr:false を指定
+        $buildArgs = @("build", $solutionPath) + $artifactsOutputArgs + @("-nr:false", "--nologo")
         $exec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $buildArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
 
         $combined = ($exec.StdOut + "`n" + $exec.StdErr)
@@ -859,7 +1007,7 @@ try {
         # 単一ノード (-m:1) で 1 回のみ安全リトライする（警告 0・エラー 0 の判定基準は一切緩和しない）
         if ($exec.ExitCode -ne 0 -and -not $exec.StartFailed -and -not $exec.TimedOut -and $combined -match 'error\s+RG1000:.*used by another process') {
             Write-Host "  [WARN] 並列ビルドで WPF リソースロック (RG1000) を検出しました。単一ノード (-m:1) でリトライします..." -ForegroundColor Yellow
-            $retryArgs = @("build", $solutionPath) + $artifactsOutputArgs + @("-m:1", "--nologo")
+            $retryArgs = @("build", $solutionPath) + $artifactsOutputArgs + @("-nr:false", "-m:1", "--nologo")
             $exec = Invoke-ExternalCommand -FilePath "dotnet" -ArgumentList $retryArgs -WorkingDirectory $repoRoot -TimeoutSeconds $BuildTimeoutSeconds
             $combined = ($exec.StdOut + "`n" + $exec.StdErr)
         }
@@ -944,7 +1092,7 @@ try {
     # ==========================================================================
     # Gate 2: 単体テスト検証 (ソリューション単位 dotnet test)
     # ==========================================================================
-    Write-GateHeader -Title "Gate 2/5: 単体テスト検証 (dotnet test)"
+    Write-GateHeader -Title "Gate 2/6: 単体テスト検証 (dotnet test)"
 
     $buildPassed = ($gateResults[0].status -eq "PASSED")
     if (-not $buildPassed) {
@@ -1020,7 +1168,7 @@ try {
     # ==========================================================================
     # Gate 3: 仕様書同期検証 (check_spec_sync.py)
     # ==========================================================================
-    Write-GateHeader -Title "Gate 3/5: 仕様書同期検証 (check_spec_sync.py)"
+    Write-GateHeader -Title "Gate 3/6: 仕様書同期検証 (check_spec_sync.py)"
 
     if ($SkipSpecSync -and -not $Full) {
         $msg = "-SkipSpecSync 指定によりスキップしました (最終ゲート・PR 作成前はスキップ禁止)。"
@@ -1094,7 +1242,7 @@ try {
     # ==========================================================================
     # Gate 4: XAML バインディング・インデクサ等価性検証 (check_equivalence.py)
     # ==========================================================================
-    Write-GateHeader -Title "Gate 4/5: XAML バインディング等価性検証 (check_equivalence.py)"
+    Write-GateHeader -Title "Gate 4/6: XAML バインディング等価性検証 (check_equivalence.py)"
 
     $changedFilesRes = Get-ChangedFiles -BaseCommit $resolvedBaseCommit
     if (-not $changedFilesRes.Success) {
@@ -1233,7 +1381,7 @@ try {
     # ==========================================================================
     # Gate 5: Python ツール単体テスト検証 (tools/tests)
     # ==========================================================================
-    Write-GateHeader -Title "Gate 5/5: Python ツール単体テスト検証 (unittest)"
+    Write-GateHeader -Title "Gate 5/6: Python ツール単体テスト検証 (unittest)"
 
     $pyTestsDir = Join-Path $repoRoot "tools\tests"
     if (-not (Test-Path -LiteralPath $pyTestsDir)) {
@@ -1256,7 +1404,7 @@ try {
         }
         else {
             $pyArgs = @("-B", "-m", "unittest", "discover", "-s", "tools/tests", "-v")
-            $pyExec = Invoke-ExternalCommand -FilePath "python" -ArgumentList $pyArgs -WorkingDirectory $repoRoot -TimeoutSeconds 120
+            $pyExec = Invoke-ExternalCommand -FilePath "python" -ArgumentList $pyArgs -WorkingDirectory $repoRoot -TimeoutSeconds $PythonTestTimeoutSeconds
 
             if ($pyExec.StartFailed) {
                 $overallPassed = $false
@@ -1266,7 +1414,7 @@ try {
             }
             elseif ($pyExec.TimedOut) {
                 $overallPassed = $false
-                $msg = "Python ツール単体テストがタイムアウトしました (120秒)。"
+                $msg = "Python ツール単体テストがタイムアウトしました (${PythonTestTimeoutSeconds}秒)。"
                 Write-Host "  [FAIL] $msg" -ForegroundColor Red
                 $gateResults.Add((New-GateResult -Name "python_tools_test" -Status "FAILED" -DurationSeconds $pyExec.DurationSeconds -ErrorCount 1 -Summary $msg))
             }
@@ -1292,6 +1440,41 @@ try {
                     Write-Host "  [PASS] $msg" -ForegroundColor Green
                     $gateResults.Add((New-GateResult -Name "python_tools_test" -Status "PASSED" -DurationSeconds $pyExec.DurationSeconds -WarningCount 0 -ErrorCount 0 -Summary $msg))
                 }
+            }
+        }
+    }
+
+    # ==========================================================================
+    # Gate 6: サードパーティライセンス記載同期検証 (check_license_sync.py)
+    # ==========================================================================
+    Write-GateHeader -Title "Gate 6/6: サードパーティライセンス記載同期検証 (check_license_sync.py)"
+
+    if (-not $changedFilesRes.Success) {
+        $overallPassed = $false
+        $msg = "変更ファイルの取得に失敗したためライセンス記載同期チェックを実行できません: $($changedFilesRes.Error)"
+        Write-Host "  [FAIL] $msg" -ForegroundColor Red
+        $gateResults.Add((New-GateResult -Name "license_sync" -Status "FAILED" -DurationSeconds 0 -ErrorCount 1 -Summary $msg))
+    }
+    else {
+        $licRes = Invoke-LicenseSyncGate -RepoRootPath $repoRoot -BaseCommit $resolvedBaseCommit -ChangedFiles @($changedFilesRes.Files) -Full:$Full -SkipLicenseSync:$SkipLicenseSync -StrictAllLicenses:$StrictAllLicenses -TimeoutSeconds 60
+        $licenseSyncReport = $licRes.Report
+        $licGate = $licRes.GateResult
+        $gateResults.Add($licGate)
+
+        if (-not $licRes.Passed) {
+            $overallPassed = $false
+            Write-Host "  [FAIL] $($licGate.summary)" -ForegroundColor Red
+            foreach ($d in @($licGate.details)) {
+                Write-Host "    - $d" -ForegroundColor Red
+            }
+        }
+        elseif ($licGate.status -eq "SKIPPED") {
+            Write-Host "  [SKIP] $($licGate.summary)" -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "  [PASS] $($licGate.summary)" -ForegroundColor Green
+            foreach ($d in @($licGate.details | Select-Object -First 10)) {
+                Write-Host "    [WARN] $d" -ForegroundColor Yellow
             }
         }
     }
@@ -1357,9 +1540,11 @@ if (-not [string]::IsNullOrWhiteSpace($JsonOut)) {
         build_lock_wait_seconds = $buildLockWaitSeconds
         full_mode               = [bool]$Full
         skip_spec_sync          = [bool]($SkipSpecSync -and -not $Full)
+        skip_license_sync       = [bool]($SkipLicenseSync -and -not $Full)
         test_filter             = $TestFilter
         cleanup_succeeded       = $cleanupSucceeded
         total_duration_seconds  = $totalDuration
+        license_sync            = $licenseSyncReport
         gates                   = @($gateResults.ToArray())
     }
 
