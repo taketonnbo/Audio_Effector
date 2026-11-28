@@ -30,7 +30,8 @@
 | **IsTransferring** | `bool` | 転送処理中かどうか（UI操作ロックおよびウィンドウ終了確認と連動） | 転送画面全体 | 実装済み | `DeviceBrowserViewModel.IsTransferring` |
 | **TransferProgress** | `double` | 転送進捗率（`0`〜`100`%） | 下部 `Transferring: XX%` 表示 | 実装済み | `DeviceBrowserViewModel.TransferProgress` |
 | **DeviceAlbums** | `ObservableCollection<DeviceAlbum>` | デバイス内に保存されているアルバム・楽曲一覧 | `DeviceManagerDialog.xaml` | 実装済み | `DeviceManagerViewModel.DeviceAlbums` ([DeviceManagerViewModel.cs](../../AudioEffector/Presentation/ViewModels/DeviceManagerViewModel.cs)) |
-| **DefaultDestinationPath / Transcode設定** | 各種 | 端末別既定フォルダ記憶、転送時フォーマット変換設定 | — | 拡張構想 (#96/#97/#385) | — |
+| **DeviceKey / IsCurrentFolderDefault / CurrentDeviceDefaultFolderPath** | `string` / `bool` | 機器識別子と機器ごとの既定転送先フォルダ登録状態（`AppSettings.DeviceDefaultTransferFolders` 永続化） | ナビゲーションバー（`☆ 既定` / `★ 既定`） | 実装済み (#385) | `DeviceViewModel.DeviceKey`, `DeviceBrowserViewModel.IsCurrentFolderDefault`, `CurrentDeviceDefaultFolderPath` |
+| **Transcode設定** | 各種 | 転送時フォーマット変換設定 | — | 拡張構想 (#96/#97) | — |
 
 ## 4. アクション（操作）定義
 
