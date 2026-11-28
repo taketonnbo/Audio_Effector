@@ -281,4 +281,56 @@ public sealed class DataTransferApplicationServiceTests
         mockTranscoder.Verify(t => t.PrepareForTransferAsync(It.IsAny<string>(), It.IsAny<AudioTranscodeOptions>(), It.IsAny<CancellationToken>()), Times.Never);
         mockRepo.Verify(r => r.TransferTrackAsync(mp4Track.FilePath, @"E:\Music", null, It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    /// <summary>
+    /// ConvertFlacToMp3が有効な場合、FLACトラックが変換サービス経由で一時MP3ファイルとして転送され、転送後に一時ファイルが自動削除されることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracksAsync_ConvertFlacToMp3有効時_一時MP3ファイルが転送され転送後に削除されること()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"AE_AppFlac_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string tempMp3 = Path.Combine(tempDir, "Lossless.mp3");
+        File.WriteAllText(tempMp3, "mp3-data");
+
+        var flacTrack = new Track(
+            id: TrackId.New(),
+            filePath: AudioPath.Create(@"C:\Music\Lossless.flac"),
+            title: "Lossless",
+            artist: "Artist",
+            album: "Album",
+            duration: TimeSpan.FromMinutes(4));
+
+        var mockRepo = new Mock<IDataTransferRepository>();
+        mockRepo.Setup(r => r.TransferTrackAsync(It.Is<AudioPath>(p => p.Value == tempMp3), @"E:\Music", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var mockSettings = new Mock<ISettingsService>();
+        mockSettings.Setup(s => s.LoadSettings()).Returns(new AppSettings { ConvertFlacToMp3 = true });
+
+        var mockTranscoder = new Mock<IAudioTranscodeService>();
+        mockTranscoder.Setup(t => t.NeedsTranscode(flacTrack.FilePath, It.Is<AudioTranscodeOptions>(o => o.ConvertFlacToMp3)))
+            .Returns(true);
+        using var transcodedResult = new TranscodedAudioResult(
+            flacTrack.FilePath,
+            tempMp3,
+            "Lossless.mp3",
+            wasTranscoded: true,
+            temporaryDirectoryPath: tempDir);
+        mockTranscoder.Setup(t => t.PrepareForTransferAsync(flacTrack.FilePath, It.Is<AudioTranscodeOptions>(o => o.ConvertFlacToMp3), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(transcodedResult);
+
+        var sut = new DataTransferApplicationService(mockRepo.Object, mockTranscoder.Object, mockSettings.Object);
+
+        // Act
+        int count = await sut.TransferTracksAsync([flacTrack], @"E:\Music");
+
+        // Assert
+        Assert.Equal(1, count);
+        mockRepo.Verify(r => r.TransferTrackAsync(It.Is<AudioPath>(p => p.Value == tempMp3), @"E:\Music", null, It.IsAny<CancellationToken>()), Times.Once);
+        Assert.False(File.Exists(tempMp3));
+        Assert.False(Directory.Exists(tempDir));
+    }
 }
