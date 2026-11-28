@@ -185,4 +185,56 @@ public sealed class LyricsForcedAlignerTests
         // Assert
         Assert.Equal(1.0, score, precision: 6);
     }
+
+    /// <summary>
+    /// シフトおよび背景ノイズセグメント混在条件下でも閾値未満のダミーマッチに負けず正解アンカーが選ばれることを検証します。
+    /// </summary>
+    [Fact]
+    public void Align_背景ノイズとシフトを含むセグメント列_ダミーマッチを排除し正解アンカーへ割り当てる()
+    {
+        // Arrange
+        var sut = new LyricsForcedAligner();
+        string[] lyrics = ["夜空を見上げて", "光を探した", "明日へ歩き出す", "夢を追いかけた"];
+        AlignmentSegment[] segments =
+        [
+            new(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(4), "イントロノイズ雑音"),
+            new(TimeSpan.FromSeconds(12), TimeSpan.FromSeconds(16), "夜空を見上げて"),
+            new(TimeSpan.FromSeconds(22), TimeSpan.FromSeconds(26), "光を探した"),
+            new(TimeSpan.FromSeconds(32), TimeSpan.FromSeconds(36), "明日へ歩き出す"),
+        ];
+
+        // Act
+        LyricsDocument doc = sut.Align(lyrics, segments, TimeSpan.FromSeconds(45));
+
+        // Assert
+        Assert.Equal(4, doc.Lines.Count);
+        Assert.Equal(TimeSpan.FromSeconds(12), doc.Lines[0].Timestamp);
+        Assert.Equal(TimeSpan.FromSeconds(22), doc.Lines[1].Timestamp);
+        Assert.Equal(TimeSpan.FromSeconds(32), doc.Lines[2].Timestamp);
+        Assert.True(doc.Lines[3].Timestamp > doc.Lines[2].Timestamp);
+    }
+
+    /// <summary>
+    /// 先頭アンカーが先頭セグメントと一致した場合に先頭の未認識歌詞行がアンカーと同一時刻へ張り付かず 0 秒から補間されることを検証します。
+    /// </summary>
+    [Fact]
+    public void Align_先頭セグメントが2行目以降と一致する場合_先頭未認識行が0秒からアンカーまで補間される()
+    {
+        // Arrange
+        var sut = new LyricsForcedAligner();
+        string[] lyrics = ["未認識の導入一行目", "未認識の導入二行目", "鮮明に認識されたサビ"];
+        AlignmentSegment[] segments =
+        [
+            new(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(36), "鮮明に認識されたサビ"),
+        ];
+
+        // Act
+        LyricsDocument doc = sut.Align(lyrics, segments, TimeSpan.FromSeconds(40));
+
+        // Assert
+        Assert.Equal(3, doc.Lines.Count);
+        Assert.Equal(TimeSpan.Zero, doc.Lines[0].Timestamp);
+        Assert.True(doc.Lines[1].Timestamp > TimeSpan.Zero && doc.Lines[1].Timestamp < TimeSpan.FromSeconds(30));
+        Assert.Equal(TimeSpan.FromSeconds(30), doc.Lines[2].Timestamp);
+    }
 }

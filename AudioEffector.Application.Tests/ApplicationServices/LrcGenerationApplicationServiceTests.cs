@@ -170,6 +170,51 @@ public sealed class LrcGenerationApplicationServiceTests
         Assert.False(eventFired);
     }
 
+    /// <summary>
+    /// GenerateLrcAsync に未対応拡張子ファイルを直接渡した場合にエンジンを実行せず失敗 Result を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GenerateLrcAsync_未対応拡張子ファイル_エンジンを実行せず失敗Resultを返す()
+    {
+        // Arrange
+        var engine = new FakeAudioAlignmentEngine();
+        LrcGenerationApplicationService sut = CreateSut(engine: engine);
+        var track = new Track { FilePath = @"C:\Music\Song.flac" };
+
+        // Act
+        Result<AlignmentResult> result = await sut.GenerateLrcAsync(track, "binary.mp3", allowEncodingConversion: true);
+
+        // Assert
+        Assert.True(result.IsFailure);
+        Assert.Equal(0, engine.CallCount);
+    }
+
+    /// <summary>
+    /// SaveLrcAsync で既定以外の別フォルダへ保存した場合に LyricsApplicationService のキャッシュ更新通知が発行されないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SaveLrcAsync_既定パス以外の別保存先_ファイル保存は成功しキャッシュ更新通知は発行しない()
+    {
+        // Arrange
+        var eventBus = new InMemoryEventBus();
+        var lyricsService = new LyricsApplicationService(new StubLyricsProvider(), eventBus);
+        var textService = new FakeTextEncodingService();
+        LrcGenerationApplicationService sut = CreateSut(textService: textService, lyricsService: lyricsService);
+
+        var track = new Track { FilePath = @"C:\Music\Album\01_Song.flac", Title = "01_Song" };
+        var doc = new LyricsDocument([new LyricLine(0, TimeSpan.FromSeconds(2), "別名保存")], isSynced: true);
+        bool eventFired = false;
+        lyricsService.LyricsUpdated += (_, _) => eventFired = true;
+
+        // Act
+        Result<string> result = await sut.SaveLrcAsync(track, doc, destinationPath: @"C:\Export\custom_copy.lrc", overwrite: true);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.Equal(@"C:\Export\custom_copy.lrc", textService.LastSavedPath);
+        Assert.False(eventFired);
+    }
+
     private static LrcGenerationApplicationService CreateSut(
         FakeAudioAlignmentEngine? engine = null,
         FakeTextEncodingService? textService = null,

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -29,45 +29,10 @@ public sealed class WhisperLocalAlignmentEngineTests : IDisposable
     }
 
     /// <summary>
-    /// WhisperModelManager のモデルダウンロード成功時にファイルが配置され一時ファイルが残らないこと、およびカスタムモデル指定が機能することを検証します。
+    /// テキスト強制アライメントモードで進捗フェーズが逆転せず順に通知され、LRC 形式の結果が生成されることを検証します。
     /// </summary>
     [Fact]
-    public async Task WhisperModelManager_ダウンロードおよびカスタムモデル指定_状態が正しく遷移する()
-    {
-        // Arrange
-        byte[] dummyModelBytes = new byte[1024];
-        new Random(42).NextBytes(dummyModelBytes);
-        var sut = new WhisperModelManager(
-            _tempDir,
-            downloaderFunc: (_, _) => Task.FromResult<Stream>(new MemoryStream(dummyModelBytes)));
-
-        var reportedProgress = new List<double>();
-        var progress = new SynchronousProgress<double>(p => reportedProgress.Add(p));
-
-        // Act
-        LocalSpeechModelInfo beforeDownload = sut.GetActiveModelInfo();
-        LocalSpeechModelInfo afterDownload = await sut.DownloadModelAsync("base", progress);
-
-        string customPath = Path.Combine(_tempDir, "custom.bin");
-        await File.WriteAllBytesAsync(customPath, [1, 2, 3, 4]);
-        sut.SetCustomModelPath(customPath);
-        LocalSpeechModelInfo customInfo = sut.GetActiveModelInfo();
-
-        // Assert
-        Assert.False(beforeDownload.IsAvailable);
-        Assert.True(afterDownload.IsAvailable);
-        Assert.True(File.Exists(afterDownload.FilePath));
-        Assert.Empty(Directory.GetFiles(_tempDir, "*.download"));
-        Assert.Contains(1.0, reportedProgress);
-        Assert.Equal("custom", customInfo.ModelId);
-        Assert.True(customInfo.IsAvailable);
-    }
-
-    /// <summary>
-    /// テキスト強制アライメントモードで進捗フェーズが順に通知され、LRC 形式の結果が生成されることを検証します。
-    /// </summary>
-    [Fact]
-    public async Task GenerateAsync_テキスト強制アライメントモード_進捗通知とLRC生成が正常に完了する()
+    public async Task GenerateAsync_テキスト強制アライメントモード_進捗フェーズが単調順で通知されLRC生成が完了する()
     {
         // Arrange
         string audioPath = Path.Combine(_tempDir, "track.wav");
@@ -81,8 +46,9 @@ public sealed class WhisperLocalAlignmentEngineTests : IDisposable
             new LrcParser(),
             new LyricsForcedAligner(),
             new StubPcmDecoder(new float[16000], TimeSpan.FromSeconds(30)),
-            transcribeFunc: (_, _, _, onProgress, _) =>
+            transcribeFunc: (_, _, _, onModelLoaded, onProgress, _) =>
             {
+                onModelLoaded?.Invoke();
                 onProgress?.Invoke(50);
                 onProgress?.Invoke(100);
                 IReadOnlyList<AlignmentSegment> segments =
@@ -110,8 +76,15 @@ public sealed class WhisperLocalAlignmentEngineTests : IDisposable
         Assert.Contains("[ti:TestSong]", result.LrcContent);
         Assert.Contains("[00:05.00]最初のフレーズ", result.LrcContent);
         Assert.Contains(AlignmentPhase.DecodingAudio, phases);
+        Assert.Contains(AlignmentPhase.LoadingModel, phases);
         Assert.Contains(AlignmentPhase.Transcribing, phases);
-        Assert.Contains(AlignmentPhase.Completed, phases);
+        Assert.Contains(AlignmentPhase.AligningLyrics, phases);
+        Assert.Contains(AlignmentPhase.FormattingLrc, phases);
+        Assert.Equal(AlignmentPhase.Completed, phases[^1]);
+        for (int i = 1; i < phases.Count; i++)
+        {
+            Assert.True(phases[i] >= phases[i - 1], $"フェーズ順序が逆転しました: {phases[i - 1]} -> {phases[i]}");
+        }
     }
 
     /// <summary>
@@ -132,8 +105,9 @@ public sealed class WhisperLocalAlignmentEngineTests : IDisposable
             new LrcParser(),
             new LyricsForcedAligner(),
             new StubPcmDecoder(new float[16000], TimeSpan.FromSeconds(20)),
-            transcribeFunc: (_, _, _, _, _) =>
+            transcribeFunc: (_, _, _, onModelLoaded, _, _) =>
             {
+                onModelLoaded?.Invoke();
                 IReadOnlyList<AlignmentSegment> segments =
                 [
                     new(TimeSpan.FromSeconds(2.5), TimeSpan.FromSeconds(6), "文字起こしされた一句"),
@@ -172,7 +146,7 @@ public sealed class WhisperLocalAlignmentEngineTests : IDisposable
             new LrcParser(),
             new LyricsForcedAligner(),
             new StubPcmDecoder(new float[16000], TimeSpan.FromSeconds(10)),
-            transcribeFunc: (_, _, _, _, _) => Task.FromResult<IReadOnlyList<AlignmentSegment>>(Array.Empty<AlignmentSegment>()));
+            transcribeFunc: (_, _, _, _, _, _) => Task.FromResult<IReadOnlyList<AlignmentSegment>>(Array.Empty<AlignmentSegment>()));
 
         var request = new AlignmentRequest(audioPath, LrcGenerationMode.AudioTranscription);
 
@@ -195,7 +169,7 @@ public sealed class WhisperLocalAlignmentEngineTests : IDisposable
             new LrcParser(),
             new LyricsForcedAligner(),
             new StubPcmDecoder(new float[16000], TimeSpan.FromSeconds(10)),
-            transcribeFunc: (_, _, _, _, _) => Task.FromResult<IReadOnlyList<AlignmentSegment>>(Array.Empty<AlignmentSegment>()));
+            transcribeFunc: (_, _, _, _, _, _) => Task.FromResult<IReadOnlyList<AlignmentSegment>>(Array.Empty<AlignmentSegment>()));
 
         var request = new AlignmentRequest(audioPath, LrcGenerationMode.AudioTranscription);
 

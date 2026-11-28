@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -152,5 +152,27 @@ public sealed class TextEncodingServiceTests : IDisposable
         Assert.False(firstBytes.Length >= 3 && firstBytes[0] == 0xEF && firstBytes[1] == 0xBB && firstBytes[2] == 0xBF);
         Assert.Equal(secondContent, finalContent);
         Assert.Empty(leftoverTemps);
+    }
+
+    /// <summary>
+    /// UTF-32 LE (BOM 付き) テキストが UTF-16 LE と誤判定されず UTF-32 LE として検出・デコードされることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task InspectAndRead_Utf32LeBom付きファイル_Utf32Leとして検出され承諾後にデコードされる()
+    {
+        // Arrange
+        var sut = new TextEncodingService();
+        string path = Path.Combine(_tempDir, "utf32.txt");
+        string expected = "銀河の彼方へ";
+        await File.WriteAllTextAsync(path, expected, Encoding.UTF32);
+
+        // Act
+        TextEncodingInspectionResult inspection = await sut.InspectAsync(path);
+        string decoded = await sut.ReadAsUtf8TextAsync(path, allowEncodingConversion: true);
+
+        // Assert
+        Assert.False(inspection.IsUtf8);
+        Assert.Equal("UTF-32 LE", inspection.DetectedEncodingName);
+        Assert.Equal(expected, decoded);
     }
 }
