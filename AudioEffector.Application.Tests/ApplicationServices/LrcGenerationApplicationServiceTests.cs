@@ -554,6 +554,58 @@ public sealed class LrcGenerationApplicationServiceTests
         Assert.Equal(3, logger.ErrorEntries.Count);
     }
 
+    /// <summary>
+    /// モデル未配置・テキスト未存在・カスタムモデル未存在・未対応モデル識別子・PathTooLongException の各経路で、
+    /// 既存の日本語ドメインメッセージ保持およびパス長超過専用メッセージへの分類が機能することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task 各公開メソッド_モデル未配置とテキスト未存在とモデル選択とPathTooLong_期待される日本語メッセージを返す()
+    {
+        // Arrange
+        var engine = new FakeAudioAlignmentEngine
+        {
+            ExceptionToThrow = new FileNotFoundException(
+                "ローカル音声認識モデルが配置されていません。先にモデルをダウンロードまたは指定してください。",
+                @"C:\models\ggml-base.bin"),
+        };
+        var textService = new FakeTextEncodingService
+        {
+            ThrowOnInspect = new FileNotFoundException("指定されたテキストファイルが見つかりません。", @"C:\lyrics\missing.txt"),
+            ThrowOnSave = new PathTooLongException("The specified path is too long."),
+        };
+        var modelManager = new FakeLocalSpeechModelManager
+        {
+            CustomModelException = new FileNotFoundException("指定されたローカルモデルファイルが見つかりません。", @"C:\models\missing.bin"),
+            SelectModelException = new ArgumentException("未対応のローカルモデル識別子です: invalid", "modelId"),
+        };
+        LrcGenerationApplicationService sut = CreateSut(engine: engine, textService: textService, modelManager: modelManager);
+        var track = new Track { FilePath = @"C:\Music\Song.flac", Title = "Song" };
+        var doc = new LyricsDocument([new LyricLine(0, TimeSpan.FromSeconds(1), "歌詞")], isSynced: true);
+
+        // Act
+        Result<AlignmentResult> modelMissingResult = await sut.TranscribeAudioToLrcAsync(track);
+        Result<AlignmentResult> textMissingResult = await sut.GenerateLrcAsync(track, @"C:\lyrics\missing.txt", allowEncodingConversion: true);
+        Result customNotFoundResult = sut.SetCustomModelPath(@"C:\models\missing.bin");
+        Result invalidModelIdResult = sut.SelectModel("invalid");
+        Result<string> pathTooLongSaveResult = await sut.SaveLrcAsync(track, doc, overwrite: true);
+
+        // Assert
+        Assert.True(modelMissingResult.IsFailure);
+        Assert.Contains("ローカル音声認識モデルが配置されていません", modelMissingResult.ErrorMessage, StringComparison.Ordinal);
+
+        Assert.True(textMissingResult.IsFailure);
+        Assert.Equal("指定されたテキストファイルが見つかりません。", textMissingResult.ErrorMessage);
+
+        Assert.True(customNotFoundResult.IsFailure);
+        Assert.Equal("指定されたローカルモデルファイルが見つかりません。", customNotFoundResult.ErrorMessage);
+
+        Assert.True(invalidModelIdResult.IsFailure);
+        Assert.Equal("未対応のローカルモデル識別子です: invalid", invalidModelIdResult.ErrorMessage);
+
+        Assert.True(pathTooLongSaveResult.IsFailure);
+        Assert.Contains("長すぎる", pathTooLongSaveResult.ErrorMessage, StringComparison.Ordinal);
+    }
+
     private static LrcGenerationApplicationService CreateSut(
         FakeAudioAlignmentEngine? engine = null,
         FakeTextEncodingService? textService = null,

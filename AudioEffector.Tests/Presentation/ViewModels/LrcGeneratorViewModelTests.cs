@@ -1673,12 +1673,33 @@ public sealed class LrcGeneratorViewModelTests
             Assert.True(sut.IsInputState);
             Assert.False(sut.IsErrorState);
 
-            // Act 3: 再度エラーにして「再試行」で復旧する
+            // Act 3: 再度エラーにして「再試行」で復旧する（固定スリープではなく状態遷移完了を明示待機）
             await sut.TranscribeFromAudioAsync();
             Assert.True(sut.IsErrorState);
             shouldFail = false;
-            sut.RetryErrorCommand.Execute(null);
-            await Task.Delay(50);
+
+            var retryCompletedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName == nameof(LrcGeneratorViewModel.IsPreviewState) && sut.IsPreviewState)
+                {
+                    retryCompletedTcs.TrySetResult(true);
+                }
+            }
+
+            sut.PropertyChanged += OnPropertyChanged;
+            try
+            {
+                sut.RetryErrorCommand.Execute(null);
+                if (!sut.IsPreviewState)
+                {
+                    await retryCompletedTcs.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                }
+            }
+            finally
+            {
+                sut.PropertyChanged -= OnPropertyChanged;
+            }
 
             // Assert 3
             Assert.True(sut.IsPreviewState);

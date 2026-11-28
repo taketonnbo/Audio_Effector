@@ -290,12 +290,13 @@ public sealed class WhisperLocalAlignmentEngineTests : IDisposable
     }
 
     /// <summary>
-    /// 音声デコード時の破損・未対応形式例外（FormatException / InvalidDataException / COMException / MmException）が
+    /// 音声デコード時の破損・未対応形式例外（FormatException / InvalidDataException / EndOfStreamException / COMException / MmException）が
     /// AudioDecodeFailed へ分類されることを検証します。
     /// </summary>
     [Theory]
     [InlineData("Format")]
     [InlineData("InvalidData")]
+    [InlineData("EndOfStream")]
     [InlineData("COM")]
     [InlineData("MmException")]
     public async Task GenerateAsync_音声デコード失敗_AudioDecodeFailedへ分類する(string scenario)
@@ -310,6 +311,7 @@ public sealed class WhisperLocalAlignmentEngineTests : IDisposable
         {
             "Format" => new FormatException("Not a WAVE file - no RIFF header"),
             "InvalidData" => new InvalidDataException("Invalid FLAC frame header"),
+            "EndOfStream" => new EndOfStreamException("Unable to read beyond the end of the stream."),
             "COM" => new COMException("MF_E_UNSUPPORTED_BYTESTREAM_TYPE", unchecked((int)0xC00D36C4)),
             _ => new MmException(MmResult.AcmNotPossible, "acmStreamOpen"),
         };

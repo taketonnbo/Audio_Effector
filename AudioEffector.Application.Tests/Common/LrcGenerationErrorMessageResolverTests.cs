@@ -141,4 +141,97 @@ public sealed class LrcGenerationErrorMessageResolverTests
         Assert.Equal(LrcGenerationErrorMessageResolver.SAVE_LRC_DISK_FULL_MESSAGE, saveDiskFullMsg);
         Assert.Equal(LrcGenerationErrorMessageResolver.SAVE_LRC_IO_ERROR_MESSAGE, saveUsbMsg);
     }
+
+    /// <summary>
+    /// FileNotFoundException（既定 HResult 0x80070002）でモデル未配置・テキスト未存在の既存日本語ドメインメッセージが保持され、
+    /// OS 既定の相対パス欠損文言は AUDIO_FILE_ACCESS_FAILED_MESSAGE へ変換されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ResolveGenerationErrorMessage_モデル未配置やテキスト未存在のFileNotFoundExceptionとOS既定文言_適切に判別する()
+    {
+        // Arrange
+        var modelMissing = new FileNotFoundException(
+            "ローカル音声認識モデルが配置されていません。先にモデルをダウンロードまたは指定してください。",
+            @"C:\models\ggml-base.bin");
+        var textMissing = new FileNotFoundException(
+            "指定されたテキストファイルが見つかりません。",
+            @"C:\lyrics\song.txt");
+        var osRelativeMissing = new FileNotFoundException("ファイル 'foo.wav' が見つかりませんでした。");
+        var osDirMissing = new DirectoryNotFoundException("パス 'foo' の一部が見つかりませんでした。");
+        var truncatedAudio = new EndOfStreamException("Unable to read beyond the end of the stream.");
+
+        // Act
+        string modelMsg = LrcGenerationErrorMessageResolver.ResolveGenerationErrorMessage(modelMissing);
+        string textMsg = LrcGenerationErrorMessageResolver.ResolveGenerationErrorMessage(textMissing);
+        string osFileMsg = LrcGenerationErrorMessageResolver.ResolveGenerationErrorMessage(osRelativeMissing);
+        string osDirMsg = LrcGenerationErrorMessageResolver.ResolveGenerationErrorMessage(osDirMissing);
+        string eofMsg = LrcGenerationErrorMessageResolver.ResolveGenerationErrorMessage(truncatedAudio);
+
+        // Assert
+        Assert.Equal(modelMissing.Message, modelMsg);
+        Assert.Equal(textMissing.Message, textMsg);
+        Assert.Equal(LrcGenerationErrorMessageResolver.AUDIO_FILE_ACCESS_FAILED_MESSAGE, osFileMsg);
+        Assert.Equal(LrcGenerationErrorMessageResolver.AUDIO_FILE_ACCESS_FAILED_MESSAGE, osDirMsg);
+        Assert.Equal(LrcGenerationErrorMessageResolver.AUDIO_DECODE_FAILED_MESSAGE, eofMsg);
+    }
+
+    /// <summary>
+    /// ResolveModelSelectionErrorMessage で FileNotFoundException・ArgumentException（paramName 付き）・InvalidDataException の
+    /// 既存日本語ドメインメッセージが保持され、英語例外や I/O 例外は安全な日本語案内へ変換されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ResolveModelSelectionErrorMessage_FileNotFoundとArgumentとIO例外_ドメインメッセージを保持し生例外を遮断する()
+    {
+        // Arrange
+        var customNotFound = new FileNotFoundException("指定されたローカルモデルファイルが見つかりません。", @"C:\models\missing.bin");
+        var invalidModelId = new ArgumentException("未対応のローカルモデル識別子です: unknown", "modelId");
+        var emptyModel = new InvalidDataException("指定されたローカルモデルファイルが空（0 バイト）のため使用できません。");
+        var englishNotFound = new FileNotFoundException("Could not find file 'C:\\models\\missing.bin'.");
+        var pathTooLong = new PathTooLongException("The path is too long.");
+        var ioError = new IOException("The device is not ready.", unchecked((int)0x80070015));
+
+        // Act
+        string customNotFoundMsg = LrcGenerationErrorMessageResolver.ResolveModelSelectionErrorMessage(customNotFound);
+        string invalidModelIdMsg = LrcGenerationErrorMessageResolver.ResolveModelSelectionErrorMessage(invalidModelId);
+        string emptyModelMsg = LrcGenerationErrorMessageResolver.ResolveModelSelectionErrorMessage(emptyModel);
+        string englishNotFoundMsg = LrcGenerationErrorMessageResolver.ResolveModelSelectionErrorMessage(englishNotFound);
+        string pathTooLongMsg = LrcGenerationErrorMessageResolver.ResolveModelSelectionErrorMessage(pathTooLong);
+        string ioErrorMsg = LrcGenerationErrorMessageResolver.ResolveModelSelectionErrorMessage(ioError);
+
+        // Assert
+        Assert.Equal("指定されたローカルモデルファイルが見つかりません。", customNotFoundMsg);
+        Assert.Equal("未対応のローカルモデル識別子です: unknown", invalidModelIdMsg);
+        Assert.DoesNotContain("Parameter", invalidModelIdMsg, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(emptyModel.Message, emptyModelMsg);
+        Assert.DoesNotContain("Could not find", englishNotFoundMsg, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("パス", pathTooLongMsg, StringComparison.Ordinal);
+        Assert.DoesNotContain("not ready", ioErrorMsg, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// PathTooLongException が IOException に吸収されずパス長超過専用メッセージへ到達すること、および
+    /// AggregateException に入れ子になった TaskCanceledException がタイムアウト案内へ分類されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ResolveSaveAndTextAndDownload_PathTooLongと入れ子TaskCanceled_期待する専用メッセージへ到達する()
+    {
+        // Arrange
+        var pathTooLong = new PathTooLongException("The specified path, file name, or both are too long.");
+        var dirNotFound = new DirectoryNotFoundException("Could not find a part of the path 'E:\\Music'.");
+        var nestedTimeout = new AggregateException(new TaskCanceledException("HttpClient.Timeout exceeded."));
+
+        // Act
+        string savePathTooLong = LrcGenerationErrorMessageResolver.ResolveSaveLrcErrorMessage(pathTooLong);
+        string saveDirNotFound = LrcGenerationErrorMessageResolver.ResolveSaveLrcErrorMessage(dirNotFound);
+        string textPathTooLong = LrcGenerationErrorMessageResolver.ResolveTextReadErrorMessage(pathTooLong, isExistingLrc: false);
+        string existingLrcPathTooLong = LrcGenerationErrorMessageResolver.ResolveTextReadErrorMessage(pathTooLong, isExistingLrc: true);
+        string downloadNestedTimeout = LrcGenerationErrorMessageResolver.ResolveModelDownloadErrorMessage(nestedTimeout);
+
+        // Assert
+        Assert.Contains("長すぎる", savePathTooLong, StringComparison.Ordinal);
+        Assert.Equal(LrcGenerationErrorMessageResolver.SAVE_LRC_IO_ERROR_MESSAGE, saveDirNotFound);
+        Assert.Contains("パスが不正", textPathTooLong, StringComparison.Ordinal);
+        Assert.Contains("パスが不正", existingLrcPathTooLong, StringComparison.Ordinal);
+        Assert.Equal(LrcGenerationErrorMessageResolver.MODEL_DOWNLOAD_TIMEOUT_MESSAGE, downloadNestedTimeout);
+    }
 }
