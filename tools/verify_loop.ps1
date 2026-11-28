@@ -354,8 +354,9 @@ function Resolve-BaseMergeCommit {
     $useOriginPriority = ([bool]$PreferOriginBase) -or $isWorktree
 
     if ($FetchBase) {
-        $fetchBranch = if ($BaseRef -match '^origin/(.+)$') { $Matches[1] } else { $BaseRef }
-        $fetchRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("fetch", "origin", $fetchBranch) -WorkingDirectory $workDir -TimeoutSeconds 60
+        $fetchBranch = ($BaseRef.Trim() -replace '^refs/heads/', '' -replace '^origin/', '')
+        $fetchRefSpec = "+refs/heads/${fetchBranch}:refs/remotes/origin/${fetchBranch}"
+        $fetchRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("fetch", "origin", $fetchRefSpec) -WorkingDirectory $workDir -TimeoutSeconds 60
         if ($fetchRes.StartFailed) {
             return [PSCustomObject]@{
                 Success     = $false
@@ -369,7 +370,7 @@ function Resolve-BaseMergeCommit {
                 Success     = $false
                 MergeBase   = ""
                 ResolvedRef = ""
-                Error       = "git fetch origin $fetchBranch がタイムアウトしました (60秒超過)。"
+                Error       = "git fetch origin $fetchRefSpec がタイムアウトしました (60秒超過)。"
             }
         }
         if ($fetchRes.ExitCode -ne 0) {
@@ -378,7 +379,7 @@ function Resolve-BaseMergeCommit {
                 Success     = $false
                 MergeBase   = ""
                 ResolvedRef = ""
-                Error       = "git fetch origin $fetchBranch に失敗しました: $errText"
+                Error       = "git fetch origin $fetchRefSpec に失敗しました: $errText"
             }
         }
     }
