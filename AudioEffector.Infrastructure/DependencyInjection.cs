@@ -1,10 +1,11 @@
-using AudioEffector.Application.Common;
+﻿using AudioEffector.Application.Common;
 using AudioEffector.Domain.Repositories;
 using AudioEffector.Domain.Services;
 using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Infrastructure.DataTransfer;
 using AudioEffector.Infrastructure.Library;
 using AudioEffector.Infrastructure.Logging;
+using AudioEffector.Infrastructure.LrcGeneration;
 using AudioEffector.Infrastructure.Lyrics;
 using AudioEffector.Infrastructure.Repository;
 using Microsoft.Extensions.DependencyInjection;
@@ -63,6 +64,11 @@ public static class DependencyInjection
         // 歌詞解析およびローカル歌詞プロバイダー
         services.AddSingleton<ILrcParser, LrcParser>();
         services.AddSingleton<ILyricsProvider, LocalLyricsProvider>();
+
+        // LRC 自動生成（ローカルモデル管理・文字コード判定/変換・アライメントエンジン）
+        services.AddSingleton<ITextEncodingService, TextEncodingService>();
+        services.AddSingleton<ILocalSpeechModelManager, WhisperModelManager>();
+        services.AddSingleton<IAudioAlignmentEngine, WhisperLocalAlignmentEngine>();
 
         // ロギングサービス
         services.AddSingleton<NLogService>();

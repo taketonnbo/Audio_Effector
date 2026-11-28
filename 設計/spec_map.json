@@ -550,6 +550,13 @@
         "AudioEffector.Infrastructure/Lyrics/**",
         "AudioEffector/Presentation/**/*Lyric*"
       ],
+      "exclude_patterns": [
+        "AudioEffector.Domain/**/*LyricsForcedAligner*",
+        "AudioEffector.Domain/**/*LrcGeneration*",
+        "AudioEffector.Application/**/*LrcGeneration*",
+        "AudioEffector.Infrastructure/LrcGeneration/**",
+        "AudioEffector/Presentation/**/*LrcGenerator*"
+      ],
       "primary_specs": [
         "設計/機能仕様/歌詞表示機能.md",
         "設計/画面設計/歌詞表示/歌詞表示UI仕様書.md"
@@ -560,6 +567,43 @@
         "設計/詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md",
         "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md",
         "設計/詳細設計/アーキテクチャ/プレゼンテーション層詳細設計書.md"
+      ]
+    },
+    {
+      "id": "lrc-generation",
+      "name": "LRC自動生成（UI）",
+      "code_patterns": [
+        "AudioEffector/Presentation/**/*LrcGenerator*"
+      ],
+      "primary_specs": [
+        "設計/機能仕様/LRC自動生成.md",
+        "設計/画面設計/LRC自動生成/LRC自動生成UI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/画面設計/歌詞表示/歌詞表示UI仕様書.md",
+        "設計/詳細設計/アーキテクチャ/プレゼンテーション層詳細設計書.md"
+      ]
+    },
+    {
+      "id": "lrc-generation-backend",
+      "name": "LRC自動生成（バックエンド・アライメント・文字起こし・文字コード）",
+      "code_patterns": [
+        "AudioEffector.Domain/**/*Alignment*",
+        "AudioEffector.Domain/**/*TextEncoding*",
+        "AudioEffector.Domain/**/*LocalSpeechModel*",
+        "AudioEffector.Domain/**/*LrcGeneration*",
+        "AudioEffector.Domain/**/*LyricsForcedAligner*",
+        "AudioEffector.Application/**/*LrcGeneration*",
+        "AudioEffector.Infrastructure/LrcGeneration/**"
+      ],
+      "primary_specs": [
+        "設計/機能仕様/LRC自動生成.md"
+      ],
+      "related_specs": [
+        "設計/画面設計/LRC自動生成/LRC自動生成UI仕様書.md",
+        "設計/詳細設計/アーキテクチャ/ドメイン層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md"
       ]
     }
   ]
