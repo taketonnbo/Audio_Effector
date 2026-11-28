@@ -527,7 +527,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// 指定されたパスのディレクトリとファイルをデバイスディレクトリリストへ反映します（再走査は呼び出し元で制御します）。
     /// </summary>
     /// <param name="path">ロード対象のディレクトリパス。</param>
-    private void LoadDeviceDirectoriesCore(string path)
+    /// <param name="showErrorMessage">読み込み失敗時にエラー通知ダイアログを表示する場合はtrue</param>
+    private void LoadDeviceDirectoriesCore(string path, bool showErrorMessage = true)
     {
         try
         {
@@ -602,7 +603,10 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Error loading directories: {ex.Message}");
-            _showMessage($"Error loading directory: {ex.Message}", string.Empty);
+            if (showErrorMessage)
+            {
+                _showMessage($"Error loading directory: {ex.Message}", string.Empty);
+            }
         }
     }
 
@@ -2077,7 +2081,12 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
         var invalid = Path.GetInvalidFileNameChars();
         string cleaned = new string(name.Where(c => !invalid.Contains(c)).ToArray()).Trim();
-        return string.IsNullOrEmpty(cleaned) ? "Unknown" : cleaned;
+        if (string.IsNullOrEmpty(TrimTrailingDotsAndWhitespace(cleaned)))
+        {
+            return "Unknown";
+        }
+
+        return cleaned;
     }
 
     private static string TrimTrailingDotsAndWhitespace(string value)
@@ -2105,6 +2114,11 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <returns>非同期タスク</returns>
     internal async Task TransferSelectedAsync()
     {
+        if (IsTransferring)
+        {
+            return;
+        }
+
         if (SelectedDevice == null)
         {
             _showMessage("Please select a device first.", "No Device Selected");
@@ -2117,6 +2131,17 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         {
             _showMessage("Current folder is not on the selected drive.", "Error");
             return;
+        }
+
+        IMtpDeviceClient? mtpClient = null;
+        if (SelectedDevice.Type == MainViewModel.DeviceType.MTP)
+        {
+            mtpClient = _resolveMtpClient(SelectedDevice);
+            if (mtpClient == null || !mtpClient.IsConnected)
+            {
+                _showMessage("MTP device is not connected.", "Error");
+                return;
+            }
         }
 
         var albums = _getAlbums();
@@ -2142,11 +2167,12 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             }
             else if (SelectedDevice.Type == MainViewModel.DeviceType.MTP)
             {
-                var mtpClient = _resolveMtpClient(SelectedDevice);
-                if (mtpClient != null)
+                if (mtpClient == null || !mtpClient.IsConnected)
                 {
-                    await TransferTracksToMtpAsync(mtpClient, tracksToTransfer, destinationFolder, transcodeOptions, progress);
+                    throw new InvalidOperationException("MTP device is not connected.");
                 }
+
+                await TransferTracksToMtpAsync(mtpClient, tracksToTransfer, destinationFolder, transcodeOptions, progress);
             }
 
             LoadDeviceDirectoriesCore(destinationFolder);
@@ -2159,7 +2185,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         {
             try
             {
-                LoadDeviceDirectoriesCore(destinationFolder);
+                LoadDeviceDirectoriesCore(destinationFolder, showErrorMessage: false);
                 _ = RefreshSelectedDeviceStorageAsync();
                 await CheckDeviceAlbumsAsync();
             }
