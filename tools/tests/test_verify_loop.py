@@ -732,6 +732,177 @@ $rStrictAll     = Invoke-LicenseSyncGate -RepoRootPath '{escaped_repo}' -BaseCom
         self.assertEqual(b_data["strict_all"]["GateResult"]["status"], "FAILED")
         self.assertTrue(b_data["strict_all"]["Report"]["needs_update"])
 
+    def test_BuildTimeoutSecondsの既定値が180であり0以下指定でPreflightエラーとなること(self) -> None:
+        # Arrange & Act 1: PowerShell AST から既定値を検証
+        escaped_path = str(VERIFY_LOOP).replace("'", "''")
+        ps_script = f"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile('{escaped_path}', [ref]$tokens, [ref]$errors)
+$params = @{{}}
+foreach ($p in $ast.ParamBlock.Parameters) {{
+    $params[$p.Name.VariablePath.UserPath] = if ($null -ne $p.DefaultValue) {{ $p.DefaultValue.Extent.Text }} else {{ $null }}
+}}
+$params | ConvertTo-Json -Depth 4
+"""
+        ast_res = _run_ps_command(ps_script, cwd=REPO_ROOT)
+        self.assertEqual(ast_res.returncode, 0, msg=ast_res.stdout + "\n" + ast_res.stderr)
+        params = json.loads(ast_res.stdout)
+        self.assertEqual(params["BuildTimeoutSeconds"], "180")
+        self.assertEqual(params["TestTimeoutSeconds"], "180")
+
+        # Arrange 2: サンドボックスのワークツリーに verify_loop.ps1 を配置して Preflight 検証
+        sb = self._create_diverged_origin_sandbox()
+        wt_dir = Path(sb["wt_dir"])
+        wt_tools = wt_dir / "tools"
+        wt_tools.mkdir(parents=True, exist_ok=True)
+        wt_script = wt_tools / "verify_loop.ps1"
+        shutil.copy2(VERIFY_LOOP, wt_script)
+
+        invalid_cases = [
+            ("build_zero", ["-BuildTimeoutSeconds", "0"], "-BuildTimeoutSeconds"),
+            ("build_negative", ["-BuildTimeoutSeconds", "-5"], "-BuildTimeoutSeconds"),
+            ("test_zero", ["-TestTimeoutSeconds", "0"], "-TestTimeoutSeconds"),
+            ("test_negative", ["-TestTimeoutSeconds", "-1"], "-TestTimeoutSeconds"),
+        ]
+
+        for case_name, extra_args, expected_param in invalid_cases:
+            with self.subTest(case=case_name):
+                json_out = self.base_dir / f"preflight_{case_name}.json"
+                run_res = _run_ps1_file(
+                    wt_script,
+                    [*extra_args, "-JsonOut", str(json_out)],
+                    cwd=wt_dir,
+                )
+                self.assertEqual(run_res.returncode, 1, msg=run_res.stdout + "\n" + run_res.stderr)
+                self.assertIn(expected_param, run_res.stdout)
+                self.assertTrue(json_out.is_file(), msg=f"JSON レポートが生成されていません: {json_out}")
+                report = json.loads(json_out.read_text(encoding="utf-8"))
+                self.assertFalse(report["overall_passed"])
+                self.assertEqual(report["exit_code"], 1)
+                preflight_gates = [g for g in report["gates"] if g["name"] == "preflight"]
+                self.assertEqual(len(preflight_gates), 1)
+                self.assertEqual(preflight_gates[0]["status"], "FAILED")
+                self.assertTrue(
+                    any(expected_param in detail for detail in preflight_gates[0]["details"]),
+                    msg=f"preflight details に {expected_param} のエラーが含まれていません: {preflight_gates[0]['details']}",
+                )
+
+    def test_InvokeExternalCommandがタイムアウト強制終了直前までの標準出力と標準エラーを取りこぼさず回収すること(self) -> None:
+        # Arrange: 複数行を stdout/stderr へ即時フラッシュしてから長時間スリープするコマンドを 2 秒でタイムアウトさせる
+        loader = _ps_loader_snippet(VERIFY_LOOP, ["Stop-ProcessTree", "Invoke-ExternalCommand"])
+        py_payload = (
+            "import sys, time; "
+            "[print(f'OUT_LINE_{i:02d}', flush=True) for i in range(1, 6)]; "
+            "[print(f'ERR_LINE_{i:02d}', file=sys.stderr, flush=True) for i in range(1, 4)]; "
+            "time.sleep(30)"
+        )
+        escaped_repo = str(REPO_ROOT).replace("'", "''")
+        ps_script = loader + f"""
+$res = Invoke-ExternalCommand -FilePath 'python' -ArgumentList @('-u', '-c', "{py_payload}") -WorkingDirectory '{escaped_repo}' -TimeoutSeconds 2
+$res | ConvertTo-Json -Depth 4
+"""
+        # Act
+        res = _run_ps_command(ps_script, cwd=REPO_ROOT, timeout=30)
+        self.assertEqual(res.returncode, 0, msg=res.stdout + "\n" + res.stderr)
+        data = json.loads(res.stdout)
+
+        # Assert
+        self.assertTrue(data["TimedOut"])
+        self.assertFalse(data["StartFailed"])
+        for i in range(1, 6):
+            self.assertIn(f"OUT_LINE_{i:02d}", data["StdOut"])
+        for i in range(1, 4):
+            self.assertIn(f"ERR_LINE_{i:02d}", data["StdErr"])
+
+    def test_Gate1ビルドタイムアウト時に標準出力とJSONレポートdetailsへ直前ビルド出力末尾が記録されること(self) -> None:
+        # Arrange: サンドボックスワークツリーに verify_loop.ps1 とタイムアウト再現用スタブソリューションを配置
+        sb = self._create_diverged_origin_sandbox()
+        wt_dir = Path(sb["wt_dir"])
+        wt_tools = wt_dir / "tools"
+        wt_tools.mkdir(parents=True, exist_ok=True)
+        wt_script = wt_tools / "verify_loop.ps1"
+        shutil.copy2(VERIFY_LOOP, wt_script)
+
+        # SDK 解決や NuGet 復元を伴わない最小 MSBuild プロジェクトで 20 行出力後にハングさせる
+        project_guid = "{11111111-1111-1111-1111-111111111111}"
+        sln_content = (
+            "Microsoft Visual Studio Solution File, Format Version 12.00\r\n"
+            "# Visual Studio Version 17\r\n"
+            f'Project("{{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}}") = "StubBuild", "StubBuild.csproj", "{project_guid}"\r\n'
+            "EndProject\r\n"
+            "Global\r\n"
+            "\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\r\n"
+            "\t\tDebug|Any CPU = Debug|Any CPU\r\n"
+            "\tEndGlobalSection\r\n"
+            "\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\r\n"
+            f"\t\t{project_guid}.Debug|Any CPU.ActiveCfg = Debug|Any CPU\r\n"
+            f"\t\t{project_guid}.Debug|Any CPU.Build.0 = Debug|Any CPU\r\n"
+            "\tEndGlobalSection\r\n"
+            "EndGlobal\r\n"
+        )
+        (wt_dir / "AudioEffector.sln").write_text(sln_content, encoding="utf-8")
+
+        message_lines = "\n".join(
+            f'    <Message Importance="high" Text="BUILD_PROGRESS_LINE_{i:02d}" />'
+            for i in range(1, 21)
+        )
+        csproj_content = (
+            '<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">\n'
+            '  <Target Name="Restore" />\n'
+            '  <Target Name="Build">\n'
+            f"{message_lines}\n"
+            '    <Exec Command="powershell -NoProfile -Command Start-Sleep -Seconds 30" />\n'
+            "  </Target>\n"
+            "</Project>\n"
+        )
+        (wt_dir / "StubBuild.csproj").write_text(csproj_content, encoding="utf-8")
+
+        json_out = self.base_dir / "build_timeout_report.json"
+
+        # Act: Gate 1 のタイムアウトを発生させ、標準出力と JSON レポートを検証
+        run_res = _run_ps1_file(
+            wt_script,
+            [
+                "-NoBuildLock",
+                "-SkipSpecSync",
+                "-SkipLicenseSync",
+                "-BuildTimeoutSeconds",
+                "6",
+                "-JsonOut",
+                str(json_out),
+            ],
+            cwd=wt_dir,
+            timeout=60,
+        )
+
+        # Assert
+        self.assertEqual(run_res.returncode, 1, msg=run_res.stdout + "\n" + run_res.stderr)
+        self.assertIn("ビルドがタイムアウトしました (6秒超過)", run_res.stdout)
+        self.assertIn("BUILD_PROGRESS_LINE_20", run_res.stdout)
+
+        self.assertTrue(json_out.is_file(), msg=f"JSON レポートが生成されていません: {json_out}")
+        report = json.loads(json_out.read_text(encoding="utf-8"))
+        self.assertFalse(report["overall_passed"])
+        self.assertEqual(report["exit_code"], 1)
+        self.assertTrue(report["cleanup_succeeded"])
+
+        build_gates = [g for g in report["gates"] if g["name"] == "build"]
+        self.assertEqual(len(build_gates), 1)
+        build_gate = build_gates[0]
+        self.assertEqual(build_gate["status"], "FAILED")
+        self.assertEqual(build_gate["error_count"], 1)
+
+        details = build_gate["details"]
+        self.assertGreater(len(details), 0, msg="タイムアウト時の build.details が空です。")
+        self.assertLessEqual(len(details), 15, msg=f"build.details が末尾 15 行制限を超えています: {len(details)}")
+        joined_details = "\n".join(details)
+        self.assertIn("BUILD_PROGRESS_LINE_20", joined_details)
+        self.assertIn("BUILD_PROGRESS_LINE_07", joined_details)
+        self.assertNotIn("BUILD_PROGRESS_LINE_01", joined_details)
+        self.assertFalse((wt_dir / ".agent_build").exists(), ".agent_build ディレクトリが残留しています。")
+
 
 if __name__ == "__main__":
     unittest.main()
