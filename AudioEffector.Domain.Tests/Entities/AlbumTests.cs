@@ -103,4 +103,69 @@ public sealed class AlbumTests
         Assert.False(album1.Equals(album3));
         Assert.Equal(2, set.Count);
     }
+
+    /// <summary>
+    /// アルバム内の一部の曲のみがデバイス上に存在する場合、Album.IsOnDeviceはfalseを維持し、アルバム選択時は未転送曲のみ選択されることを検証します。
+    /// </summary>
+    [Fact]
+    public void IsSelected_一部トラックのみIsOnDeviceの場合_未転送トラックのみ選択されること()
+    {
+        // Arrange
+        var transferredTrack = new Track { Title = "Track 1", FilePath = @"C:\music\01.flac", IsOnDevice = true };
+        var pendingTrack = new Track { Title = "Track 2", FilePath = @"C:\music\02.flac", IsOnDevice = false };
+        var sut = new Album("Discovery", "Daft Punk", 2001, new[] { transferredTrack, pendingTrack });
+
+        // Act
+        sut.IsSelected = true;
+
+        // Assert
+        Assert.False(sut.IsOnDevice);
+        Assert.True(sut.IsSelected);
+        Assert.False(transferredTrack.IsSelected);
+        Assert.True(pendingTrack.IsSelected);
+    }
+
+    /// <summary>
+    /// アルバム内の全トラックのIsOnDeviceがtrueになった際、Album.IsOnDeviceが自動でtrueに連動し選択状態が解除されることを検証します。
+    /// </summary>
+    [Fact]
+    public void IsOnDevice_全トラックがIsOnDeviceになった場合_アルバムも自動でIsOnDeviceとなり選択解除されること()
+    {
+        // Arrange
+        var track1 = new Track { Title = "Track 1", FilePath = @"C:\music\01.flac" };
+        var track2 = new Track { Title = "Track 2", FilePath = @"C:\music\02.flac" };
+        var sut = new Album("Discovery", "Daft Punk", 2001, new[] { track1, track2 });
+        sut.IsSelected = true;
+
+        // Act
+        track1.IsOnDevice = true;
+        bool isOnDeviceAfterFirst = sut.IsOnDevice;
+        track2.IsOnDevice = true;
+
+        // Assert
+        Assert.False(isOnDeviceAfterFirst);
+        Assert.True(sut.IsOnDevice);
+        Assert.False(sut.IsSelected);
+        Assert.False(track1.IsSelected);
+        Assert.False(track2.IsSelected);
+    }
+
+    /// <summary>
+    /// 全曲転送済みのアルバムに対してIsSelectedをtrueに設定しても選択されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void IsSelected_アルバムがIsOnDeviceの場合_Trueを設定してもFalseを維持すること()
+    {
+        // Arrange
+        var track = new Track { Title = "Track 1", FilePath = @"C:\music\01.flac", IsOnDevice = true };
+        var sut = new Album("Discovery", "Daft Punk", 2001, new[] { track });
+
+        // Act
+        sut.IsSelected = true;
+
+        // Assert
+        Assert.True(sut.IsOnDevice);
+        Assert.False(sut.IsSelected);
+        Assert.False(track.IsSelected);
+    }
 }
