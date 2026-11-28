@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -93,13 +93,14 @@ public sealed class WhisperModelManager : ILocalSpeechModelManager
         {
             bool exists = File.Exists(customPath);
             long size = exists ? new FileInfo(customPath).Length : 0L;
+            bool isAvailable = exists && size > 0L;
             string fileName = Path.GetFileName(customPath);
             return new LocalSpeechModelInfo(
                 modelId: "custom",
                 displayName: $"カスタムモデル ({fileName})",
                 fileName: fileName,
                 filePath: customPath,
-                isAvailable: exists,
+                isAvailable: isAvailable,
                 estimatedSizeBytes: size);
         }
 
@@ -157,6 +158,11 @@ public sealed class WhisperModelManager : ILocalSpeechModelManager
             throw new FileNotFoundException("指定されたローカルモデルファイルが見つかりません。", fullPath);
         }
 
+        if (new FileInfo(fullPath).Length <= 0L)
+        {
+            throw new InvalidDataException("指定されたローカルモデルファイルが空（0 バイト）のため使用できません。");
+        }
+
         lock (_stateLock)
         {
             _customModelPath = fullPath;
@@ -197,6 +203,7 @@ public sealed class WhisperModelManager : ILocalSpeechModelManager
                 ? remoteStream.Length
                 : entry.EstimatedSizeBytes;
 
+            long downloaded = 0;
             await using (var fs = new FileStream(
                 tempPath,
                 FileMode.CreateNew,
@@ -206,7 +213,6 @@ public sealed class WhisperModelManager : ILocalSpeechModelManager
                 useAsync: true))
             {
                 byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
-                long downloaded = 0;
                 double lastReported = 0.0;
 
                 int read;
@@ -231,6 +237,11 @@ public sealed class WhisperModelManager : ILocalSpeechModelManager
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            if (downloaded <= 0L)
+            {
+                throw new InvalidDataException("ダウンロードされたモデルデータが空（0 バイト）のため保存を中止しました。");
+            }
+
             File.Move(tempPath, destinationPath, overwrite: true);
 
             lock (_stateLock)
@@ -263,15 +274,16 @@ public sealed class WhisperModelManager : ILocalSpeechModelManager
     {
         string path = Path.Combine(_modelsDirectory, entry.FileName);
         bool exists = File.Exists(path);
-        long size = exists ? new FileInfo(path).Length : entry.EstimatedSizeBytes;
+        long actualSize = exists ? new FileInfo(path).Length : 0L;
+        bool isAvailable = exists && actualSize > 0L;
 
         return new LocalSpeechModelInfo(
             modelId: entry.ModelId,
             displayName: entry.DisplayName,
             fileName: entry.FileName,
             filePath: path,
-            isAvailable: exists,
-            estimatedSizeBytes: size);
+            isAvailable: isAvailable,
+            estimatedSizeBytes: isAvailable ? actualSize : entry.EstimatedSizeBytes);
     }
 
     private static ModelCatalogEntry FindCatalogEntry(string modelId)

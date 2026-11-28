@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -23,7 +23,7 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
     private readonly ILrcParser _lrcParser;
     private readonly LyricsForcedAligner _forcedAligner;
     private readonly IAudioPcmDecoder _audioDecoder;
-    private readonly Func<string, float[], string?, Action<int>?, CancellationToken, Task<IReadOnlyList<AlignmentSegment>>> _transcribeFunc;
+    private readonly Func<string, float[], string?, Action?, Action<int>?, CancellationToken, Task<IReadOnlyList<AlignmentSegment>>> _transcribeFunc;
 
     /// <summary>
     /// 解析エンジンの識別名を取得します
@@ -57,7 +57,7 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
         ILrcParser lrcParser,
         LyricsForcedAligner forcedAligner,
         IAudioPcmDecoder audioDecoder,
-        Func<string, float[], string?, Action<int>?, CancellationToken, Task<IReadOnlyList<AlignmentSegment>>>? transcribeFunc)
+        Func<string, float[], string?, Action?, Action<int>?, CancellationToken, Task<IReadOnlyList<AlignmentSegment>>>? transcribeFunc)
     {
         _modelManager = modelManager ?? throw new ArgumentNullException(nameof(modelManager));
         _lrcParser = lrcParser ?? throw new ArgumentNullException(nameof(lrcParser));
@@ -93,10 +93,12 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
 
         string modelPath = ResolveAndValidateModelPath(request.ModelPath);
 
-        // Phase 1: 音声デコード (0% -> 20%)
+        // Phase 1: 音声デコード (0% -> 20%) ※非同期 Post によるフェーズ逆転を防ぐため同期転送アダプタを使用
         progress?.Report(new AlignmentProgress(AlignmentPhase.DecodingAudio, 0.02, "音声ファイルをデコードしています..."));
-        var decodeProgress = new Progress<double>(p =>
-            progress?.Report(new AlignmentProgress(AlignmentPhase.DecodingAudio, 0.02 + (p * 0.18), "音声ファイルを 16kHz モノラルへ変換中...")));
+        IProgress<double>? decodeProgress = progress is null
+            ? null
+            : new DirectProgress<double>(p =>
+                progress.Report(new AlignmentProgress(AlignmentPhase.DecodingAudio, 0.02 + (p * 0.18), "音声ファイルを 16kHz モノラルへ変換中...")));
 
         DecodedAudioPcm decoded = await _audioDecoder
             .DecodeToMono16kHzAsync(request.AudioFilePath, decodeProgress, cancellationToken)
@@ -109,22 +111,30 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Phase 2: モデル読み込み (20% -> 25%)
+        // Phase 2: モデル読み込み (20% -> 25%) → ロード完了後に Phase 3 (25% -> 85%) へ遷移
         progress?.Report(new AlignmentProgress(AlignmentPhase.LoadingModel, 0.22, "ローカル音声認識モデルを読み込んでいます..."));
 
-        // Phase 3: Whisper 音声認識・文字起こし (25% -> 85%)
-        progress?.Report(new AlignmentProgress(AlignmentPhase.Transcribing, 0.25, "音声認識・文字起こしを実行しています..."));
+        int transcribingStarted = 0;
         int lastPercent = -1;
+        void NotifyTranscribingStarted()
+        {
+            if (Interlocked.Exchange(ref transcribingStarted, 1) == 0)
+            {
+                progress?.Report(new AlignmentProgress(AlignmentPhase.Transcribing, 0.25, "音声認識・文字起こしを実行しています..."));
+            }
+        }
+
         IReadOnlyList<AlignmentSegment> segments = await _transcribeFunc(
             modelPath,
             decoded.Samples,
             request.LanguageCode,
+            NotifyTranscribingStarted,
             whisperPercent =>
             {
+                NotifyTranscribingStarted();
                 int clamped = Math.Clamp(whisperPercent, 0, 100);
-                if (clamped != lastPercent)
+                if (Interlocked.Exchange(ref lastPercent, clamped) != clamped)
                 {
-                    lastPercent = clamped;
                     double overall = 0.25 + ((clamped / 100.0) * 0.60);
                     progress?.Report(new AlignmentProgress(
                         AlignmentPhase.Transcribing,
@@ -211,6 +221,7 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
         string modelPath,
         float[] samples,
         string? languageCode,
+        Action? onModelLoaded,
         Action<int>? onProgress,
         CancellationToken cancellationToken)
     {
@@ -235,6 +246,7 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
         }
 
         using WhisperProcessor processor = builder.Build();
+        onModelLoaded?.Invoke();
 
         var segments = new List<AlignmentSegment>();
         await foreach (SegmentData seg in processor.ProcessAsync(samples, cancellationToken).ConfigureAwait(false))
@@ -247,5 +259,10 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
         }
 
         return segments;
+    }
+
+    private sealed class DirectProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 }

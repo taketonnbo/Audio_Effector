@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -21,6 +21,8 @@ public sealed class TextEncodingService : ITextEncodingService
     private static readonly Encoding StrictEucJp;
     private static readonly Encoding StrictUtf16Le = new UnicodeEncoding(bigEndian: false, byteOrderMark: false, throwOnInvalidBytes: true);
     private static readonly Encoding StrictUtf16Be = new UnicodeEncoding(bigEndian: true, byteOrderMark: false, throwOnInvalidBytes: true);
+    private static readonly Encoding StrictUtf32Le = new UTF32Encoding(bigEndian: false, byteOrderMark: false, throwOnInvalidCharacters: true);
+    private static readonly Encoding StrictUtf32Be = new UTF32Encoding(bigEndian: true, byteOrderMark: false, throwOnInvalidCharacters: true);
     private static readonly Encoding FallbackShiftJis;
 
     static TextEncodingService()
@@ -192,7 +194,20 @@ public sealed class TextEncodingService : ITextEncodingService
             }
         }
 
-        // 2. UTF-16 LE / BE BOM
+        // 2. UTF-32 LE / BE BOM（UTF-16 LE の FF FE プレフィックスより先に判定）
+        if (rawBytes.Length >= 4 && rawBytes[0] == 0xFF && rawBytes[1] == 0xFE && rawBytes[2] == 0x00 && rawBytes[3] == 0x00)
+        {
+            string text = StrictUtf32Le.GetString(rawBytes, 4, rawBytes.Length - 4);
+            return new DetectedText(IsUtf8: false, HasUtf8Bom: false, EncodingName: "UTF-32 LE", Text: text);
+        }
+
+        if (rawBytes.Length >= 4 && rawBytes[0] == 0x00 && rawBytes[1] == 0x00 && rawBytes[2] == 0xFE && rawBytes[3] == 0xFF)
+        {
+            string text = StrictUtf32Be.GetString(rawBytes, 4, rawBytes.Length - 4);
+            return new DetectedText(IsUtf8: false, HasUtf8Bom: false, EncodingName: "UTF-32 BE", Text: text);
+        }
+
+        // 3. UTF-16 LE / BE BOM
         if (rawBytes.Length >= 2 && rawBytes[0] == 0xFF && rawBytes[1] == 0xFE)
         {
             string text = StrictUtf16Le.GetString(rawBytes, 2, rawBytes.Length - 2);
