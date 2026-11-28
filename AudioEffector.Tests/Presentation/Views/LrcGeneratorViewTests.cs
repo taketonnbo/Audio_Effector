@@ -637,6 +637,65 @@ public sealed class LrcGeneratorViewTests
         });
     }
 
+    /// <summary>
+    /// 自動文字起こしおよび .lrc 保存後の再作成フローで入力状態へ復帰した際に、
+    /// TranscribeAudioButton.IsEnabled（true）および .txt 選択後の GenerateFromTextButton.IsEnabled（true）が WPF UI 上へ即時反映されることを検証します。
+    /// </summary>
+    [Fact]
+    public Task LrcGeneratorView_自動文字起こし保存後の再作成で入力状態へ復帰_テキスト生成と自動文字起こしボタンのIsEnabledが即時反映される()
+    {
+        return RunInStaThreadAsync(async () =>
+        {
+            // Arrange
+            EnsureApplicationResources();
+            using var listener = new BindingErrorTraceListener();
+            var existingPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C:\Music\RecreateUi.flac" };
+            var (vm, _, textSvc, _) = CreateViewModel(modelAvailable: true, fileExistsFunc: p => existingPaths.Contains(p));
+            var track = new Track { FilePath = @"C:\Music\RecreateUi.flac", Title = "RecreateUi", Artist = "Artist" };
+
+            using (vm)
+            {
+                var sut = new LrcGeneratorView { DataContext = vm };
+                AttachThemeResources(sut.Resources, "DarkTheme.xaml");
+
+                await RunWithHostWindowAsync(sut, async host =>
+                {
+                    var generateFromTextBtn = Assert.IsType<Button>(sut.FindName("GenerateFromTextButton"));
+                    var transcribeAudioBtn = Assert.IsType<Button>(sut.FindName("TranscribeAudioButton"));
+
+                    // 初回: 自動文字起こし → 保存
+                    vm.SetTargetTrack(track);
+                    await vm.TranscribeFromAudioAsync();
+                    await vm.ExecuteSaveAsync(overwrite: true);
+                    host.UpdateLayout();
+                    Assert.True(vm.IsPreviewState);
+                    Assert.True(vm.HasSavedFile);
+
+                    // Act 1: 同一楽曲で再作成を開始 → 入力状態へ復帰
+                    vm.SetTargetTrack(track);
+                    host.UpdateLayout();
+
+                    // Assert 1: 入力状態へ復帰し、自動文字起こしボタンは即座に活性・テキスト生成ボタンは .txt 未選択のため非活性
+                    Assert.True(vm.IsInputState);
+                    Assert.True(transcribeAudioBtn.IsEnabled);
+                    Assert.False(generateFromTextBtn.IsEnabled);
+
+                    // Act 2: UTF-8 テキストファイルを選択（StubTextEncodingService は既定 Shift-JIS なので変換承諾まで実施）
+                    await vm.InspectAndSelectTextFileAsync(@"C:\Lyrics\RecreateUi.txt");
+                    vm.ConfirmEncodingConversionCommand.Execute(null);
+                    host.UpdateLayout();
+
+                    // Assert 2: テキスト生成ボタンおよび自動文字起こしボタンの双方が即時活性
+                    Assert.True(generateFromTextBtn.IsEnabled);
+                    Assert.True(transcribeAudioBtn.IsEnabled);
+                    Assert.Null(textSvc.SaveException);
+                    Assert.Empty(listener.Errors);
+                    Assert.False(HasHeavyEffect(sut));
+                });
+            }
+        });
+    }
+
     private static List<T> FindVisualChildren<T>(DependencyObject root)
         where T : DependencyObject
     {
