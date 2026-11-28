@@ -92,7 +92,7 @@ description: PRのレビュー指摘コメントを取得し、コードベー�
 ## 完了チェックリスト
 - [ ] PR のレビュー総評・全インラインコメント・通常コメントを漏れなく確認した
 - [ ] 全指摘についてコードベースの裏付けをもとに妥当性を判定した
-- [ ] `.\tools\verify_loop.ps1 -Full -JsonOut ".agent_logs\verify_review.json"` で全 5 ゲート合格（エラー 0・警告 0・全テスト合格・仕様書同期 OK・XAML 等価性 OK・Python ツールテスト合格）、`.agent_build/` 非残留を確認した
+- [ ] `.\tools\verify_loop.ps1 -Full -BaseBranch "<baseRefName>" -PreferOriginBase -JsonOut ".agent_logs\verify_review.json"` で全 5 ゲート合格（エラー 0・警告 0・全テスト合格・仕様書同期 OK・XAML 等価性 OK・Python ツールテスト合格）、`.agent_build/` 非残留を確認した
 - [ ] 変更内容を意味のある単位ごとにコミット分割し、リモートへプッシュ（`git push origin <ブランチ名>`）まで完了した
 - [ ] PR 本文（必要な場合）を更新し、全インライン指摘への個別返信と総括コメントを投稿した
 - [ ] 最終ステップで `git status -sb` および `git log origin/<ブランチ名>..HEAD --oneline` を実行し、カレントブランチにコミット前の差分が1件も残っておらずリモートと完全同期していることを確認した

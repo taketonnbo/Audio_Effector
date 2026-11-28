@@ -79,7 +79,7 @@ flowchart TD
    ```powershell
    python tools/epic_tracker.py --epic <Epic番号> --next --max-parallel 3 --json
    ```
-2. `epic_tracker.py`（`compute_next_actions()`）の優先順位（`create_integration_branch` [priority 1] / `sync_branch` [コンフリクト: priority 1] > `sync_branch` [追従: priority 2] / `fix_review` [priority 2] > `ready_to_merge` [priority 3] > `review_pr` [priority 4] > `resume_implementing` [priority 5] > `start_issue` [priority 6]）と並列スロット残数（`available_slots = max(0, max_parallel - active_slots)`）に従ってディスパッチする：
+2. `epic_tracker.py`（`compute_next_actions()`）の優先順位（`create_integration_branch` [priority 1] / `fix_pr_base` [priority 1] / `sync_branch` [コンフリクト: priority 1] > `sync_branch` [追従: priority 2] / `fix_review` [priority 2] > `ready_to_merge` [priority 3] > `review_pr` [priority 4] > `resume_implementing` [priority 5] > `start_issue` [priority 6]）と並列スロット残数（`available_slots = max(0, max_parallel - active_slots)`）に従ってディスパッチする：
    - **単一 `pending` 子 Issue の場合**:
      - 最新の **Epic 統合ブランチ（`origin/<統合ブランチ>`）** から `<Type>/<子Issue番号>-<説明>` を作成し、ベースブランチに `<統合ブランチ>` を指定して `run-dev-loop`（Inner Loop）を実行する。
    - **同一順序グループに複数の独立した `pending` 子 Issue があり並列実行する場合（最大 `available_slots` 件、上限 3 並列）**:
