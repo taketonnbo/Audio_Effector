@@ -2200,6 +2200,488 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// SanitizeFileName がファイル名禁止文字および制御文字をアンダースコア（_）へ置換し、既存のアンダースコア・記号・末尾ピリオド除去規則を維持することを検証します。
+    /// </summary>
+    /// <param name="input">入力文字列</param>
+    /// <param name="expected">期待されるサニタイズ結果</param>
+    [Theory]
+    [InlineData("VISUAL ARTS / Key", "VISUAL ARTS _ Key")]
+    [InlineData("My Soul, Your Beats!/Brave Song", "My Soul, Your Beats!_Brave Song")]
+    [InlineData("A/B\\C:D*E?F\"G<H>I|J", "A_B_C_D_E_F_G_H_I_J")]
+    [InlineData("Already_Underscore! , Name", "Already_Underscore! , Name")]
+    [InlineData("Artist\u0001Name", "Artist_Name")]
+    [InlineData("Album/Name.", "Album_Name")]
+    [InlineData(" / ", "_")]
+    public void SanitizeFileName_ファイル名禁止文字や既存アンダースコアを含む名称_禁止文字がアンダースコアへ置換されること(string input, string expected)
+    {
+        // Arrange
+        var sourceName = input;
+
+        // Act
+        string actual = DeviceBrowserViewModel.SanitizeFileName(sourceName);
+
+        // Assert
+        Assert.Equal(expected, actual);
+    }
+
+    /// <summary>
+    /// ファイル名禁止文字を含むアーティスト名・アルバム名を新規転送した場合、FileSystem・MTP 双方かつサブフォルダ・機器ルート直下のいずれでもアンダースコア置換フォルダへ保存され、再走査で非活性・チェック解除となることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferSelectedAsync_ファイル名禁止文字を含む名称を新規転送時_アンダースコア置換フォルダへ保存され再走査で非活性になること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_SanitizeNewTransfer_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string fsDeviceRoot = Path.Combine(tempRoot, "FsDevice");
+        string fsMusicDir = Path.Combine(fsDeviceRoot, "Music");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(fsMusicDir);
+
+        string trackPath = Path.Combine(sourceDir, "01.flac");
+        File.WriteAllText(trackPath, "source-audio-data");
+
+        const string rawArtist = "VISUAL ARTS / Key";
+        const string rawAlbum = "My Soul, Your Beats!/Brave Song";
+        const string expectedArtistFolder = "VISUAL ARTS _ Key";
+        const string expectedAlbumFolder = "My Soul, Your Beats!_Brave Song";
+
+        var track = new Track { Title = "My Soul, Your Beats!", Artist = rawArtist, AlbumArtist = rawArtist, Album = rawAlbum, FilePath = trackPath };
+        var album = new Album(rawAlbum, rawArtist, 2010, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var fakeMtp = new FakeMtpDeviceClient();
+        fakeMtp.AddDirectory(@"\Music");
+
+        try
+        {
+            // Act & Assert 1: FileSystem サブフォルダおよびルート直下
+            using (var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { }))
+            {
+                sut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "SanitizeFS",
+                    Type = MainViewModel.DeviceType.FileSystem,
+                    RootPath = fsDeviceRoot
+                };
+                sut.CurrentDevicePath = fsMusicDir;
+                await sut.CheckDeviceAlbumsAsync();
+
+                album.IsSelected = true;
+                await sut.TransferSelectedAsync();
+
+                Assert.True(File.Exists(Path.Combine(fsMusicDir, expectedArtistFolder, expectedAlbumFolder, "01.flac")));
+                Assert.False(Directory.Exists(Path.Combine(fsMusicDir, "VISUAL ARTS  Key")));
+                Assert.True(track.IsOnDevice);
+                Assert.False(track.IsSelected);
+                Assert.True(album.IsOnDevice);
+                Assert.False(album.IsSelected);
+
+                // FileSystem ルート直下へ切り替え
+                sut.CurrentDevicePath = fsDeviceRoot;
+                await sut.CheckDeviceAlbumsAsync();
+                Assert.False(track.IsOnDevice);
+
+                album.IsSelected = true;
+                await sut.TransferSelectedAsync();
+                await sut.CheckDeviceAlbumsAsync();
+
+                Assert.True(File.Exists(Path.Combine(fsDeviceRoot, expectedArtistFolder, expectedAlbumFolder, "01.flac")));
+                Assert.True(track.IsOnDevice);
+                Assert.True(album.IsOnDevice);
+                Assert.Equal(rawArtist, album.Artist);
+                Assert.Equal(rawAlbum, album.Title);
+            }
+
+            // Act & Assert 2: MTP サブフォルダおよびルート直下
+            using (var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: (_, _) => { }))
+            {
+                sut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "SanitizeMTP",
+                    Type = MainViewModel.DeviceType.MTP,
+                    RootPath = @"\"
+                };
+                sut.CurrentDevicePath = @"\Music";
+                await sut.CheckDeviceAlbumsAsync();
+
+                album.IsSelected = true;
+                await sut.TransferSelectedAsync();
+
+                Assert.True(fakeMtp.FileExists($@"\Music\{expectedArtistFolder}\{expectedAlbumFolder}\01.flac"));
+                Assert.True(track.IsOnDevice);
+                Assert.False(track.IsSelected);
+                Assert.True(album.IsOnDevice);
+
+                // MTP ルート直下へ切り替え
+                sut.CurrentDevicePath = @"\";
+                await sut.CheckDeviceAlbumsAsync();
+                Assert.False(track.IsOnDevice);
+
+                album.IsSelected = true;
+                await sut.TransferSelectedAsync();
+                await sut.CheckDeviceAlbumsAsync();
+
+                Assert.True(fakeMtp.FileExists($@"\{expectedArtistFolder}\{expectedAlbumFolder}\01.flac"));
+                Assert.True(track.IsOnDevice);
+                Assert.True(album.IsOnDevice);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 機器上にアンダースコア置換済みフォルダが既に存在する場合（他ソフトで転送済みを含む）、FileSystem・MTP およびサブフォルダ・ルート直下のいずれでも再走査で非活性となり二重転送されないことを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferSelectedAsync_アンダースコア置換済みフォルダが既存の場合_再走査で非活性となり二重転送されないこと()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_SanitizeExistingUnderscore_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string fsDeviceRoot = Path.Combine(tempRoot, "FsDevice");
+        string fsMusicDir = Path.Combine(fsDeviceRoot, "Music");
+        const string artistFolder = "VISUAL ARTS _ Key";
+        const string albumFolder = "My Soul, Your Beats!_Brave Song";
+        string fsSubExistingDir = Path.Combine(fsMusicDir, artistFolder, albumFolder);
+        string fsRootExistingDir = Path.Combine(fsDeviceRoot, artistFolder, albumFolder);
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(fsSubExistingDir);
+        Directory.CreateDirectory(fsRootExistingDir);
+
+        string sourceFlacPath = Path.Combine(sourceDir, "01_Track.flac");
+        File.WriteAllText(sourceFlacPath, "new-flac-bytes");
+        File.WriteAllText(Path.Combine(fsSubExistingDir, "01_Track.mp3"), "existing-sub-mp3");
+        File.WriteAllText(Path.Combine(fsRootExistingDir, "01_Track.mp3"), "existing-root-mp3");
+
+        var track = new Track
+        {
+            Title = "My Soul, Your Beats!",
+            Artist = "VISUAL ARTS / Key",
+            AlbumArtist = "VISUAL ARTS / Key",
+            Album = "My Soul, Your Beats!/Brave Song",
+            FilePath = sourceFlacPath
+        };
+        var album = new Album("My Soul, Your Beats!/Brave Song", "VISUAL ARTS / Key", 2010, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var fakeMtp = new FakeMtpDeviceClient();
+        fakeMtp.AddFile($@"\Music\{artistFolder}\{albumFolder}\01_Track.mp3");
+        fakeMtp.AddFile($@"\{artistFolder}\{albumFolder}\01_Track.mp3");
+
+        var fsTranscoder = new FakeAudioTranscodeService();
+        var mtpTranscoder = new FakeAudioTranscodeService();
+
+        try
+        {
+            // Act & Assert 1: FileSystem サブフォルダおよびルート直下
+            using (var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: fsTranscoder,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { }))
+            {
+                sut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "ExistingFS",
+                    Type = MainViewModel.DeviceType.FileSystem,
+                    RootPath = fsDeviceRoot
+                };
+
+                // サブフォルダ確認
+                sut.CurrentDevicePath = fsMusicDir;
+                await sut.CheckDeviceAlbumsAsync();
+                Assert.True(track.IsOnDevice);
+                Assert.True(album.IsOnDevice);
+                Assert.Empty(DeviceBrowserViewModel.CollectTransferTargetTracks(albums));
+
+                await sut.TransferTracksToFileSystemAsync(new[] { track }, fsMusicDir, new AudioTranscodeOptions { ConvertFlacToMp3 = true });
+                Assert.Equal(0, fsTranscoder.TranscodeCallCount);
+                Assert.Equal("existing-sub-mp3", File.ReadAllText(Path.Combine(fsSubExistingDir, "01_Track.mp3")));
+                Assert.False(File.Exists(Path.Combine(fsSubExistingDir, "01_Track.flac")));
+
+                // ルート直下確認
+                sut.CurrentDevicePath = fsDeviceRoot;
+                await sut.CheckDeviceAlbumsAsync();
+                Assert.True(track.IsOnDevice);
+                Assert.True(album.IsOnDevice);
+
+                await sut.TransferTracksToFileSystemAsync(new[] { track }, fsDeviceRoot, new AudioTranscodeOptions { ConvertFlacToMp3 = false });
+                Assert.Equal("existing-root-mp3", File.ReadAllText(Path.Combine(fsRootExistingDir, "01_Track.mp3")));
+                Assert.False(File.Exists(Path.Combine(fsRootExistingDir, "01_Track.flac")));
+            }
+
+            // Act & Assert 2: MTP サブフォルダおよびルート直下
+            using (var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: mtpTranscoder,
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: (_, _) => { }))
+            {
+                sut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "ExistingMTP",
+                    Type = MainViewModel.DeviceType.MTP,
+                    RootPath = @"\"
+                };
+
+                sut.CurrentDevicePath = @"\Music";
+                await sut.CheckDeviceAlbumsAsync();
+                Assert.True(track.IsOnDevice);
+                Assert.True(album.IsOnDevice);
+
+                await sut.TransferTracksToMtpAsync(fakeMtp, new[] { track }, @"\Music", new AudioTranscodeOptions { ConvertFlacToMp3 = true });
+                Assert.Equal(0, mtpTranscoder.TranscodeCallCount);
+                Assert.False(fakeMtp.FileExists($@"\Music\{artistFolder}\{albumFolder}\01_Track.flac"));
+
+                sut.CurrentDevicePath = @"\";
+                await sut.CheckDeviceAlbumsAsync();
+                Assert.True(track.IsOnDevice);
+                Assert.True(album.IsOnDevice);
+
+                await sut.TransferTracksToMtpAsync(fakeMtp, new[] { track }, @"\", new AudioTranscodeOptions { ConvertFlacToMp3 = false });
+                Assert.False(fakeMtp.FileExists($@"\{artistFolder}\{albumFolder}\01_Track.flac"));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 旧版 Audio Effector の禁止文字除去フォルダ（代表アーティストおよび旧曲別アーティスト配置）が機器上に存在する場合、後方互換により転送済み認識され、未転送曲のみアンダースコア置換フォルダへ追加転送され二重転送されないことを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferSelectedAsync_旧版の禁止文字除去フォルダが既存の場合_後方互換により転送済み認識され二重転送されないこと()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_SanitizeLegacyRemoved_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string fsDeviceRoot = Path.Combine(tempRoot, "FsDevice");
+        string fsMusicDir = Path.Combine(fsDeviceRoot, "Music");
+
+        const string legacyRepArtistFolder = "VISUAL ARTS  Key";
+        const string legacyGuestArtistFolder = "Guest  Singer";
+        const string legacyAlbumFolder = "My Soul, Your Beats!Brave Song";
+        const string newArtistFolder = "VISUAL ARTS _ Key";
+        const string newAlbumFolder = "My Soul, Your Beats!_Brave Song";
+
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(Path.Combine(fsMusicDir, legacyRepArtistFolder, legacyAlbumFolder));
+        Directory.CreateDirectory(Path.Combine(fsMusicDir, legacyGuestArtistFolder, legacyAlbumFolder));
+        Directory.CreateDirectory(Path.Combine(fsDeviceRoot, legacyRepArtistFolder, legacyAlbumFolder));
+        Directory.CreateDirectory(Path.Combine(fsDeviceRoot, legacyGuestArtistFolder, legacyAlbumFolder));
+
+        string track1Path = Path.Combine(sourceDir, "01.flac");
+        string track2Path = Path.Combine(sourceDir, "02.flac");
+        string track3Path = Path.Combine(sourceDir, "03.flac");
+        File.WriteAllText(track1Path, "track-1");
+        File.WriteAllText(track2Path, "track-2");
+        File.WriteAllText(track3Path, "track-3");
+
+        // サブフォルダ・ルート直下の双方に旧禁止文字除去フォルダ（代表・旧曲別）で 01 / 02 が既存
+        File.WriteAllText(Path.Combine(fsMusicDir, legacyRepArtistFolder, legacyAlbumFolder, "01.mp3"), "legacy-sub-01");
+        File.WriteAllText(Path.Combine(fsMusicDir, legacyGuestArtistFolder, legacyAlbumFolder, "02.mp3"), "legacy-sub-02");
+        File.WriteAllText(Path.Combine(fsDeviceRoot, legacyRepArtistFolder, legacyAlbumFolder, "01.mp3"), "legacy-root-01");
+        File.WriteAllText(Path.Combine(fsDeviceRoot, legacyGuestArtistFolder, legacyAlbumFolder, "02.mp3"), "legacy-root-02");
+
+        var track1 = new Track { Title = "Track 1", Artist = "VISUAL ARTS / Key", AlbumArtist = "VISUAL ARTS / Key", Album = "My Soul, Your Beats!/Brave Song", FilePath = track1Path };
+        var track2 = new Track { Title = "Track 2", Artist = "Guest / Singer", AlbumArtist = "VISUAL ARTS / Key", Album = "My Soul, Your Beats!/Brave Song", FilePath = track2Path };
+        var track3 = new Track { Title = "Track 3", Artist = "VISUAL ARTS / Key", AlbumArtist = "VISUAL ARTS / Key", Album = "My Soul, Your Beats!/Brave Song", FilePath = track3Path };
+        var album = new Album("My Soul, Your Beats!/Brave Song", "VISUAL ARTS / Key", 2010, new[] { track1, track2, track3 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var fakeMtp = new FakeMtpDeviceClient();
+        fakeMtp.AddFile($@"\Music\{legacyRepArtistFolder}\{legacyAlbumFolder}\01.mp3");
+        fakeMtp.AddFile($@"\Music\{legacyGuestArtistFolder}\{legacyAlbumFolder}\02.mp3");
+        fakeMtp.AddFile($@"\{legacyRepArtistFolder}\{legacyAlbumFolder}\01.mp3");
+        fakeMtp.AddFile($@"\{legacyGuestArtistFolder}\{legacyAlbumFolder}\02.mp3");
+
+        var fsTranscoder = new FakeAudioTranscodeService();
+        var mtpTranscoder = new FakeAudioTranscodeService();
+
+        try
+        {
+            // Act & Assert 1: FileSystem サブフォルダおよびルート直下
+            using (var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: fsTranscoder,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { }))
+            {
+                sut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "LegacyRemovedFS",
+                    Type = MainViewModel.DeviceType.FileSystem,
+                    RootPath = fsDeviceRoot
+                };
+
+                // サブフォルダで再走査 → 1・2 曲目は既転送、3 曲目のみ未転送
+                sut.CurrentDevicePath = fsMusicDir;
+                await sut.CheckDeviceAlbumsAsync();
+                Assert.True(track1.IsOnDevice);
+                Assert.True(track2.IsOnDevice);
+                Assert.False(track3.IsOnDevice);
+                Assert.False(album.IsOnDevice);
+
+                // アルバム選択＆転送 → 未転送の 3 曲目だけ新 _ 置換フォルダへ保存
+                album.IsSelected = true;
+                await sut.TransferSelectedAsync();
+                Assert.True(File.Exists(Path.Combine(fsMusicDir, newArtistFolder, newAlbumFolder, "03.flac")));
+                Assert.False(File.Exists(Path.Combine(fsMusicDir, newArtistFolder, newAlbumFolder, "01.flac")));
+                Assert.False(File.Exists(Path.Combine(fsMusicDir, newArtistFolder, newAlbumFolder, "02.flac")));
+                Assert.True(album.IsOnDevice);
+
+                // 直接転送呼び出しでも旧禁止文字除去配置の 1・2 曲目は変換 ON/OFF 双方でスキップされること
+                await sut.TransferTracksToFileSystemAsync(new[] { track1, track2 }, fsMusicDir, new AudioTranscodeOptions { ConvertFlacToMp3 = true });
+                await sut.TransferTracksToFileSystemAsync(new[] { track1, track2 }, fsMusicDir, new AudioTranscodeOptions { ConvertFlacToMp3 = false });
+                Assert.Equal(0, fsTranscoder.TranscodeCallCount);
+                Assert.False(File.Exists(Path.Combine(fsMusicDir, newArtistFolder, newAlbumFolder, "01.mp3")));
+                Assert.False(File.Exists(Path.Combine(fsMusicDir, newArtistFolder, newAlbumFolder, "02.mp3")));
+
+                // ルート直下でも同様に旧禁止文字除去フォルダを認識し、3 曲目のみ追加転送されること
+                sut.CurrentDevicePath = fsDeviceRoot;
+                await sut.CheckDeviceAlbumsAsync();
+                Assert.True(track1.IsOnDevice);
+                Assert.True(track2.IsOnDevice);
+                Assert.False(track3.IsOnDevice);
+
+                album.IsSelected = true;
+                await sut.TransferSelectedAsync();
+                Assert.True(File.Exists(Path.Combine(fsDeviceRoot, newArtistFolder, newAlbumFolder, "03.flac")));
+                Assert.False(File.Exists(Path.Combine(fsDeviceRoot, newArtistFolder, newAlbumFolder, "01.flac")));
+                Assert.False(File.Exists(Path.Combine(fsDeviceRoot, newArtistFolder, newAlbumFolder, "02.flac")));
+                Assert.True(album.IsOnDevice);
+            }
+
+            // Act & Assert 2: MTP サブフォルダおよびルート直下
+            using (var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: mtpTranscoder,
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: (_, _) => { }))
+            {
+                sut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "LegacyRemovedMTP",
+                    Type = MainViewModel.DeviceType.MTP,
+                    RootPath = @"\"
+                };
+
+                sut.CurrentDevicePath = @"\Music";
+                await sut.CheckDeviceAlbumsAsync();
+                Assert.True(track1.IsOnDevice);
+                Assert.True(track2.IsOnDevice);
+                Assert.False(track3.IsOnDevice);
+
+                album.IsSelected = true;
+                await sut.TransferSelectedAsync();
+                Assert.True(fakeMtp.FileExists($@"\Music\{newArtistFolder}\{newAlbumFolder}\03.flac"));
+                Assert.False(fakeMtp.FileExists($@"\Music\{newArtistFolder}\{newAlbumFolder}\01.flac"));
+                Assert.False(fakeMtp.FileExists($@"\Music\{newArtistFolder}\{newAlbumFolder}\02.flac"));
+                Assert.True(album.IsOnDevice);
+
+                await sut.TransferTracksToMtpAsync(fakeMtp, new[] { track1, track2 }, @"\Music", new AudioTranscodeOptions { ConvertFlacToMp3 = true });
+                await sut.TransferTracksToMtpAsync(fakeMtp, new[] { track1, track2 }, @"\Music", new AudioTranscodeOptions { ConvertFlacToMp3 = false });
+                Assert.Equal(0, mtpTranscoder.TranscodeCallCount);
+                Assert.False(fakeMtp.FileExists($@"\Music\{newArtistFolder}\{newAlbumFolder}\01.mp3"));
+                Assert.False(fakeMtp.FileExists($@"\Music\{newArtistFolder}\{newAlbumFolder}\02.mp3"));
+
+                sut.CurrentDevicePath = @"\";
+                await sut.CheckDeviceAlbumsAsync();
+                Assert.True(track1.IsOnDevice);
+                Assert.True(track2.IsOnDevice);
+                Assert.False(track3.IsOnDevice);
+
+                album.IsSelected = true;
+                await sut.TransferSelectedAsync();
+                Assert.True(fakeMtp.FileExists($@"\{newArtistFolder}\{newAlbumFolder}\03.flac"));
+                Assert.False(fakeMtp.FileExists($@"\{newArtistFolder}\{newAlbumFolder}\01.flac"));
+                Assert.False(fakeMtp.FileExists($@"\{newArtistFolder}\{newAlbumFolder}\02.flac"));
+                Assert.True(album.IsOnDevice);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 禁止文字除去の互換候補フォルダが別アルバムの正規新配置フォルダと一致する場合、別アルバムの転送によって誤って転送済み判定されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void ApplyDeviceTrackIndex_禁止文字除去互換候補が別アルバムの正規配置と衝突する場合_誤って転送済み判定されないこと()
+    {
+        // Arrange
+        var slashTrack = new Track { Title = "Track A", Artist = "A / B", AlbumArtist = "A / B", Album = "Title", FilePath = @"C:\Music\Slash\01.mp3" };
+        var doubleSpaceTrack = new Track { Title = "Track B", Artist = "A  B", AlbumArtist = "A  B", Album = "Title", FilePath = @"C:\Music\Space\01.mp3" };
+        var slashAlbum = new Album("Title", "A / B", 2024, new[] { slashTrack });
+        var doubleSpaceAlbum = new Album("Title", "A  B", 2024, new[] { doubleSpaceTrack });
+        var albums = new[] { slashAlbum, doubleSpaceAlbum };
+
+        // 別アルバム（正規配置 "A  B\Title"）のみ機器上に存在する状態
+        var index = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            @"A  B\Title\01"
+        };
+
+        // Act
+        DeviceBrowserViewModel.ApplyDeviceTrackIndex(albums, index);
+
+        // Assert
+        Assert.True(doubleSpaceTrack.IsOnDevice);
+        Assert.True(doubleSpaceAlbum.IsOnDevice);
+        Assert.False(slashTrack.IsOnDevice);
+        Assert.False(slashAlbum.IsOnDevice);
+    }
+
     private sealed class FakeMtpDeviceClient : DeviceBrowserViewModel.IMtpDeviceClient
     {
         private readonly object _sync = new();
