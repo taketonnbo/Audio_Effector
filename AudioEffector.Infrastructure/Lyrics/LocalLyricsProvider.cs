@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -12,10 +12,12 @@ using NLog;
 namespace AudioEffector.Infrastructure.Lyrics;
 
 /// <summary>
-/// ローカルファイルシステムの外部 .lrc ファイルおよび音声ファイル埋め込み歌詞タグから歌詞を読み込む <see cref="ILyricsProvider"/> 実装です。
+/// ローカルファイルシステムの外部 .lrc ファイルおよび音声ファイル埋め込み歌詞タグから歌詞を読み込む <see cref="ILyricsProvider"/> 実装です
 /// </summary>
 public sealed class LocalLyricsProvider : ILyricsProvider
 {
+    private const int FILE_STREAM_BUFFER_SIZE = 4096;
+
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
     private static readonly UTF8Encoding StrictUtf8Encoding = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
     private static readonly Encoding ShiftJisEncoding;
@@ -29,20 +31,20 @@ public sealed class LocalLyricsProvider : ILyricsProvider
     }
 
     /// <summary>
-    /// <see cref="LocalLyricsProvider"/> の新しいインスタンスを初期化します。
+    /// <see cref="LocalLyricsProvider"/> の新しいインスタンスを初期化します
     /// </summary>
-    /// <param name="lrcParser">LRC テキストパーサー。</param>
+    /// <param name="lrcParser">LRC テキストパーサー</param>
     public LocalLyricsProvider(ILrcParser lrcParser)
     {
         _lrcParser = lrcParser ?? throw new ArgumentNullException(nameof(lrcParser));
     }
 
     /// <summary>
-    /// 指定された楽曲の歌詞を優先順位（① 同階層・同名 .lrc ファイル → ② 音声ファイル埋め込み歌詞タグ → ③ なし）に従って非同期で読み込みます。
+    /// 指定された楽曲の歌詞を優先順位（① 同階層・同名 .lrc ファイル → ② 音声ファイル埋め込み歌詞タグ → ③ なし）に従って非同期で読み込みます
     /// </summary>
-    /// <param name="track">歌詞を取得する対象楽曲。</param>
-    /// <param name="cancellationToken">キャンセレーショントークン。</param>
-    /// <returns>取得された <see cref="LyricsDocument"/>（取得できない場合は <see langword="null"/>）。</returns>
+    /// <param name="track">歌詞を取得する対象楽曲</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>取得された <see cref="LyricsDocument"/>（取得できない場合は <see langword="null"/>）</returns>
     public async Task<LyricsDocument?> LoadLyricsAsync(Track track, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -94,7 +96,7 @@ public sealed class LocalLyricsProvider : ILyricsProvider
 
         try
         {
-            byte[] rawBytes = await File.ReadAllBytesAsync(lrcPath, cancellationToken).ConfigureAwait(false);
+            byte[] rawBytes = await ReadFileBytesSharedAsync(lrcPath, cancellationToken).ConfigureAwait(false);
             if (rawBytes.Length == 0)
             {
                 return null;
@@ -122,6 +124,20 @@ public sealed class LocalLyricsProvider : ILyricsProvider
         }
     }
 
+    private static async Task<byte[]> ReadFileBytesSharedAsync(string filePath, CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            bufferSize: FILE_STREAM_BUFFER_SIZE,
+            useAsync: true);
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream, cancellationToken).ConfigureAwait(false);
+        return memoryStream.ToArray();
+    }
+
     private Task<LyricsDocument?> TryLoadEmbeddedLyricsAsync(string audioFilePath, CancellationToken cancellationToken)
     {
         if (!File.Exists(audioFilePath))
@@ -135,7 +151,8 @@ public sealed class LocalLyricsProvider : ILyricsProvider
 
             try
             {
-                using TagLib.File tagFile = TagLib.File.Create(audioFilePath);
+                // 歌詞タグのみを対象とし、不要なオーディオプロパティ解析を回避する
+                using TagLib.File tagFile = TagLib.File.Create(audioFilePath, TagLib.ReadStyle.None);
                 string? rawLyrics = ExtractEmbeddedLyricsText(tagFile.Tag);
                 if (string.IsNullOrWhiteSpace(rawLyrics))
                 {
@@ -163,10 +180,10 @@ public sealed class LocalLyricsProvider : ILyricsProvider
     }
 
     /// <summary>
-    /// バイト配列を UTF-8（BOM 有無両対応・厳格デコード）優先で文字列へ変換し、デコード不可時は Shift-JIS（CP932）へフォールバックします。
+    /// バイト配列を UTF-8（BOM 有無両対応・厳格デコード）優先で文字列へ変換し、デコード不可時は Shift-JIS（CP932）へフォールバックします
     /// </summary>
-    /// <param name="bytes">デコード対象の生バイト配列。</param>
-    /// <returns>デコードされた文字列。</returns>
+    /// <param name="bytes">デコード対象の生バイト配列</param>
+    /// <returns>デコードされた文字列</returns>
     internal static string DecodeTextWithFallback(byte[] bytes)
     {
         if (bytes.Length == 0)

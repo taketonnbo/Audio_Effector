@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -10,17 +10,17 @@ using AudioEffector.Domain.ValueObjects;
 namespace AudioEffector.Infrastructure.Lyrics;
 
 /// <summary>
-/// LRC 形式のテキスト解析およびフォーマットを行う <see cref="ILrcParser"/> の標準実装です。
+/// LRC 形式のテキスト解析およびフォーマットを行う <see cref="ILrcParser"/> の標準実装です
 /// </summary>
 public sealed partial class LrcParser : ILrcParser
 {
     private const int MAX_MINUTES = 99999;
 
     /// <summary>
-    /// LRC 形式またはプレーンテキスト形式の歌詞文字列を解析して <see cref="LyricsDocument"/> を構築します。
+    /// LRC 形式またはプレーンテキスト形式の歌詞文字列を解析して <see cref="LyricsDocument"/> を構築します
     /// </summary>
-    /// <param name="content">解析対象の歌詞テキスト。</param>
-    /// <returns>解析結果の <see cref="LyricsDocument"/>。</returns>
+    /// <param name="content">解析対象の歌詞テキスト</param>
+    /// <returns>解析結果の <see cref="LyricsDocument"/></returns>
     public LyricsDocument Parse(string content)
     {
         if (string.IsNullOrEmpty(content))
@@ -102,10 +102,10 @@ public sealed partial class LrcParser : ILrcParser
     }
 
     /// <summary>
-    /// <see cref="LyricsDocument"/> を LRC 形式のテキスト文字列へフォーマットします。
+    /// <see cref="LyricsDocument"/> を LRC 形式のテキスト文字列へフォーマットします
     /// </summary>
-    /// <param name="document">フォーマット対象の歌詞ドキュメント。</param>
-    /// <returns>LRC 形式に整形された文字列。</returns>
+    /// <param name="document">フォーマット対象の歌詞ドキュメント</param>
+    /// <returns>LRC 形式に整形された文字列</returns>
     public string Format(LyricsDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
