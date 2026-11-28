@@ -1209,7 +1209,7 @@ public sealed class DeviceBrowserViewModelTests
         bool shouldBlockNextScan = false;
         fakeMtp.OnGetFiles = dir =>
         {
-            if (shouldBlockNextScan && string.Equals(dir, @"\", StringComparison.OrdinalIgnoreCase))
+            if (shouldBlockNextScan && string.Equals(dir, @"\M2U\DIVERSITY", StringComparison.OrdinalIgnoreCase))
             {
                 shouldBlockNextScan = false;
                 scanStarted.TrySetResult(true);
@@ -1319,23 +1319,323 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// ピリオドや空白のみで構成されるアーティスト名・アルバム名について、旧配置互換キーおよび既知フォルダ候補に "." や ".." が混入せず "Unknown" へ正規化されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(".", "..")]
+    [InlineData("..", "...")]
+    [InlineData(" . ", " .. ")]
+    public void BuildExpectedTrackRelativeKeys_ピリオドのみの名称_親ディレクトリ参照を組み立てずUnknownへ正規化されること(string artist, string albumName)
+    {
+        // Arrange
+        var track = new Track { Title = "Track 01", Artist = artist, Album = albumName, FilePath = @"C:\Music\01.mp3" };
+        var album = new Album(albumName, artist, 2024, new[] { track });
+
+        // Act
+        var keys = DeviceBrowserViewModel.BuildExpectedTrackRelativeKeys(track);
+        var knownTargets = DeviceBrowserViewModel.CollectKnownTrackFolderTargets(new[] { album });
+
+        // Assert
+        Assert.Single(keys);
+        Assert.Equal(@"Unknown\Unknown\01", keys[0]);
+        Assert.True(knownTargets.TryGetValue("Unknown", out var albumFolders));
+        Assert.Single(albumFolders!);
+        Assert.Contains("Unknown", albumFolders!);
+        Assert.DoesNotContain(".", knownTargets.Keys);
+        Assert.DoesNotContain("..", knownTargets.Keys);
+    }
+
+    /// <summary>
+    /// 未接続状態の MTP 機器に対して TransferSelectedAsync を実行した場合、誤って成功通知を行わずエラー通知で終了することを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferSelectedAsync_未接続のMTP機器で実行時_成功通知せずエラー通知で終了すること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_MtpDisconnected_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        string sourcePath = Path.Combine(tempRoot, "01.mp3");
+        File.WriteAllText(sourcePath, "audio-bytes");
+
+        var fakeMtp = new FakeMtpDeviceClient();
+        var track = new Track { Title = "Song", Artist = "Artist A", Album = "Album A", FilePath = sourcePath };
+        var album = new Album("Album A", "Artist A", 2024, new[] { track }) { IsSelected = true };
+        var albums = new ObservableCollection<Album> { album };
+        var notifications = new List<(string Message, string Caption)>();
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: (msg, caption) => notifications.Add((msg, caption)));
+
+            var mtpDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "Disconnected MTP",
+                Type = MainViewModel.DeviceType.MTP,
+                RootPath = @"\"
+            };
+            sut.SelectedDevice = mtpDevice;
+            fakeMtp.Disconnect();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Single(notifications);
+            Assert.Equal("Error", notifications[0].Caption);
+            Assert.False(fakeMtp.FileExists(@"\Artist A\Album A\01.mp3"));
+            Assert.False(track.IsOnDevice);
+            Assert.False(sut.IsTransferring);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 転送途中で例外が発生し後続のディレクトリ再読込も失敗した場合、部分転送成功分のみ IsOnDevice=true が反映され、エラー通知が二重発火せず 1 回のみ行われることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferSelectedAsync_転送途中失敗かつ再読込例外発生時_部分転送分を反映しエラー通知が1回のみ行われること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_MtpPartialFail_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        string source1 = Path.Combine(tempRoot, "01.mp3");
+        string source2 = Path.Combine(tempRoot, "02.mp3");
+        File.WriteAllText(source1, "track-1");
+        File.WriteAllText(source2, "track-2");
+
+        var fakeMtp = new FakeMtpDeviceClient();
+        bool failRootDirectoryListing = false;
+        fakeMtp.OnUploadFile = (_, destPath) =>
+        {
+            if (destPath.EndsWith("02.mp3", StringComparison.OrdinalIgnoreCase))
+            {
+                failRootDirectoryListing = true;
+                throw new IOException("Simulated cable disconnect");
+            }
+        };
+        fakeMtp.OnGetFiles = dir =>
+        {
+            if (failRootDirectoryListing && string.Equals(dir, @"\", StringComparison.OrdinalIgnoreCase))
+            {
+                // LoadDeviceDirectoriesCore の GetFiles("\") で例外を起こさせ、二重通知抑止を検証
+                failRootDirectoryListing = false;
+                throw new IOException("Directory read failed after disconnect");
+            }
+        };
+
+        var track1 = new Track { Title = "Track 01", Artist = "M2U", Album = "DIVERSITY.", FilePath = source1 };
+        var track2 = new Track { Title = "Track 02", Artist = "M2U", Album = "DIVERSITY.", FilePath = source2 };
+        var album = new Album("DIVERSITY.", "M2U", 2024, new[] { track1, track2 }) { IsSelected = true };
+        var albums = new ObservableCollection<Album> { album };
+        var notifications = new List<(string Message, string Caption)>();
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: (msg, caption) => notifications.Add((msg, caption)));
+
+            sut.SelectedDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "Fake MTP",
+                Type = MainViewModel.DeviceType.MTP,
+                RootPath = @"\"
+            };
+            await sut.CheckDeviceAlbumsAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Single(notifications);
+            Assert.Equal("Error", notifications[0].Caption);
+            Assert.Contains("Simulated cable disconnect", notifications[0].Message);
+            Assert.True(track1.IsOnDevice);
+            Assert.False(track1.IsSelected);
+            Assert.False(track2.IsOnDevice);
+            Assert.False(album.IsOnDevice);
+            Assert.False(sut.IsTransferring);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private sealed class FakeMtpDeviceClient : DeviceBrowserViewModel.IMtpDeviceClient
     {
+        private readonly object _sync = new();
         private readonly HashSet<string> _directories = new(StringComparer.OrdinalIgnoreCase) { @"\" };
         private readonly HashSet<string> _files = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> _enumeratedDirectories = new();
+        private bool _isConnected;
 
-        public bool IsConnected { get; private set; }
+        public bool IsConnected
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _isConnected;
+                }
+            }
+        }
+
         public Action<string>? OnGetFiles { get; set; }
-        public IReadOnlyList<string> EnumeratedDirectories => _enumeratedDirectories;
+        public Action<string, string>? OnUploadFile { get; set; }
 
-        public void Connect() => IsConnected = true;
+        public IReadOnlyList<string> EnumeratedDirectories
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _enumeratedDirectories.ToArray();
+                }
+            }
+        }
 
-        public void Disconnect() => IsConnected = false;
+        public void Connect()
+        {
+            lock (_sync)
+            {
+                _isConnected = true;
+            }
+        }
 
-        public void ClearEnumeratedDirectories() => _enumeratedDirectories.Clear();
+        public void Disconnect()
+        {
+            lock (_sync)
+            {
+                _isConnected = false;
+            }
+        }
+
+        public void ClearEnumeratedDirectories()
+        {
+            lock (_sync)
+            {
+                _enumeratedDirectories.Clear();
+            }
+        }
 
         public void AddDirectory(string path)
+        {
+            lock (_sync)
+            {
+                AddDirectoryUnsafe(path);
+            }
+        }
+
+        public void AddFile(string path)
+        {
+            lock (_sync)
+            {
+                string normalized = NormalizePath(path);
+                string? parent = Path.GetDirectoryName(normalized);
+                if (!string.IsNullOrEmpty(parent))
+                {
+                    AddDirectoryUnsafe(parent);
+                }
+                _files.Add(normalized);
+            }
+        }
+
+        public bool DirectoryExists(string path)
+        {
+            lock (_sync)
+            {
+                return _directories.Contains(NormalizePath(path));
+            }
+        }
+
+        public void CreateDirectory(string path) => AddDirectory(path);
+
+        public IEnumerable<string> GetDirectories(string path)
+        {
+            string normalized = NormalizePath(path);
+            lock (_sync)
+            {
+                _enumeratedDirectories.Add(normalized);
+                var result = new List<string>();
+                foreach (var dir in _directories)
+                {
+                    if (string.Equals(dir, normalized, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string? parent = Path.GetDirectoryName(dir);
+                    if (!string.IsNullOrEmpty(parent) && string.Equals(NormalizePath(parent), normalized, StringComparison.OrdinalIgnoreCase))
+                    {
+                        result.Add(dir);
+                    }
+                }
+                return result;
+            }
+        }
+
+        public IEnumerable<string> GetFiles(string path)
+        {
+            string normalized = NormalizePath(path);
+            OnGetFiles?.Invoke(normalized);
+            lock (_sync)
+            {
+                var result = new List<string>();
+                foreach (var file in _files)
+                {
+                    string? parent = Path.GetDirectoryName(file);
+                    if (!string.IsNullOrEmpty(parent) && string.Equals(NormalizePath(parent), normalized, StringComparison.OrdinalIgnoreCase))
+                    {
+                        result.Add(file);
+                    }
+                }
+                return result;
+            }
+        }
+
+        public bool FileExists(string path)
+        {
+            lock (_sync)
+            {
+                return _files.Contains(NormalizePath(path));
+            }
+        }
+
+        public void UploadFile(string sourceFilePath, string destinationFilePath)
+        {
+            if (!File.Exists(sourceFilePath))
+            {
+                throw new FileNotFoundException("Source file not found.", sourceFilePath);
+            }
+
+            OnUploadFile?.Invoke(sourceFilePath, destinationFilePath);
+            AddFile(destinationFilePath);
+        }
+
+        private void AddDirectoryUnsafe(string path)
         {
             string normalized = NormalizePath(path);
             _directories.Add(normalized);
@@ -1349,70 +1649,6 @@ public sealed class DeviceBrowserViewModelTests
                 }
                 parent = Path.GetDirectoryName(parent);
             }
-        }
-
-        public void AddFile(string path)
-        {
-            string normalized = NormalizePath(path);
-            string? parent = Path.GetDirectoryName(normalized);
-            if (!string.IsNullOrEmpty(parent))
-            {
-                AddDirectory(parent);
-            }
-            _files.Add(normalized);
-        }
-
-        public bool DirectoryExists(string path) => _directories.Contains(NormalizePath(path));
-
-        public void CreateDirectory(string path) => AddDirectory(path);
-
-        public IEnumerable<string> GetDirectories(string path)
-        {
-            string normalized = NormalizePath(path);
-            _enumeratedDirectories.Add(normalized);
-            var result = new List<string>();
-            foreach (var dir in _directories)
-            {
-                if (string.Equals(dir, normalized, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                string? parent = Path.GetDirectoryName(dir);
-                if (!string.IsNullOrEmpty(parent) && string.Equals(NormalizePath(parent), normalized, StringComparison.OrdinalIgnoreCase))
-                {
-                    result.Add(dir);
-                }
-            }
-            return result;
-        }
-
-        public IEnumerable<string> GetFiles(string path)
-        {
-            string normalized = NormalizePath(path);
-            OnGetFiles?.Invoke(normalized);
-            var result = new List<string>();
-            foreach (var file in _files)
-            {
-                string? parent = Path.GetDirectoryName(file);
-                if (!string.IsNullOrEmpty(parent) && string.Equals(NormalizePath(parent), normalized, StringComparison.OrdinalIgnoreCase))
-                {
-                    result.Add(file);
-                }
-            }
-            return result;
-        }
-
-        public bool FileExists(string path) => _files.Contains(NormalizePath(path));
-
-        public void UploadFile(string sourceFilePath, string destinationFilePath)
-        {
-            if (!File.Exists(sourceFilePath))
-            {
-                throw new FileNotFoundException("Source file not found.", sourceFilePath);
-            }
-
-            AddFile(destinationFilePath);
         }
 
         private static string NormalizePath(string path)
