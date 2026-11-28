@@ -63,6 +63,8 @@ public sealed class LibraryStatsViewModelTests
             _data = working.Clone();
             return _data.Clone();
         }
+
+        public void ClearAll() => _data = new ListeningStatsData();
     }
 
     private static Track CreateTrack(string title, string artist, string album, string filePath, int seconds = 200)
@@ -518,5 +520,67 @@ public sealed class LibraryStatsViewModelTests
         Assert.Equal(8, visibleHourlyLabels); // 0, 3, 6, 9, 12, 15, 18, 21
         Assert.True(allTooltipsPopulated);
         Assert.Equal(2, sut.TotalPlayCount); // Dispose 後の統計更新で変化しない
+    }
+
+    /// <summary>
+    /// ListeningStatsApplicationService.ResetAllStats 実行時、非表示状態（IsActiveView = false）であっても
+    /// StatsReset イベントにより即座に空状態へ同期され、Dispose 後は通知を無視することを検証します。
+    /// </summary>
+    [Fact]
+    public void StatsResetイベント受信時_非表示中でも即座に空状態へ同期されDispose後は通知を無視すること()
+    {
+        // Arrange
+        var now = new DateTime(2026, 5, 13, 18, 0, 0);
+        Track t1 = CreateTrack("Reset Song", "Artist 1", "Album 1", @"C:\music\reset.mp3", 180);
+
+        var data = new ListeningStatsData();
+        data.PlayEvents.Add(TrackPlayEvent.FromTrack(t1, now.AddHours(-1)));
+
+        var repo = new InMemoryListeningStatsRepository(data);
+        var audioMock = new Mock<IAudioService>();
+        var (libraryVm, playlistVm, _) = CreateLibraryAndPlaylist(audioMock.Object, [t1]);
+        using var ownedLibrary = libraryVm;
+        using var ownedPlaylist = playlistVm;
+        using var listeningSvc = new ListeningStatsApplicationService(repo, audioMock.Object, () => now);
+        var libraryStatsSvc = new LibraryStatsApplicationService(repo, () => now);
+        var dispatcher = new QueuedDispatcherStub();
+
+        using var sut = new LibraryStatsViewModel(
+            libraryStatsSvc,
+            listeningSvc,
+            libraryVm,
+            audioMock.Object,
+            dispatcher,
+            playlistVm,
+            playlistNamePrompt: name => name,
+            messageNotifier: (_, _, _) => { })
+        {
+            IsActiveView = true,
+        };
+        Assert.Equal(1, sut.TotalPlayCount);
+        Assert.True(sut.HasData);
+        Assert.False(sut.IsEmpty);
+        Assert.Single(sut.TopTracks);
+
+        // 非表示状態へ切替後に全リセットを実行
+        sut.IsActiveView = false;
+
+        // Act
+        bool succeeded = listeningSvc.ResetAllStats();
+        dispatcher.FlushAll();
+
+        // Assert: 非表示状態のままでも即座に空状態へ反映されていること
+        Assert.True(succeeded);
+        Assert.Equal(0, sut.TotalPlayCount);
+        Assert.False(sut.HasData);
+        Assert.True(sut.IsEmpty);
+        Assert.Empty(sut.TopTracks);
+        Assert.Empty(sut.TopArtists);
+        Assert.Empty(sut.TopAlbums);
+
+        // Dispose 後は StatsReset 通知が来てもディスパッチャに積まれないこと
+        sut.Dispose();
+        listeningSvc.ResetAllStats();
+        Assert.Equal(0, dispatcher.PendingCount);
     }
 }

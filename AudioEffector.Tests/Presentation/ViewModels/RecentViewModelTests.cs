@@ -450,6 +450,50 @@ public sealed class RecentViewModelTests
         }
     }
 
+    /// <summary>
+    /// ListeningStatsApplicationService.ResetAllStats 実行時、StatsReset イベント経由で最近再生した曲一覧が即座に空状態へ同期され、
+    /// Dispose 後は再通知されても例外や不要更新が発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void StatsResetイベント受信時_統合リポジトリと最近再生した曲一覧が即座に空状態へ同期されDispose後は影響しないこと()
+    {
+        // Arrange
+        var (owner, _, audio, library) = CreateSut();
+        using var ownedLibrary = library;
+        using var ownedView = owner;
+        var directory = System.IO.Directory.CreateTempSubdirectory();
+        try
+        {
+            string statsPath = System.IO.Path.Combine(directory.FullName, "ListeningStats.json");
+            var statsRepo = new AudioEffector.Infrastructure.Repository.JsonListeningStatsRepository(statsPath);
+            using var statsService = new ListeningStatsApplicationService(statsRepo, audio);
+            using var sut = new RecentViewModel((IListeningStatsRepository)statsRepo, library, audio, listeningStatsService: statsService);
+
+            var track = CreateTrack("Reset Target");
+            sut.RecordTrack(track);
+            statsService.RecordPlaybackCompleted(track);
+            Assert.Single(sut.FilteredEntries);
+            Assert.True(sut.HasHistory);
+
+            // Act 1: 全リセット実行
+            bool succeeded = statsService.ResetAllStats();
+
+            // Assert 1: 即座に空状態へ同期される
+            Assert.True(succeeded);
+            Assert.Empty(sut.FilteredEntries);
+            Assert.True(sut.IsEmpty);
+            Assert.False(sut.HasHistory);
+
+            // Act 2: Dispose 後の再リセットでも例外なく無視される
+            sut.Dispose();
+            Assert.True(statsService.ResetAllStats());
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
+    }
+
     private sealed class InMemoryRecentRepository : IRecentTrackRepository
     {
         public List<RecentTrackEntry> SavedEntries { get; private set; } = new();

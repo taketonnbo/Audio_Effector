@@ -367,6 +367,26 @@
                                    Margin="20,0,0,20"
                                    TextWrapping="Wrap"/>
 
+                        <TextBlock Text="再生履歴・リスニング統計" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}"/>
+
+                        <Button x:Name="ResetListeningStatsButton"
+                                Content="再生履歴・リスニング統計をすべてリセット"
+                                Command="{Binding ResetListeningStatsCommand}"
+                                HorizontalAlignment="Left"
+                                Padding="14,6"
+                                Margin="0,0,0,6"
+                                Background="{DynamicResource ControlBackgroundHighlightBrush}"
+                                Foreground="{DynamicResource TextForegroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                Cursor="Hand"/>
+                        <TextBlock x:Name="ResetListeningStatsNoteTextBlock"
+                                   Text="※すべての再生履歴（最近再生した曲）・曲別統計・ライブラリ全体ランキングおよび日時毎の推移データが初期化され、元に戻せません。音楽ファイル本体・プレイリスト・お気に入りには影響しません。"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                   Margin="0,0,0,20"
+                                   TextWrapping="Wrap"/>
+
                         <TextBlock Text="機器転送設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}"/>
 
                         <CheckBox Content="転送時に MP4 を M4A に変換する"

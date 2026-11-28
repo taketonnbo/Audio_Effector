@@ -299,6 +299,7 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
 
         _audioService.TrackChanged += OnAudioTrackChanged;
         _statsService.StatsUpdated += OnStatsUpdated;
+        _statsService.StatsReset += OnStatsReset;
         if (_libraryViewModel != null)
         {
             _libraryViewModel.LibrarySynced += OnLibrarySynced;
@@ -522,6 +523,25 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
         ScheduleDeferredRefresh();
     }
 
+    private void OnStatsReset()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _uiDispatcher.BeginInvoke(() =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _isDirty = false;
+            RefreshCore();
+        });
+    }
+
     private void RefreshCore()
     {
         TrackListeningStat? stat = _targetTrack != null
@@ -678,6 +698,7 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
             _disposed = true;
             _audioService.TrackChanged -= OnAudioTrackChanged;
             _statsService.StatsUpdated -= OnStatsUpdated;
+            _statsService.StatsReset -= OnStatsReset;
             if (_libraryViewModel != null)
             {
                 _libraryViewModel.LibrarySynced -= OnLibrarySynced;

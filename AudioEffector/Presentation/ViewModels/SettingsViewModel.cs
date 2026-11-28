@@ -45,9 +45,12 @@ public class SettingsViewModel : ViewModelBase
     private readonly IDataDirectoryProvider? _dataDirectoryProvider;
     private readonly IDataDirectoryMigrationService? _dataDirectoryMigrationService;
     private readonly ILogConfigurationManager? _logConfigurationManager;
+    private readonly ListeningStatsApplicationService? _listeningStatsService;
     private readonly Func<string?, string, string?> _folderPicker;
     private readonly Func<string, string, bool, DataMigrationChoice> _migrationPrompt;
+    private readonly Func<string, string, bool> _resetConfirmationPrompt;
     private readonly Action<string, string, bool> _messageNotifier;
+    private readonly bool _hasCustomMessageNotifier;
     private readonly Action<string> _folderOpener;
     private readonly string _defaultDataDirectoryFallback;
     private readonly string _defaultLogDirectoryFallback;
@@ -57,6 +60,11 @@ public class SettingsViewModel : ViewModelBase
     /// データ保存先ディレクトリが正常に変更された際に発火するイベント
     /// </summary>
     public event Action? DataDirectoryChanged;
+
+    /// <summary>
+    /// 再生履歴およびリスニング統計データが全件リセットされた際に発火するイベント
+    /// </summary>
+    public event Action? ListeningStatsReset;
 
     /// <summary>
     /// 設定カテゴリーの一覧を取得します
@@ -694,6 +702,16 @@ public class SettingsViewModel : ViewModelBase
     public ICommand OpenLogFolderCommand { get; }
 
     /// <summary>
+    /// 再生履歴およびリスニング統計データをすべてリセットするコマンドを取得します
+    /// </summary>
+    public ICommand ResetListeningStatsCommand { get; }
+
+    /// <summary>
+    /// 再生履歴・リスニング統計データの全リセット機能が利用可能かどうかを取得します
+    /// </summary>
+    public bool CanResetListeningStats => _listeningStatsService != null;
+
+    /// <summary>
     /// 設定サービスとオーディオサービスを指定してインスタンスを初期化します
     /// </summary>
     /// <param name="settingsService">設定サービス</param>
@@ -701,13 +719,15 @@ public class SettingsViewModel : ViewModelBase
     /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ（任意）</param>
     /// <param name="dataDirectoryMigrationService">データディレクトリ変更・移行サービス（任意）</param>
     /// <param name="logConfigurationManager">ログ出力構成マネージャ（任意）</param>
+    /// <param name="listeningStatsService">リスニング統計アプリケーションサービス（任意）</param>
     [ActivatorUtilitiesConstructor]
     public SettingsViewModel(
         ISettingsService settingsService,
         IAudioService audioService,
         IDataDirectoryProvider? dataDirectoryProvider = null,
         IDataDirectoryMigrationService? dataDirectoryMigrationService = null,
-        ILogConfigurationManager? logConfigurationManager = null)
+        ILogConfigurationManager? logConfigurationManager = null,
+        ListeningStatsApplicationService? listeningStatsService = null)
         : this(
             settingsService,
             audioService,
@@ -717,7 +737,9 @@ public class SettingsViewModel : ViewModelBase
             migrationPrompt: null,
             messageNotifier: null,
             logConfigurationManager: logConfigurationManager,
-            folderOpener: null)
+            folderOpener: null,
+            listeningStatsService: listeningStatsService,
+            resetConfirmationPrompt: null)
     {
     }
 
@@ -733,6 +755,8 @@ public class SettingsViewModel : ViewModelBase
     /// <param name="messageNotifier">結果・エラー通知デリゲート</param>
     /// <param name="logConfigurationManager">ログ出力構成マネージャ</param>
     /// <param name="folderOpener">フォルダを開く操作デリゲート</param>
+    /// <param name="listeningStatsService">リスニング統計アプリケーションサービス（任意）</param>
+    /// <param name="resetConfirmationPrompt">統計全リセット確認ダイアログデリゲート（任意）</param>
     internal SettingsViewModel(
         ISettingsService settingsService,
         IAudioService audioService,
@@ -742,17 +766,22 @@ public class SettingsViewModel : ViewModelBase
         Func<string, string, bool, DataMigrationChoice>? migrationPrompt,
         Action<string, string, bool>? messageNotifier,
         ILogConfigurationManager? logConfigurationManager = null,
-        Action<string>? folderOpener = null)
+        Action<string>? folderOpener = null,
+        ListeningStatsApplicationService? listeningStatsService = null,
+        Func<string, string, bool>? resetConfirmationPrompt = null)
     {
         _settingsService = settingsService;
         _audioService = audioService;
         _dataDirectoryProvider = dataDirectoryProvider;
         _dataDirectoryMigrationService = dataDirectoryMigrationService;
         _logConfigurationManager = logConfigurationManager;
+        _listeningStatsService = listeningStatsService;
         _folderPicker = folderPicker != null
             ? (initialDir, _) => folderPicker(initialDir)
             : ShowDefaultFolderPicker;
         _migrationPrompt = migrationPrompt ?? ShowDefaultMigrationPrompt;
+        _resetConfirmationPrompt = resetConfirmationPrompt ?? ShowDefaultResetConfirmationPrompt;
+        _hasCustomMessageNotifier = messageNotifier != null;
         _messageNotifier = messageNotifier ?? ShowDefaultMessage;
         _folderOpener = folderOpener ?? OpenFolderInExplorer;
         _defaultDataDirectoryFallback = Path.Combine(
@@ -767,6 +796,7 @@ public class SettingsViewModel : ViewModelBase
         BrowseLogDirectoryCommand = new RelayCommand(_ => BrowseLogDirectory());
         ResetLogDirectoryCommand = new RelayCommand(_ => ResetLogDirectory(), _ => IsCustomLogDirectory);
         OpenLogFolderCommand = new RelayCommand(_ => OpenLogFolder());
+        ResetListeningStatsCommand = new RelayCommand(_ => ResetListeningStats(), _ => CanResetListeningStats);
 
         Categories = new ObservableCollection<string>
         {
@@ -1075,5 +1105,54 @@ public class SettingsViewModel : ViewModelBase
         };
         startInfo.ArgumentList.Add(directoryPath);
         using var process = System.Diagnostics.Process.Start(startInfo);
+    }
+
+    private void ResetListeningStats()
+    {
+        if (_listeningStatsService == null)
+        {
+            return;
+        }
+
+        bool confirmed = _resetConfirmationPrompt(
+            "すべての再生履歴・リスニング統計・推移データが削除され、元に戻せません。\n（音楽ファイル本体・プレイリスト・お気に入りには影響しません）\n本当にリセットしますか？",
+            "再生履歴・リスニング統計のリセット確認");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        bool succeeded = _listeningStatsService.ResetAllStats();
+        if (!succeeded)
+        {
+            _messageNotifier(
+                "再生履歴・リスニング統計データのリセットに失敗しました。ファイルが他のプロセスで使用中でないか確認してください。",
+                "リセットエラー",
+                true);
+            return;
+        }
+
+        ListeningStatsReset?.Invoke();
+
+        const string completionMessage = "すべての再生履歴およびリスニング統計データをリセットしました。";
+        const string completionTitle = "リセット完了";
+        if (_hasCustomMessageNotifier)
+        {
+            _messageNotifier(completionMessage, completionTitle, false);
+        }
+        else
+        {
+            MessageBox.Show(completionMessage, completionTitle, MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
+    private static bool ShowDefaultResetConfirmationPrompt(string message, string title)
+    {
+        return MessageBox.Show(
+            message,
+            title,
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No) == MessageBoxResult.Yes;
     }
 }

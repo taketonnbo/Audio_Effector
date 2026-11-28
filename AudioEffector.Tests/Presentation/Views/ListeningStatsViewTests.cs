@@ -69,6 +69,8 @@ public sealed class ListeningStatsViewTests
             _data = working.Clone();
             return _data.Clone();
         }
+
+        public void ClearAll() => _data = new ListeningStatsData();
     }
 
     private static void RunInStaThread(Action action)

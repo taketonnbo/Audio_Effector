@@ -26,4 +26,9 @@ public interface IListeningStatsRepository
     /// <param name="update">最新データへ適用する更新処理</param>
     /// <returns>更新後のリスニング統計データのスナップショット</returns>
     ListeningStatsData Update(Action<ListeningStatsData> update);
+
+    /// <summary>
+    /// 永続化されているすべての楽曲別統計および日時毎の再生履歴を初期化します
+    /// </summary>
+    void ClearAll();
 }

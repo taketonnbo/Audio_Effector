@@ -436,6 +436,7 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
         _refreshCommand = new StatsCommand(_ => Refresh());
 
         _listeningStatsService.StatsUpdated += OnStatsUpdated;
+        _listeningStatsService.StatsReset += OnStatsReset;
         _libraryViewModel.LibrarySynced += OnLibrarySynced;
         _libraryViewModel.TrackRemoved += OnLibraryTrackRemoved;
         _libraryViewModel.AlbumRemoved += OnLibraryAlbumRemoved;
@@ -792,6 +793,25 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
         ScheduleDeferredRefresh();
     }
 
+    private void OnStatsReset()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _uiDispatcher.BeginInvoke(() =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _isDirty = false;
+            RefreshCore();
+        });
+    }
+
     private void OnLibrarySynced(LibrarySyncResult result)
     {
         _ = result;
@@ -1015,6 +1035,7 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
         {
             _disposed = true;
             _listeningStatsService.StatsUpdated -= OnStatsUpdated;
+            _listeningStatsService.StatsReset -= OnStatsReset;
             _libraryViewModel.LibrarySynced -= OnLibrarySynced;
             _libraryViewModel.TrackRemoved -= OnLibraryTrackRemoved;
             _libraryViewModel.AlbumRemoved -= OnLibraryAlbumRemoved;

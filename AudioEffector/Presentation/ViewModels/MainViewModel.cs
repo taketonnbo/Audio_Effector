@@ -48,6 +48,7 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly bool _ownsLrcGenerator;
         private readonly bool _ownsListeningStats;
         private readonly bool _ownsLibraryStats;
+        private ListeningStatsApplicationService? _listeningStatsService;
         private ListeningStatsApplicationService? _fallbackListeningStatsService;
         private RightExtensionPanelType _activeRightExtensionPanel = RightExtensionPanelType.None;
         private Track? _selectedTagsTargetTrack;
@@ -1022,6 +1023,19 @@ namespace AudioEffector.Presentation.ViewModels
             Artists.PlaybackRequested += OnArtistsPlaybackRequested;
             Artists.EnqueueRequested += OnArtistsEnqueueRequested;
 
+            ListeningStatsApplicationService? sharedListeningStatsService = App.ServiceProvider?.GetService(typeof(ListeningStatsApplicationService)) as ListeningStatsApplicationService;
+            AudioEffector.Domain.Repositories.IListeningStatsRepository? sharedStatsRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IListeningStatsRepository)) as AudioEffector.Domain.Repositories.IListeningStatsRepository;
+            if (sharedListeningStatsService == null)
+            {
+                sharedStatsRepo ??= _dataDirectoryProvider != null
+                    ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
+                    : new Infrastructure.Repository.JsonListeningStatsRepository();
+                _fallbackListeningStatsService = new ListeningStatsApplicationService(sharedStatsRepo, _audioService);
+                sharedListeningStatsService = _fallbackListeningStatsService;
+            }
+
+            _listeningStatsService = sharedListeningStatsService;
+
             var resolvedRecent = App.ServiceProvider != null
                 ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.RecentViewModel>(App.ServiceProvider)
                 : null;
@@ -1032,18 +1046,36 @@ namespace AudioEffector.Presentation.ViewModels
             }
             else
             {
-                var statsRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IListeningStatsRepository)) as AudioEffector.Domain.Repositories.IListeningStatsRepository;
-                if (statsRepo != null)
+                if (sharedStatsRepo != null)
                 {
-                    Recent = new Presentation.ViewModels.RecentViewModel(statsRepo, Library!, _audioService);
+                    Recent = new Presentation.ViewModels.RecentViewModel(
+                        sharedStatsRepo,
+                        Library!,
+                        _audioService,
+                        listeningStatsService: sharedListeningStatsService);
                 }
                 else
                 {
-                    var recentRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IRecentTrackRepository)) as AudioEffector.Domain.Repositories.IRecentTrackRepository
-                        ?? (_dataDirectoryProvider != null
+                    var recentRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IRecentTrackRepository)) as AudioEffector.Domain.Repositories.IRecentTrackRepository;
+                    if (recentRepo != null)
+                    {
+                        Recent = new Presentation.ViewModels.RecentViewModel(
+                            recentRepo,
+                            Library!,
+                            _audioService,
+                            listeningStatsService: sharedListeningStatsService);
+                    }
+                    else
+                    {
+                        sharedStatsRepo = _dataDirectoryProvider != null
                             ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
-                            : new Infrastructure.Repository.JsonListeningStatsRepository());
-                    Recent = new Presentation.ViewModels.RecentViewModel(recentRepo, Library!, _audioService);
+                            : new Infrastructure.Repository.JsonListeningStatsRepository();
+                        Recent = new Presentation.ViewModels.RecentViewModel(
+                            sharedStatsRepo,
+                            Library!,
+                            _audioService,
+                            listeningStatsService: sharedListeningStatsService);
+                    }
                 }
                 _ownsRecent = true;
             }
@@ -1118,8 +1150,6 @@ namespace AudioEffector.Presentation.ViewModels
             var resolvedListeningStats = App.ServiceProvider != null
                 ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.ListeningStatsViewModel>(App.ServiceProvider)
                 : null;
-            ListeningStatsApplicationService? sharedListeningStatsService = App.ServiceProvider?.GetService(typeof(ListeningStatsApplicationService)) as ListeningStatsApplicationService;
-            AudioEffector.Domain.Repositories.IListeningStatsRepository? sharedStatsRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IListeningStatsRepository)) as AudioEffector.Domain.Repositories.IListeningStatsRepository;
             if (resolvedListeningStats != null)
             {
                 ListeningStats = resolvedListeningStats;
@@ -1127,15 +1157,6 @@ namespace AudioEffector.Presentation.ViewModels
             }
             else
             {
-                if (sharedListeningStatsService == null)
-                {
-                    sharedStatsRepo ??= _dataDirectoryProvider != null
-                        ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
-                        : new Infrastructure.Repository.JsonListeningStatsRepository();
-                    _fallbackListeningStatsService = new ListeningStatsApplicationService(sharedStatsRepo, _audioService);
-                    sharedListeningStatsService = _fallbackListeningStatsService;
-                }
-
                 ListeningStats = new Presentation.ViewModels.ListeningStatsViewModel(
                     sharedListeningStatsService,
                     _audioService,
@@ -1157,11 +1178,6 @@ namespace AudioEffector.Presentation.ViewModels
                 sharedStatsRepo ??= _dataDirectoryProvider != null
                     ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
                     : new Infrastructure.Repository.JsonListeningStatsRepository();
-                if (sharedListeningStatsService == null)
-                {
-                    _fallbackListeningStatsService = new ListeningStatsApplicationService(sharedStatsRepo, _audioService);
-                    sharedListeningStatsService = _fallbackListeningStatsService;
-                }
 
                 var libraryStatsAppService = App.ServiceProvider?.GetService(typeof(LibraryStatsApplicationService)) as LibraryStatsApplicationService
                     ?? new LibraryStatsApplicationService(sharedStatsRepo);
@@ -3086,6 +3102,11 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 設定画面や単体テストから共有されるリスニング統計アプリケーションサービスを取得します
+        /// </summary>
+        internal ListeningStatsApplicationService? ListeningStatsService => _listeningStatsService;
+
         private void ShowSettings()
         {
             var settingsViewModel = new SettingsViewModel(
@@ -3093,7 +3114,8 @@ namespace AudioEffector.Presentation.ViewModels
                 _audioService,
                 _dataDirectoryProvider,
                 _dataDirectoryMigrationService,
-                _logConfigurationManager);
+                _logConfigurationManager,
+                _listeningStatsService);
 
             void OnDataDirectoryChanged() => ReloadDataAfterDirectoryChange();
             settingsViewModel.DataDirectoryChanged += OnDataDirectoryChanged;

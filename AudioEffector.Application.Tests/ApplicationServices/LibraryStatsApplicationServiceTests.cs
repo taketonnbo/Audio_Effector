@@ -33,6 +33,8 @@ public sealed class LibraryStatsApplicationServiceTests
             _data = working.Clone();
             return _data.Clone();
         }
+
+        public void ClearAll() => _data = new ListeningStatsData();
     }
 
     private sealed class ThrowingListeningStatsRepository : IListeningStatsRepository
@@ -42,6 +44,8 @@ public sealed class LibraryStatsApplicationServiceTests
         public void Save(ListeningStatsData data) => throw new IOException("disk unavailable");
 
         public ListeningStatsData Update(Action<ListeningStatsData> update) => throw new IOException("disk unavailable");
+
+        public void ClearAll() => throw new IOException("disk unavailable");
     }
 
     /// <summary>
