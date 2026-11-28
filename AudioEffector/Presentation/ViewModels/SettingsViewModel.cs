@@ -1,14 +1,39 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
-using AudioEffector.Infrastructure.Windows;
+using System.Windows;
+using System.Windows.Input;
 using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Infrastructure.Windows;
 using AudioEffector.Presentation.Themes;
+using AudioEffector.Presentation.Views;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Win32;
 
 
 namespace AudioEffector.Presentation.ViewModels;
+
+/// <summary>
+/// データ保存先ディレクトリ変更時のユーザー選択アクションを表します
+/// </summary>
+public enum DataMigrationChoice
+{
+    /// <summary>既存データをコピーして保存先を切り替える</summary>
+    Copy,
+
+    /// <summary>既存データを移動して保存先を切り替える</summary>
+    Move,
+
+    /// <summary>既存データを移行せず保存先のみ切り替える</summary>
+    SwitchWithoutMigration,
+
+    /// <summary>保存先の変更をキャンセルする</summary>
+    Cancel
+}
 
 /// <summary>
 /// アプリケーション設定画面のViewModel
@@ -17,7 +42,18 @@ public class SettingsViewModel : ViewModelBase
 {
     private readonly ISettingsService _settingsService;
     private readonly IAudioService _audioService;
+    private readonly IDataDirectoryProvider? _dataDirectoryProvider;
+    private readonly IDataDirectoryMigrationService? _dataDirectoryMigrationService;
+    private readonly Func<string?, string?> _folderPicker;
+    private readonly Func<string, string, DataMigrationChoice> _migrationPrompt;
+    private readonly Action<string, string, bool> _messageNotifier;
+    private readonly string _defaultDataDirectoryFallback;
     private AppSettings _appSettings;
+
+    /// <summary>
+    /// データ保存先ディレクトリが正常に変更された際に発火するイベント
+    /// </summary>
+    public event Action? DataDirectoryChanged;
 
     /// <summary>
     /// 設定カテゴリーの一覧を取得します
@@ -473,16 +509,101 @@ public class SettingsViewModel : ViewModelBase
         }
     }
 
+    // --- Data Directory ---
+
+    /// <summary>
+    /// 現在有効なデータ保存先ディレクトリのパスを取得します
+    /// </summary>
+    public string DataDirectoryPath
+    {
+        get
+        {
+            if (_dataDirectoryProvider != null)
+            {
+                return _dataDirectoryProvider.DataDirectory;
+            }
+
+            return !string.IsNullOrWhiteSpace(_appSettings.DataDirectoryPath)
+                ? _appSettings.DataDirectoryPath
+                : _defaultDataDirectoryFallback;
+        }
+    }
+
+    /// <summary>
+    /// 既定ディレクトリ以外のカスタムデータ保存先ディレクトリが設定されているかどうかを取得します
+    /// </summary>
+    public bool IsCustomDataDirectory =>
+        _dataDirectoryProvider != null
+            ? _dataDirectoryProvider.IsCustomDirectory
+            : !string.IsNullOrWhiteSpace(_appSettings.DataDirectoryPath);
+
+    /// <summary>
+    /// データ保存先フォルダを参照・選択するコマンドを取得します
+    /// </summary>
+    public ICommand BrowseDataDirectoryCommand { get; }
+
+    /// <summary>
+    /// データ保存先フォルダを既定のフォルダへリセットするコマンドを取得します
+    /// </summary>
+    public ICommand ResetDataDirectoryCommand { get; }
+
     /// <summary>
     /// 設定サービスとオーディオサービスを指定してインスタンスを初期化します
     /// </summary>
     /// <param name="settingsService">設定サービス</param>
     /// <param name="audioService">オーディオサービス</param>
-    public SettingsViewModel(ISettingsService settingsService, IAudioService audioService)
+    /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ（任意）</param>
+    /// <param name="dataDirectoryMigrationService">データディレクトリ変更・移行サービス（任意）</param>
+    [ActivatorUtilitiesConstructor]
+    public SettingsViewModel(
+        ISettingsService settingsService,
+        IAudioService audioService,
+        IDataDirectoryProvider? dataDirectoryProvider = null,
+        IDataDirectoryMigrationService? dataDirectoryMigrationService = null)
+        : this(
+            settingsService,
+            audioService,
+            dataDirectoryProvider,
+            dataDirectoryMigrationService,
+            folderPicker: null,
+            migrationPrompt: null,
+            messageNotifier: null)
+    {
+    }
+
+    /// <summary>
+    /// テストおよびダイアログ差し替え用に依存デリゲートを指定してインスタンスを初期化します
+    /// </summary>
+    /// <param name="settingsService">設定サービス</param>
+    /// <param name="audioService">オーディオサービス</param>
+    /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ</param>
+    /// <param name="dataDirectoryMigrationService">データディレクトリ変更・移行サービス</param>
+    /// <param name="folderPicker">フォルダ選択ダイアログデリゲート</param>
+    /// <param name="migrationPrompt">既存データ移行確認ダイアログデリゲート</param>
+    /// <param name="messageNotifier">結果・エラー通知デリゲート</param>
+    internal SettingsViewModel(
+        ISettingsService settingsService,
+        IAudioService audioService,
+        IDataDirectoryProvider? dataDirectoryProvider,
+        IDataDirectoryMigrationService? dataDirectoryMigrationService,
+        Func<string?, string?>? folderPicker,
+        Func<string, string, DataMigrationChoice>? migrationPrompt,
+        Action<string, string, bool>? messageNotifier)
     {
         _settingsService = settingsService;
         _audioService = audioService;
+        _dataDirectoryProvider = dataDirectoryProvider;
+        _dataDirectoryMigrationService = dataDirectoryMigrationService;
+        _folderPicker = folderPicker ?? ShowDefaultFolderPicker;
+        _migrationPrompt = migrationPrompt ?? ShowDefaultMigrationPrompt;
+        _messageNotifier = messageNotifier ?? ShowDefaultMessage;
+        _defaultDataDirectoryFallback = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "AudioEffector");
         _appSettings = _settingsService.LoadSettings();
+
+        BrowseDataDirectoryCommand = new RelayCommand(_ => BrowseDataDirectory());
+        ResetDataDirectoryCommand = new RelayCommand(_ => ResetDataDirectory(), _ => IsCustomDataDirectory);
 
         Categories = new ObservableCollection<string>
         {
@@ -494,5 +615,148 @@ public class SettingsViewModel : ViewModelBase
         };
 
         SelectedCategory = Categories[0];
+    }
+
+    private void BrowseDataDirectory()
+    {
+        string? selectedPath = _folderPicker(DataDirectoryPath);
+        if (string.IsNullOrWhiteSpace(selectedPath))
+        {
+            return;
+        }
+
+        ApplyDataDirectoryChange(selectedPath);
+    }
+
+    private void ResetDataDirectory()
+    {
+        if (!IsCustomDataDirectory)
+        {
+            return;
+        }
+
+        ApplyDataDirectoryChange(null);
+    }
+
+    private void ApplyDataDirectoryChange(string? targetDirectory)
+    {
+        string currentDirectory = DataDirectoryPath;
+        string defaultDirectory = _dataDirectoryProvider?.DefaultDataDirectory ?? _defaultDataDirectoryFallback;
+        string displayTarget = string.IsNullOrWhiteSpace(targetDirectory)
+            ? defaultDirectory
+            : targetDirectory.Trim();
+
+        if (_dataDirectoryMigrationService != null)
+        {
+            if (_dataDirectoryMigrationService.IsSameDirectory(currentDirectory, displayTarget))
+            {
+                return;
+            }
+
+            DataMigrationMode migrationMode = DataMigrationMode.None;
+            if (_dataDirectoryMigrationService.HasExistingDataFiles(currentDirectory))
+            {
+                DataMigrationChoice choice = _migrationPrompt(currentDirectory, displayTarget);
+                if (choice == DataMigrationChoice.Cancel)
+                {
+                    return;
+                }
+
+                migrationMode = choice switch
+                {
+                    DataMigrationChoice.Copy => DataMigrationMode.Copy,
+                    DataMigrationChoice.Move => DataMigrationMode.Move,
+                    _ => DataMigrationMode.None,
+                };
+            }
+
+            DataDirectoryChangeResult result = _dataDirectoryMigrationService.ChangeDataDirectory(targetDirectory, migrationMode);
+            if (!result.Succeeded)
+            {
+                _messageNotifier(
+                    result.ErrorMessage ?? "データ保存先の変更に失敗しました。",
+                    "データ保存先の変更エラー",
+                    true);
+                return;
+            }
+
+            if (result.Changed)
+            {
+                _appSettings.DataDirectoryPath = IsCustomDataDirectory ? result.EffectivePath : null;
+                OnPropertyChanged(nameof(DataDirectoryPath));
+                OnPropertyChanged(nameof(IsCustomDataDirectory));
+                CommandManager.InvalidateRequerySuggested();
+                DataDirectoryChanged?.Invoke();
+
+                if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+                {
+                    _messageNotifier(result.ErrorMessage, "データ保存先の変更", false);
+                }
+            }
+
+            return;
+        }
+
+        string? nextPersistedPath = string.IsNullOrWhiteSpace(targetDirectory)
+            ? null
+            : string.Equals(
+                targetDirectory.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                defaultDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase)
+                ? null
+                : targetDirectory.Trim();
+
+        if (string.Equals(_appSettings.DataDirectoryPath, nextPersistedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _appSettings.DataDirectoryPath = nextPersistedPath;
+        _settingsService.UpdateSettings(settings => settings.DataDirectoryPath = nextPersistedPath);
+        _dataDirectoryProvider?.UpdateDataDirectory(nextPersistedPath);
+        OnPropertyChanged(nameof(DataDirectoryPath));
+        OnPropertyChanged(nameof(IsCustomDataDirectory));
+        CommandManager.InvalidateRequerySuggested();
+        DataDirectoryChanged?.Invoke();
+    }
+
+    private static string? ShowDefaultFolderPicker(string? initialDirectory)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "データ保存先フォルダを選択してください",
+        };
+
+        if (!string.IsNullOrWhiteSpace(initialDirectory) && Directory.Exists(initialDirectory))
+        {
+            dialog.InitialDirectory = initialDirectory;
+        }
+
+        return dialog.ShowDialog() == true ? dialog.FolderName : null;
+    }
+
+    private static DataMigrationChoice ShowDefaultMigrationPrompt(string sourceDirectory, string targetDirectory)
+    {
+        var dialog = new DataMigrationDialog(sourceDirectory, targetDirectory);
+        var owner = System.Windows.Application.Current?.Windows
+            .OfType<Window>()
+            .FirstOrDefault(w => w.IsActive)
+            ?? System.Windows.Application.Current?.MainWindow;
+        if (owner != null && owner != dialog)
+        {
+            dialog.Owner = owner;
+        }
+
+        dialog.ShowDialog();
+        return dialog.SelectedChoice;
+    }
+
+    private static void ShowDefaultMessage(string message, string title, bool isError)
+    {
+        MessageBox.Show(
+            message,
+            title,
+            MessageBoxButton.OK,
+            isError ? MessageBoxImage.Error : MessageBoxImage.Warning);
     }
 }

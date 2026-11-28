@@ -1221,6 +1221,32 @@ public sealed class LibraryViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
+    /// リポジトリからお気に入り一覧を再読み込みし、現在のライブラリ内トラックのお気に入り表示状態を即時同期します
+    /// </summary>
+    public void ReloadFavoritesFromRepository()
+    {
+        var loadedFavorites = _libraryService.LoadFavoriteEntries();
+        lock (_favoritesLock)
+        {
+            _favoriteEntries.Clear();
+            _favoriteEntries.AddRange(loadedFavorites);
+        }
+
+        RunOnUiThread(() =>
+        {
+            var currentTracks = Tracks.ToList();
+            foreach (var track in currentTracks)
+            {
+                bool isFav = IsTrackFavorite(track);
+                if (track.IsFavorite != isFav)
+                {
+                    track.SetFavorite(isFav);
+                }
+            }
+        });
+    }
+
+    /// <summary>
     /// 現在のライブラリ内トラック一覧へお気に入り状態を照合・反映し、パスやメタデータの差分があれば永続化します
     /// </summary>
     public void SyncFavoritesWithLibraryTracks()
