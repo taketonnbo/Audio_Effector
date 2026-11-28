@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -315,6 +315,161 @@ public sealed class LyricsApplicationServiceTests
 
         // Assert
         Assert.False(sut.TryGetCached(track.FilePath, out _));
+    }
+
+    /// <summary>
+    /// 非同期読み込み実行中に InvalidateCache が呼び出された場合、古い読み込み結果でキャッシュが汚染されず次回呼び出しで最新データが読み込まれることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadForTrackAsync_読み込み中にInvalidateCacheが発生_古い結果でキャッシュ汚染せず次回最新を読み込むこと()
+    {
+        // Arrange
+        Track track = CreateTrack(@"C:\Music\race_invalidate.flac");
+        LyricsDocument staleDoc = CreateDocument("古い歌詞");
+        LyricsDocument freshDoc = CreateDocument("保存後の最新歌詞");
+        var firstStartedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstTcs = new TaskCompletionSource<LyricsDocument?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int callNumber = 0;
+
+        var fakeProvider = new FakeLyricsProvider
+        {
+            Handler = async (_, _) =>
+            {
+                int current = Interlocked.Increment(ref callNumber);
+                if (current == 1)
+                {
+                    firstStartedTcs.TrySetResult(true);
+                    return await releaseFirstTcs.Task;
+                }
+
+                return freshDoc;
+            },
+        };
+
+        var sut = new LyricsApplicationService(fakeProvider, new InMemoryEventBus());
+
+        // Act
+        Task<LyricsDocument?> staleLoadTask = sut.LoadForTrackAsync(track);
+        await firstStartedTcs.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        // 1回目の非同期読み込み中に外部保存＋キャッシュ無効化が発生
+        await sut.InvalidateCacheAsync(track.FilePath);
+
+        // その後、1回目の古い読み込みが完了
+        releaseFirstTcs.TrySetResult(staleDoc);
+        LyricsDocument? firstResult = await staleLoadTask;
+
+        // 次回呼び出しでは古い結果がキャッシュされていないため最新を読み込む
+        LyricsDocument? nextResult = await sut.LoadForTrackAsync(track);
+
+        // Assert
+        Assert.Same(staleDoc, firstResult);
+        Assert.Same(freshDoc, nextResult);
+        Assert.Equal(2, fakeProvider.CallCount);
+        Assert.True(sut.TryGetCached(track.FilePath, out LyricsDocument? cached));
+        Assert.Same(freshDoc, cached);
+    }
+
+    /// <summary>
+    /// 非同期読み込み実行中に ClearCache が呼び出された場合、完了した古い読み込み結果でキャッシュが汚染されないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadForTrackAsync_読み込み中にClearCacheが発生_古い結果でキャッシュが汚染されないこと()
+    {
+        // Arrange
+        Track track = CreateTrack(@"C:\Music\race_clear.flac");
+        LyricsDocument staleDoc = CreateDocument("クリア前の古い歌詞");
+        var startedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTcs = new TaskCompletionSource<LyricsDocument?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var fakeProvider = new FakeLyricsProvider
+        {
+            Handler = async (_, _) =>
+            {
+                startedTcs.TrySetResult(true);
+                return await releaseTcs.Task;
+            },
+        };
+
+        var sut = new LyricsApplicationService(fakeProvider, new InMemoryEventBus());
+
+        // Act
+        Task<LyricsDocument?> loadTask = sut.LoadForTrackAsync(track);
+        await startedTcs.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        sut.ClearCache();
+        releaseTcs.TrySetResult(staleDoc);
+        await loadTask;
+
+        // Assert
+        Assert.False(sut.TryGetCached(track.FilePath, out _));
+    }
+
+    /// <summary>
+    /// LyricsUpdated イベントの先頭購読者が例外を送出しても、後続購読者および IEventBus へ通知が届き呼び出し元へ例外が波及しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task InvalidateCacheAsync_先頭LyricsUpdated購読者が例外送出_後続購読者とEventBusへ通知が届き例外が波及しないこと()
+    {
+        // Arrange
+        Track track = CreateTrack(@"C:\Music\subscriber_error_async.flac");
+        LyricsDocument updatedDoc = CreateDocument("更新済み歌詞");
+        var eventBus = new InMemoryEventBus();
+        var busEvents = new List<LyricsUpdatedEvent>();
+        eventBus.Subscribe<LyricsUpdatedEvent>((e, _) =>
+        {
+            busEvents.Add(e);
+            return Task.CompletedTask;
+        });
+
+        var sut = new LyricsApplicationService(new FakeLyricsProvider(), eventBus);
+        LyricsUpdatedEvent? secondSubscriberReceived = null;
+
+        sut.LyricsUpdated += (_, _) => throw new InvalidOperationException("先頭購読者の障害シミュレーション");
+        sut.LyricsUpdated += (_, e) => secondSubscriberReceived = e;
+
+        // Act
+        Exception? ex = await Record.ExceptionAsync(() => sut.InvalidateCacheAsync(track.FilePath, updatedDoc));
+
+        // Assert
+        Assert.Null(ex);
+        Assert.NotNull(secondSubscriberReceived);
+        Assert.Equal(track.FilePath, secondSubscriberReceived!.TrackFilePath);
+        Assert.Same(updatedDoc, secondSubscriberReceived.Document);
+        Assert.Single(busEvents);
+        Assert.Equal(track.FilePath, busEvents[0].TrackFilePath);
+    }
+
+    /// <summary>
+    /// 同期 InvalidateCache で先頭購読者が例外を送出しても、後続購読者および IEventBus へ通知が届き呼び出し元へ例外が波及しないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task InvalidateCache_先頭LyricsUpdated購読者が例外送出_後続購読者とEventBusへ通知が届き例外が波及しないこと()
+    {
+        // Arrange
+        Track track = CreateTrack(@"C:\Music\subscriber_error_sync.flac");
+        var eventBus = new InMemoryEventBus();
+        var busReceivedTcs = new TaskCompletionSource<LyricsUpdatedEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        eventBus.Subscribe<LyricsUpdatedEvent>((e, _) =>
+        {
+            busReceivedTcs.TrySetResult(e);
+            return Task.CompletedTask;
+        });
+
+        var sut = new LyricsApplicationService(new FakeLyricsProvider(), eventBus);
+        LyricsUpdatedEvent? secondSubscriberReceived = null;
+
+        sut.LyricsUpdated += (_, _) => throw new InvalidOperationException("先頭購読者の障害シミュレーション");
+        sut.LyricsUpdated += (_, e) => secondSubscriberReceived = e;
+
+        // Act
+        Exception? ex = Record.Exception(() => sut.InvalidateCache(track.FilePath));
+        LyricsUpdatedEvent busEvent = await busReceivedTcs.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        // Assert
+        Assert.Null(ex);
+        Assert.NotNull(secondSubscriberReceived);
+        Assert.Equal(track.FilePath, secondSubscriberReceived!.TrackFilePath);
+        Assert.Equal(track.FilePath, busEvent.TrackFilePath);
     }
 
     private sealed class FakeLyricsProvider : ILyricsProvider

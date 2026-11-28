@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.Lyrics;

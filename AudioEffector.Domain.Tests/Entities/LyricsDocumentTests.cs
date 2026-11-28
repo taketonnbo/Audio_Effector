@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.ValueObjects;
@@ -266,5 +266,87 @@ public sealed class LyricsDocumentTests
         Assert.Equal(LyricsSourceType.LrcFile, updated.SourceType);
         Assert.Equal(@"C:\Music\song.lrc", updated.SourcePath);
         Assert.Equal("Song Title", updated.Title);
+    }
+
+    /// <summary>
+    /// 正の offset による 0 秒クランプ衝突で同一有効タイムスタンプ範囲に間奏空行とテキスト行が混在する場合、間奏空行が除外されテキスト行のみ返されることを検証します。
+    /// </summary>
+    [Fact]
+    public void FindActiveLineRange_正のOffsetによる0秒クランプ衝突で間奏空行とテキスト行が混在_間奏空行を除外してテキスト行のみ返すこと()
+    {
+        // Arrange
+        var lines = new[]
+        {
+            new LyricLine(0, TimeSpan.FromMilliseconds(100), string.Empty),
+            new LyricLine(1, TimeSpan.FromMilliseconds(400), "冒頭の歌詞"),
+            new LyricLine(2, TimeSpan.FromSeconds(5), "次の歌詞"),
+        };
+        var sut = new LyricsDocument(lines, isSynced: true, offset: TimeSpan.FromMilliseconds(500));
+
+        // Act
+        int activeIndex = sut.FindActiveLineIndex(TimeSpan.Zero);
+        (int start, int end) = sut.FindActiveLineRange(TimeSpan.Zero);
+
+        // Assert
+        Assert.Equal(1, activeIndex);
+        Assert.Equal((1, 1), (start, end));
+    }
+
+    /// <summary>
+    /// 同一タイムスタンプにテキスト行と間奏空行が混在する場合、両端の間奏空行が除外されてテキスト行のみがアクティブ範囲として返されることを検証します。
+    /// </summary>
+    [Fact]
+    public void FindActiveLineRange_同一タイムスタンプにテキスト行と間奏空行が混在_両端の間奏空行を除外して返すこと()
+    {
+        // Arrange
+        var lines = new[]
+        {
+            new LyricLine(0, TimeSpan.FromSeconds(10), string.Empty),
+            new LyricLine(1, TimeSpan.FromSeconds(10), "サビ（原詞）"),
+            new LyricLine(2, TimeSpan.FromSeconds(10), "サビ（訳詞）"),
+            new LyricLine(3, TimeSpan.FromSeconds(10), string.Empty),
+        };
+        var sut = new LyricsDocument(lines, isSynced: true);
+
+        // Act
+        int activeIndex = sut.FindActiveLineIndex(TimeSpan.FromSeconds(10));
+        (int start, int end) = sut.FindActiveLineRange(TimeSpan.FromSeconds(10));
+
+        // Assert
+        Assert.Equal(1, activeIndex);
+        Assert.Equal((1, 2), (start, end));
+    }
+
+    /// <summary>
+    /// コンストラクタへ未ソートの同期歌詞行を直接渡した場合でも、タイムスタンプ昇順かつ同一タイムスタンプの元記載順維持で安定ソートされ、二分探索が正常に機能することを検証します。
+    /// </summary>
+    [Fact]
+    public void コンストラクタ_未ソートの同期歌詞入力_タイムスタンプ昇順に安定ソートされ二分探索が正常動作すること()
+    {
+        // Arrange
+        var unsortedLines = new[]
+        {
+            new LyricLine(0, TimeSpan.FromSeconds(30), "3行目"),
+            new LyricLine(1, TimeSpan.FromSeconds(10), "1行目（原詞）"),
+            new LyricLine(2, TimeSpan.FromSeconds(10), "1行目（訳詞）"),
+            new LyricLine(3, TimeSpan.FromSeconds(20), "2行目"),
+        };
+
+        // Act
+        var sut = new LyricsDocument(unsortedLines, isSynced: true);
+        (int start10, int end10) = sut.FindActiveLineRange(TimeSpan.FromSeconds(15));
+        int idx20 = sut.FindActiveLineIndex(TimeSpan.FromSeconds(25));
+        int idx30 = sut.FindActiveLineIndex(TimeSpan.FromSeconds(35));
+
+        // Assert
+        Assert.Equal("1行目（原詞）", sut.Lines[0].Text);
+        Assert.Equal("1行目（訳詞）", sut.Lines[1].Text);
+        Assert.Equal("2行目", sut.Lines[2].Text);
+        Assert.Equal("3行目", sut.Lines[3].Text);
+        Assert.Equal(0, sut.Lines[0].Index);
+        Assert.Equal(3, sut.Lines[3].Index);
+        Assert.Equal((0, 1), (start10, end10));
+        Assert.Equal(2, idx20);
+        Assert.Equal(3, idx30);
     }
 }

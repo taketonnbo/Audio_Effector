@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -223,6 +223,31 @@ public sealed class LocalLyricsProviderTests : IDisposable
         Assert.NotNull(actual);
         Assert.Equal(LyricsSourceType.EmbeddedTag, actual.SourceType);
         Assert.Equal("ロック時フォールバック歌詞", actual.Lines[0].Text);
+    }
+
+    /// <summary>
+    /// 外部 .lrc ファイルが他プロセスによって書き込み共有モードで開かれている状態でも、共有違反にならず正常に読み込まれることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadLyricsAsync_外部Lrcが書き込み共有ロック中_共有違反とならず正常に読み込まれること()
+    {
+        // Arrange
+        string wavPath = CreateDummyWavFile("shared_write_external.wav", embeddedLyrics: "埋め込み側");
+        string lrcPath = Path.ChangeExtension(wavPath, ".lrc");
+        await File.WriteAllTextAsync(lrcPath, "[00:05.00]書き込み共有中の外部LRC", new UTF8Encoding(false));
+
+        var sut = new LocalLyricsProvider(new LrcParser());
+        Track track = CreateTrack(wavPath);
+
+        using var sharedWriteStream = new FileStream(lrcPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+
+        // Act
+        LyricsDocument? actual = await sut.LoadLyricsAsync(track);
+
+        // Assert
+        Assert.NotNull(actual);
+        Assert.Equal(LyricsSourceType.LrcFile, actual.SourceType);
+        Assert.Equal("書き込み共有中の外部LRC", actual.Lines[0].Text);
     }
 
     /// <summary>
