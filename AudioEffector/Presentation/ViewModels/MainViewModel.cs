@@ -953,8 +953,12 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// 接続されたデバイスを表すViewModel
         /// </summary>
-        public class DeviceViewModel
+        public class DeviceViewModel : ViewModelBase
         {
+            private long _totalSpaceBytes;
+            private long _freeSpaceBytes;
+            private bool _hasStorageInfo;
+
             /// <summary>
             /// デバイス名を取得または設定します
             /// </summary>
@@ -964,6 +968,11 @@ namespace AudioEffector.Presentation.ViewModels
             /// デバイス種別を取得または設定します
             /// </summary>
             public DeviceType Type { get; set; }
+
+            /// <summary>
+            /// 接続種別の表示ラベル（"MTP" または "USB"）を取得します
+            /// </summary>
+            public string ConnectionTypeLabel => Type == DeviceType.MTP ? "MTP" : "USB";
 
             /// <summary>
             /// ファイルシステムデバイスの場合のドライブ情報を取得または設定します
@@ -979,6 +988,132 @@ namespace AudioEffector.Presentation.ViewModels
             /// デバイスのルートパスを取得または設定します
             /// </summary>
             public string RootPath { get; set; } = string.Empty; // For MTP, this might be device ID or root
+
+            /// <summary>
+            /// ストレージ容量情報が取得できているかどうかを取得します
+            /// </summary>
+            public bool HasStorageInfo
+            {
+                get => _hasStorageInfo;
+                private set
+                {
+                    if (SetProperty(ref _hasStorageInfo, value))
+                    {
+                        OnPropertyChanged(nameof(StorageSummaryText));
+                    }
+                }
+            }
+
+            /// <summary>
+            /// デバイスの総容量（バイト）を取得または設定します
+            /// </summary>
+            public long TotalSpaceBytes
+            {
+                get => _totalSpaceBytes;
+                set
+                {
+                    long normalized = Math.Max(0L, value);
+                    if (SetProperty(ref _totalSpaceBytes, normalized))
+                    {
+                        HasStorageInfo = normalized > 0;
+                        OnPropertyChanged(nameof(UsedSpaceBytes));
+                        OnPropertyChanged(nameof(UsedSpaceRatio));
+                        OnPropertyChanged(nameof(StorageSummaryText));
+                    }
+                }
+            }
+
+            /// <summary>
+            /// デバイスの空き容量（バイト）を取得または設定します
+            /// </summary>
+            public long FreeSpaceBytes
+            {
+                get => _freeSpaceBytes;
+                set
+                {
+                    long normalized = Math.Max(0L, value);
+                    if (SetProperty(ref _freeSpaceBytes, normalized))
+                    {
+                        OnPropertyChanged(nameof(UsedSpaceBytes));
+                        OnPropertyChanged(nameof(UsedSpaceRatio));
+                        OnPropertyChanged(nameof(StorageSummaryText));
+                    }
+                }
+            }
+
+            /// <summary>
+            /// デバイスの使用済み容量（バイト）を取得します
+            /// </summary>
+            public long UsedSpaceBytes => _totalSpaceBytes > _freeSpaceBytes ? _totalSpaceBytes - _freeSpaceBytes : 0L;
+
+            /// <summary>
+            /// デバイスの使用率（0.0〜1.0）を取得します
+            /// </summary>
+            public double UsedSpaceRatio => _totalSpaceBytes > 0
+                ? Math.Clamp((double)UsedSpaceBytes / _totalSpaceBytes, 0.0, 1.0)
+                : 0.0;
+
+            /// <summary>
+            /// 空き容量／総容量の表示用サマリテキストを取得します
+            /// </summary>
+            public string StorageSummaryText => HasStorageInfo
+                ? $"{FormatByteSize(_freeSpaceBytes)} 空き / {FormatByteSize(_totalSpaceBytes)}"
+                : "容量情報取得不可";
+
+            /// <summary>
+            /// デバイスの総容量および空き容量を一括更新します
+            /// </summary>
+            /// <param name="totalBytes">総容量（バイト）</param>
+            /// <param name="freeBytes">空き容量（バイト）</param>
+            public void UpdateStorageSpace(long totalBytes, long freeBytes)
+            {
+                long normalizedTotal = Math.Max(0L, totalBytes);
+                long normalizedFree = Math.Clamp(freeBytes, 0L, normalizedTotal);
+                _totalSpaceBytes = normalizedTotal;
+                _freeSpaceBytes = normalizedFree;
+                _hasStorageInfo = normalizedTotal > 0;
+
+                OnPropertyChanged(nameof(TotalSpaceBytes));
+                OnPropertyChanged(nameof(FreeSpaceBytes));
+                OnPropertyChanged(nameof(UsedSpaceBytes));
+                OnPropertyChanged(nameof(UsedSpaceRatio));
+                OnPropertyChanged(nameof(HasStorageInfo));
+                OnPropertyChanged(nameof(StorageSummaryText));
+            }
+
+            /// <summary>
+            /// ストレージ容量情報を未取得状態へリセットします
+            /// </summary>
+            public void ClearStorageSpace()
+            {
+                UpdateStorageSpace(0L, 0L);
+            }
+
+            /// <summary>
+            /// バイト数を人間が読みやすい単位（B / KB / MB / GB / TB）へフォーマットします
+            /// </summary>
+            /// <param name="bytes">フォーマット対象のバイト数</param>
+            /// <returns>フォーマット済み文字列</returns>
+            internal static string FormatByteSize(long bytes)
+            {
+                if (bytes <= 0)
+                {
+                    return "0 B";
+                }
+
+                string[] units = { "B", "KB", "MB", "GB", "TB" };
+                double size = bytes;
+                int unitIndex = 0;
+                while (size >= 1024.0 && unitIndex < units.Length - 1)
+                {
+                    size /= 1024.0;
+                    unitIndex++;
+                }
+
+                return unitIndex == 0
+                    ? string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:0} {1}", size, units[unitIndex])
+                    : string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:0.0} {1}", size, units[unitIndex]);
+            }
         }
 
         /// <summary>
