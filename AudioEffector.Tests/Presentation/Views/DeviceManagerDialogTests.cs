@@ -2,8 +2,10 @@
 using System.Collections.Generic;
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
@@ -84,6 +86,7 @@ public sealed class DeviceManagerDialogTests
             };
 
             using var vm = new DeviceManagerViewModel(device, string.Empty, new List<Album>());
+            WaitForTaskWithDispatcherPump(vm.InitialLoadTask, TimeSpan.FromSeconds(5));
 
             var sut = new DeviceManagerDialog(vm)
             {
@@ -107,22 +110,64 @@ public sealed class DeviceManagerDialogTests
                 Assert.Equal(Visibility.Collapsed, importPanel.Visibility);
                 Assert.False(cancelButton.IsEnabled);
 
-                // Act: 逆転送中へ遷移
+                // Act 1: 逆転送中へ遷移
                 vm.IsImporting = true;
                 vm.ImportProgress = 64.0;
                 sut.UpdateLayout();
 
-                // Assert 2: 逆転送中は進捗パネル表示・ProgressBar 反映・中止ボタン活性
+                // Assert 2: 逆転送中は進捗パネル表示・ProgressBar 反映・中止ボタン活性・初期文言
                 Assert.Equal(Visibility.Visible, importPanel.Visibility);
                 Assert.Equal(64.0, progressBar.Value);
                 Assert.True(cancelButton.IsEnabled);
+                Assert.Equal("✕ 取り込みを中止", cancelButton.Content);
+
+                // Act 2: キャンセル中へ遷移
+                vm.IsCancellingImport = true;
+                sut.UpdateLayout();
+
+                // Assert 3: キャンセル中は中止ボタン非活性かつ文言が「中止中...」へ変化
+                Assert.False(cancelButton.IsEnabled);
+                Assert.Equal("中止中...", cancelButton.Content);
+
+                // Act 3: 逆転送終了（非逆転送状態へ復帰）
+                vm.IsCancellingImport = false;
+                vm.IsImporting = false;
+                sut.UpdateLayout();
+
+                // Assert 4: 終了後は進捗パネル再格納・中止ボタン非活性
+                Assert.Equal(Visibility.Collapsed, importPanel.Visibility);
+                Assert.False(cancelButton.IsEnabled);
                 Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
             }
             finally
             {
+                vm.IsCancellingImport = false;
                 vm.IsImporting = false;
                 sut.Close();
             }
         });
+    }
+
+    private static void WaitForTaskWithDispatcherPump(Task task, TimeSpan timeout)
+    {
+        if (task.IsCompleted)
+        {
+            return;
+        }
+
+        var frame = new DispatcherFrame();
+        using var cts = new CancellationTokenSource(timeout);
+        using var reg = cts.Token.Register(() =>
+        {
+            frame.Continue = false;
+        });
+
+        _ = task.ContinueWith(_ =>
+        {
+            frame.Continue = false;
+        }, TaskScheduler.Default);
+
+        Dispatcher.PushFrame(frame);
+        Assert.True(task.IsCompleted, "DeviceManagerViewModel.InitialLoadTask がタイムアウト内に完了しませんでした。");
     }
 }

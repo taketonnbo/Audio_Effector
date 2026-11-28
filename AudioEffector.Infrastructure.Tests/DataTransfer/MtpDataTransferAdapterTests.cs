@@ -342,4 +342,27 @@ public sealed class MtpDataTransferAdapterTests : IDisposable
         Assert.False(result);
         Assert.False(File.Exists(destFile));
     }
+
+    /// <summary>
+    /// DownloadTrackFromDeviceAsync で保存先に既存ファイルが存在する場合、false を返し既存ファイルが上書きも削除もされないことを検証します
+    /// </summary>
+    [Fact]
+    public async Task DownloadTrackFromDeviceAsync_保存先に既存ファイル存在時_falseを返し既存ファイルが保護されること()
+    {
+        // Arrange
+        var sut = new MtpDataTransferAdapter();
+        string sourceFile = CreateSourceFile("existing_song.mp3", 1024);
+        string destDir = Path.Combine(_destinationDirectory, "Protected");
+        Directory.CreateDirectory(destDir);
+        string destFile = Path.Combine(destDir, "existing_song.mp3");
+        File.WriteAllText(destFile, "original-pc-data");
+
+        // Act
+        bool result = await sut.DownloadTrackFromDeviceAsync(sourceFile, destFile);
+
+        // Assert
+        Assert.False(result);
+        Assert.True(File.Exists(destFile));
+        Assert.Equal("original-pc-data", File.ReadAllText(destFile));
+    }
 }
