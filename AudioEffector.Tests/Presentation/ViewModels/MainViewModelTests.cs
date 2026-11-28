@@ -39,6 +39,23 @@ public sealed class MainViewModelTests
         }
     }
 
+    private sealed class InMemoryListeningStatsRepositoryStub : IListeningStatsRepository
+    {
+        private ListeningStatsData _data = new();
+
+        public ListeningStatsData Load() => _data.Clone();
+
+        public void Save(ListeningStatsData data) => _data = data.Clone();
+
+        public ListeningStatsData Update(Action<ListeningStatsData> update)
+        {
+            ListeningStatsData working = _data.Clone();
+            update(working);
+            _data = working.Clone();
+            return _data.Clone();
+        }
+    }
+
     private sealed class ServiceProviderScope : IDisposable
     {
         private readonly IServiceProvider? _previous;
@@ -67,6 +84,7 @@ public sealed class MainViewModelTests
             var favoriteRepoMock = new Mock<IFavoriteRepository>();
             favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<System.Threading.CancellationToken>()))
                 .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+            var statsRepo = new InMemoryListeningStatsRepositoryStub();
             var recentRepoMock = new Mock<IRecentTrackRepository>();
             recentRepoMock.Setup(r => r.Load()).Returns(Array.Empty<RecentTrackEntry>());
             var transcodeMock = new Mock<IAudioTranscodeService>();
@@ -83,10 +101,12 @@ public sealed class MainViewModelTests
             services.AddSingleton(settingsMock.Object);
             services.AddSingleton(audioServiceMock.Object);
             services.AddSingleton(audioEngineMock.Object);
+            services.AddSingleton<IListeningStatsRepository>(statsRepo);
             services.AddSingleton(recentRepoMock.Object);
             services.AddSingleton(transcodeMock.Object);
             services.AddSingleton(libraryService);
             services.AddSingleton(lyricsService);
+            services.AddSingleton<ListeningStatsApplicationService>();
 
             services.AddSingleton<PlayerControlViewModel>();
             services.AddSingleton<LibraryViewModel>();
@@ -95,6 +115,7 @@ public sealed class MainViewModelTests
             services.AddSingleton<ArtistsViewModel>();
             services.AddSingleton<RecentViewModel>();
             services.AddSingleton<LyricsViewModel>();
+            services.AddSingleton<ListeningStatsViewModel>();
 
             if (lrcGeneratorFactory != null)
             {
@@ -113,109 +134,157 @@ public sealed class MainViewModelTests
     }
 
     /// <summary>
-    /// 最大化モードで歌詞表示ボタンを ON にすると自動コンパクト切替し、OFF にすると元の最大化モードへ自動復帰することを検証します。
+    /// 楽曲未再生時は右上の拡大／縮小コマンドおよび3タブ切替がガードされ、右側拡張領域を開けないことを検証します。
     /// </summary>
     [Fact]
-    public void ToggleLyricsPanelCommand_最大化モードからONおよびOFF操作_自動コンパクト切替後に元の最大化モードへ復帰すること()
+    public void ToggleAlbumViewSizeModeCommand_楽曲未再生時の場合_コンパクト拡張領域を開けないこと()
     {
         // Arrange
         using var scope = new ServiceProviderScope();
         using var sut = new MainViewModel();
         sut.IsRightPanelOpen = true;
-        Assert.True(sut.IsAlbumViewMaximized);
-        Assert.False(sut.IsLyricsPanelVisible);
-        Assert.NotNull(sut.Lyrics);
-        Assert.False(sut.Lyrics!.IsActiveView);
 
-        // Act 1: 最大化モードから歌詞 ON → 自動コンパクト＋歌詞表示
-        sut.ToggleLyricsPanelCommand.Execute(null);
+        // Act
+        Assert.False(sut.HasCurrentTrack);
+        Assert.False(sut.CanToggleAlbumViewSizeMode);
+        Assert.False(sut.ToggleAlbumViewSizeModeCommand.CanExecute(null));
+        sut.ToggleAlbumViewSizeModeCommand.Execute(null);
+        sut.SelectRightExtensionTabCommand.Execute(RightExtensionPanelType.Dashboard);
+
+        // Assert
+        Assert.True(sut.IsAlbumViewMaximized);
+        Assert.False(sut.IsRightExtensionAreaVisible);
+        Assert.Equal(RightExtensionPanelType.None, sut.ActiveRightExtensionPanel);
+    }
+
+    /// <summary>
+    /// 楽曲再生中に右上の拡大／縮小ボタンでコンパクト表示へ切り替えると既定で歌詞タブが開き、
+    /// 3タブ（歌詞・ダッシュボード・タグ）を排他的に切り替えられることを検証します。
+    /// </summary>
+    [Fact]
+    public void SelectRightExtensionTabCommand_楽曲再生中にコンパクト表示へ切替時_3タブが排他的に切り替わりIsActiveViewが連動すること()
+    {
+        // Arrange
+        using var scope = new ServiceProviderScope();
+        using var sut = new MainViewModel();
+        sut.IsRightPanelOpen = true;
+        sut.CurrentTrack = new Track { FilePath = @"C:\Music\Playing.flac", Title = "Playing" };
+
+        // Act 1: 縮小ボタンでコンパクト表示へ切替 → 既定の歌詞タブ表示
+        Assert.True(sut.ToggleAlbumViewSizeModeCommand.CanExecute(null));
+        sut.ToggleAlbumViewSizeModeCommand.Execute(null);
 
         // Assert 1
         Assert.False(sut.IsAlbumViewMaximized);
-        Assert.True(sut.IsLyricsPanelVisible);
+        Assert.True(sut.IsRightExtensionAreaVisible);
+        Assert.Equal(RightExtensionPanelType.Lyrics, sut.ActiveRightExtensionPanel);
+        Assert.True(sut.IsLyricsTabSelected);
         Assert.True(sut.IsLyricsViewVisible);
-        Assert.True(sut.Lyrics.IsActiveView);
+        Assert.True(sut.Lyrics!.IsActiveView);
+        Assert.False(sut.IsDashboardViewVisible);
+        Assert.False(sut.ListeningStats!.IsActiveView);
 
-        // Act 2: 歌詞 OFF → 元の最大化モードへ自動復帰
-        sut.ToggleLyricsPanelCommand.Execute(null);
+        // Act 2: ダッシュボードタブへ切替
+        sut.SelectRightExtensionTabCommand.Execute(RightExtensionPanelType.Dashboard);
 
         // Assert 2
-        Assert.True(sut.IsAlbumViewMaximized);
-        Assert.False(sut.IsLyricsPanelVisible);
+        Assert.Equal(RightExtensionPanelType.Dashboard, sut.ActiveRightExtensionPanel);
+        Assert.True(sut.IsDashboardTabSelected);
+        Assert.True(sut.IsDashboardViewVisible);
+        Assert.True(sut.ListeningStats.IsActiveView);
         Assert.False(sut.IsLyricsViewVisible);
         Assert.False(sut.Lyrics.IsActiveView);
-    }
 
-    /// <summary>
-    /// もともとコンパクトモードの状態で歌詞表示を ON → OFF にした場合、コンパクトモードを維持することを検証します。
-    /// </summary>
-    [Fact]
-    public void ToggleLyricsPanelCommand_コンパクトモードからONおよびOFF操作_コンパクトモードを維持すること()
-    {
-        // Arrange
-        using var scope = new ServiceProviderScope();
-        using var sut = new MainViewModel();
-        sut.IsRightPanelOpen = true;
-        sut.IsAlbumViewMaximized = false;
+        // Act 3: タグタブへ切替
+        sut.SelectRightExtensionTabCommand.Execute(RightExtensionPanelType.Tags);
 
-        // Act 1: 歌詞 ON
-        sut.ToggleLyricsPanelCommand.Execute(null);
-        Assert.True(sut.IsLyricsPanelVisible);
-        Assert.False(sut.IsAlbumViewMaximized);
+        // Assert 3
+        Assert.Equal(RightExtensionPanelType.Tags, sut.ActiveRightExtensionPanel);
+        Assert.True(sut.IsTagsTabSelected);
+        Assert.True(sut.IsTagsViewVisible);
+        Assert.False(sut.IsDashboardViewVisible);
+        Assert.False(sut.ListeningStats.IsActiveView);
 
-        // Act 2: 歌詞ヘッダーの閉じる操作（ClosePanelCommand）経由で OFF
-        sut.Lyrics!.ClosePanelCommand.Execute(null);
-
-        // Assert
-        Assert.False(sut.IsLyricsPanelVisible);
-        Assert.False(sut.IsLyricsViewVisible);
-        Assert.False(sut.IsAlbumViewMaximized);
-        Assert.False(sut.Lyrics.IsActiveView);
-    }
-
-    /// <summary>
-    /// 歌詞パネル表示中に手動で最大化モードへ切り替えた場合、歌詞表示が自動的に OFF となることを検証します。
-    /// </summary>
-    [Fact]
-    public void ToggleAlbumViewSizeModeCommand_歌詞表示中に手動で最大化した場合_歌詞表示が自動OFFになること()
-    {
-        // Arrange
-        using var scope = new ServiceProviderScope();
-        using var sut = new MainViewModel();
-        sut.IsRightPanelOpen = true;
-        sut.ToggleLyricsPanelCommand.Execute(null);
-        Assert.True(sut.IsLyricsPanelVisible);
-        Assert.False(sut.IsAlbumViewMaximized);
-
-        // Act: 手動で最大化モードへ切替
+        // Act 4: 拡大ボタンで最大化へ戻す
         sut.ToggleAlbumViewSizeModeCommand.Execute(null);
 
-        // Assert
+        // Assert 4
         Assert.True(sut.IsAlbumViewMaximized);
-        Assert.False(sut.IsLyricsPanelVisible);
-        Assert.False(sut.IsLyricsViewVisible);
-        Assert.False(sut.Lyrics!.IsActiveView);
+        Assert.False(sut.IsRightExtensionAreaVisible);
+        Assert.False(sut.IsTagsViewVisible);
     }
 
     /// <summary>
-    /// 右側タブ閉鎖時は IsLyricsPanelVisible を維持したまま Lyrics.IsActiveView が false になり、再展開時に true へ復帰することを検証します。
+    /// 右側プレイリストの右クリックメニューから、再生中以外の曲を対象にダッシュボード・タグ・LRCエディタへ直接遷移できることを検証します。
     /// </summary>
     [Fact]
-    public void IsRightPanelOpen_歌詞表示中に右側タブを閉鎖および再展開した場合_表示状態維持のままIsActiveViewが連動すること()
+    public void プレイリスト右クリック導線_再生中以外の曲を指定した場合_ダッシュボードおよびタグとLRCエディタへ対象曲付きで遷移できること()
+    {
+        // Arrange
+        using var scope = new ServiceProviderScope();
+        using var sut = new MainViewModel();
+        var playingTrack = new Track { FilePath = @"C:\Music\Playing.flac", Title = "Playing Song", Artist = "Artist 1" };
+        var selectedTrack = new Track { FilePath = @"C:\Music\Other.flac", Title = "Other Song", Artist = "Artist 2" };
+        sut.CurrentTrack = playingTrack;
+        sut.IsRightPanelOpen = false;
+        Assert.True(sut.IsAlbumViewMaximized);
+
+        // Act 1: ダッシュボードを表示
+        sut.OpenTrackDashboardCommand.Execute(selectedTrack);
+
+        // Assert 1
+        Assert.True(sut.IsRightPanelOpen);
+        Assert.False(sut.IsAlbumViewMaximized);
+        Assert.Equal(RightExtensionPanelType.Dashboard, sut.ActiveRightExtensionPanel);
+        Assert.True(sut.IsDashboardViewVisible);
+        Assert.Same(selectedTrack, sut.ListeningStats!.TargetTrack);
+        Assert.True(sut.ListeningStats.IsShowingNonPlayingTrack);
+
+        // Act 2: タグを表示
+        sut.OpenTrackTagsCommand.Execute(selectedTrack);
+
+        // Assert 2
+        Assert.Equal(RightExtensionPanelType.Tags, sut.ActiveRightExtensionPanel);
+        Assert.True(sut.IsTagsViewVisible);
+        Assert.Same(selectedTrack, sut.TagsTargetTrack);
+        Assert.True(sut.IsTagsShowingNonPlayingTrack);
+        Assert.True(sut.CanReturnTagsToPlayingTrack);
+
+        // Act 2b: タグタブで再生中の曲へ戻す
+        sut.ReturnTagsToPlayingTrackCommand.Execute(null);
+        Assert.Same(playingTrack, sut.TagsTargetTrack);
+        Assert.False(sut.IsTagsShowingNonPlayingTrack);
+
+        // Act 3: 歌詞を編集（LRCエディタ）
+        sut.OpenLrcGeneratorCommand.Execute(selectedTrack);
+
+        // Assert 3
+        Assert.Equal(RightExtensionPanelType.LrcGenerator, sut.ActiveRightExtensionPanel);
+        Assert.True(sut.IsLrcGeneratorViewVisible);
+        Assert.True(sut.IsLyricsTabSelected);
+        Assert.Same(selectedTrack, sut.LrcGenerator!.TargetTrack);
+    }
+
+    /// <summary>
+    /// 右側タブ閉鎖時は選択タブを保持したまま Lyrics.IsActiveView / ListeningStats.IsActiveView が false になり、再展開時に復帰することを検証します。
+    /// </summary>
+    [Fact]
+    public void IsRightPanelOpen_拡張パネル表示中に右側タブを閉鎖および再展開した場合_選択タブ維持のままIsActiveViewが連動すること()
     {
         // Arrange
         using var scope = new ServiceProviderScope();
         using var sut = new MainViewModel();
         sut.IsRightPanelOpen = true;
-        sut.ToggleLyricsPanelCommand.Execute(null);
-        Assert.True(sut.IsLyricsPanelVisible);
+        sut.CurrentTrack = new Track { FilePath = @"C:\Music\PanelToggle.flac", Title = "PanelToggle" };
+        sut.ToggleAlbumViewSizeModeCommand.Execute(null);
+        Assert.True(sut.IsLyricsViewVisible);
         Assert.True(sut.Lyrics!.IsActiveView);
 
         // Act 1: 右側タブ閉鎖
         sut.IsRightPanelOpen = false;
 
         // Assert 1
-        Assert.True(sut.IsLyricsPanelVisible);
+        Assert.Equal(RightExtensionPanelType.Lyrics, sut.ActiveRightExtensionPanel);
         Assert.False(sut.IsLyricsViewVisible);
         Assert.False(sut.Lyrics.IsActiveView);
 
@@ -223,17 +292,16 @@ public sealed class MainViewModelTests
         sut.IsRightPanelOpen = true;
 
         // Assert 2
-        Assert.True(sut.IsLyricsPanelVisible);
         Assert.True(sut.IsLyricsViewVisible);
         Assert.True(sut.Lyrics.IsActiveView);
     }
 
     /// <summary>
-    /// 最大化モードかつ右側タブ閉鎖状態から OpenLrcGenerator を呼ぶと右側タブ自動展開・自動コンパクト切替され、
-    /// LRC 生成パネル閉鎖時に元の最大化モードへ自動復帰することを検証します。
+    /// 最大化モードかつ右側タブ閉鎖状態から OpenLrcGenerator を呼ぶと右側タブ展開・LRC 生成表示され、
+    /// 戻る操作で歌詞タブ、閉じる操作で最大化表示へ戻ることを検証します。
     /// </summary>
     [Fact]
-    public void OpenLrcGenerator_最大化かつ右側タブ閉鎖状態から展開し閉鎖_自動コンパクト後に元の最大化モードへ復帰すること()
+    public void OpenLrcGenerator_最大化状態から展開し歌詞へ戻るおよび閉鎖_期待通り排他切替と最大化復帰すること()
     {
         // Arrange
         using var scope = new ServiceProviderScope();
@@ -245,90 +313,27 @@ public sealed class MainViewModelTests
         // Act 1: LRC 生成パネル展開
         sut.OpenLrcGenerator(track);
 
-        // Assert 1: 右側タブ自動展開・自動コンパクト切替・排他表示・Lyrics.IsActiveView は false
+        // Assert 1
         Assert.True(sut.IsRightPanelOpen);
         Assert.False(sut.IsAlbumViewMaximized);
         Assert.Equal(RightExtensionPanelType.LrcGenerator, sut.ActiveRightExtensionPanel);
-        Assert.True(sut.IsLrcGeneratorPanelVisible);
         Assert.True(sut.IsLrcGeneratorViewVisible);
         Assert.False(sut.IsLyricsViewVisible);
         Assert.False(sut.Lyrics!.IsActiveView);
         Assert.Same(track, sut.LrcGenerator!.TargetTrack);
 
-        // Act 2: LRC 生成パネルを閉じる
-        sut.LrcGenerator.CloseGeneratorCommand.Execute(null);
-
-        // Assert 2: 元の最大化モードへ自動復帰
-        Assert.Equal(RightExtensionPanelType.None, sut.ActiveRightExtensionPanel);
-        Assert.False(sut.IsLrcGeneratorViewVisible);
-        Assert.True(sut.IsAlbumViewMaximized);
-    }
-
-    /// <summary>
-    /// 最大化モードから OpenLrcGenerator で自動コンパクト切替した後、右上 [♪] ボタンで歌詞表示へ切り替えてから閉鎖しても
-    /// 最大化復帰フラグが維持され、元の最大化モードへ自動復帰することを検証します。
-    /// </summary>
-    [Fact]
-    public void OpenLrcGenerator_最大化から展開後に右上歌詞トグル経由で切替および閉鎖_元の最大化モードへ自動復帰すること()
-    {
-        // Arrange
-        using var scope = new ServiceProviderScope();
-        using var sut = new MainViewModel();
-        var track = new Track { FilePath = @"C:\Music\ToggleKeepMax.flac", Title = "ToggleKeepMax" };
-        sut.IsRightPanelOpen = true;
-        Assert.True(sut.IsAlbumViewMaximized);
-
-        // Act 1: 最大化モードから LRC 生成パネル展開
-        sut.OpenLrcGenerator(track);
-        Assert.False(sut.IsAlbumViewMaximized);
-        Assert.True(sut.IsLrcGeneratorViewVisible);
-        Assert.False(sut.Lyrics!.IsActiveView);
-
-        // Act 2: 右上 [♪] ボタンで歌詞表示へ切替
-        sut.ToggleLyricsPanelCommand.Execute(null);
-        Assert.False(sut.IsAlbumViewMaximized);
+        // Act 2: [← 歌詞へ戻る] で歌詞タブへ切替
+        sut.LrcGenerator.BackToLyricsCommand.Execute(null);
         Assert.True(sut.IsLyricsViewVisible);
-        Assert.False(sut.IsLrcGeneratorViewVisible);
         Assert.True(sut.Lyrics.IsActiveView);
 
-        // Act 3: 右上 [♪] ボタンで歌詞表示を閉鎖
-        sut.ToggleLyricsPanelCommand.Execute(null);
-
-        // Assert 3: 元の最大化モードへ自動復帰すること
-        Assert.Equal(RightExtensionPanelType.None, sut.ActiveRightExtensionPanel);
-        Assert.False(sut.IsLyricsViewVisible);
-        Assert.False(sut.Lyrics.IsActiveView);
-        Assert.True(sut.IsAlbumViewMaximized);
-    }
-
-    /// <summary>
-    /// もともとコンパクトモードから OpenLrcGenerator → [← 歌詞へ戻る] → 閉鎖とした場合、コンパクトモードを維持することを検証します。
-    /// </summary>
-    [Fact]
-    public void OpenLrcGenerator_コンパクトモードから展開し歌詞へ戻ってから閉鎖_コンパクトモードを維持すること()
-    {
-        // Arrange
-        using var scope = new ServiceProviderScope();
-        using var sut = new MainViewModel();
-        sut.IsRightPanelOpen = true;
-        sut.IsAlbumViewMaximized = false;
-
-        // Act 1: コンパクトモードから LRC 生成展開
-        sut.OpenLrcGenerator(new Track { FilePath = @"C:\Music\Compact.flac", Title = "Compact" });
-        Assert.True(sut.IsLrcGeneratorViewVisible);
-
-        // Act 2: [← 歌詞へ戻る] で歌詞表示へ切替
-        sut.LrcGenerator!.BackToLyricsCommand.Execute(null);
-        Assert.True(sut.IsLyricsViewVisible);
-        Assert.True(sut.Lyrics!.IsActiveView);
-
-        // Act 3: 歌詞パネル閉鎖
+        // Act 3: 歌詞パネルを閉じる → 最大化へ復帰
         sut.Lyrics.ClosePanelCommand.Execute(null);
 
-        // Assert 3: もともとコンパクトだったのでコンパクト維持
+        // Assert 3
         Assert.Equal(RightExtensionPanelType.None, sut.ActiveRightExtensionPanel);
-        Assert.False(sut.IsAlbumViewMaximized);
-        Assert.False(sut.Lyrics.IsActiveView);
+        Assert.False(sut.IsLyricsViewVisible);
+        Assert.True(sut.IsAlbumViewMaximized);
     }
 
     private sealed class StubAlignmentEngineForMain : IAudioAlignmentEngine
