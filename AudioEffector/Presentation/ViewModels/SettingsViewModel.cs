@@ -412,6 +412,57 @@ public class SettingsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// 機器転送時に自動生成以外（手動作成・外部取得等）の .lrc 歌詞ファイルを同梱転送するかどうかを取得または設定します
+    /// </summary>
+    public bool TransferManualLrcFiles
+    {
+        get => _appSettings.TransferManualLrcFiles;
+        set
+        {
+            if (_appSettings.TransferManualLrcFiles != value)
+            {
+                _appSettings.TransferManualLrcFiles = value;
+                OnPropertyChanged();
+                _settingsService.UpdateSettings(settings => settings.TransferManualLrcFiles = value);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 機器転送時にテキストファイルから自動生成した .lrc 歌詞ファイルを同梱転送するかどうかを取得または設定します
+    /// </summary>
+    public bool TransferTextAlignedLrcFiles
+    {
+        get => _appSettings.TransferTextAlignedLrcFiles;
+        set
+        {
+            if (_appSettings.TransferTextAlignedLrcFiles != value)
+            {
+                _appSettings.TransferTextAlignedLrcFiles = value;
+                OnPropertyChanged();
+                _settingsService.UpdateSettings(settings => settings.TransferTextAlignedLrcFiles = value);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 機器転送時に音声から自動文字起こし生成した .lrc 歌詞ファイルを同梱転送するかどうかを取得または設定します
+    /// </summary>
+    public bool TransferTranscribedLrcFiles
+    {
+        get => _appSettings.TransferTranscribedLrcFiles;
+        set
+        {
+            if (_appSettings.TransferTranscribedLrcFiles != value)
+            {
+                _appSettings.TransferTranscribedLrcFiles = value;
+                OnPropertyChanged();
+                _settingsService.UpdateSettings(settings => settings.TransferTranscribedLrcFiles = value);
+            }
+        }
+    }
+
     // --- Shortcuts ---
 
     /// <summary>

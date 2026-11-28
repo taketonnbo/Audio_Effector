@@ -156,6 +156,21 @@ public class AppSettings
     public bool ConvertFlacToMp3 { get; set; }
 
     /// <summary>
+    /// 機器転送時に自動生成以外（手動作成・外部取得等）の .lrc 歌詞ファイルを同梱転送するかどうか
+    /// </summary>
+    public bool TransferManualLrcFiles { get; set; }
+
+    /// <summary>
+    /// 機器転送時にテキストファイルから自動生成した .lrc 歌詞ファイルを同梱転送するかどうか
+    /// </summary>
+    public bool TransferTextAlignedLrcFiles { get; set; }
+
+    /// <summary>
+    /// 機器転送時に音声から自動文字起こし生成した .lrc 歌詞ファイルを同梱転送するかどうか
+    /// </summary>
+    public bool TransferTranscribedLrcFiles { get; set; }
+
+    /// <summary>
     /// 接続機器識別子ごとの既定転送先フォルダパス辞書
     /// </summary>
     public Dictionary<string, string> DeviceDefaultTransferFolders
