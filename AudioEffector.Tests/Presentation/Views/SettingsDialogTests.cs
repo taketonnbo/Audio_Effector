@@ -338,4 +338,38 @@ public sealed class SettingsDialogTests
             Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
         });
     }
+
+    /// <summary>
+    /// データ管理・その他カテゴリに「転送時に FLAC を MP3 に変換してデータ量を削減する」チェックボックスが配置されており、
+    /// チェック操作が SettingsViewModel.ConvertFlacToMp3 へ TwoWay 反映されバインディングエラーが発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void データ管理その他カテゴリ_FLACからMP3変換チェックボックス操作時_ViewModelへ双方向反映されバインディングエラーがないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var listener = new BindingErrorTraceListener();
+            var vm = CreateViewModel();
+            vm.SelectedCategory = "データ管理・その他";
+
+            var sut = new SettingsDialog(vm);
+            var rootContent = Assert.IsAssignableFrom<FrameworkElement>(sut.Content);
+            rootContent.Measure(new Size(760, 520));
+            rootContent.Arrange(new Rect(0, 0, 760, 520));
+            rootContent.UpdateLayout();
+
+            var checkBox = FindLogicalChildren<CheckBox>(sut)
+                .Single(cb => Equals(cb.Content, "転送時に FLAC を MP3 に変換してデータ量を削減する"));
+
+            // Act
+            Assert.False(checkBox.IsChecked);
+            checkBox.IsChecked = true;
+            rootContent.UpdateLayout();
+
+            // Assert
+            Assert.True(vm.ConvertFlacToMp3);
+            Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
 }

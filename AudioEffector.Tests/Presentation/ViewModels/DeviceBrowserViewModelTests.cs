@@ -826,18 +826,92 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// ConvertFlacToMp3が有効な場合、.flacトラックが.mp3へ変換されて転送され一時ファイルが削除されること、および既存.mp3がある場合は重複スキップされることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracksToFileSystemAsync_ConvertFlacToMp3有効時_MP3へ変換転送され一時ファイル削除と重複スキップが行われること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_FlacTransfer_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string destDir = Path.Combine(tempRoot, "Dest");
+        string existingAlbumDir = Path.Combine(destDir, "Artist A", "Album A");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(existingAlbumDir);
+
+        string sourceFlac = Path.Combine(sourceDir, "01_HiRes.flac");
+        string dupFlac = Path.Combine(sourceDir, "02_AlreadyMp3.flac");
+        File.WriteAllText(sourceFlac, "original-flac-bytes");
+        File.WriteAllText(dupFlac, "original-flac-bytes");
+        File.WriteAllText(Path.Combine(existingAlbumDir, "02_AlreadyMp3.mp3"), "already-mp3");
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.ConvertFlacToMp3 = true);
+
+        var fakeTranscoder = new FakeAudioTranscodeService();
+        var track1 = new Track { Title = "HiRes", Artist = "Artist A", Album = "Album A", FilePath = sourceFlac };
+        var track2 = new Track { Title = "AlreadyMp3", Artist = "Artist A", Album = "Album A", FilePath = dupFlac };
+        var albums = new ObservableCollection<Album> { new Album("Album A", "Artist A", 2024, new[] { track1, track2 }) };
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: fakeTranscoder);
+
+            // Act
+            var options = sut.GetCurrentTranscodeOptions();
+            await sut.TransferTracksToFileSystemAsync(new[] { track1, track2 }, destDir, options);
+
+            // Assert
+            string expectedDestMp3 = Path.Combine(existingAlbumDir, "01_HiRes.mp3");
+            Assert.True(options.ConvertFlacToMp3);
+            Assert.Equal(1, fakeTranscoder.TranscodeCallCount);
+            Assert.True(File.Exists(expectedDestMp3));
+            Assert.Equal("transcoded-mp3-bytes", File.ReadAllText(expectedDestMp3));
+            Assert.Equal("already-mp3", File.ReadAllText(Path.Combine(existingAlbumDir, "02_AlreadyMp3.mp3")));
+            Assert.NotNull(fakeTranscoder.LastTemporaryDirectory);
+            Assert.False(Directory.Exists(fakeTranscoder.LastTemporaryDirectory));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private sealed class FakeAudioTranscodeService : IAudioTranscodeService
     {
         public int TranscodeCallCount { get; private set; }
         public string? LastTemporaryDirectory { get; private set; }
 
         public bool NeedsTranscode(string sourceFilePath, AudioTranscodeOptions options)
-            => options.ConvertMp4ToM4a && Path.GetExtension(sourceFilePath).Equals(".mp4", StringComparison.OrdinalIgnoreCase);
+        {
+            string ext = Path.GetExtension(sourceFilePath);
+            return (options.ConvertMp4ToM4a && ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase))
+                || (options.ConvertFlacToMp3 && ext.Equals(".flac", StringComparison.OrdinalIgnoreCase));
+        }
 
         public string ResolveTargetFileName(string sourceFilePath, AudioTranscodeOptions options)
         {
             string fileName = Path.GetFileName(sourceFilePath);
-            return NeedsTranscode(sourceFilePath, options) ? Path.ChangeExtension(fileName, ".m4a") : fileName;
+            string ext = Path.GetExtension(fileName);
+            if (options.ConvertMp4ToM4a && ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.ChangeExtension(fileName, ".m4a");
+            }
+
+            if (options.ConvertFlacToMp3 && ext.Equals(".flac", StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.ChangeExtension(fileName, ".mp3");
+            }
+
+            return fileName;
         }
 
         public Task<TranscodedAudioResult> PrepareForTransferAsync(
@@ -857,7 +931,10 @@ public sealed class DeviceBrowserViewModelTests
 
             string targetName = ResolveTargetFileName(sourceFilePath, options);
             string outputPath = Path.Combine(tempDir, targetName);
-            File.WriteAllText(outputPath, "transcoded-m4a-bytes");
+            string content = targetName.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase)
+                ? "transcoded-mp3-bytes"
+                : "transcoded-m4a-bytes";
+            File.WriteAllText(outputPath, content);
 
             return Task.FromResult(new TranscodedAudioResult(
                 sourceFilePath,

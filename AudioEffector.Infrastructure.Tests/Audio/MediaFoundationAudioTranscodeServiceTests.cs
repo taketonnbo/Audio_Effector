@@ -14,23 +14,30 @@ namespace AudioEffector.Infrastructure.Tests.Audio;
 public sealed class MediaFoundationAudioTranscodeServiceTests
 {
     /// <summary>
-    /// ConvertMp4ToM4aオプションと拡張子の組み合わせに応じてNeedsTranscodeとResolveTargetFileNameが期待通り動作することを検証します。
+    /// ConvertMp4ToM4aおよびConvertFlacToMp3オプションと拡張子の組み合わせに応じてNeedsTranscodeとResolveTargetFileNameが期待通り動作することを検証します。
     /// </summary>
     [Theory]
-    [InlineData(@"C:\Music\01_Song.mp4", true, true, "01_Song.m4a")]
-    [InlineData(@"C:\Music\01_Song.MP4", true, true, "01_Song.m4a")]
-    [InlineData(@"C:\Music\01_Song.mp4", false, false, "01_Song.mp4")]
-    [InlineData(@"C:\Music\02_Song.flac", true, false, "02_Song.flac")]
-    [InlineData(@"C:\Music\03_Song.mp3", true, false, "03_Song.mp3")]
+    [InlineData(@"C:\Music\01_Song.mp4", true, false, true, "01_Song.m4a")]
+    [InlineData(@"C:\Music\01_Song.MP4", true, false, true, "01_Song.m4a")]
+    [InlineData(@"C:\Music\01_Song.mp4", false, true, false, "01_Song.mp4")]
+    [InlineData(@"C:\Music\02_Song.flac", true, false, false, "02_Song.flac")]
+    [InlineData(@"C:\Music\02_Song.flac", false, true, true, "02_Song.mp3")]
+    [InlineData(@"C:\Music\02_Song.FLAC", true, true, true, "02_Song.mp3")]
+    [InlineData(@"C:\Music\03_Song.mp3", true, true, false, "03_Song.mp3")]
     public void NeedsTranscodeおよびResolveTargetFileName_拡張子と設定の組み合わせ_期待通りの判定とファイル名を返すこと(
         string sourcePath,
         bool convertMp4ToM4a,
+        bool convertFlacToMp3,
         bool expectedNeedsTranscode,
         string expectedTargetFileName)
     {
         // Arrange
         var sut = new MediaFoundationAudioTranscodeService();
-        var options = new AudioTranscodeOptions { ConvertMp4ToM4a = convertMp4ToM4a };
+        var options = new AudioTranscodeOptions
+        {
+            ConvertMp4ToM4a = convertMp4ToM4a,
+            ConvertFlacToMp3 = convertFlacToMp3
+        };
 
         // Act
         bool needsTranscode = sut.NeedsTranscode(sourcePath, options);
@@ -117,6 +124,9 @@ public sealed class MediaFoundationAudioTranscodeServiceTests
         // Act & Assert
         await Assert.ThrowsAsync<FileNotFoundException>(
             () => sut.PrepareForTransferAsync(@"C:\NonExistent\missing.mp4", options));
+
+        await Assert.ThrowsAsync<FileNotFoundException>(
+            () => sut.PrepareForTransferAsync(@"C:\NonExistent\missing.flac", new AudioTranscodeOptions { ConvertFlacToMp3 = true }));
 
         await Assert.ThrowsAsync<OperationCanceledException>(
             () => sut.PrepareForTransferAsync(@"C:\NonExistent\missing.mp4", options, cts.Token));

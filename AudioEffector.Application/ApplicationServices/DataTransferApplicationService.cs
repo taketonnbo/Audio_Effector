@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -136,7 +136,8 @@ public class DataTransferApplicationService
         var settings = _settingsService.LoadSettings();
         return new AudioTranscodeOptions
         {
-            ConvertMp4ToM4a = settings.ConvertMp4ToM4a
+            ConvertMp4ToM4a = settings.ConvertMp4ToM4a,
+            ConvertFlacToMp3 = settings.ConvertFlacToMp3
         };
     }
 

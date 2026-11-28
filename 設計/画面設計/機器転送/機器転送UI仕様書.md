@@ -67,7 +67,7 @@
 
 - 画面遷移時（`ViewType.DeviceSync`）に自動で `RefreshDrives()` を実行し、スペクトラムアナライザを非表示（`IsSpectrumVisible = false`）に格納する。
 - 機器内フォルダ（`📁`）のダブルクリックで下位階層へ移動、`".."` ボタンは `NavigateUpCommand`、`"↻"` ボタンは `RefreshDirectoryCommand`、`"⚙ Manage"` ボタンは `OpenDeviceManagerCommand`（`DeviceManagerDialog` 表示）を実行する。
-- アルバム/楽曲にチェックを入れて `"TRANSFER SELECTED"`（`TransferSelectedCommand`）を押下すると転送を開始する（設定で「転送時に MP4 を M4A に変換する」が有効な場合、`.mp4` 楽曲は `.m4a` へ自動変換して転送し一時ファイルを自動削除する）。転送中にメインウィンドウを閉じようとした場合は中断確認 `MessageBox` を表示する。
+- アルバム/楽曲にチェックを入れて `"TRANSFER SELECTED"`（`TransferSelectedCommand`）を押下すると転送を開始する（設定で変換オプションが有効な場合、`.mp4` は `.m4a` へ、`.flac` は `.mp3` へ自動変換して転送し一時ファイルを自動削除する）。転送中にメインウィンドウを閉じようとした場合は中断確認 `MessageBox` を表示する。
 
 ## 7. パフォーマンス最適化要件
 

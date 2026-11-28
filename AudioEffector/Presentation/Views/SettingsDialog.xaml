@@ -266,6 +266,17 @@
                                    Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                                    Margin="20,0,0,15"
                                    TextWrapping="Wrap"/>
+
+                        <CheckBox Content="転送時に FLAC を MP3 に変換してデータ量を削減する"
+                                  IsChecked="{Binding ConvertFlacToMp3, Mode=TwoWay}"
+                                  Margin="0,0,0,5"
+                                  Foreground="{DynamicResource TextForegroundBrush}"
+                                  VerticalContentAlignment="Center"/>
+                        <TextBlock Text="※有効にすると、機器転送時に .flac 音声ファイルを .mp3（320 kbps・メタデータおよびカバーアート引継ぎ）へ自動変換して転送します（ハイレゾ音源は自動でリサンプルされます）。"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                   Margin="20,0,0,15"
+                                   TextWrapping="Wrap"/>
                     </StackPanel>
 
                     <!-- Placeholder for other categories -->

@@ -1863,7 +1863,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             var settings = _settingsService.LoadSettings();
             return new AudioTranscodeOptions
             {
-                ConvertMp4ToM4a = settings.ConvertMp4ToM4a
+                ConvertMp4ToM4a = settings.ConvertMp4ToM4a,
+                ConvertFlacToMp3 = settings.ConvertFlacToMp3
             };
         }
         catch (Exception ex)

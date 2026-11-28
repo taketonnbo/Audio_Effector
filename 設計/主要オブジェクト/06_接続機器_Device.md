@@ -31,7 +31,7 @@
 | **TransferProgress** | `double` | 転送進捗率（`0`〜`100`%） | 下部 `Transferring: XX%` 表示 | 実装済み | `DeviceBrowserViewModel.TransferProgress` |
 | **DeviceAlbums** | `ObservableCollection<DeviceAlbum>` | デバイス内に保存されているアルバム・楽曲一覧 | `DeviceManagerDialog.xaml` | 実装済み | `DeviceManagerViewModel.DeviceAlbums` ([DeviceManagerViewModel.cs](../../AudioEffector/Presentation/ViewModels/DeviceManagerViewModel.cs)) |
 | **DeviceKey / IsCurrentFolderDefault / CurrentDeviceDefaultFolderPath** | `string` / `bool` | 機器識別子と機器ごとの既定転送先フォルダ登録状態（`AppSettings.DeviceDefaultTransferFolders` 永続化） | ナビゲーションバー（`☆ 既定` / `★ 既定`） | 実装済み (#385) | `DeviceViewModel.DeviceKey`, `DeviceBrowserViewModel.IsCurrentFolderDefault`, `CurrentDeviceDefaultFolderPath` |
-| **Transcode設定 (`ConvertMp4ToM4a`)** | `bool` | 転送時の MP4→M4A 自動変換設定（`AppSettings.ConvertMp4ToM4a`、FLAC→MP3 は #97 にて拡張予定） | 設定ダイアログ「データ管理・その他」 | 一部実装 (#96) | `AppSettings.ConvertMp4ToM4a`, `IAudioTranscodeService` |
+| **Transcode設定 (`ConvertMp4ToM4a` / `ConvertFlacToMp3`)** | `bool` | 転送時の MP4→M4A および FLAC→MP3 自動変換設定（`AppSettings.ConvertMp4ToM4a`, `ConvertFlacToMp3`） | 設定ダイアログ「データ管理・その他」 | 実装済み (#96, #97) | `AppSettings.ConvertMp4ToM4a`, `AppSettings.ConvertFlacToMp3`, `IAudioTranscodeService` |
 
 ## 4. アクション（操作）定義
 
