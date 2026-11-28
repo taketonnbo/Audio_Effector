@@ -168,4 +168,104 @@ public sealed class AlbumTests
         Assert.False(sut.IsSelected);
         Assert.False(track.IsSelected);
     }
+
+    /// <summary>
+    /// 全曲転送済みだったアルバム内の1曲がデバイスから削除されIsOnDeviceがfalseへ戻った際、Album.IsOnDeviceもfalseへ自動復帰することを検証します。
+    /// </summary>
+    [Fact]
+    public void IsOnDevice_トラックがTrueからFalseへ復帰した場合_アルバムのIsOnDeviceもFalseへ自動解除されること()
+    {
+        // Arrange
+        var track1 = new Track { Title = "Track 1", FilePath = @"C:\music\01.flac", IsOnDevice = true };
+        var track2 = new Track { Title = "Track 2", FilePath = @"C:\music\02.flac", IsOnDevice = true };
+        var sut = new Album("Discovery", "Daft Punk", 2001, new[] { track1, track2 });
+        Assert.True(sut.IsOnDevice);
+
+        // Act
+        track2.IsOnDevice = false;
+
+        // Assert
+        Assert.False(sut.IsOnDevice);
+    }
+
+    /// <summary>
+    /// トラックが空のアルバムはUpdateIsOnDeviceState後もIsOnDeviceがfalseであることを検証します。
+    /// </summary>
+    [Fact]
+    public void IsOnDevice_トラックが空のアルバムの場合_Falseを維持すること()
+    {
+        // Arrange
+        var sut = new Album("Empty Album", "Artist A");
+
+        // Act
+        sut.UpdateIsOnDeviceState();
+
+        // Assert
+        Assert.False(sut.IsOnDevice);
+    }
+
+    /// <summary>
+    /// RemoveTrackおよびTracks差し替え後に旧トラックのIsOnDevice変更がアルバムへ影響しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void RemoveTrackおよびTracks差し替え_旧トラックのIsOnDevice変更がアルバムへ影響しないこと()
+    {
+        // Arrange
+        var removedTrack = new Track { Title = "Removed", FilePath = @"C:\music\01.flac" };
+        var keptTrack = new Track { Title = "Kept", FilePath = @"C:\music\02.flac", IsOnDevice = true };
+        var sut = new Album("Discovery", "Daft Punk", 2001, new[] { removedTrack, keptTrack });
+
+        // Act
+        sut.RemoveTrack(removedTrack);
+        bool isOnDeviceAfterRemove = sut.IsOnDevice;
+        int propertyChangedCount = 0;
+        sut.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(Album.IsOnDevice))
+            {
+                propertyChangedCount++;
+            }
+        };
+        removedTrack.IsOnDevice = true;
+        removedTrack.IsOnDevice = false;
+
+        var newTrack = new Track { Title = "New", FilePath = @"C:\music\03.flac", IsOnDevice = false };
+        sut.Tracks = new List<Track> { newTrack };
+        int countBeforeOldKeptChange = propertyChangedCount;
+        keptTrack.IsOnDevice = false;
+
+        // Assert
+        Assert.True(isOnDeviceAfterRemove);
+        Assert.False(sut.IsOnDevice);
+        Assert.Equal(countBeforeOldKeptChange, propertyChangedCount);
+    }
+
+    /// <summary>
+    /// ApplyTracksOnDeviceStateによる一括更新時、全トラックの更新後にアルバムのIsOnDeviceが正しく同期されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ApplyTracksOnDeviceState_一括更新時_IsOnDevice通知が最小回数で正しく同期されること()
+    {
+        // Arrange
+        var track1 = new Track { Title = "Track 1", FilePath = @"C:\music\01.flac" };
+        var track2 = new Track { Title = "Track 2", FilePath = @"C:\music\02.flac" };
+        var sut = new Album("Discovery", "Daft Punk", 2001, new[] { track1, track2 });
+        int albumIsOnDeviceNotifyCount = 0;
+        sut.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(Album.IsOnDevice))
+            {
+                albumIsOnDeviceNotifyCount++;
+            }
+        };
+
+        // Act
+        sut.ApplyTracksOnDeviceState(_ => true);
+
+        // Assert
+        Assert.True(track1.IsOnDevice);
+        Assert.True(track2.IsOnDevice);
+        Assert.True(sut.IsOnDevice);
+        Assert.Equal(1, albumIsOnDeviceNotifyCount);
+    }
 }
