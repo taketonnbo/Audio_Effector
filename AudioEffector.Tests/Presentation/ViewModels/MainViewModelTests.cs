@@ -266,6 +266,38 @@ public sealed class MainViewModelTests
     }
 
     /// <summary>
+    /// タグタブでピン留め中の楽曲自身が再生開始された場合、ピン留めが自動解除され後続の別楽曲遷移へ自然に追従することを検証します。
+    /// </summary>
+    [Fact]
+    public void OpenTrackTags_ピン留め中の楽曲が再生開始され次曲へ遷移した場合_ピン留めが自動解除され次曲へ追従すること()
+    {
+        // Arrange
+        using var scope = new ServiceProviderScope();
+        using var sut = new MainViewModel();
+        var trackA = new Track { FilePath = @"C:\Music\TrackA.flac", Title = "Track A", Artist = "Artist A" };
+        var trackB = new Track { FilePath = @"C:\Music\TrackB.flac", Title = "Track B", Artist = "Artist B" };
+        var trackC = new Track { FilePath = @"C:\Music\TrackC.flac", Title = "Track C", Artist = "Artist C" };
+        sut.CurrentTrack = trackA;
+
+        // Act 1: 曲 A 再生中に曲 B をタグタブへピン留め
+        sut.OpenTrackTagsCommand.Execute(trackB);
+        Assert.Same(trackB, sut.TagsTargetTrack);
+        Assert.True(sut.IsTagsShowingNonPlayingTrack);
+
+        // Act 2: ピン留めしていた曲 B 自身の再生を開始 → ピン留め自動解除
+        sut.CurrentTrack = trackB;
+        Assert.Same(trackB, sut.TagsTargetTrack);
+        Assert.False(sut.IsTagsShowingNonPlayingTrack);
+
+        // Act 3: 続いて曲 C へ遷移 → 曲 B へ戻らず曲 C へ追従すること
+        sut.CurrentTrack = trackC;
+
+        // Assert
+        Assert.Same(trackC, sut.TagsTargetTrack);
+        Assert.False(sut.IsTagsShowingNonPlayingTrack);
+    }
+
+    /// <summary>
     /// 右側タブ閉鎖時は選択タブを保持したまま Lyrics.IsActiveView / ListeningStats.IsActiveView が false になり、再展開時に復帰することを検証します。
     /// </summary>
     [Fact]

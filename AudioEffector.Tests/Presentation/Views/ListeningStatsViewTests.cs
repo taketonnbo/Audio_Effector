@@ -196,6 +196,24 @@ public sealed class ListeningStatsViewTests
                 Assert.Equal(Visibility.Visible, returnButton.Visibility);
                 Assert.Equal("2 回", playCountText!.Text);
                 Assert.Empty(listener.Errors);
+
+                // Act 2: 再生中の曲に戻す → TOP 5 の1位行クリックで対象曲切替 → 再度再生中の曲へ戻す一連操作
+                returnButton.Command!.Execute(null);
+                host.UpdateLayout();
+                Assert.Equal("1 回", playCountText.Text);
+                Assert.Equal(Visibility.Collapsed, returnButton.Visibility);
+
+                Assert.NotEmpty(viewModel.TopPlayedTracks);
+                viewModel.SelectTopTrackCommand.Execute(viewModel.TopPlayedTracks[0]);
+                host.UpdateLayout();
+                Assert.Equal("2 回", playCountText.Text);
+                Assert.True(returnButton.IsEnabled);
+                Assert.Equal(Visibility.Visible, returnButton.Visibility);
+
+                returnButton.Command.Execute(null);
+                host.UpdateLayout();
+                Assert.Equal("1 回", playCountText.Text);
+                Assert.Empty(listener.Errors);
             }
             finally
             {
