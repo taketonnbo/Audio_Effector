@@ -802,7 +802,11 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     /// 対象楽曲を設定し、必要に応じて生成状態を初期化します（非同期処理稼働中は現在処理を維持します）
     /// </summary>
     /// <param name="track">対象楽曲</param>
-    public void SetTargetTrack(Track? track)
+    /// <param name="resetCompletedResult">
+    /// 同一楽曲であっても完了済み結果・エラー状態を明示的に初期化して入力画面へ戻すかどうか
+    /// （<see cref="HasSavedFile"/> または <see cref="HasError"/> が <c>true</c> の場合は指定によらず初期化します）
+    /// </param>
+    public void SetTargetTrack(Track? track, bool resetCompletedResult = false)
     {
         if (IsBusy)
         {
@@ -823,8 +827,15 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
             ClearErrorState();
             ValidationErrorMessage = string.Empty;
         }
+        else if (HasSavedFile || HasError || resetCompletedResult)
+        {
+            ClearResultState();
+            ClearErrorState();
+            ValidationErrorMessage = string.Empty;
+        }
 
         UpdateTargetAudioMissingState();
+        InvalidateAllCommands();
     }
 
     /// <summary>
@@ -886,6 +897,10 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                     EncodingWarningMessage = string.Empty;
                     IsEncodingWarningVisible = false;
                 }
+
+                // 同一ファイルパスの再選択時にも行数サマリおよびコマンド活性状態を確実に再評価する
+                OnPropertyChanged(nameof(InputTextSummary));
+                InvalidateAllCommands();
             });
         }
         catch (Exception ex)
@@ -1456,7 +1471,10 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     private void ResetResultToInput()
     {
         ClearResultState();
+        ClearErrorState();
         ValidationErrorMessage = string.Empty;
+        UpdateTargetAudioMissingState();
+        InvalidateAllCommands();
     }
 
     private void ClearResultState()
