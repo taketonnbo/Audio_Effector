@@ -2744,7 +2744,9 @@ public sealed class DeviceBrowserViewModelTests
 
         try
         {
-            // FileSystem 転送
+            var lrcParser = new AudioEffector.Infrastructure.Lyrics.LrcParser();
+
+            // Act & Assert: FileSystem 転送
             using (var fsSut = new DeviceBrowserViewModel(
                 albums,
                 () => albums,
@@ -2754,7 +2756,8 @@ public sealed class DeviceBrowserViewModelTests
                 settingsService: settingsService,
                 audioTranscodeService: new FakeAudioTranscodeService(),
                 resolveMtpClient: null,
-                showMessage: (_, _) => { }))
+                showMessage: (_, _) => { },
+                lrcParser: lrcParser))
             {
                 fsSut.SelectedDevice = new MainViewModel.DeviceViewModel
                 {
@@ -2779,7 +2782,7 @@ public sealed class DeviceBrowserViewModelTests
                 Assert.False(File.Exists(Path.Combine(fsAlbumDir, "04_NoLrc.lrc")));
             }
 
-            // MTP 転送
+            // Act & Assert: MTP 転送
             using (var mtpSut = new DeviceBrowserViewModel(
                 albums,
                 () => albums,
@@ -2789,7 +2792,8 @@ public sealed class DeviceBrowserViewModelTests
                 settingsService: settingsService,
                 audioTranscodeService: new FakeAudioTranscodeService(),
                 resolveMtpClient: _ => fakeMtp,
-                showMessage: (_, _) => { }))
+                showMessage: (_, _) => { },
+                lrcParser: lrcParser))
             {
                 mtpSut.SelectedDevice = new MainViewModel.DeviceViewModel
                 {
@@ -2869,7 +2873,9 @@ public sealed class DeviceBrowserViewModelTests
 
         try
         {
-            // Assert 1: MTP で 01.lrc 転送失敗しても 01.mp3・02.mp3・02.lrc がすべて正常転送されること
+            var lrcParser = new AudioEffector.Infrastructure.Lyrics.LrcParser();
+
+            // Act & Assert 1: MTP で 01.lrc 転送失敗しても 01.mp3・02.mp3・02.lrc がすべて正常転送されること
             using (var mtpSut = new DeviceBrowserViewModel(
                 albums,
                 () => albums,
@@ -2879,7 +2885,8 @@ public sealed class DeviceBrowserViewModelTests
                 settingsService: settingsService,
                 audioTranscodeService: null,
                 resolveMtpClient: _ => fakeMtp,
-                showMessage: (_, _) => { }))
+                showMessage: (_, _) => { },
+                lrcParser: lrcParser))
             {
                 await mtpSut.TransferTracksToMtpAsync(
                     fakeMtp,
@@ -2893,7 +2900,7 @@ public sealed class DeviceBrowserViewModelTests
                 Assert.True(fakeMtp.FileExists(@"\Music\ArtistB\AlbumB\02.lrc"));
             }
 
-            // Assert 2: FileSystem で 01.lrc 単独配置は重複判定に影響せず（t1 未転送）、02.mp3 既存スキップ時は 02.lrc を転送しないこと
+            // Act & Assert 2: FileSystem で 01.lrc 単独配置は重複判定に影響せず（t1 未転送）、02.mp3 既存スキップ時は 02.lrc を転送しないこと
             using (var fsSut = new DeviceBrowserViewModel(
                 albums,
                 () => albums,
@@ -2903,7 +2910,8 @@ public sealed class DeviceBrowserViewModelTests
                 settingsService: settingsService,
                 audioTranscodeService: null,
                 resolveMtpClient: null,
-                showMessage: (_, _) => { }))
+                showMessage: (_, _) => { },
+                lrcParser: lrcParser))
             {
                 fsSut.SelectedDevice = new MainViewModel.DeviceViewModel
                 {
@@ -2930,13 +2938,133 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// MTP で孤立 .lrc 残存時に既存削除のうえ最新 .lrc で上書き更新されること、音声既存スキップ時は .lrc が非同梱・非削除であること、
+    /// FileSystem 側で .lrc コピーが失敗しても音声本体・後続トラック転送が継続すること、および設定読み込み例外時に既定値へフォールバックすることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracks_MTP孤立Lrc上書きと既存スキップ非同梱およびFileSystemコピー失敗時継続と設定例外フォールバックが動作すること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_LrcRobust_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string fsDeviceDir = Path.Combine(tempRoot, "FsDevice");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(fsDeviceDir);
+
+        string track1Path = Path.Combine(sourceDir, "01.mp3");
+        string track2Path = Path.Combine(sourceDir, "02.mp3");
+        File.WriteAllText(track1Path, "audio-1");
+        File.WriteAllText(Path.ChangeExtension(track1Path, ".lrc"), "[00:01.00]updated-lyric-1");
+        File.WriteAllText(track2Path, "audio-2");
+        File.WriteAllText(Path.ChangeExtension(track2Path, ".lrc"), "[00:01.00]lyric-2");
+
+        var t1 = new Track { Title = "Track 1", Artist = "ArtistC", Album = "AlbumC", FilePath = track1Path };
+        var t2 = new Track { Title = "Track 2", Artist = "ArtistC", Album = "AlbumC", FilePath = track2Path };
+        var album = new Album("AlbumC", "ArtistC", 2026, new[] { t1, t2 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.TransferManualLrcFiles = true);
+        var lrcParser = new AudioEffector.Infrastructure.Lyrics.LrcParser();
+
+        // MTP 実機同様に既存ファイルへの直接 UploadFile で例外を送出する設定で検証
+        var strictMtp = new FakeMtpDeviceClient { ThrowIfDestinationExists = true };
+        strictMtp.AddFile(@"\Music\ArtistC\AlbumC\01.lrc"); // 孤立した旧 .lrc のみ残存（音声 01.mp3 なし）
+        strictMtp.AddFile(@"\Music\ArtistC\AlbumC\02.mp3"); // 既存音声あり（02.lrc なし → スキップ時は非同梱）
+
+        // FileSystem 側では 01.lrc と同名のディレクトリを配置して File.Copy に失敗させる
+        string fsAlbumDir = Path.Combine(fsDeviceDir, "ArtistC", "AlbumC");
+        Directory.CreateDirectory(Path.Combine(fsAlbumDir, "01.lrc"));
+
+        var throwingSettingsMock = new Moq.Mock<ISettingsService>();
+        throwingSettingsMock.Setup(s => s.LoadSettings()).Throws(new IOException("settings read error"));
+
+        try
+        {
+            // Act 1: MTP 孤立 .lrc 上書きおよび既存音声スキップ非同梱
+            using (var mtpSut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: null,
+                resolveMtpClient: _ => strictMtp,
+                showMessage: (_, _) => { },
+                lrcParser: lrcParser))
+            {
+                await mtpSut.TransferTracksToMtpAsync(strictMtp, new[] { t1, t2 }, @"\Music", new AudioTranscodeOptions());
+            }
+
+            // Assert 1
+            Assert.True(strictMtp.FileExists(@"\Music\ArtistC\AlbumC\01.mp3"));
+            Assert.True(strictMtp.FileExists(@"\Music\ArtistC\AlbumC\01.lrc"));
+            Assert.Contains(@"\Music\ArtistC\AlbumC\01.lrc", strictMtp.DeletedFiles, StringComparer.OrdinalIgnoreCase);
+            Assert.False(strictMtp.FileExists(@"\Music\ArtistC\AlbumC\02.lrc"));
+
+            // Act 2: FileSystem で 01.lrc コピーが失敗しても 01.mp3・02.mp3・02.lrc の転送が継続すること
+            using (var fsSut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                lrcParser: lrcParser))
+            {
+                await fsSut.TransferTracksToFileSystemAsync(new[] { t1, t2 }, fsDeviceDir, new AudioTranscodeOptions());
+            }
+
+            // Assert 2
+            Assert.True(File.Exists(Path.Combine(fsAlbumDir, "01.mp3")));
+            Assert.True(File.Exists(Path.Combine(fsAlbumDir, "02.mp3")));
+            Assert.True(File.Exists(Path.Combine(fsAlbumDir, "02.lrc")));
+
+            // Act 3: 設定読み込み例外時は既定値（全 false）へフォールバックすること
+            using var fallbackSut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                settingsService: throwingSettingsMock.Object,
+                lrcParser: lrcParser);
+            var fallbackOptions = fallbackSut.GetCurrentLrcTransferOptions();
+
+            // Assert 3
+            Assert.False(fallbackOptions.IsAnyEnabled);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private sealed class FakeMtpDeviceClient : DeviceBrowserViewModel.IMtpDeviceClient
     {
         private readonly object _sync = new();
         private readonly HashSet<string> _directories = new(StringComparer.OrdinalIgnoreCase) { @"\" };
         private readonly HashSet<string> _files = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> _enumeratedDirectories = new();
+        private readonly List<string> _deletedFiles = new();
         private bool _isConnected;
+
+        public bool ThrowIfDestinationExists { get; set; }
+
+        public IReadOnlyList<string> DeletedFiles
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _deletedFiles.ToArray();
+                }
+            }
+        }
 
         public bool IsConnected
         {
@@ -3070,11 +3198,26 @@ public sealed class DeviceBrowserViewModelTests
             }
         }
 
+        public void DeleteFile(string path)
+        {
+            lock (_sync)
+            {
+                string normalized = NormalizePath(path);
+                _files.Remove(normalized);
+                _deletedFiles.Add(normalized);
+            }
+        }
+
         public void UploadFile(string sourceFilePath, string destinationFilePath)
         {
             if (!File.Exists(sourceFilePath))
             {
                 throw new FileNotFoundException("Source file not found.", sourceFilePath);
+            }
+
+            if (ThrowIfDestinationExists && FileExists(destinationFilePath))
+            {
+                throw new IOException($"Destination file already exists on MTP device: {destinationFilePath}");
             }
 
             OnUploadFile?.Invoke(sourceFilePath, destinationFilePath);
