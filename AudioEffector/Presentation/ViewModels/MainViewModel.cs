@@ -1028,10 +1028,9 @@ namespace AudioEffector.Presentation.ViewModels
                 }
                 else
                 {
-                    var dataDirectoryProvider = App.ServiceProvider?.GetService(typeof(IDataDirectoryProvider)) as IDataDirectoryProvider;
                     var recentRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IRecentTrackRepository)) as AudioEffector.Domain.Repositories.IRecentTrackRepository
-                        ?? (dataDirectoryProvider != null
-                            ? new Infrastructure.Repository.JsonListeningStatsRepository(dataDirectoryProvider)
+                        ?? (_dataDirectoryProvider != null
+                            ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
                             : new Infrastructure.Repository.JsonListeningStatsRepository());
                     Recent = new Presentation.ViewModels.RecentViewModel(recentRepo, Library!, _audioService);
                 }
@@ -1118,10 +1117,9 @@ namespace AudioEffector.Presentation.ViewModels
                 var resolvedStatsService = App.ServiceProvider?.GetService(typeof(ListeningStatsApplicationService)) as ListeningStatsApplicationService;
                 if (resolvedStatsService == null)
                 {
-                    var dataDirectoryProvider = App.ServiceProvider?.GetService(typeof(IDataDirectoryProvider)) as IDataDirectoryProvider;
                     var statsRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IListeningStatsRepository)) as AudioEffector.Domain.Repositories.IListeningStatsRepository
-                        ?? (dataDirectoryProvider != null
-                            ? new Infrastructure.Repository.JsonListeningStatsRepository(dataDirectoryProvider)
+                        ?? (_dataDirectoryProvider != null
+                            ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
                             : new Infrastructure.Repository.JsonListeningStatsRepository());
                     _fallbackListeningStatsService = new ListeningStatsApplicationService(statsRepo, _audioService);
                     resolvedStatsService = _fallbackListeningStatsService;
@@ -3097,6 +3095,7 @@ namespace AudioEffector.Presentation.ViewModels
             }
 
             Recent.LoadHistory();
+            ListeningStats?.Refresh();
             if (Equalizer != null)
             {
                 _ = Equalizer.LoadPresetsAsync();
