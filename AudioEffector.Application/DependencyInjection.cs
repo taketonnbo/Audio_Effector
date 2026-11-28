@@ -32,6 +32,7 @@ public static class DependencyInjection
         services.AddSingleton<LyricsApplicationService>();
         services.AddSingleton<LyricsForcedAligner>();
         services.AddSingleton<LrcGenerationApplicationService>();
+        services.AddSingleton<ListeningStatsApplicationService>();
 
         return services;
     }

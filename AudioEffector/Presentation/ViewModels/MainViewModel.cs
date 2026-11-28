@@ -46,10 +46,34 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly bool _ownsAlbumDetail;
         private readonly bool _ownsLyrics;
         private readonly bool _ownsLrcGenerator;
+        private readonly bool _ownsListeningStats;
+        private ListeningStatsApplicationService? _fallbackListeningStatsService;
         private RightExtensionPanelType _activeRightExtensionPanel = RightExtensionPanelType.None;
-        private bool _wasMaximizedBeforeLyrics;
-        private bool _isSuppressingMaximizedLyricsClose;
+        private Track? _selectedTagsTargetTrack;
+        private RightExtensionCommand? _toggleAlbumViewSizeModeCommand;
+        private RightExtensionCommand? _selectRightExtensionTabCommand;
+        private RightExtensionCommand? _returnTagsToPlayingTrackCommand;
         private bool _disposed;
+
+        private sealed class RightExtensionCommand : ICommand
+        {
+            private readonly Action<object?> _execute;
+            private readonly Predicate<object?>? _canExecute;
+
+            public RightExtensionCommand(Action<object?> execute, Predicate<object?>? canExecute = null)
+            {
+                _execute = execute ?? throw new ArgumentNullException(nameof(execute));
+                _canExecute = canExecute;
+            }
+
+            public event EventHandler? CanExecuteChanged;
+
+            public bool CanExecute(object? parameter) => _canExecute == null || _canExecute(parameter);
+
+            public void Execute(object? parameter) => _execute(parameter);
+
+            public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        }
 
         /// <summary>
         /// 設定が更新された際に発生するイベント
@@ -115,6 +139,11 @@ namespace AudioEffector.Presentation.ViewModels
         /// LRC 自動生成専用ViewModel
         /// </summary>
         public Presentation.ViewModels.LrcGeneratorViewModel? LrcGenerator { get; }
+
+        /// <summary>
+        /// リスニング統計ダッシュボード専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.ListeningStatsViewModel? ListeningStats { get; }
 
         /// <summary>
         /// フォルダーブラウズ専用ViewModel
@@ -215,9 +244,7 @@ namespace AudioEffector.Presentation.ViewModels
                 {
                     _isRightPanelOpen = value;
                     OnPropertyChanged();
-                    OnPropertyChanged(nameof(IsLyricsViewVisible));
-                    OnPropertyChanged(nameof(IsLrcGeneratorViewVisible));
-                    UpdateLyricsActiveViewState();
+                    NotifyRightExtensionVisibilityChanged();
                 }
             }
         }
@@ -290,34 +317,55 @@ namespace AudioEffector.Presentation.ViewModels
         private bool _isAlbumViewMaximized = true;
         /// <summary>
         /// 右側パネルのアルバム情報表示が最大化（全画面）モードかどうかを示すプロパティ
-        /// Trueの場合は特大アートとフルハイトトラックリスト、Falseの場合は上部にコンパクトプレイヤーと下部に拡張領域を表示します
+        /// Trueの場合は特大アートとフルハイトトラックリスト、Falseの場合は上部にコンパクトプレイヤーと下部に3タブ拡張領域を表示します
         /// </summary>
         public bool IsAlbumViewMaximized
         {
             get => _isAlbumViewMaximized;
             set
             {
+                if (!value && !HasRightExtensionTarget)
+                {
+                    return;
+                }
+
                 if (_isAlbumViewMaximized != value)
                 {
                     _isAlbumViewMaximized = value;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(CanToggleAlbumViewSizeMode));
 
-                    if (value && !_isSuppressingMaximizedLyricsClose)
+                    if (!value && _activeRightExtensionPanel == RightExtensionPanelType.None)
                     {
-                        _wasMaximizedBeforeLyrics = false;
-                        if (_activeRightExtensionPanel == RightExtensionPanelType.Lyrics
-                            || _activeRightExtensionPanel == RightExtensionPanelType.LrcGenerator)
-                        {
-                            ActiveRightExtensionPanel = RightExtensionPanelType.None;
-                        }
+                        _activeRightExtensionPanel = RightExtensionPanelType.Lyrics;
+                        OnPropertyChanged(nameof(ActiveRightExtensionPanel));
+                        NotifyRightExtensionTabPropertiesChanged();
                     }
 
-                    OnPropertyChanged(nameof(IsLyricsViewVisible));
-                    OnPropertyChanged(nameof(IsLrcGeneratorViewVisible));
-                    UpdateLyricsActiveViewState();
+                    NotifyRightExtensionVisibilityChanged();
+                    RaiseRightExtensionCommandsCanExecuteChanged();
                 }
             }
         }
+
+        /// <summary>
+        /// 現在再生中の楽曲が存在するかどうかを取得します
+        /// </summary>
+        public bool HasCurrentTrack => CurrentTrack != null;
+
+        /// <summary>
+        /// 右側拡張領域を表示するための対象楽曲（再生中または右クリック選択曲）が存在するかどうかを取得します
+        /// </summary>
+        public bool HasRightExtensionTarget =>
+            CurrentTrack != null
+            || ListeningStats?.TargetTrack != null
+            || LrcGenerator?.TargetTrack != null
+            || _selectedTagsTargetTrack != null;
+
+        /// <summary>
+        /// 右上の拡大／縮小ボタンが実行可能かどうかを取得します（未再生時は最大化からコンパクト表示へ開けません）
+        /// </summary>
+        public bool CanToggleAlbumViewSizeMode => !IsAlbumViewMaximized || HasCurrentTrack;
 
         /// <summary>
         /// 右側アルバム表示のサイズモード（最大化 / コンパクト）を切り替えるコマンドを取得します
@@ -336,24 +384,42 @@ namespace AudioEffector.Presentation.ViewModels
                 {
                     _activeRightExtensionPanel = value;
                     OnPropertyChanged();
-                    OnPropertyChanged(nameof(IsLyricsPanelVisible));
-                    OnPropertyChanged(nameof(IsLyricsViewVisible));
-                    OnPropertyChanged(nameof(IsLrcGeneratorPanelVisible));
-                    OnPropertyChanged(nameof(IsLrcGeneratorViewVisible));
-                    UpdateLyricsActiveViewState();
+                    NotifyRightExtensionTabPropertiesChanged();
+                    NotifyRightExtensionVisibilityChanged();
                 }
             }
         }
 
         /// <summary>
-        /// 歌詞パネルの表示トグルが ON 状態かどうかを取得します（右側タブ閉鎖中も状態を保持します）
+        /// 右側タブ下部拡張領域全体（3タブバー含む）が表示中かどうかを取得します
+        /// </summary>
+        public bool IsRightExtensionAreaVisible => IsRightPanelOpen && !IsAlbumViewMaximized;
+
+        /// <summary>
+        /// 3タブバー上で「歌詞」タブが選択状態かどうかを取得します（LRC 自動生成パネル表示中もアクティブ扱い）
+        /// </summary>
+        public bool IsLyricsTabSelected =>
+            _activeRightExtensionPanel is RightExtensionPanelType.Lyrics or RightExtensionPanelType.LrcGenerator;
+
+        /// <summary>
+        /// 3タブバー上で「ダッシュボード」タブが選択状態かどうかを取得します
+        /// </summary>
+        public bool IsDashboardTabSelected => _activeRightExtensionPanel == RightExtensionPanelType.Dashboard;
+
+        /// <summary>
+        /// 3タブバー上で「タグ」タブが選択状態かどうかを取得します
+        /// </summary>
+        public bool IsTagsTabSelected => _activeRightExtensionPanel == RightExtensionPanelType.Tags;
+
+        /// <summary>
+        /// 歌詞パネルが選択状態かどうかを取得します
         /// </summary>
         public bool IsLyricsPanelVisible => _activeRightExtensionPanel == RightExtensionPanelType.Lyrics;
 
         /// <summary>
         /// 歌詞パネルが画面上に実際に表示されているかどうかを取得します（非表示時は Collapsed 連動）
         /// </summary>
-        public bool IsLyricsViewVisible => IsRightPanelOpen && !IsAlbumViewMaximized && IsLyricsPanelVisible;
+        public bool IsLyricsViewVisible => IsRightExtensionAreaVisible && IsLyricsPanelVisible;
 
         /// <summary>
         /// LRC 自動生成パネルが選択状態かどうかを取得します
@@ -363,17 +429,75 @@ namespace AudioEffector.Presentation.ViewModels
         /// <summary>
         /// LRC 自動生成パネルが画面上に実際に表示されているかどうかを取得します（非表示時は Collapsed 連動）
         /// </summary>
-        public bool IsLrcGeneratorViewVisible => IsRightPanelOpen && !IsAlbumViewMaximized && IsLrcGeneratorPanelVisible;
+        public bool IsLrcGeneratorViewVisible => IsRightExtensionAreaVisible && IsLrcGeneratorPanelVisible;
 
         /// <summary>
-        /// 右側タブの歌詞表示パネルを ON / OFF 切り替えするコマンドを取得します
+        /// ダッシュボードパネルが選択状態かどうかを取得します
         /// </summary>
-        public ICommand ToggleLyricsPanelCommand { get; }
+        public bool IsDashboardPanelVisible => _activeRightExtensionPanel == RightExtensionPanelType.Dashboard;
 
         /// <summary>
-        /// 右側タブの歌詞表示パネルを閉じるコマンドを取得します
+        /// ダッシュボードパネルが画面上に実際に表示されているかどうかを取得します（非表示時は Collapsed 連動）
         /// </summary>
-        public ICommand CloseLyricsPanelCommand { get; }
+        public bool IsDashboardViewVisible => IsRightExtensionAreaVisible && IsDashboardPanelVisible;
+
+        /// <summary>
+        /// タグパネルが選択状態かどうかを取得します
+        /// </summary>
+        public bool IsTagsPanelVisible => _activeRightExtensionPanel == RightExtensionPanelType.Tags;
+
+        /// <summary>
+        /// タグパネルが画面上に実際に表示されているかどうかを取得します（非表示時は Collapsed 連動）
+        /// </summary>
+        public bool IsTagsViewVisible => IsRightExtensionAreaVisible && IsTagsPanelVisible;
+
+        /// <summary>
+        /// タグパネルの表示対象楽曲（右クリック指定曲、未指定時は現在再生中楽曲）を取得します
+        /// </summary>
+        public Track? TagsTargetTrack => _selectedTagsTargetTrack ?? CurrentTrack;
+
+        /// <summary>
+        /// タグパネルで再生中以外の楽曲を表示しているかどうかを取得します
+        /// </summary>
+        public bool IsTagsShowingNonPlayingTrack =>
+            _selectedTagsTargetTrack != null && !IsSameTrack(_selectedTagsTargetTrack, CurrentTrack);
+
+        /// <summary>
+        /// タグパネルで「再生中の曲に戻す」操作が可能かどうかを取得します
+        /// </summary>
+        public bool CanReturnTagsToPlayingTrack => IsTagsShowingNonPlayingTrack && CurrentTrack != null;
+
+        /// <summary>
+        /// タグパネルの対象楽曲タイトル表示文字列を取得します
+        /// </summary>
+        public string TagsTargetTrackTitle =>
+            string.IsNullOrWhiteSpace(TagsTargetTrack?.Title) ? "楽曲が選択されていません" : TagsTargetTrack.Title;
+
+        /// <summary>
+        /// タグパネルの対象楽曲アーティスト表示文字列を取得します
+        /// </summary>
+        public string TagsTargetTrackArtist =>
+            string.IsNullOrWhiteSpace(TagsTargetTrack?.Artist) ? string.Empty : TagsTargetTrack.Artist;
+
+        /// <summary>
+        /// 右側タブ下部拡張領域のタブ（歌詞 / ダッシュボード / タグ）を切り替えるコマンドを取得します
+        /// </summary>
+        public ICommand SelectRightExtensionTabCommand { get; }
+
+        /// <summary>
+        /// 指定楽曲（未指定時は現在再生中楽曲）を対象にダッシュボードタブを開くコマンドを取得します
+        /// </summary>
+        public ICommand OpenTrackDashboardCommand { get; }
+
+        /// <summary>
+        /// 指定楽曲（未指定時は現在再生中楽曲）を対象にタグタブを開くコマンドを取得します
+        /// </summary>
+        public ICommand OpenTrackTagsCommand { get; }
+
+        /// <summary>
+        /// タグタブの表示対象を現在再生中の楽曲へ戻すコマンドを取得します
+        /// </summary>
+        public ICommand ReturnTagsToPlayingTrackCommand { get; }
 
         /// <summary>
         /// 指定楽曲（未指定時は現在再生中楽曲）を対象に LRC 自動生成パネルを開くコマンドを取得します
@@ -897,11 +1021,19 @@ namespace AudioEffector.Presentation.ViewModels
             }
             else
             {
-                Recent = new Presentation.ViewModels.RecentViewModel(
-                    App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IRecentTrackRepository)) as AudioEffector.Domain.Repositories.IRecentTrackRepository
-                        ?? new Infrastructure.Repository.JsonRecentTrackRepository(),
-                    Library!,
-                    _audioService);
+                var statsRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IListeningStatsRepository)) as AudioEffector.Domain.Repositories.IListeningStatsRepository;
+                if (statsRepo != null)
+                {
+                    Recent = new Presentation.ViewModels.RecentViewModel(statsRepo, Library!, _audioService);
+                }
+                else
+                {
+                    var recentRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IRecentTrackRepository)) as AudioEffector.Domain.Repositories.IRecentTrackRepository
+                        ?? (_dataDirectoryProvider != null
+                            ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
+                            : new Infrastructure.Repository.JsonListeningStatsRepository());
+                    Recent = new Presentation.ViewModels.RecentViewModel(recentRepo, Library!, _audioService);
+                }
                 _ownsRecent = true;
             }
 
@@ -971,6 +1103,35 @@ namespace AudioEffector.Presentation.ViewModels
 
             LrcGenerator.BackToLyricsRequested += OnLrcGeneratorBackToLyricsRequested;
             LrcGenerator.CloseRequested += OnLrcGeneratorCloseRequested;
+
+            var resolvedListeningStats = App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.ListeningStatsViewModel>(App.ServiceProvider)
+                : null;
+            if (resolvedListeningStats != null)
+            {
+                ListeningStats = resolvedListeningStats;
+                _ownsListeningStats = false;
+            }
+            else
+            {
+                var resolvedStatsService = App.ServiceProvider?.GetService(typeof(ListeningStatsApplicationService)) as ListeningStatsApplicationService;
+                if (resolvedStatsService == null)
+                {
+                    var statsRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IListeningStatsRepository)) as AudioEffector.Domain.Repositories.IListeningStatsRepository
+                        ?? (_dataDirectoryProvider != null
+                            ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
+                            : new Infrastructure.Repository.JsonListeningStatsRepository());
+                    _fallbackListeningStatsService = new ListeningStatsApplicationService(statsRepo, _audioService);
+                    resolvedStatsService = _fallbackListeningStatsService;
+                }
+
+                ListeningStats = new Presentation.ViewModels.ListeningStatsViewModel(
+                    resolvedStatsService,
+                    _audioService,
+                    sharedUiDispatcher,
+                    Library);
+                _ownsListeningStats = true;
+            }
 
             var appSettings = _settingsService.LoadSettings();
             _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
@@ -1064,11 +1225,28 @@ namespace AudioEffector.Presentation.ViewModels
             ToggleRightPanelCommand = new RelayCommand(o => IsRightPanelOpen = !IsRightPanelOpen);
             TogglePlayQueuePanelCommand = new RelayCommand(o => IsPlayQueuePanelOpen = !IsPlayQueuePanelOpen);
             ClosePlayQueuePanelCommand = new RelayCommand(o => IsPlayQueuePanelOpen = false);
-            ToggleAlbumViewSizeModeCommand = new RelayCommand(o => IsAlbumViewMaximized = !IsAlbumViewMaximized);
-            ToggleLyricsPanelCommand = new RelayCommand(_ => ToggleLyricsPanel());
-            CloseLyricsPanelCommand = new RelayCommand(_ => CloseLyricsPanel());
+            _toggleAlbumViewSizeModeCommand = new RightExtensionCommand(
+                _ => ToggleAlbumViewSizeMode(),
+                _ => CanToggleAlbumViewSizeMode);
+            ToggleAlbumViewSizeModeCommand = _toggleAlbumViewSizeModeCommand;
+            _selectRightExtensionTabCommand = new RightExtensionCommand(
+                param =>
+                {
+                    if (param is RightExtensionPanelType tab)
+                    {
+                        SelectRightExtensionTab(tab);
+                    }
+                },
+                _ => HasRightExtensionTarget);
+            SelectRightExtensionTabCommand = _selectRightExtensionTabCommand;
+            OpenTrackDashboardCommand = new RelayCommand(param => OpenTrackDashboard(param as Track ?? CurrentTrack));
+            OpenTrackTagsCommand = new RelayCommand(param => OpenTrackTags(param as Track ?? CurrentTrack));
+            _returnTagsToPlayingTrackCommand = new RightExtensionCommand(
+                _ => ReturnTagsToPlayingTrack(),
+                _ => CanReturnTagsToPlayingTrack);
+            ReturnTagsToPlayingTrackCommand = _returnTagsToPlayingTrackCommand;
             OpenLrcGeneratorCommand = new RelayCommand(param => OpenLrcGenerator(param as Track ?? CurrentTrack));
-            UpdateLyricsActiveViewState();
+            UpdateRightExtensionActiveViewStates();
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
 
@@ -1539,6 +1717,17 @@ namespace AudioEffector.Presentation.ViewModels
                 {
                     CurrentAlbum = null;
                 }
+
+                if (_selectedTagsTargetTrack != null && IsSameTrack(_selectedTagsTargetTrack, value))
+                {
+                    _selectedTagsTargetTrack = null;
+                }
+
+                OnPropertyChanged(nameof(HasCurrentTrack));
+                OnPropertyChanged(nameof(HasRightExtensionTarget));
+                OnPropertyChanged(nameof(CanToggleAlbumViewSizeMode));
+                NotifyTagsTargetProperties();
+                RaiseRightExtensionCommandsCanExecuteChanged();
             }
         }
 
@@ -2907,6 +3096,7 @@ namespace AudioEffector.Presentation.ViewModels
             }
 
             Recent.LoadHistory();
+            ListeningStats?.Refresh();
             if (Equalizer != null)
             {
                 _ = Equalizer.LoadPresetsAsync();
@@ -3004,50 +3194,137 @@ namespace AudioEffector.Presentation.ViewModels
             CurrentViewType = ViewType.Albums;
         }
 
-        private void ToggleLyricsPanel()
+        private void ToggleAlbumViewSizeMode()
         {
-            if (IsLyricsPanelVisible)
+            if (IsAlbumViewMaximized)
             {
-                CloseLyricsPanel();
+                if (!HasCurrentTrack)
+                {
+                    return;
+                }
+
+                IsAlbumViewMaximized = false;
+            }
+            else
+            {
+                IsAlbumViewMaximized = true;
+            }
+        }
+
+        /// <summary>
+        /// 右側タブ下部拡張領域の表示タブ（歌詞 / ダッシュボード / タグ）を切り替えます
+        /// </summary>
+        /// <param name="tab">切り替え先タブ種別</param>
+        public void SelectRightExtensionTab(RightExtensionPanelType tab)
+        {
+            if (tab == RightExtensionPanelType.None)
+            {
+                CloseRightExtensionPanel();
                 return;
+            }
+
+            if (!HasRightExtensionTarget)
+            {
+                return;
+            }
+
+            if (!IsRightPanelOpen)
+            {
+                IsRightPanelOpen = true;
             }
 
             if (IsAlbumViewMaximized)
             {
-                _wasMaximizedBeforeLyrics = true;
                 IsAlbumViewMaximized = false;
             }
-            else if (ActiveRightExtensionPanel == RightExtensionPanelType.None)
-            {
-                _wasMaximizedBeforeLyrics = false;
-            }
 
-            ActiveRightExtensionPanel = RightExtensionPanelType.Lyrics;
+            ActiveRightExtensionPanel = tab;
         }
 
-        private void CloseLyricsPanel()
+        /// <summary>
+        /// 指定楽曲を対象に右側タブ下部拡張領域へダッシュボードパネルを展開します
+        /// </summary>
+        /// <param name="targetTrack">対象楽曲（未指定時は現在再生中楽曲）</param>
+        public void OpenTrackDashboard(Track? targetTrack = null)
         {
-            bool shouldRestoreMaximized = _wasMaximizedBeforeLyrics;
-            _wasMaximizedBeforeLyrics = false;
-            ActiveRightExtensionPanel = RightExtensionPanelType.None;
-
-            if (shouldRestoreMaximized && !IsAlbumViewMaximized)
+            Track? effectiveTrack = targetTrack ?? CurrentTrack;
+            if (effectiveTrack == null)
             {
-                _isSuppressingMaximizedLyricsClose = true;
-                try
-                {
-                    IsAlbumViewMaximized = true;
-                }
-                finally
-                {
-                    _isSuppressingMaximizedLyricsClose = false;
-                }
+                return;
+            }
+
+            ListeningStats?.SetTargetTrack(effectiveTrack);
+            OnPropertyChanged(nameof(HasRightExtensionTarget));
+
+            if (!IsRightPanelOpen)
+            {
+                IsRightPanelOpen = true;
+            }
+
+            if (IsAlbumViewMaximized)
+            {
+                IsAlbumViewMaximized = false;
+            }
+
+            ActiveRightExtensionPanel = RightExtensionPanelType.Dashboard;
+            RaiseRightExtensionCommandsCanExecuteChanged();
+        }
+
+        /// <summary>
+        /// 指定楽曲を対象に右側タブ下部拡張領域へタグパネルを展開します
+        /// </summary>
+        /// <param name="targetTrack">対象楽曲（未指定時は現在再生中楽曲）</param>
+        public void OpenTrackTags(Track? targetTrack = null)
+        {
+            Track? effectiveTrack = targetTrack ?? CurrentTrack;
+            if (effectiveTrack == null)
+            {
+                return;
+            }
+
+            _selectedTagsTargetTrack = IsSameTrack(effectiveTrack, CurrentTrack) ? null : effectiveTrack;
+            NotifyTagsTargetProperties();
+            OnPropertyChanged(nameof(HasRightExtensionTarget));
+
+            if (!IsRightPanelOpen)
+            {
+                IsRightPanelOpen = true;
+            }
+
+            if (IsAlbumViewMaximized)
+            {
+                IsAlbumViewMaximized = false;
+            }
+
+            ActiveRightExtensionPanel = RightExtensionPanelType.Tags;
+        }
+
+        /// <summary>
+        /// タグパネルの表示対象を現在再生中の楽曲へ戻します
+        /// </summary>
+        public void ReturnTagsToPlayingTrack()
+        {
+            if (CurrentTrack == null)
+            {
+                return;
+            }
+
+            _selectedTagsTargetTrack = null;
+            NotifyTagsTargetProperties();
+        }
+
+        private void CloseRightExtensionPanel()
+        {
+            ActiveRightExtensionPanel = RightExtensionPanelType.None;
+            if (!IsAlbumViewMaximized)
+            {
+                IsAlbumViewMaximized = true;
             }
         }
 
         private void OnLyricsCloseRequested()
         {
-            CloseLyricsPanel();
+            CloseRightExtensionPanel();
         }
 
         /// <summary>
@@ -3057,7 +3334,13 @@ namespace AudioEffector.Presentation.ViewModels
         public void OpenLrcGenerator(Track? targetTrack = null)
         {
             Track? effectiveTrack = targetTrack ?? CurrentTrack;
+            if (effectiveTrack == null)
+            {
+                return;
+            }
+
             LrcGenerator?.SetTargetTrack(effectiveTrack);
+            OnPropertyChanged(nameof(HasRightExtensionTarget));
 
             if (!IsRightPanelOpen)
             {
@@ -3066,22 +3349,22 @@ namespace AudioEffector.Presentation.ViewModels
 
             if (IsAlbumViewMaximized)
             {
-                _wasMaximizedBeforeLyrics = true;
                 IsAlbumViewMaximized = false;
-            }
-            else if (ActiveRightExtensionPanel == RightExtensionPanelType.None)
-            {
-                _wasMaximizedBeforeLyrics = false;
             }
 
             ActiveRightExtensionPanel = RightExtensionPanelType.LrcGenerator;
+            RaiseRightExtensionCommandsCanExecuteChanged();
         }
 
         private void OnLrcGeneratorBackToLyricsRequested()
         {
+            if (!HasRightExtensionTarget)
+            {
+                return;
+            }
+
             if (IsAlbumViewMaximized)
             {
-                _wasMaximizedBeforeLyrics = true;
                 IsAlbumViewMaximized = false;
             }
 
@@ -3090,15 +3373,82 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void OnLrcGeneratorCloseRequested()
         {
-            CloseLyricsPanel();
+            CloseRightExtensionPanel();
         }
 
-        private void UpdateLyricsActiveViewState()
+        private void NotifyRightExtensionTabPropertiesChanged()
+        {
+            OnPropertyChanged(nameof(IsLyricsTabSelected));
+            OnPropertyChanged(nameof(IsDashboardTabSelected));
+            OnPropertyChanged(nameof(IsTagsTabSelected));
+            OnPropertyChanged(nameof(IsLyricsPanelVisible));
+            OnPropertyChanged(nameof(IsLrcGeneratorPanelVisible));
+            OnPropertyChanged(nameof(IsDashboardPanelVisible));
+            OnPropertyChanged(nameof(IsTagsPanelVisible));
+        }
+
+        private void NotifyRightExtensionVisibilityChanged()
+        {
+            OnPropertyChanged(nameof(IsRightExtensionAreaVisible));
+            OnPropertyChanged(nameof(IsLyricsViewVisible));
+            OnPropertyChanged(nameof(IsLrcGeneratorViewVisible));
+            OnPropertyChanged(nameof(IsDashboardViewVisible));
+            OnPropertyChanged(nameof(IsTagsViewVisible));
+            UpdateRightExtensionActiveViewStates();
+        }
+
+        private void NotifyTagsTargetProperties()
+        {
+            OnPropertyChanged(nameof(TagsTargetTrack));
+            OnPropertyChanged(nameof(IsTagsShowingNonPlayingTrack));
+            OnPropertyChanged(nameof(CanReturnTagsToPlayingTrack));
+            OnPropertyChanged(nameof(TagsTargetTrackTitle));
+            OnPropertyChanged(nameof(TagsTargetTrackArtist));
+            RaiseRightExtensionCommandsCanExecuteChanged();
+        }
+
+        private void RaiseRightExtensionCommandsCanExecuteChanged()
+        {
+            RunOnUiThread(() =>
+            {
+                _toggleAlbumViewSizeModeCommand?.RaiseCanExecuteChanged();
+                _selectRightExtensionTabCommand?.RaiseCanExecuteChanged();
+                _returnTagsToPlayingTrackCommand?.RaiseCanExecuteChanged();
+                CommandManager.InvalidateRequerySuggested();
+            });
+        }
+
+        private void UpdateRightExtensionActiveViewStates()
         {
             if (Lyrics != null)
             {
                 Lyrics.IsActiveView = IsLyricsViewVisible;
             }
+
+            if (ListeningStats != null)
+            {
+                ListeningStats.IsActiveView = IsDashboardViewVisible;
+            }
+        }
+
+        private static bool IsSameTrack(Track? a, Track? b)
+        {
+            if (ReferenceEquals(a, b))
+            {
+                return true;
+            }
+
+            if (a == null || b == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(a.FilePath) && !string.IsNullOrWhiteSpace(b.FilePath))
+            {
+                return string.Equals(a.FilePath, b.FilePath, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return a.Id == b.Id;
         }
 
         private void OnRecentEnqueueRequested(IReadOnlyList<Track> tracks, bool playNext)
@@ -3178,6 +3528,15 @@ namespace AudioEffector.Presentation.ViewModels
                             LrcGenerator.Dispose();
                         }
                     }
+                    if (ListeningStats != null)
+                    {
+                        ListeningStats.IsActiveView = false;
+                        if (_ownsListeningStats)
+                        {
+                            ListeningStats.Dispose();
+                        }
+                    }
+                    _fallbackListeningStatsService?.Dispose();
                     Folder?.Dispose();
                     DeviceBrowser?.Dispose();
                     _fallbackAudioService?.Dispose();

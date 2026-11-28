@@ -424,6 +424,7 @@ public sealed class JsonRepositoryConcurrencyAndDiTests : IDisposable
         var trackRepo = provider.GetRequiredService<ITrackRepository>();
         var playlistRepo = provider.GetRequiredService<IPlaylistRepository>();
         var favoriteRepo = provider.GetRequiredService<IFavoriteRepository>();
+        var listeningStatsRepo = provider.GetRequiredService<IListeningStatsRepository>();
         var recentRepo = provider.GetRequiredService<IRecentTrackRepository>();
         var settingsService = provider.GetRequiredService<SettingsApplicationService>();
 
@@ -441,10 +442,11 @@ public sealed class JsonRepositoryConcurrencyAndDiTests : IDisposable
         // Assert
         Assert.True(directoryProvider.IsCustomDirectory);
         Assert.Equal(Path.GetFullPath(customDir), directoryProvider.DataDirectory);
+        Assert.Same(listeningStatsRepo, recentRepo);
         Assert.True(File.Exists(Path.Combine(customDir, "tracks.json")));
         Assert.True(File.Exists(Path.Combine(customDir, "playlists.json")));
         Assert.True(File.Exists(Path.Combine(customDir, "favorites.json")));
-        Assert.True(File.Exists(Path.Combine(customDir, "RecentTracks.json")));
+        Assert.True(File.Exists(Path.Combine(customDir, "ListeningStats.json")));
         Assert.True(File.Exists(Path.Combine(customDir, "settings.json")));
         Assert.Equal(0.77f, reloadedSettings.Volume, precision: 3);
     }

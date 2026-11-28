@@ -625,6 +625,42 @@
         "設計/詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md",
         "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md"
       ]
+    },
+    {
+      "id": "listening-stats",
+      "name": "リスニング統計ダッシュボード（UI）",
+      "code_patterns": [
+        "AudioEffector/Presentation/**/*ListeningStats*",
+        "AudioEffector/Presentation/**/*TopPlayedTrack*"
+      ],
+      "primary_specs": [
+        "設計/機能仕様/リスニング統計ダッシュボード.md",
+        "設計/画面設計/リスニング統計ダッシュボード/リスニング統計ダッシュボードUI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/詳細設計/リスニング統計ダッシュボード.md",
+        "設計/詳細設計/アーキテクチャ/プレゼンテーション層詳細設計書.md"
+      ]
+    },
+    {
+      "id": "listening-stats-backend",
+      "name": "リスニング統計・再生履歴統合基盤（バックエンド）",
+      "code_patterns": [
+        "AudioEffector.Domain/**/*ListeningStat*",
+        "AudioEffector.Domain/**/*TrackPlayEvent*",
+        "AudioEffector.Application/**/*ListeningStats*",
+        "AudioEffector.Infrastructure/**/*ListeningStats*"
+      ],
+      "primary_specs": [
+        "設計/詳細設計/リスニング統計ダッシュボード.md"
+      ],
+      "related_specs": [
+        "設計/機能仕様/リスニング統計ダッシュボード.md",
+        "設計/画面設計/最近再生した曲/最近再生した曲UI仕様書.md",
+        "設計/詳細設計/アーキテクチャ/ドメイン層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md"
+      ]
     }
   ]
 }

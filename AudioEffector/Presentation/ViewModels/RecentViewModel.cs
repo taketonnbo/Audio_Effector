@@ -10,6 +10,7 @@ using System.Windows.Threading;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Repositories;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AudioEffector.Presentation.ViewModels;
 
@@ -24,7 +25,8 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
     /// </summary>
     public const int MaxHistoryCount = 100;
 
-    private readonly IRecentTrackRepository _repository;
+    private readonly IRecentTrackRepository? _repository;
+    private readonly IListeningStatsRepository? _statsRepository;
     private readonly LibraryViewModel _libraryViewModel;
     private readonly IAudioService _audioService;
     private readonly Func<DateTime> _clock;
@@ -129,19 +131,47 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
     public event Action<IReadOnlyList<Track>, bool>? EnqueueRequested;
 
     /// <summary>
-    /// RecentViewModelを初期化します
+    /// 統合リスニング統計リポジトリを用いて RecentViewModel を初期化します
+    /// </summary>
+    /// <param name="statsRepository">リスニング統計リポジトリ</param>
+    /// <param name="libraryViewModel">ライブラリViewModel</param>
+    /// <param name="audioService">音声再生サービス</param>
+    /// <param name="clock">現在時刻プロバイダ（テスト用、省略時はDateTime.Now）</param>
+    [ActivatorUtilitiesConstructor]
+    public RecentViewModel(
+        IListeningStatsRepository statsRepository,
+        LibraryViewModel libraryViewModel,
+        IAudioService audioService,
+        Func<DateTime>? clock = null)
+        : this(null, statsRepository ?? throw new ArgumentNullException(nameof(statsRepository)), libraryViewModel, audioService, clock)
+    {
+    }
+
+    /// <summary>
+    /// RecentViewModelを初期化します（旧 <see cref="IRecentTrackRepository"/> 互換コンストラクタ）
     /// </summary>
     /// <param name="repository">再生履歴リポジトリ</param>
     /// <param name="libraryViewModel">ライブラリViewModel</param>
     /// <param name="audioService">音声再生サービス</param>
     /// <param name="clock">現在時刻プロバイダ（テスト用、省略時はDateTime.Now）</param>
-    public RecentViewModel(
+    internal RecentViewModel(
         IRecentTrackRepository repository,
         LibraryViewModel libraryViewModel,
         IAudioService audioService,
         Func<DateTime>? clock = null)
+        : this(repository ?? throw new ArgumentNullException(nameof(repository)), null, libraryViewModel, audioService, clock)
     {
-        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+    }
+
+    private RecentViewModel(
+        IRecentTrackRepository? repository,
+        IListeningStatsRepository? statsRepository,
+        LibraryViewModel libraryViewModel,
+        IAudioService audioService,
+        Func<DateTime>? clock)
+    {
+        _repository = repository;
+        _statsRepository = statsRepository;
         _libraryViewModel = libraryViewModel ?? throw new ArgumentNullException(nameof(libraryViewModel));
         _audioService = audioService ?? throw new ArgumentNullException(nameof(audioService));
         _clock = clock ?? (() => DateTime.Now);
@@ -183,7 +213,14 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
 
             try
             {
-                DisplayHistory(_repository.Load());
+                if (_statsRepository != null)
+                {
+                    DisplayHistory(ExtractRecentEntries(_statsRepository.Load()));
+                }
+                else if (_repository != null)
+                {
+                    DisplayHistory(_repository.Load());
+                }
             }
             catch (Exception ex) when (IsHistoryUnavailable(ex))
             {
@@ -193,7 +230,7 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 再生された楽曲を履歴の先頭に追加・更新し、上限超過分を削除して永続化します
+    /// 再生された楽曲を履歴の先頭に追加・更新し、表示側の上限を維持しつつ永続化します
     /// </summary>
     /// <param name="track">再生されたトラック</param>
     public void RecordTrack(Track? track)
@@ -212,16 +249,43 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
             }
 
             var libraryTrack = FindLibraryTrack(track.FilePath) ?? track;
-            UpdateHistory(entries =>
+            if (_statsRepository != null)
             {
-                entries.RemoveAll(e => string.Equals(e.FilePath, libraryTrack.FilePath, StringComparison.OrdinalIgnoreCase));
-                entries.Insert(0, new RecentTrackEntry(libraryTrack, playedAt));
+                UpdateStatsHistory(
+                    data =>
+                    {
+                        TrackListeningStat? existing = data.FindTrackStat(libraryTrack.FilePath);
+                        if (existing == null)
+                        {
+                            existing = TrackListeningStat.FromTrack(libraryTrack);
+                            data.TrackStats.Add(existing);
+                        }
 
-                if (entries.Count > MaxHistoryCount)
+                        existing.RecordRecentPlayed(libraryTrack, playedAt);
+                    },
+                    entries =>
+                    {
+                        entries.RemoveAll(e => string.Equals(e.FilePath, libraryTrack.FilePath, StringComparison.OrdinalIgnoreCase));
+                        entries.Insert(0, new RecentTrackEntry(libraryTrack, playedAt));
+                        if (entries.Count > MaxHistoryCount)
+                        {
+                            entries.RemoveRange(MaxHistoryCount, entries.Count - MaxHistoryCount);
+                        }
+                    });
+            }
+            else
+            {
+                UpdateHistory(entries =>
                 {
-                    entries.RemoveRange(MaxHistoryCount, entries.Count - MaxHistoryCount);
-                }
-            });
+                    entries.RemoveAll(e => string.Equals(e.FilePath, libraryTrack.FilePath, StringComparison.OrdinalIgnoreCase));
+                    entries.Insert(0, new RecentTrackEntry(libraryTrack, playedAt));
+
+                    if (entries.Count > MaxHistoryCount)
+                    {
+                        entries.RemoveRange(MaxHistoryCount, entries.Count - MaxHistoryCount);
+                    }
+                });
+            }
         });
     }
 
@@ -292,7 +356,23 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            UpdateHistory(entries => entries.RemoveAll(e => string.Equals(e.FilePath, filePath, StringComparison.OrdinalIgnoreCase)));
+            if (_statsRepository != null)
+            {
+                UpdateStatsHistory(
+                    data =>
+                    {
+                        TrackListeningStat? stat = data.FindTrackStat(filePath);
+                        if (stat != null)
+                        {
+                            stat.RecentPlayedAt = null;
+                        }
+                    },
+                    entries => entries.RemoveAll(e => string.Equals(e.FilePath, filePath, StringComparison.OrdinalIgnoreCase)));
+            }
+            else
+            {
+                UpdateHistory(entries => entries.RemoveAll(e => string.Equals(e.FilePath, filePath, StringComparison.OrdinalIgnoreCase)));
+            }
         });
     }
 
@@ -313,18 +393,48 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            UpdateHistory(entries => entries.Clear());
+            if (_statsRepository != null)
+            {
+                UpdateStatsHistory(
+                    data =>
+                    {
+                        foreach (TrackListeningStat stat in data.TrackStats)
+                        {
+                            stat.RecentPlayedAt = null;
+                        }
+                    },
+                    entries => entries.Clear());
+            }
+            else
+            {
+                UpdateHistory(entries => entries.Clear());
+            }
         });
     }
 
     private static bool IsHistoryUnavailable(Exception ex) =>
         ex is System.IO.IOException or UnauthorizedAccessException or TimeoutException or System.Text.Json.JsonException or OverflowException;
 
+    private void UpdateStatsHistory(Action<ListeningStatsData> updateStats, Action<List<RecentTrackEntry>> fallbackUpdate)
+    {
+        try
+        {
+            ListeningStatsData updated = _statsRepository!.Update(updateStats);
+            DisplayHistory(ExtractRecentEntries(updated));
+        }
+        catch (Exception ex) when (IsHistoryUnavailable(ex))
+        {
+            System.Diagnostics.Trace.TraceWarning(ex.Message);
+            fallbackUpdate(_allEntries);
+            ApplyFilterCore();
+        }
+    }
+
     private void UpdateHistory(Action<List<RecentTrackEntry>> update)
     {
         try
         {
-            DisplayHistory(_repository.Update(update));
+            DisplayHistory(_repository!.Update(update));
         }
         catch (Exception ex) when (IsHistoryUnavailable(ex))
         {
@@ -332,6 +442,15 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
             update(_allEntries);
             ApplyFilterCore();
         }
+    }
+
+    private static List<RecentTrackEntry> ExtractRecentEntries(ListeningStatsData data)
+    {
+        return data.TrackStats
+            .Where(stat => stat.RecentPlayedAt.HasValue)
+            .OrderByDescending(stat => stat.RecentPlayedAt!.Value)
+            .Select(stat => stat.ToRecentTrackEntry()!)
+            .ToList();
     }
 
     private void DisplayHistory(IReadOnlyList<RecentTrackEntry> loaded)

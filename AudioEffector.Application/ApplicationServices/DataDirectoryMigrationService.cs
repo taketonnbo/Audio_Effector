@@ -18,6 +18,7 @@ public sealed class DataDirectoryMigrationService : IDataDirectoryMigrationServi
         "tracks.json",
         "playlists.json",
         "favorites.json",
+        "ListeningStats.json",
         "RecentTracks.json",
         "presets.json",
     ];
