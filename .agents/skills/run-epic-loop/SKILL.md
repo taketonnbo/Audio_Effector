@@ -100,7 +100,7 @@ flowchart TD
 
 ### Phase 3: ローカル Merge Queue（統合ブランチへの直列マージ）・追従同期・次サイクル遷移
 1. 承認済み（`ready_to_merge`、かつ `base_branch` が `<統合ブランチ>` と一致）の子 Issue PR は、複数同時マージを行わず **必ず 1 件ずつ直列** で以下の手順を実施する：
-   - **マージ前追従同期・再検証**: 対象 PR のワークツリー上で `.\tools\sync_branch.ps1 -BaseBranch "<統合ブランチ>" -Json` を実行する。`MERGED`（先行子 Issue PR 取り込みあり）となった場合は、`.\tools\verify_loop.ps1 -Full -BaseBranch "<統合ブランチ>" -PreferOriginBase` の全 5 ゲート合格を確認したうえで通常 Push する（`CONFLICT` 時は `loop_engineering_rules.md` Section 4 の自動解消基準または `-Abort` エスカレーションを適用）。
+   - **マージ前追従同期・再検証**: 対象 PR のワークツリー上で `.\tools\sync_branch.ps1 -BaseBranch "<統合ブランチ>" -Json` を実行する。`MERGED`（先行子 Issue PR 取り込みあり）となった場合は、`.\tools\verify_loop.ps1 -Full -BaseBranch "<統合ブランチ>" -PreferOriginBase` の全 6 ゲート合格を確認したうえで通常 Push する（`CONFLICT` 時は `loop_engineering_rules.md` Section 4 の自動解消基準または `-Abort` エスカレーションを適用）。
    - **統合ブランチへのマージ実行とワークツリー後始末（`--delete-branch` 禁止・安全順序の厳守）**:
      - 対象作業ブランチが `.agent_worktrees/issue-<子Issue番号>` でチェックアウトされた状態のまま `gh pr merge <PR番号> --merge --delete-branch` を実行すると、GitHub 上のマージは成功する一方でローカルブランチ削除がエラー（終了コード `1`）となり後続の自動化処理が中断する。また、対象ワークツリー配下にカレントディレクトリがあるままだと削除時のディレクトリロックやチェックアウト競合で失敗する。
      - そのため、以下の 4 ステップの順序を標準手順とする（Windows PowerShell 5.1 互換のため `&&` は使用せず、`if ($?)` または `$LASTEXITCODE` で制御すること）：
@@ -147,7 +147,7 @@ flowchart TD
 
 ### Phase 4: Epic 統合検証・`develop` 向け統合 PR 作成・ユーザー判断待ち
 1. `tools/epic_tracker.py --epic <Epic番号>` で全子 Issue が統合ブランチへ `merged` になり、次アクションが `create_integration_pr` となったことを確認する。
-2. 親リポジトリで Epic 統合ブランチをチェックアウトし、最新の `origin/develop` を非破壊同期したうえで、**`develop` 比較での最終統合検証**を実行し、全 5 ゲート合格（終了コード `0`）および `.agent_build/` 非残留を確認する：
+2. 親リポジトリで Epic 統合ブランチをチェックアウトし、最新の `origin/develop` を非破壊同期したうえで、**`develop` 比較での最終統合検証**を実行し、全 6 ゲート合格（終了コード `0`：Epic 全体の `origin/develop` 差分に対する `tools/check_license_sync.py` のライセンス記載更新要否チェックを含む）および `.agent_build/` 非残留を確認する：
    ```powershell
    git checkout "<統合ブランチ>"
    if ($?) { git pull origin "<統合ブランチ>" }
@@ -161,12 +161,13 @@ flowchart TD
    ```powershell
    gh pr create --base develop --head "<統合ブランチ>" --title "[Epic] <Epicタイトル> (#<Epic番号>)" --body-file "<一時ファイル>"
    ```
+   - 統合 PR 本文には、Epic 全体の `origin/develop` 差分に対するサードパーティライセンス記載（`THIRD-PARTY-NOTICES.md`）更新要否の確認結果（更新済み一覧または更新不要の理由、`check_license_sync.py` 検証結果）を必ず明記する。
    - 統合 PR 作成後に `origin/develop` が進んで `BEHIND` / `CONFLICTING` となった場合は、`epic_tracker.py` の `sync_integration_branch` 案内に従い、上記 2 の同期・検証・Push を再実施する。
 4. **ユーザーへの最終マージ判断依頼（自動マージ禁止）**:
    - **エージェントが統合 PR を `develop` へ自動マージしてはならない。**
    - 以下の情報を添えて、ユーザーへ統合 PR の確認および `develop` マージ判断を依頼する：
      - 統合 PR URL・全子 Issue と紐づく子 Issue PR の完了サマリ
-     - 最終統合検証（`verify_loop.ps1 -Full -BaseBranch develop -PreferOriginBase`）の結果サマリ
+     - 最終統合検証（`verify_loop.ps1 -Full -BaseBranch develop -PreferOriginBase`）の結果サマリ（サードパーティライセンス記載更新要否の確認結果を含む）
      - Epic 本文の残タスクチェックリスト更新案（自動編集せず、ユーザー承認後に更新）
      - Epic 横断の振り返り・改善ループ候補（詰まったゲート、手戻り要因、ルール／スキル／検証基盤の改善提案）
    - ユーザーが統合 PR を `develop` へマージ完了した後、統合ブランチ削除および Epic Issue クローズ準備（`complete_epic`）を実施する。
@@ -178,5 +179,6 @@ flowchart TD
 - [ ] 全子 Issue の作業ブランチ・並列ワークツリー・PR Base・`sync_branch.ps1`・`verify_loop.ps1`・直列 Merge Queue をすべて Epic 統合ブランチ対象で運用し、完了後にワークツリーと `.agent_build/` をクリーンアップした
 - [ ] 全子 Issue の公式 PR レビュー（`review-pr`）を実装とは独立したコンテキストで実施した
 - [ ] `blocked` 発生時の切り分けと Epic 停止条件（2 件以上 `blocked` / 統合ブランチ検証または `develop` 最終検証失敗）を順守した
-- [ ] 全子 Issue 完了後、統合ブランチへの `origin/develop` 同期と `.\tools\verify_loop.ps1 -Full -BaseBranch develop -PreferOriginBase` 合格を経て `develop` 向け統合 PR を作成した
+- [ ] 全子 Issue 完了後、統合ブランチへの `origin/develop` 同期と `.\tools\verify_loop.ps1 -Full -BaseBranch develop -PreferOriginBase` 全 6 ゲート合格（Epic 全体差分に対する `check_license_sync.py` 確認含む）を経て `develop` 向け統合 PR を作成した
+- [ ] Epic 全体の `origin/develop` 差分に対するサードパーティライセンス記載（`THIRD-PARTY-NOTICES.md`）更新要否の確認結果を統合 PR 本文およびユーザー報告へ明記した
 - [ ] `develop` への最終マージを自動実行せず、統合 PR サマリ・検証結果・チェックリスト更新案・改善ループ候補を添えてユーザー判断を依頼した

@@ -73,7 +73,8 @@ flowchart TD
    .\tools\verify_loop.ps1 -BaseBranch "<BaseBranch>" -SkipSpecSync -TestFilter "<対象テストフィルタ>" -JsonOut ".agent_logs\verify_iter.json"
    ```
 2. **最終完了ゲート（コミット・PR 作成前に必須）**:
-   - 実装と仕様書更新が完了したら、必ず `-Full` モードで全 5 ゲートを実行し、終了コード `0` を確認する。
+   - 実装と仕様書更新が完了したら、必ず `-Full` モードで全 6 ゲート（隔離ビルド・全単体テスト・仕様書同期・XAML 等価性・Python ツール単体テスト・サードパーティライセンス記載同期 `tools/check_license_sync.py`）を実行し、終了コード `0` を確認する。
+   - 製品 `*.csproj` への `<PackageReference>` 追加・バージョン更新、外部アセット追加、またはモデルダウンロード定義変更を伴う場合は、`THIRD-PARTY-NOTICES.md` のライセンス記載更新要否を必ず確認・反映する。
    - 並列ワークツリー実行時は `origin/<BaseBranch>` が比較ベースとして自動優先され、Gate 1 ビルド工程は名前付き Mutex により他ワークツリーと安全に直列化される。明示的に `origin/<BaseBranch>` を最新取得したい場合は `-PreferOriginBase -FetchBase` を併用する。
    ```powershell
    .\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase -JsonOut ".agent_logs\verify_issue_<Issue番号>.json"
@@ -94,12 +95,12 @@ flowchart TD
 2. **PR 作成前の `origin/<BaseBranch>` 最新化と自動コンフリクト解消プロトコル**:
    - 未コミット変更がない状態で `.\tools\sync_branch.ps1 -BaseBranch "<BaseBranch>" -Json` を実行し、最新の `origin/<BaseBranch>` への非破壊追従を確認・実施する。
    - `status: "UP_TO_DATE"`（終了コード `0`）: そのまま Push・PR 作成へ進む。
-   - `status: "MERGED"`（終了コード `0`）: 取り込み差分を含めて `.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase -JsonOut ".agent_logs\verify_final_<Issue番号>.json"` を再実行し、全 5 ゲート合格（終了コード `0`）を確認してから Push へ進む。
+   - `status: "MERGED"`（終了コード `0`）: 取り込み差分を含めて `.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase -JsonOut ".agent_logs\verify_final_<Issue番号>.json"` を再実行し、全 6 ゲート合格（終了コード `0`）を確認してから Push へ進む。
    - `status: "CONFLICT"`（終了コード `2`）: `conflict_files` を確認し、`loop_engineering_rules.md` Section 4 の基準に従って対応する：
-     - **自動解消許可範囲**（`using` 追記、`.csproj` / `spec_map.json` / DI 登録 / テストの独立追記等）であればコンフリクトを解消・ステージングし、**マージコミット確定前（`MERGE_HEAD` 保持状態）に** `.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase` を実行する。全 5 ゲート合格（終了コード `0`）を確認したうえで `git commit --no-edit` によりマージコミットを確定する。
+     - **自動解消許可範囲**（`using` 追記、`.csproj` / `spec_map.json` / DI 登録 / テストの独立追記等）であればコンフリクトを解消・ステージングし、**マージコミット確定前（`MERGE_HEAD` 保持状態）に** `.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase` を実行する。全 6 ゲート合格（終了コード `0`）を確認したうえで `git commit --no-edit` によりマージコミットを確定する。
      - **ロジック・設計判断衝突、または解消後の再検証が連続 2 回失敗した場合**は、マージコミットを行わず直ちに `.\tools\sync_branch.ps1 -BaseBranch "<BaseBranch>" -Abort -Json` でロールバックし、コンフリクトファイル一覧と論点を添えてユーザーへ安全停止・エスカレーションする。
 3. リモートへプッシュし、`gh pr create --base "<BaseBranch>" --title "[種別] ..." --body-file <一時ファイル>` で PR を作成する（通常 Issue は `--base develop`、Epic 子 Issue は `--base epic/<Epic番号>-<説明>`。使用後に一時ファイルを削除）。
-   - PR 本文には `Closes #<Issue番号>`、概要、対応内容、検証結果、仕様書同期結果、スコープ差分を記載する。
+   - PR 本文には `Closes #<Issue番号>`、概要、対応内容、検証結果、仕様書同期結果、**ライセンス記載更新要否の確認結果（`THIRD-PARTY-NOTICES.md` 更新有無または更新不要の理由、`check_license_sync.py` 結果）**、スコープ差分を記載する。
 4. **独立エージェントによる公式 PR レビュー実行（コンテキスト分離の原則）**:
    - 確証バイアス防止のため、**実装エージェント自身で公式の PR レビューコメント投稿（`review-pr`）を行わない**。
    - ユーザーから明示的な停止指示がない限り、PR 作成後に作業を止めず、**実装履歴を引き継がない新規の独立サブエージェント**（`invoke_subagent` 等）を起動して `review-pr` を実行し、PR へ公式レビューを投稿させる。
@@ -109,18 +110,18 @@ flowchart TD
 独立エージェント（または人間のレビュアー）から PR にレビューコメントが投稿された後、以下のループを収束するまで反復する（最大 5 往復）：
 1. `address-pr-review` スキルの手順に従い、レビュー総評・全インラインコメント・通常コメントを取得し、コードベースと照合して妥当性を判定する（妥当 / 一部妥当・代替案 / 妥当でない・スコープ外）。
 2. 妥当と判定した指摘を修正し、必要に応じて単体テスト・仕様書を更新する。
-3. **`.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase -JsonOut ".agent_logs\verify_review.json"` を実行**し、全 5 ゲート合格（終了コード `0`）を確認する。
+3. **`.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase -JsonOut ".agent_logs\verify_review.json"` を実行**し、全 6 ゲート合格（終了コード `0`）を確認する。
 4. 対応単位ごとに分割コミットして通常プッシュ（`git push origin <ブランチ名>`、`--force` 禁止）を行う。
 5. 各インラインコメントへの個別返信（判定結果・修正内容・コミットハッシュ）および総括コメントを投稿し、必要なら PR 本文を更新する。
 6. `git status -sb` と `git log origin/<ブランチ名>..HEAD --oneline` が空であることを確認したうえで、**再度独立エージェントへ再レビューを依頼する**。
    - **2 回目以降の再レビューで指摘が 0 件の場合でも、必ず「指摘解消確認・新規指摘なし・LGTM（マージ可能）」のレビューコメントを PR へ投稿**させ、それをもって収束（Phase 6 へ遷移）とする。
 7. **マージ前の追従同期（他並列 PR の先行マージにより `BEHIND` / `CONFLICTING` となった場合）**:
    - `.\tools\sync_branch.ps1 -BaseBranch "<BaseBranch>" -Json` を実行して最新の `origin/<BaseBranch>` を非破壊マージで取り込む（`CONFLICT` 時は Phase 4 手順 2 の自動コンフリクト解消プロトコルまたは `-Abort` エスカレーションを適用）。
-   - マージコミットが生成された場合は、必ず `.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase` の全 5 ゲート合格を確認したうえで通常 Push し、マージ可能なクリーン状態を保証する。
+   - マージコミットが生成された場合は、必ず `.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase` の全 6 ゲート合格を確認したうえで通常 Push し、マージ可能なクリーン状態を保証する。
 
 ### Phase 6: 振り返り・改善ループ（メタ改善）
 PR の全指摘が解消・完了（または安全停止）したタイミングで、以下を振り返って簡潔にユーザーへ提示する：
-1. **ループ実績サマリ**: イテレーション回数、詰まったゲート、修正に要した手戻り要因。
+1. **ループ実績サマリ**: イテレーション回数、詰まったゲート、修正に要した手戻り要因、パッケージ／外部モデル／外部素材変更に伴うライセンス記載（`THIRD-PARTY-NOTICES.md`）更新要否の確認結果。
 2. **再発防止・基盤改善の提案**: 次回以降のループ効率・品質を高めるための `.agents/rules/`、`.agents/skills/`、または `tools/verify_loop.ps1` への改善案（ユーザーの承認なく自動改変しない）。
 
 ---
@@ -129,7 +130,8 @@ PR の全指摘が解消・完了（または安全停止）したタイミン�
 - [ ] Phase 0 で Done 定義・対象ベースブランチ（通常は `develop`、Epic 子 Issue は統合ブランチ）と作業ブランチを確定した
 - [ ] 単体テストの追加・更新時に既存テストファイルの存在を事前確認し、`edit_file` 等による追記優先で既存テストケースが誤って削除・上書きされていないことを `git diff` 等で確認した
 - [ ] Verifier 保護（テスト改ざん・基準緩和なし）と停止条件を順守した
-- [ ] 最終ゲートとして `.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase` が終了コード `0` で合格し、`.agent_build/` が残留していない
+- [ ] 最終ゲートとして `.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase` が終了コード `0`（全 6 ゲート合格）で通過し、`.agent_build/` が残留していない
+- [ ] パッケージ・外部モデル・外部素材の変更有無を確認し、`THIRD-PARTY-NOTICES.md` のライセンス記載更新要否（更新または更新不要の理由）を PR 本文へ明記した
 - [ ] 意味のある単位で分割コミットし、対象ベースブランチ（`develop` または Epic 統合ブランチ）向けに PR を作成した
 - [ ] 公式 PR レビューは独立エージェント（サブエージェント / 別セッション）で実施し、コンテキスト分離を守った
 - [ ] レビュー指摘対応後、全コメント返信・再レビューでの指摘 0 件コメント確認・リモート同期・作業ツリークリーンを確認した

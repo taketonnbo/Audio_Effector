@@ -18,8 +18,8 @@ description: AI エージェントによる自律開発ループ（ループエ�
   - 実装・修正の途上では、`-SkipSpecSync` や `-TestFilter "<条件>"` を用いて対象領域を高速に反復検証して構いません。
   - 検証ログや構造化結果 JSON は `.agent_logs/` 配下へ出力します（例: `-JsonOut ".agent_logs/verify_iter.json"`）。
 - **最終完了ゲート（PR 作成前・レビュー指摘対応完了前）**:
-  - **必ず `.\tools\verify_loop.ps1 -Full` を実行**し、隔離ビルド（エラー 0・警告 0）・全単体テスト合格・仕様書同期（未更新 Primary 0 件）・XAML バインディング等価性チェック・Python ツール単体テスト（`tools/tests`）の全 5 ゲートが終了コード `0` で合格することを確認します。
-  - 最終ゲートでの `-SkipSpecSync` や `-TestFilter` による絞り込みは禁止します。
+  - **必ず `.\tools\verify_loop.ps1 -Full` を実行**し、隔離ビルド（エラー 0・警告 0）・全単体テスト合格・仕様書同期（未更新 Primary 0 件）・XAML バインディング等価性チェック・Python ツール単体テスト（`tools/tests`）・サードパーティライセンス記載同期チェック（`tools/check_license_sync.py --strict`、`THIRD-PARTY-NOTICES.md` 更新要否・`PublishSingleFile` LGPL リスク・`bin/` DLL 誤追跡）の全 6 ゲートが終了コード `0` で合格することを確認します。
+  - 最終ゲートでの `-SkipSpecSync`・`-SkipLicenseSync`・`-TestFilter` による絞り込みは禁止します。
 
 ---
 
@@ -31,7 +31,7 @@ description: AI エージェントによる自律開発ループ（ループエ�
   - 失敗したテストケースの削除、`Skip` 属性の付与、アサーション条件の弱体化・コメントアウトを行ってはなりません。
   - テストを通す目的で、仕様に反する形へプロダクションコードや既存テストの期待値を書き換えてはなりません（[test_rules.md](test_rules.md) 準拠）。
 - **検証ハーネスの改ざん禁止**:
-  - タスクのスコープ外で `tools/verify_loop.ps1`、`tools/check_spec_sync.py`、`tools/check_equivalence.py` の判定基準（警告 0 必須、Primary 仕様書チェック、エラー終了コード等）を緩和・無効化してはなりません。
+  - タスクのスコープ外で `tools/verify_loop.ps1`、`tools/check_spec_sync.py`、`tools/check_equivalence.py`、`tools/check_license_sync.py` の判定基準（警告 0 必須、Primary 仕様書チェック、ライセンス記載同期チェック、エラー終了コード等）を緩和・無効化してはなりません。
 - **静的解析・コンパイラ警告の安易な抑制禁止**:
   - 根本原因を解消せず `#pragma warning disable` や `SuppressMessage` で警告を握りつぶしてはなりません（設計上やむを得ない場合は根拠を明記してレビュー対象とします）。
 
@@ -67,7 +67,7 @@ description: AI エージェントによる自律開発ループ（ループエ�
   - コンフリクト発生時（`tools/sync_branch.ps1` 終了コード `2` / `status: "CONFLICT"`）の対応境界は以下の通りとします：
     - **自動解消を許可する範囲**: `using` / `import` の独立追記、`.csproj` や `設計/spec_map.json` の独立エントリ追加、DI 登録・ファクトリ登録の独立追記、テストケースの独立追記など、意図が明確かつ相互独立なマージ衝突。
     - **即時ロールバック（`tools/sync_branch.ps1 -Abort` / `git merge --abort`）しユーザーへエスカレーションすべき範囲**: 同一メソッド・同一業務ロジックの意味的衝突、アーキテクチャや仕様判断を伴う衝突、バイナリ・生成物の衝突、または自動解消後の `tools/verify_loop.ps1 -Full` が **連続 2 回失敗** した場合。
-  - コンフリクトを自動解消した後は、コミット・Push 前に **必ず `.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase` の全 5 ゲート合格（終了コード `0`）** を再確認します。
+  - コンフリクトを自動解消した後は、コミット・Push 前に **必ず `.\tools\verify_loop.ps1 -Full -BaseBranch "<BaseBranch>" -PreferOriginBase` の全 6 ゲート合格（終了コード `0`）** を再確認します。
 - **シェル構文の互換性（Windows PowerShell 5.1 準拠）**:
   - 本環境の既定シェルは Windows PowerShell 5.1（`&&` 演算子非対応）のため、コマンド連結やスキル内手順では `&&` を使用せず、`; if ($?) { ... }` または `$LASTEXITCODE` チェックを用いて前段失敗時の連鎖実行を防止します。
   - `tools/` 配下に `.ps1` スクリプトを追加・改修する際は、以下の Windows PowerShell 5.1 固有パターンを必須順守します（`tools/tests/test_powershell_encoding.py` で機械検証）：
@@ -98,8 +98,9 @@ description: AI エージェントによる自律開発ループ（ループエ�
 自律開発ループの完了時または中断時には、単発の実装で終わらせず、開発基盤そのものを継続的に改善するための振り返りを行います。
 
 1. **振り返り観点の抽出**:
-   - どのゲートで何回詰まったか（ビルド警告、テスト不安定、仕様書同期漏れ、XAML バインディング不整合等）
+   - どのゲートで何回詰まったか（ビルド警告、テスト不安定、仕様書同期漏れ、XAML バインディング不整合、ライセンス記載同期漏れ等）
    - 手戻りやレビュー指摘の根本原因は何だったか
+   - パッケージ・外部モデル・外部素材の追加／更新に伴う `THIRD-PARTY-NOTICES.md` の記載更新漏れや配布形式リスク（`PublishSingleFile` と LGPL 等）がなかったか
    - 既存ルール・スキル・検証スクリプトで事前に検知できたはずの盲点はなかったか
 2. **ルール・スキル・ハーネスへの還元**:
    - 再発防止に有効な知見があれば、以下の候補を簡潔に整理してユーザーへ提案します（自動改変せず、ユーザーの合意を得て反映します）：
@@ -120,7 +121,8 @@ description: AI エージェントによる自律開発ループ（ループエ�
 - **子 Issue の全操作ベースを統合ブランチへ統一**:
   - Epic 配下の全子 Issue について、作業用ブランチの派生元（単一・並列 worktree とも）、PR の Base ブランチ（`gh pr create --base <統合ブランチ>`）、`tools/sync_branch.ps1 -BaseBranch "<統合ブランチ>"` の追従先、`tools/verify_loop.ps1 -BaseBranch "<統合ブランチ>" -PreferOriginBase` の比較ベース、および Section 7.4「ローカル Merge Queue（直列マージ）」のマージ先を **すべて Epic 統合ブランチ** へ統一します。
 - **最終 `develop` マージの自動実行禁止（ユーザー判断必須）**:
-  - 全子 Issue が Epic 統合ブランチへマージ完了した後、統合ブランチへ最新 `origin/develop` を非破壊同期し、`.\tools\verify_loop.ps1 -Full -BaseBranch develop -PreferOriginBase` の全 5 ゲート合格を確認したうえで、**`<統合ブランチ> -> develop` の統合 PR を作成**します。
+  - 全子 Issue が Epic 統合ブランチへマージ完了した後、統合ブランチへ最新 `origin/develop` を非破壊同期し、`.\tools\verify_loop.ps1 -Full -BaseBranch develop -PreferOriginBase` の全 6 ゲート合格（Epic 全体の `origin/develop` 差分に対する `tools/check_license_sync.py` のライセンス記載更新要否チェックを含む）を確認したうえで、**`<統合ブランチ> -> develop` の統合 PR を作成**します。
+  - 統合 PR 本文およびユーザーへの報告には、`THIRD-PARTY-NOTICES.md` の更新要否確認結果（更新有無または不要理由）を必ず明記します。
   - **Epic 統合ブランチ → `develop` への最終マージは自動実行を一切禁止**します。必ずユーザーによる確認・承認・手動マージを待つこと。
 
 ### 7.1 進捗追跡・セッション跨ぎ再開と状態ファイルの単一書き込み原則
@@ -146,7 +148,7 @@ description: AI エージェントによる自律開発ループ（ループエ�
 - 子 Issue の実装・検証および独立エージェントによる PR レビューは **最大 3 並列** で並行推進して構いませんが、**Epic 統合ブランチ（`epic/<Epic番号>-<説明>`）へのマージは必ず 1 件ずつ直列** で実施します。
 - 各子 Issue PR のマージ直前には以下の順序を厳守し、複数 PR の同時マージによる論理コンフリクト（統合ブランチ破損）を防止します：
   1. 対象ワークツリー上で `.\tools\sync_branch.ps1 -BaseBranch "<統合ブランチ>" -Json` を実行し、最新の `origin/<統合ブランチ>` を非破壊マージで取り込む（`CONFLICT` 時は Section 4 の自動解消基準または `-Abort` エスカレーションに従う）。
-  2. 取り込みが発生した（`MERGED`）場合、対象ワークツリー上で `.\tools\verify_loop.ps1 -Full -BaseBranch "<統合ブランチ>" -PreferOriginBase` の全 5 ゲート合格を確認し、マージコミットを通常 Push する。
+  2. 取り込みが発生した（`MERGED`）場合、対象ワークツリー上で `.\tools\verify_loop.ps1 -Full -BaseBranch "<統合ブランチ>" -PreferOriginBase` の全 6 ゲート合格を確認し、マージコミットを通常 Push する。
   3. PR を **Epic 統合ブランチ** へマージし、直ちに `tools/worktree_manager.ps1 -Action remove -IssueNumber <子Issue番号> -Force` でワークツリーを削除し、親リポジトリの統合ブランチを最新化する。
   4. 残存する他並列 PR に対して次のマージキュー順番で 1〜3 を順次繰り返す。
 - 全子 Issue のマージ完了後、Epic 統合ブランチから `develop` への最終反映は統合 PR 経由とし、Section 7.0 に従い **自動マージを行わずユーザー判断を待つ** こと。
