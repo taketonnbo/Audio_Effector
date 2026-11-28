@@ -537,6 +537,27 @@
         "設計/詳細設計/アーキテクチャ/アーキテクチャ全体設計書.md",
         "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md"
       ]
+    },
+    {
+      "id": "lyrics",
+      "name": "歌詞表示・LRC解析（コアロジック・UI）",
+      "code_patterns": [
+        "AudioEffector.Domain/**/*Lyric*",
+        "AudioEffector.Domain/**/*Lrc*",
+        "AudioEffector.Application/**/*Lyric*",
+        "AudioEffector.Application/**/*Lrc*",
+        "AudioEffector.Infrastructure/Lyrics/**",
+        "AudioEffector/Presentation/**/*Lyric*"
+      ],
+      "primary_specs": [
+        "設計/機能仕様/歌詞表示機能.md"
+      ],
+      "related_specs": [
+        "設計/詳細設計/アーキテクチャ/ドメイン層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/プレゼンテーション層詳細設計書.md"
+      ]
     }
   ]
 }
