@@ -31,6 +31,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private readonly Dictionary<string, long> _fileSizeCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<Album> _subscribedAlbums = new();
     private readonly HashSet<Track> _subscribedTracks = new();
+    private Dictionary<string, string>? _defaultFoldersCache;
     private CancellationTokenSource? _checkDeviceAlbumsCts;
     private CancellationTokenSource? _storageRefreshCts;
     private bool _suppressSelectionSummaryUpdates;
@@ -1493,6 +1494,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
 
         string targetPath = CurrentDevicePath;
+        EnsureDefaultFoldersCacheLoaded()[deviceKey] = targetPath;
         _settingsService?.UpdateSettings(settings =>
         {
             settings.DeviceDefaultTransferFolders[deviceKey] = targetPath;
@@ -1518,6 +1520,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        EnsureDefaultFoldersCacheLoaded().Remove(deviceKey);
         _settingsService?.UpdateSettings(settings =>
         {
             settings.DeviceDefaultTransferFolders.Remove(deviceKey);
@@ -1579,6 +1582,37 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         return fallbackRootPath;
     }
 
+    private Dictionary<string, string> EnsureDefaultFoldersCacheLoaded()
+    {
+        if (_defaultFoldersCache != null)
+        {
+            return _defaultFoldersCache;
+        }
+
+        var loaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (_settingsService != null)
+        {
+            try
+            {
+                var settings = _settingsService.LoadSettings();
+                foreach (var kv in settings.DeviceDefaultTransferFolders)
+                {
+                    if (!string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                    {
+                        loaded[kv.Key] = kv.Value;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading default device folder: {ex.Message}");
+            }
+        }
+
+        _defaultFoldersCache = loaded;
+        return _defaultFoldersCache;
+    }
+
     private string GetSavedDefaultFolder(MainViewModel.DeviceViewModel? device)
     {
         if (device == null || _settingsService == null)
@@ -1592,21 +1626,10 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             return string.Empty;
         }
 
-        try
-        {
-            var settings = _settingsService.LoadSettings();
-            if (settings.DeviceDefaultTransferFolders.TryGetValue(deviceKey, out var savedPath)
-                && !string.IsNullOrWhiteSpace(savedPath))
-            {
-                return savedPath;
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Error loading default device folder: {ex.Message}");
-        }
-
-        return string.Empty;
+        var cache = EnsureDefaultFoldersCacheLoaded();
+        return cache.TryGetValue(deviceKey, out var savedPath) && !string.IsNullOrWhiteSpace(savedPath)
+            ? savedPath
+            : string.Empty;
     }
 
     private void UpdateDefaultFolderState()
@@ -1659,6 +1682,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private void NavigateDirectory(MainViewModel.DirectoryItem? dir)
     {
         if (dir == null || !dir.IsFolder) return;
+        DefaultFolderStatusMessage = string.Empty;
         LoadDeviceDirectories(dir.FullPath);
     }
 
@@ -1673,6 +1697,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 var parent = Directory.GetParent(CurrentDevicePath);
                 if (parent != null)
                 {
+                    DefaultFolderStatusMessage = string.Empty;
                     LoadDeviceDirectories(parent.FullName);
                 }
             }
@@ -1682,6 +1707,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
                 var parentPath = Path.GetDirectoryName(CurrentDevicePath);
                 if (string.IsNullOrEmpty(parentPath)) parentPath = @"\";
+                DefaultFolderStatusMessage = string.Empty;
                 LoadDeviceDirectories(parentPath);
             }
         }
