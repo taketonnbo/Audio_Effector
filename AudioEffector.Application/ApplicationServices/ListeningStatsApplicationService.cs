@@ -34,6 +34,11 @@ public sealed class ListeningStatsApplicationService : IDisposable
     public event Action<TrackListeningStat>? StatsUpdated;
 
     /// <summary>
+    /// すべての再生履歴およびリスニング統計データが全件リセットされた際に発火するイベント
+    /// </summary>
+    public event Action? StatsReset;
+
+    /// <summary>
     /// <see cref="ListeningStatsApplicationService"/> を初期化します
     /// </summary>
     /// <param name="repository">リスニング統計リポジトリ</param>
@@ -276,6 +281,31 @@ public sealed class ListeningStatsApplicationService : IDisposable
             Trace.TraceWarning($"リスニング統計スナップショットの取得に失敗しました: {ex.Message}");
             return new ListeningStatsData();
         }
+    }
+
+    /// <summary>
+    /// 永続化されているすべての再生履歴・曲別統計・日時毎再生イベントを全件初期化し、購読側へリセットを通知します
+    /// </summary>
+    /// <returns>初期化に成功した場合は true、破棄済みまたはストレージ障害時は false</returns>
+    public bool ResetAllStats()
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        try
+        {
+            _repository.ClearAll();
+        }
+        catch (Exception ex) when (IsStorageUnavailable(ex))
+        {
+            Trace.TraceWarning($"リスニング統計の全件リセットに失敗しました: {ex.Message}");
+            return false;
+        }
+
+        StatsReset?.Invoke();
+        return true;
     }
 
     private void OnTrackPlaybackEnded(Track track)
