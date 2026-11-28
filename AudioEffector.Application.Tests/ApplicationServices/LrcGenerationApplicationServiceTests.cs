@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
@@ -391,19 +392,197 @@ public sealed class LrcGenerationApplicationServiceTests
         }
     }
 
+    /// <summary>
+    /// 未ラップの英語・システム例外がエンジンから直接到達しても生メッセージを露出せず、
+    /// ロガーへ記録したうえで日本語メッセージへ正規化し、既存日本語ドメインメッセージやラップ済み例外は維持することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TranscribeAudioToLrcAsync_未ラップ英語例外とラップ済み例外とドメイン例外_期待されるメッセージとログ出力になる()
+    {
+        // Arrange
+        var logger = new RecordingAppLogger();
+        var engine = new FakeAudioAlignmentEngine();
+        LrcGenerationApplicationService sut = CreateSut(engine: engine, logger: logger);
+        var track = new Track { FilePath = @"E:\USB\Song.flac", Title = "Song" };
+
+        // Act 1: 未ラップのネイティブライブラリ欠損（英語生メッセージ）
+        engine.ExceptionToThrow = new FileNotFoundException(
+            "Native Library not found in default paths.Verify you have have included the native Whisper library.");
+        Result<AlignmentResult> nativeResult = await sut.TranscribeAudioToLrcAsync(track);
+
+        // Act 2: 未ラップの未分類英語例外
+        engine.ExceptionToThrow = new InvalidOperationException("Unexpected whisper internal failure.");
+        Result<AlignmentResult> unknownResult = await sut.TranscribeAudioToLrcAsync(track);
+
+        // Act 3: 既に NLog 記録済みの LrcGenerationException（二重ログにしない）
+        engine.ExceptionToThrow = new LrcGenerationException(
+            LrcGenerationErrorCategory.ModelLoadFailed,
+            LrcGenerationErrorMessageResolver.MODEL_LOAD_FAILED_MESSAGE,
+            new InvalidDataException("corrupt model"),
+            isLogged: true);
+        Result<AlignmentResult> wrappedResult = await sut.TranscribeAudioToLrcAsync(track);
+
+        // Act 4: 既存の日本語ドメイン例外（無音・発話 0 件）
+        engine.ExceptionToThrow = new InvalidOperationException(
+            "発話・歌唱区間を検出できませんでした（無音またはインストゥルメンタル楽曲の可能性があります）。");
+        Result<AlignmentResult> domainResult = await sut.TranscribeAudioToLrcAsync(track);
+
+        // Assert
+        Assert.True(nativeResult.IsFailure);
+        Assert.Equal(LrcGenerationErrorMessageResolver.NATIVE_RUNTIME_UNAVAILABLE_MESSAGE, nativeResult.ErrorMessage);
+        Assert.DoesNotContain("Native Library", nativeResult.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(unknownResult.IsFailure);
+        Assert.Equal(LrcGenerationErrorMessageResolver.DEFAULT_GENERATION_ERROR_MESSAGE, unknownResult.ErrorMessage);
+        Assert.DoesNotContain("Unexpected whisper", unknownResult.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(wrappedResult.IsFailure);
+        Assert.Equal(LrcGenerationErrorMessageResolver.MODEL_LOAD_FAILED_MESSAGE, wrappedResult.ErrorMessage);
+
+        Assert.True(domainResult.IsFailure);
+        Assert.Contains("発話・歌唱区間を検出できませんでした", domainResult.ErrorMessage, StringComparison.Ordinal);
+
+        // IsLogged == true の Act 3 は二重記録されず、Act 1・2・4 の 3 件のみ記録される
+        Assert.Equal(3, logger.ErrorEntries.Count);
+    }
+
+    /// <summary>
+    /// SaveLrcAsync で外部ドライブの書き込み保護・取り外し・空き容量不足が発生した場合に、
+    /// 生の英語 OS メッセージやドライブパスを露出せず分かりやすい日本語案内を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("AccessDenied", LrcGenerationErrorMessageResolver.SAVE_LRC_ACCESS_DENIED_MESSAGE)]
+    [InlineData("UsbRemoved", LrcGenerationErrorMessageResolver.SAVE_LRC_IO_ERROR_MESSAGE)]
+    [InlineData("DiskFull", LrcGenerationErrorMessageResolver.SAVE_LRC_DISK_FULL_MESSAGE)]
+    public async Task SaveLrcAsync_外部ドライブ書き込み障害_日本語案内を返しログ記録する(string scenario, string expectedMessage)
+    {
+        // Arrange
+        var logger = new RecordingAppLogger();
+        var textService = new FakeTextEncodingService
+        {
+            ThrowOnSave = scenario switch
+            {
+                "AccessDenied" => new UnauthorizedAccessException("Access to the path 'E:\\Music\\Song.lrc' is denied."),
+                "UsbRemoved" => new IOException("The device is not ready.", unchecked((int)0x80070015)),
+                _ => new IOException("There is not enough space on the disk.", unchecked((int)0x80070070)),
+            },
+        };
+        LrcGenerationApplicationService sut = CreateSut(textService: textService, logger: logger);
+        var track = new Track { FilePath = @"E:\Music\Song.flac", Title = "Song" };
+        var doc = new LyricsDocument([new LyricLine(0, TimeSpan.FromSeconds(1), "歌詞")], isSynced: true);
+
+        // Act
+        Result<string> result = await sut.SaveLrcAsync(track, doc, overwrite: true);
+
+        // Assert
+        Assert.True(result.IsFailure);
+        Assert.Equal(expectedMessage, result.ErrorMessage);
+        Assert.DoesNotContain(@"E:\", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Access to the path", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(logger.ErrorEntries);
+    }
+
+    /// <summary>
+    /// DownloadModelAsync でネットワーク障害・タイムアウトが発生した際に生英語を連結せず日本語案内を返し、
+    /// ユーザーキャンセル時は OperationCanceledException をそのまま伝播することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DownloadModelAsync_ネットワーク障害とタイムアウトとユーザーキャンセル_適切に処理する()
+    {
+        // Arrange
+        var logger = new RecordingAppLogger();
+        var modelManager = new FakeLocalSpeechModelManager();
+        LrcGenerationApplicationService sut = CreateSut(modelManager: modelManager, logger: logger);
+
+        // Act 1: ネットワーク障害
+        modelManager.DownloadException = new HttpRequestException("No such host is known.");
+        Result<LocalSpeechModelInfo> netResult = await sut.DownloadModelAsync("base");
+
+        // Act 2: タイムアウト（未キャンセルのトークンで TaskCanceledException）
+        modelManager.DownloadException = new TaskCanceledException("HttpClient.Timeout exceeded.");
+        Result<LocalSpeechModelInfo> timeoutResult = await sut.DownloadModelAsync("base");
+
+        // Assert 1 & 2
+        Assert.True(netResult.IsFailure);
+        Assert.Equal(LrcGenerationErrorMessageResolver.MODEL_DOWNLOAD_NETWORK_ERROR_MESSAGE, netResult.ErrorMessage);
+        Assert.DoesNotContain("No such host", netResult.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+
+        Assert.True(timeoutResult.IsFailure);
+        Assert.Equal(LrcGenerationErrorMessageResolver.MODEL_DOWNLOAD_TIMEOUT_MESSAGE, timeoutResult.ErrorMessage);
+        Assert.DoesNotContain("HttpClient", timeoutResult.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, logger.ErrorEntries.Count);
+
+        // Act & Assert 3: ユーザーキャンセルは伝播する
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        modelManager.DownloadException = null;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            sut.DownloadModelAsync("base", cancellationToken: cts.Token));
+    }
+
+    /// <summary>
+    /// InspectLyricsTextAsync・SelectModel・SetCustomModelPath で英語生例外が発生しても露出させず日本語案内を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task テキスト検査とモデル選択_英語システム例外発生時_生メッセージを露出しない()
+    {
+        // Arrange
+        var logger = new RecordingAppLogger();
+        var textService = new FakeTextEncodingService
+        {
+            ThrowOnInspect = new UnauthorizedAccessException("Access to the path 'E:\\Lyrics\\song.txt' is denied."),
+        };
+        var modelManager = new FakeLocalSpeechModelManager
+        {
+            CustomModelException = new IOException("The device is not ready.", unchecked((int)0x80070015)),
+            SelectModelException = new InvalidOperationException("Unexpected model catalog failure."),
+        };
+        LrcGenerationApplicationService sut = CreateSut(textService: textService, modelManager: modelManager, logger: logger);
+
+        // Act
+        Result<TextEncodingInspectionResult> inspectResult = await sut.InspectLyricsTextAsync(@"E:\Lyrics\song.txt");
+        Result customModelResult = sut.SetCustomModelPath(@"E:\Models\custom.bin");
+        Result selectModelResult = sut.SelectModel("base");
+
+        // Assert
+        Assert.True(inspectResult.IsFailure);
+        Assert.DoesNotContain("Access to the path", inspectResult.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.True(customModelResult.IsFailure);
+        Assert.DoesNotContain("not ready", customModelResult.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.True(selectModelResult.IsFailure);
+        Assert.DoesNotContain("Unexpected model", selectModelResult.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3, logger.ErrorEntries.Count);
+    }
+
     private static LrcGenerationApplicationService CreateSut(
         FakeAudioAlignmentEngine? engine = null,
         FakeTextEncodingService? textService = null,
         FakeLocalSpeechModelManager? modelManager = null,
         LyricsApplicationService? lyricsService = null,
-        StubLrcParser? lrcParser = null)
+        StubLrcParser? lrcParser = null,
+        IAppLogger? logger = null)
     {
         return new LrcGenerationApplicationService(
             engine ?? new FakeAudioAlignmentEngine(),
             textService ?? new FakeTextEncodingService(),
             modelManager ?? new FakeLocalSpeechModelManager(),
             lrcParser ?? new StubLrcParser(),
-            lyricsService ?? new LyricsApplicationService(new StubLyricsProvider(), new InMemoryEventBus()));
+            lyricsService ?? new LyricsApplicationService(new StubLyricsProvider(), new InMemoryEventBus()),
+            logger);
+    }
+
+    private sealed class RecordingAppLogger : IAppLogger
+    {
+        public List<(string Message, Exception? Exception)> ErrorEntries { get; } = new();
+
+        public void Info(string message) { }
+
+        public void Warn(string message, Exception? exception = null) { }
+
+        public void Error(string message, Exception? exception = null)
+        {
+            ErrorEntries.Add((message, exception));
+        }
     }
 
     private sealed class FakeAudioAlignmentEngine : IAudioAlignmentEngine
@@ -411,6 +590,7 @@ public sealed class LrcGenerationApplicationServiceTests
         public string EngineName => "FakeEngine";
         public int CallCount { get; private set; }
         public AlignmentRequest? LastRequest { get; private set; }
+        public Exception? ExceptionToThrow { get; set; }
 
         public Task<AlignmentResult> GenerateAsync(
             AlignmentRequest request,
@@ -420,6 +600,11 @@ public sealed class LrcGenerationApplicationServiceTests
             cancellationToken.ThrowIfCancellationRequested();
             CallCount++;
             LastRequest = request;
+            if (ExceptionToThrow is not null)
+            {
+                return Task.FromException<AlignmentResult>(ExceptionToThrow);
+            }
+
             progress?.Report(new AlignmentProgress(AlignmentPhase.Completed, 1.0, "完了"));
 
             var doc = new LyricsDocument(
@@ -440,6 +625,8 @@ public sealed class LrcGenerationApplicationServiceTests
         public Func<string, TextEncodingInspectionResult>? InspectionFactory { get; set; }
         public string TextContent { get; set; } = "デフォルト歌詞";
         public bool ThrowIoOnSave { get; set; }
+        public Exception? ThrowOnSave { get; set; }
+        public Exception? ThrowOnInspect { get; set; }
         public Exception? ThrowOnRead { get; set; }
         public string? LastSavedPath { get; private set; }
         public bool LastAllowEncodingConversion { get; private set; }
@@ -447,6 +634,11 @@ public sealed class LrcGenerationApplicationServiceTests
         public Task<TextEncodingInspectionResult> InspectAsync(string textFilePath, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (ThrowOnInspect is not null)
+            {
+                return Task.FromException<TextEncodingInspectionResult>(ThrowOnInspect);
+            }
+
             TextEncodingInspectionResult result = InspectionFactory is not null
                 ? InspectionFactory(textFilePath)
                 : new TextEncodingInspectionResult(textFilePath, true, false, "UTF-8", 1, 1);
@@ -468,6 +660,11 @@ public sealed class LrcGenerationApplicationServiceTests
         public Task SaveLrcFileAsync(string destinationPath, string lrcContent, bool overwrite, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (ThrowOnSave is not null)
+            {
+                return Task.FromException(ThrowOnSave);
+            }
+
             if (ThrowIoOnSave)
             {
                 throw new IOException("ファイルが既に存在します。");
@@ -482,10 +679,27 @@ public sealed class LrcGenerationApplicationServiceTests
     {
         private readonly LocalSpeechModelInfo _info = new("base", "Whisper (base)", "ggml-base.bin", @"C:\models\ggml-base.bin", true, 1000);
 
+        public Exception? DownloadException { get; set; }
+        public Exception? CustomModelException { get; set; }
+        public Exception? SelectModelException { get; set; }
+
         public LocalSpeechModelInfo GetActiveModelInfo() => _info;
         public IReadOnlyList<LocalSpeechModelInfo> GetSupportedModels() => [_info];
-        public void SelectModel(string modelId) { }
-        public void SetCustomModelPath(string? modelFilePath) { }
+        public void SelectModel(string modelId)
+        {
+            if (SelectModelException is not null)
+            {
+                throw SelectModelException;
+            }
+        }
+
+        public void SetCustomModelPath(string? modelFilePath)
+        {
+            if (CustomModelException is not null)
+            {
+                throw CustomModelException;
+            }
+        }
 
         public Task<LocalSpeechModelInfo> DownloadModelAsync(
             string? modelId = null,
@@ -493,6 +707,11 @@ public sealed class LrcGenerationApplicationServiceTests
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (DownloadException is not null)
+            {
+                return Task.FromException<LocalSpeechModelInfo>(DownloadException);
+            }
+
             progress?.Report(1.0);
             return Task.FromResult(_info);
         }

@@ -1,7 +1,8 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Infrastructure.LrcGeneration;
 using NAudio.Wave;
 
@@ -74,6 +75,28 @@ public sealed class AudioPcmDecoderTests : IDisposable
 
         // Act & Assert
         await Assert.ThrowsAsync<FileNotFoundException>(() => sut.DecodeToMono16kHzAsync(missingPath));
+    }
+
+    /// <summary>
+    /// 破損した音声ファイルをデコードした際に生例外ではなく LrcGenerationException(AudioDecodeFailed) へラップされることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DecodeToMono16kHzAsync_破損した音声ファイル_AudioDecodeFailedのLrcGenerationExceptionを送出する()
+    {
+        // Arrange
+        var sut = new AudioPcmDecoder();
+        string corruptPath = Path.Combine(_tempDir, "corrupt.wav");
+        await File.WriteAllBytesAsync(corruptPath, [0x01, 0x02, 0x03, 0x04, 0xFF, 0xEE]);
+
+        // Act
+        LrcGenerationException ex = await Assert.ThrowsAsync<LrcGenerationException>(() =>
+            sut.DecodeToMono16kHzAsync(corruptPath));
+
+        // Assert
+        Assert.Equal(LrcGenerationErrorCategory.AudioDecodeFailed, ex.Category);
+        Assert.Equal(LrcGenerationErrorMessageResolver.AUDIO_DECODE_FAILED_MESSAGE, ex.Message);
+        Assert.True(ex.IsLogged);
+        Assert.NotNull(ex.InnerException);
     }
 
     private static void CreateSineWaveFile(string path, int sampleRate, int channels, double durationSeconds)
