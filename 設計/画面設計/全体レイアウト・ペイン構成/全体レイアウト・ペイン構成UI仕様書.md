@@ -60,7 +60,7 @@
 | :--- | :--- |
 | ワークスペース | `CurrentViewType`（初期値: `ViewType.Albums`）の11値を `ContentControl.ContentTemplate` の `DataTrigger` で切り替える |
 | 上部プレイヤー | 通常高 `60px`。右パネルの開状態（`IsRightPanelOpen = True`）に連動して高 `0px` へ格納 |
-| 右側情報パネル | `IsRightPanelOpen`（初期 `false`）で開閉、`IsAlbumViewMaximized`（初期 `true`）で最大化/コンパクトを切替。右上に歌詞表示トグルボタンおよび表示サイズ切替ボタンを並列配置し、コンパクト時の下部拡張領域（`Grid.Row="1"`）で歌詞パネル（`LyricsView`）・LRC 自動生成パネル（#98）・拡張ウィジェット（#121）を排他表示 |
+| 右側情報パネル | `IsRightPanelOpen`（初期 `false`）で開閉、`IsAlbumViewMaximized`（初期 `true`）で最大化/コンパクトを切替。右上に歌詞表示トグルボタンおよび表示サイズ切替ボタンを並列配置し、コンパクト時の下部拡張領域（`Grid.Row="1"`）で歌詞パネル（`LyricsView`）・LRC 自動生成パネル（`LrcGeneratorView`）・拡張ウィジェット（#121）を排他表示 |
 | 読込中オーバーレイ | `IsMainLoadingOverlayVisible = True`（`IsLoading = True` かつ `CurrentViewType != ViewType.Folders`）でワークスペース上に半透明オーバーレイと `"LOADING..."` テキストを表示（フォルダタブ表示中はフォルダタブ内の専用プログレスインジケーターへ表示を委譲） |
 | 下部スペクトラム | 高 `22px` の開閉バーと高 `0 / 140px` の64バンド描画領域（`ViewType.DeviceSync` 遷移時は自動で `IsSpectrumVisible = false` に格納） |
 
@@ -88,6 +88,7 @@
 - [右側タブ開閉機能UI仕様書](../右側タブ開閉機能/右側タブ開閉機能UI仕様書.md)
 - [右側アルバム情報表示サイズ切り替え機能UI仕様書](../右側アルバム情報表示サイズ切り替え機能/右側アルバム情報表示サイズ切り替え機能UI仕様書.md)
 - [歌詞表示UI仕様書](../歌詞表示/歌詞表示UI仕様書.md)
+- [LRC自動生成UI仕様書](../LRC自動生成/LRC自動生成UI仕様書.md)
 - [コードビハインド](../../../AudioEffector/Presentation/Views/MainWindow.xaml.cs)
 - [MainViewModel](../../../AudioEffector/Presentation/ViewModels/MainViewModel.cs)
 - 関連Issue（設計経緯）: [#96](https://github.com/taketonnbo/Audio_Effector/issues/96)、[#233](https://github.com/taketonnbo/Audio_Effector/issues/233)、[#239](https://github.com/taketonnbo/Audio_Effector/issues/239)、[#240](https://github.com/taketonnbo/Audio_Effector/issues/240)、[#241](https://github.com/taketonnbo/Audio_Effector/issues/241)、[#242](https://github.com/taketonnbo/Audio_Effector/issues/242)、[#384](https://github.com/taketonnbo/Audio_Effector/issues/384)、[#385](https://github.com/taketonnbo/Audio_Effector/issues/385)、[#401](https://github.com/taketonnbo/Audio_Effector/issues/401)、[#403](https://github.com/taketonnbo/Audio_Effector/issues/403)、[#406](https://github.com/taketonnbo/Audio_Effector/issues/406)

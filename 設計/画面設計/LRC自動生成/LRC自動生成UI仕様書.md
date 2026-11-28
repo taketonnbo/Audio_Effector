@@ -365,4 +365,5 @@ flowchart TD
 - [パフォーマンス最適化詳細設計書](../../詳細設計/パフォーマンス最適化.md)
 - [ユースケース: 01_楽曲再生・再生制御](../../ユースケース/01_楽曲再生・再生制御.md)
 - [主要オブジェクト一覧](../../主要オブジェクト/index.md)・[01_楽曲_Track](../../主要オブジェクト/01_楽曲_Track.md)
+- [LrcGeneratorView.xaml](../../../AudioEffector/Presentation/Views/LrcGeneratorView.xaml)・[LrcGeneratorViewModel.cs](../../../AudioEffector/Presentation/ViewModels/LrcGeneratorViewModel.cs)・[LrcPreviewLineViewModel.cs](../../../AudioEffector/Presentation/ViewModels/LrcPreviewLineViewModel.cs)・[MainWindow.xaml](../../../AudioEffector/Presentation/Views/MainWindow.xaml)
 - 関連Issue: 親Epic [#98](https://github.com/taketonnbo/Audio_Effector/issues/98)、先行 [#99](https://github.com/taketonnbo/Audio_Effector/issues/99)・[#403](https://github.com/taketonnbo/Audio_Effector/issues/403)、本Issue [#100](https://github.com/taketonnbo/Audio_Effector/issues/100)、後続 [#101](https://github.com/taketonnbo/Audio_Effector/issues/101)・[#102](https://github.com/taketonnbo/Audio_Effector/issues/102)、関連 [#401](https://github.com/taketonnbo/Audio_Effector/issues/401)・[#121](https://github.com/taketonnbo/Audio_Effector/issues/121)
