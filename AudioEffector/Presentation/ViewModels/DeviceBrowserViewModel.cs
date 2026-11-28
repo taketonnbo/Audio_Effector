@@ -39,6 +39,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private readonly Action<string, string> _showMessage;
     private readonly Func<TransferConfirmationRequest, bool> _confirmTransfer;
     private readonly Action<TransferResultSummary> _showTransferResult;
+    private readonly Action<string>? _onLibraryImportCompleted;
     private readonly Dictionary<string, long> _fileSizeCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<Album> _subscribedAlbums = new();
     private readonly HashSet<Track> _subscribedTracks = new();
@@ -494,6 +495,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="settingsService">アプリケーション設定永続化サービス（既定フォルダ記憶・形式変換・LRC同梱設定用）</param>
     /// <param name="audioTranscodeService">転送時の音声フォーマット変換サービス（省略時は変換なしのパススルー動作）</param>
     /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は LRC 同梱無効）</param>
+    /// <param name="onLibraryImportCompleted">機器からの逆転送完了時に PC ライブラリ再反映を要求するコールバック（引数は保存先フォルダパス）</param>
     public DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
@@ -502,7 +504,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)>? readDeviceStorageSpace = null,
         ISettingsService? settingsService = null,
         IAudioTranscodeService? audioTranscodeService = null,
-        ILrcParser? lrcParser = null)
+        ILrcParser? lrcParser = null,
+        Action<string>? onLibraryImportCompleted = null)
         : this(
             albumsRef,
             getAlbums,
@@ -513,7 +516,10 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             audioTranscodeService,
             resolveMtpClient: null,
             showMessage: null,
-            lrcParser: lrcParser)
+            lrcParser: lrcParser,
+            confirmTransfer: null,
+            showTransferResult: null,
+            onLibraryImportCompleted: onLibraryImportCompleted)
     {
     }
 
@@ -532,6 +538,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は LRC 同梱無効）</param>
     /// <param name="confirmTransfer">転送開始前の確認・警告ダイアログ表示関数（省略時は既定のダイアログを使用）</param>
     /// <param name="showTransferResult">転送結果サマリダイアログ表示関数（省略時は既定のダイアログまたは showMessage へ委譲）</param>
+    /// <param name="onLibraryImportCompleted">機器からの逆転送完了時に PC ライブラリ再反映を要求するコールバック</param>
     internal DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
@@ -544,7 +551,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         Action<string, string>? showMessage,
         ILrcParser? lrcParser = null,
         Func<TransferConfirmationRequest, bool>? confirmTransfer = null,
-        Action<TransferResultSummary>? showTransferResult = null)
+        Action<TransferResultSummary>? showTransferResult = null,
+        Action<string>? onLibraryImportCompleted = null)
     {
         _albumsRef = albumsRef ?? throw new ArgumentNullException(nameof(albumsRef));
         _getAlbums = getAlbums ?? throw new ArgumentNullException(nameof(getAlbums));
@@ -557,6 +565,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         _resolveMtpClient = resolveMtpClient ?? DefaultResolveMtpClient;
         _showMessage = showMessage ?? DefaultShowMessage;
         _confirmTransfer = confirmTransfer ?? DefaultConfirmTransfer;
+        _onLibraryImportCompleted = onLibraryImportCompleted;
         _showTransferResult = showTransferResult ?? (showMessage != null
             ? summary =>
             {
@@ -3589,8 +3598,20 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
         string basePath = !string.IsNullOrEmpty(CurrentDevicePath) ? CurrentDevicePath : SelectedDevice.RootPath;
         var albums = _getAlbums();
-        var dialogViewModel = new DeviceManagerViewModel(SelectedDevice, basePath, albums.ToList());
+        using var dialogViewModel = new DeviceManagerViewModel(
+            SelectedDevice,
+            basePath,
+            albums.ToList(),
+            settingsService: _settingsService,
+            onLibraryRefreshRequested: _onLibraryImportCompleted,
+            resolveMtpClient: _resolveMtpClient);
         var dialog = new DeviceManagerDialog(dialogViewModel);
+        var mainWindow = System.Windows.Application.Current?.MainWindow;
+        if (mainWindow != null && mainWindow.IsVisible)
+        {
+            dialog.Owner = mainWindow;
+        }
+
         dialog.ShowDialog();
 
         // デバイス管理ダイアログを閉じた後、ディレクトリ表示・重複状態・空き容量を最新化する
@@ -3606,7 +3627,12 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         _ = RefreshSelectedDeviceStorageAsync();
     }
 
-    private static MediaDeviceClientAdapter? DefaultResolveMtpClient(MainViewModel.DeviceViewModel device)
+    /// <summary>
+    /// 選択中デバイスから既定の MTP クライアントアダプターを解決します
+    /// </summary>
+    /// <param name="device">対象デバイス情報</param>
+    /// <returns>MTP クライアント（非 MTP デバイス時は null）</returns>
+    internal static IMtpDeviceClient? DefaultResolveMtpClient(MainViewModel.DeviceViewModel device)
         => device.MtpDevice != null ? new MediaDeviceClientAdapter(device.MtpDevice) : null;
 
     /// <summary>
@@ -3792,6 +3818,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         /// <param name="sourceFilePath">転送元ローカルファイルパス</param>
         /// <param name="destinationFilePath">転送先デバイスファイルパス</param>
         void UploadFile(string sourceFilePath, string destinationFilePath);
+
+        /// <summary>
+        /// デバイス上の指定ファイルを出力ストリームへダウンロードします
+        /// </summary>
+        /// <param name="sourceFilePath">デバイス上の転送元ファイルパス</param>
+        /// <param name="outputStream">書き込み先のローカルストリーム</param>
+        void DownloadFile(string sourceFilePath, Stream outputStream);
     }
 
     private sealed class MediaDeviceClientAdapter : IMtpDeviceClient
@@ -3822,6 +3855,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         public void DeleteFile(string path) => _device.DeleteFile(path);
 
         public void UploadFile(string sourceFilePath, string destinationFilePath) => _device.UploadFile(sourceFilePath, destinationFilePath);
+
+        public void DownloadFile(string sourceFilePath, Stream outputStream) => _device.DownloadFile(sourceFilePath, outputStream);
     }
 
     private sealed class PassthroughAudioTranscodeService : IAudioTranscodeService
