@@ -131,4 +131,34 @@ public sealed class AppSettingsTests
         Assert.NotNull(legacyRestored);
         Assert.Null(legacyRestored!.DataDirectoryPath);
     }
+
+    /// <summary>
+    /// LogLevel と LogDirectoryPath の既定値、JSON ラウンドトリップ、および旧形式 JSON（キー欠落）からのデシリアライズ互換性を検証します。
+    /// </summary>
+    [Fact]
+    public void LogSettings_JSONシリアライズおよび旧形式デシリアライズ_既定値と互換性が維持されること()
+    {
+        // Arrange
+        var defaultSettings = new AppSettings();
+        var sut = new AppSettings
+        {
+            LogLevel = "Debug",
+            LogDirectoryPath = @"D:\Logs\AudioEffector"
+        };
+
+        // Act
+        string json = JsonSerializer.Serialize(sut);
+        var restored = JsonSerializer.Deserialize<AppSettings>(json);
+        var legacyRestored = JsonSerializer.Deserialize<AppSettings>("{\"Theme\":0}");
+
+        // Assert
+        Assert.Equal("Info", defaultSettings.LogLevel);
+        Assert.Null(defaultSettings.LogDirectoryPath);
+        Assert.NotNull(restored);
+        Assert.Equal("Debug", restored!.LogLevel);
+        Assert.Equal(@"D:\Logs\AudioEffector", restored.LogDirectoryPath);
+        Assert.NotNull(legacyRestored);
+        Assert.Equal("Info", legacyRestored!.LogLevel);
+        Assert.Null(legacyRestored.LogDirectoryPath);
+    }
 }

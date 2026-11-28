@@ -398,4 +398,222 @@ public class SettingsViewModelTests
         Assert.False(sut.IsCustomDataDirectory);
         migrationMock.Verify(m => m.ChangeDataDirectory(null, DataMigrationMode.None), Times.Once);
     }
+
+    /// <summary>
+    /// SelectedLogLevel を変更した際、設定サービスへ保存され ILogConfigurationManager.ApplyConfiguration が即時呼び出されることを検証します。
+    /// </summary>
+    [Fact]
+    public void SelectedLogLevel_変更時_設定保存およびログ構成マネージャへ即時反映されること()
+    {
+        // Arrange
+        var logManagerMock = new Mock<AudioEffector.Application.Common.ILogConfigurationManager>();
+        logManagerMock.SetupGet(m => m.AvailableLogLevels).Returns(["Trace", "Debug", "Info", "Warn", "Error", "Off"]);
+        logManagerMock.SetupGet(m => m.DefaultLogDirectory).Returns(@"C:\App\logs");
+        logManagerMock.SetupGet(m => m.CurrentLogDirectory).Returns(@"C:\App\logs");
+        logManagerMock.SetupGet(m => m.IsCustomLogDirectory).Returns(false);
+        logManagerMock.Setup(m => m.NormalizeLogLevel(It.IsAny<string?>()))
+            .Returns<string?>(v => string.IsNullOrWhiteSpace(v) ? "Info" : v);
+        logManagerMock.Setup(m => m.ApplyConfiguration(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<bool>()))
+            .Returns<string?, string?, bool>((lvl, dir, _) => new AudioEffector.Application.Common.LogConfigurationApplyResult(true, lvl ?? "Info", dir ?? @"C:\App\logs", false));
+
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            dataDirectoryProvider: null,
+            dataDirectoryMigrationService: null,
+            logConfigurationManager: logManagerMock.Object);
+
+        var notified = new List<string?>();
+        sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        // Act
+        sut.SelectedLogLevel = "Debug";
+        sut.SelectedLogLevel = "Debug"; // 同値再代入では再適用されないこと
+
+        // Assert
+        Assert.Equal("Debug", sut.SelectedLogLevel);
+        Assert.Equal("Debug", _persistedSettings.LogLevel);
+        Assert.Single(notified, p => p == nameof(SettingsViewModel.SelectedLogLevel));
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
+        logManagerMock.Verify(m => m.ApplyConfiguration("Debug", null, true), Times.Once);
+    }
+
+    /// <summary>
+    /// 起動時フォールバック後にログレベルを変更しても、無効な旧カスタムパスを再適用せず現在有効なディレクトリ（既定）を維持することを検証します。
+    /// </summary>
+    [Fact]
+    public void SelectedLogLevel_起動時フォールバック後の変更時_無効な旧パスを再適用しないこと()
+    {
+        // Arrange
+        _initialSettings.LogDirectoryPath = @"Z:\DisconnectedDrive\Logs";
+        var logManagerMock = new Mock<AudioEffector.Application.Common.ILogConfigurationManager>();
+        logManagerMock.SetupGet(m => m.AvailableLogLevels).Returns(["Trace", "Debug", "Info", "Warn", "Error", "Off"]);
+        logManagerMock.SetupGet(m => m.DefaultLogDirectory).Returns(@"C:\App\logs");
+        logManagerMock.SetupGet(m => m.CurrentLogDirectory).Returns(@"C:\App\logs");
+        logManagerMock.SetupGet(m => m.IsCustomLogDirectory).Returns(false);
+        logManagerMock.Setup(m => m.NormalizeLogLevel(It.IsAny<string?>()))
+            .Returns<string?>(v => string.IsNullOrWhiteSpace(v) ? "Info" : v);
+        logManagerMock.Setup(m => m.ApplyConfiguration("Warn", null, true))
+            .Returns(new AudioEffector.Application.Common.LogConfigurationApplyResult(true, "Warn", @"C:\App\logs", false));
+
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            dataDirectoryProvider: null,
+            dataDirectoryMigrationService: null,
+            logConfigurationManager: logManagerMock.Object);
+
+        // Act
+        sut.SelectedLogLevel = "Warn";
+
+        // Assert
+        logManagerMock.Verify(m => m.ApplyConfiguration("Warn", null, true), Times.Once);
+        logManagerMock.Verify(m => m.ApplyConfiguration("Warn", @"Z:\DisconnectedDrive\Logs", It.IsAny<bool>()), Times.Never);
+    }
+
+    /// <summary>
+    /// BrowseLogDirectoryCommand で有効なフォルダを選択した場合に設定保存・構成反映され、
+    /// ResetLogDirectoryCommand で既定フォルダへ復帰することを検証します。
+    /// </summary>
+    [Fact]
+    public void BrowseAndResetLogDirectoryCommand_カスタム設定とリセット時_設定保存と構成反映が行われること()
+    {
+        // Arrange
+        string defaultLogs = @"C:\App\logs";
+        string currentLogs = defaultLogs;
+        bool isCustom = false;
+        var logManagerMock = new Mock<AudioEffector.Application.Common.ILogConfigurationManager>();
+        logManagerMock.SetupGet(m => m.AvailableLogLevels).Returns(["Trace", "Debug", "Info", "Warn", "Error", "Off"]);
+        logManagerMock.SetupGet(m => m.DefaultLogDirectory).Returns(defaultLogs);
+        logManagerMock.SetupGet(m => m.CurrentLogDirectory).Returns(() => currentLogs);
+        logManagerMock.SetupGet(m => m.IsCustomLogDirectory).Returns(() => isCustom);
+        logManagerMock.Setup(m => m.NormalizeLogLevel(It.IsAny<string?>())).Returns<string?>(v => v ?? "Info");
+        logManagerMock.Setup(m => m.ApplyConfiguration(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<bool>()))
+            .Returns<string?, string?, bool>((lvl, dir, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(dir))
+                {
+                    currentLogs = defaultLogs;
+                    isCustom = false;
+                }
+                else
+                {
+                    currentLogs = dir;
+                    isCustom = true;
+                }
+
+                return new AudioEffector.Application.Common.LogConfigurationApplyResult(true, lvl ?? "Info", currentLogs, false);
+            });
+
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            dataDirectoryProvider: null,
+            dataDirectoryMigrationService: null,
+            folderPicker: _ => @"D:\DebugLogs",
+            migrationPrompt: null,
+            messageNotifier: (_, _, _) => { },
+            logConfigurationManager: logManagerMock.Object,
+            folderOpener: _ => { });
+
+        // Act
+        Assert.False(sut.ResetLogDirectoryCommand.CanExecute(null));
+        sut.BrowseLogDirectoryCommand.Execute(null);
+        string afterBrowsePath = sut.LogDirectoryPath;
+        bool canResetAfterBrowse = sut.ResetLogDirectoryCommand.CanExecute(null);
+        sut.ResetLogDirectoryCommand.Execute(null);
+
+        // Assert
+        Assert.Equal(@"D:\DebugLogs", afterBrowsePath);
+        Assert.True(canResetAfterBrowse);
+        Assert.Equal(defaultLogs, sut.LogDirectoryPath);
+        Assert.False(sut.IsCustomLogDirectory);
+        Assert.False(sut.ResetLogDirectoryCommand.CanExecute(null));
+        Assert.Null(_persistedSettings.LogDirectoryPath);
+    }
+
+    /// <summary>
+    /// BrowseLogDirectoryCommand で書き込み不可フォルダが選択された場合、現行の有効設定を保持したままエラー通知され設定値が汚染されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void BrowseLogDirectoryCommand_書き込み不可フォルダ選択時_エラー通知され設定が書き換わらないこと()
+    {
+        // Arrange
+        var logManagerMock = new Mock<AudioEffector.Application.Common.ILogConfigurationManager>();
+        logManagerMock.SetupGet(m => m.AvailableLogLevels).Returns(["Trace", "Debug", "Info", "Warn", "Error", "Off"]);
+        logManagerMock.SetupGet(m => m.DefaultLogDirectory).Returns(@"C:\App\logs");
+        logManagerMock.SetupGet(m => m.CurrentLogDirectory).Returns(@"D:\ExistingCustomLogs");
+        logManagerMock.SetupGet(m => m.IsCustomLogDirectory).Returns(true);
+        logManagerMock.Setup(m => m.NormalizeLogLevel(It.IsAny<string?>())).Returns<string?>(v => v ?? "Info");
+        logManagerMock.Setup(m => m.ApplyConfiguration("Info", @"Z:\ReadOnlyLogs", false))
+            .Returns(new AudioEffector.Application.Common.LogConfigurationApplyResult(
+                Succeeded: false,
+                AppliedLogLevel: "Info",
+                EffectiveLogDirectory: @"D:\ExistingCustomLogs",
+                UsedFallbackDirectory: false,
+                WarningMessage: "アクセス拒否"));
+
+        bool notifiedError = false;
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            dataDirectoryProvider: null,
+            dataDirectoryMigrationService: null,
+            folderPicker: _ => @"Z:\ReadOnlyLogs",
+            migrationPrompt: null,
+            messageNotifier: (_, _, isError) => notifiedError = isError,
+            logConfigurationManager: logManagerMock.Object,
+            folderOpener: _ => { });
+
+        // Act
+        sut.BrowseLogDirectoryCommand.Execute(null);
+
+        // Assert
+        Assert.True(notifiedError);
+        Assert.Equal(@"D:\ExistingCustomLogs", sut.LogDirectoryPath);
+        Assert.True(sut.IsCustomLogDirectory);
+        _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Never);
+    }
+
+    /// <summary>
+    /// OpenLogFolderCommand 実行時、現在のログ保存先フォルダパスでフォルダを開くデリゲートが呼ばれることを検証します。
+    /// </summary>
+    [Fact]
+    public void OpenLogFolderCommand_実行時_現在のログ保存先フォルダでエクスプローラー起動デリゲートが呼ばれること()
+    {
+        // Arrange
+        string tempLogDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"AudioEffector_OpenLog_{Guid.NewGuid():N}");
+        try
+        {
+            var logManagerMock = new Mock<AudioEffector.Application.Common.ILogConfigurationManager>();
+            logManagerMock.SetupGet(m => m.CurrentLogDirectory).Returns(tempLogDir);
+            logManagerMock.SetupGet(m => m.DefaultLogDirectory).Returns(tempLogDir);
+
+            string? openedPath = null;
+            var sut = new SettingsViewModel(
+                _settingsServiceMock.Object,
+                _audioServiceMock.Object,
+                dataDirectoryProvider: null,
+                dataDirectoryMigrationService: null,
+                folderPicker: null,
+                migrationPrompt: null,
+                messageNotifier: (_, _, _) => { },
+                logConfigurationManager: logManagerMock.Object,
+                folderOpener: p => openedPath = p);
+
+            // Act
+            sut.OpenLogFolderCommand.Execute(null);
+
+            // Assert
+            Assert.Equal(tempLogDir, openedPath);
+            Assert.True(System.IO.Directory.Exists(tempLogDir));
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempLogDir))
+            {
+                System.IO.Directory.Delete(tempLogDir, recursive: true);
+            }
+        }
+    }
 }
