@@ -378,23 +378,28 @@ try {
                 New-Item -ItemType Directory -Path $worktreesRoot -Force | Out-Null
             }
 
-            if (-not $UseExistingBranch -and -not $SkipFetch) {
-                $fetchRes = Invoke-Git -Arguments @("fetch", "origin", $BaseBranch) -WorkingDirectory $resolvedRepoRoot
-                if ($fetchRes.ExitCode -ne 0) {
-                    throw "git fetch origin $BaseBranch に失敗しました: $($fetchRes.StdErr.Trim())"
+            if (-not $UseExistingBranch) {
+                $normalizedBaseBranch = ($BaseBranch.Trim() -replace '^refs/heads/', '' -replace '^refs/remotes/origin/', '' -replace '^origin/', '')
+                if ([string]::IsNullOrWhiteSpace($normalizedBaseBranch)) {
+                    throw "-BaseBranch には空でないブランチ名を指定してください。"
                 }
-            }
-
-            $baseRef = if ($UseExistingBranch) { $null } else { "origin/$BaseBranch" }
-            if ($UseExistingBranch) {
-                $addRes = Invoke-Git -Arguments @("worktree", "add", $targetPath, $BranchName) -WorkingDirectory $resolvedRepoRoot
-            }
-            else {
+                if (-not $SkipFetch) {
+                    $fetchRefSpec = "+refs/heads/${normalizedBaseBranch}:refs/remotes/origin/${normalizedBaseBranch}"
+                    $fetchRes = Invoke-Git -Arguments @("fetch", "origin", $fetchRefSpec) -WorkingDirectory $resolvedRepoRoot
+                    if ($fetchRes.ExitCode -ne 0) {
+                        throw "git fetch origin $fetchRefSpec に失敗しました: $($fetchRes.StdErr.Trim())"
+                    }
+                }
+                $baseRef = "origin/$normalizedBaseBranch"
                 $verifyBase = Invoke-Git -Arguments @("rev-parse", "--verify", "--quiet", $baseRef) -WorkingDirectory $resolvedRepoRoot
                 if ($verifyBase.ExitCode -ne 0) {
                     throw "派生元リファレンス '$baseRef' が見つかりません。"
                 }
                 $addRes = Invoke-Git -Arguments @("worktree", "add", "-b", $BranchName, $targetPath, $baseRef) -WorkingDirectory $resolvedRepoRoot
+            }
+            else {
+                $baseRef = $null
+                $addRes = Invoke-Git -Arguments @("worktree", "add", $targetPath, $BranchName) -WorkingDirectory $resolvedRepoRoot
             }
 
             if ($addRes.ExitCode -ne 0) {

@@ -165,10 +165,14 @@ else {
     (Get-Location).Path
 }
 
-$baseRef = "origin/$BaseBranch"
+$normalizedBaseBranch = ($BaseBranch.Trim() -replace '^refs/heads/', '' -replace '^refs/remotes/origin/', '' -replace '^origin/', '')
+$baseRef = if ([string]::IsNullOrWhiteSpace($normalizedBaseBranch)) { "" } else { "origin/$normalizedBaseBranch" }
 $currentBranch = ""
 
 try {
+    if ([string]::IsNullOrWhiteSpace($normalizedBaseBranch)) {
+        throw "-BaseBranch には空でないブランチ名を指定してください。"
+    }
     if (-not (Test-Path -LiteralPath $workDir)) {
         throw "作業ディレクトリが存在しません: $workDir"
     }
@@ -230,9 +234,10 @@ try {
     }
 
     if (-not $SkipFetch) {
-        $fetchRes = Invoke-Git -Arguments @("fetch", "origin", $BaseBranch) -WorkDir $workDir
+        $fetchRefSpec = "+refs/heads/${normalizedBaseBranch}:refs/remotes/origin/${normalizedBaseBranch}"
+        $fetchRes = Invoke-Git -Arguments @("fetch", "origin", $fetchRefSpec) -WorkDir $workDir
         if ($fetchRes.ExitCode -ne 0) {
-            throw "git fetch origin $BaseBranch に失敗しました: $($fetchRes.StdErr.Trim())"
+            throw "git fetch origin $fetchRefSpec に失敗しました: $($fetchRes.StdErr.Trim())"
         }
     }
 

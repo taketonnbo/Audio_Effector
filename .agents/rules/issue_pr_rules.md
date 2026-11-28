@@ -33,13 +33,14 @@ Issueの本文には以下の項目を含めるようにしてください。
 
 ## 2. Pull Request (PR) の作成ルール
 
-作業が完了し、`develop` ブランチへマージする際はPull Requestを作成します。
+作業が完了し、ベースブランチ（原則 `develop`、Epic 子 Issue の場合は当該 Epic の統合ブランチ）へマージする際はPull Requestを作成します。
 
 ### Pull Requestの必須項目
 PRの説明（Description）には以下の項目を含めるようにしてください。
 
 1. **関連Issueの紐付け**
    - 本文の先頭に `Closes #<Issue番号>` を記載し、マージ時にIssueが自動的にクローズされるようにします。
+   - ※Epic 子 Issue PR を統合ブランチへマージする際、GitHub の自動クローズはデフォルトブランチ向けマージ時にのみ発火する点に留意しつつ、追跡性のため `Closes #<子Issue番号>` を明記します。Epic 統合 PR（`epic/<Epic番号>-*` → `develop`）には全子 Issue/PR サマリと対象 Epic 参照を記載します。
 2. **概要 (Overview)**
    - このPRで何を行ったかの全体像を記載します。
 3. **対応内容 (Changes Made)**
@@ -53,5 +54,6 @@ PRの説明（Description）には以下の項目を含めるようにしてく�
      - [x] 既存のテストがパスすること
 
 ### PR作成時の注意点
-- マージ先（Baseブランチ）は必ず **`develop`** に指定してください。（デフォルトが `main` になる場合があるため注意が必要です）
+- マージ先（Baseブランチ）は原則として **`develop`** に指定してください（デフォルトが `main` になる場合があるため注意が必要です）。
+- **例外規定（Epic 配下の子 Issue PR）**: Epic Issue 配下の子 Issue に限り、マージ先（Base ブランチ）は **`develop` ではなく当該 Epic の統合ブランチ（`epic/<Epic番号>-<簡潔な説明>`）** を指定します（例: `gh pr create --base epic/401-lyrics-display`）。全子 Issue の統合ブランチへのマージ完了後、改めて統合ブランチから `develop` へ最終統合 PR を作成し、ユーザー判断で `develop` へマージします。
 - レビュアーが変更内容を把握しやすいよう、PRの粒度が大きくなりすぎないように心がけてください。大きすぎる場合は複数のPRに分割することを検討してください。

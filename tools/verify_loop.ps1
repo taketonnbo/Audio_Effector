@@ -353,9 +353,30 @@ function Resolve-BaseMergeCommit {
     $isWorktree = Test-IsGitWorktree -RepoPath $workDir
     $useOriginPriority = ([bool]$PreferOriginBase) -or $isWorktree
 
+    $trimmedRef = if ($null -ne $BaseRef) { $BaseRef.Trim() } else { "" }
+    if ([string]::IsNullOrWhiteSpace($trimmedRef)) {
+        return [PSCustomObject]@{
+            Success     = $false
+            MergeBase   = ""
+            ResolvedRef = ""
+            Error       = "-BaseBranch には空でないブランチ名またはコミット参照を指定してください。"
+        }
+    }
+
+    $normalizedBaseRef = if ($trimmedRef -match '^refs/remotes/origin/(.+)$') {
+        "origin/" + $Matches[1]
+    }
+    elseif ($trimmedRef -match '^refs/heads/(.+)$') {
+        $Matches[1]
+    }
+    else {
+        $trimmedRef
+    }
+
     if ($FetchBase) {
-        $fetchBranch = if ($BaseRef -match '^origin/(.+)$') { $Matches[1] } else { $BaseRef }
-        $fetchRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("fetch", "origin", $fetchBranch) -WorkingDirectory $workDir -TimeoutSeconds 60
+        $fetchBranch = ($normalizedBaseRef -replace '^origin/', '')
+        $fetchRefSpec = "+refs/heads/${fetchBranch}:refs/remotes/origin/${fetchBranch}"
+        $fetchRes = Invoke-ExternalCommand -FilePath "git" -ArgumentList @("fetch", "origin", $fetchRefSpec) -WorkingDirectory $workDir -TimeoutSeconds 60
         if ($fetchRes.StartFailed) {
             return [PSCustomObject]@{
                 Success     = $false
@@ -369,7 +390,7 @@ function Resolve-BaseMergeCommit {
                 Success     = $false
                 MergeBase   = ""
                 ResolvedRef = ""
-                Error       = "git fetch origin $fetchBranch がタイムアウトしました (60秒超過)。"
+                Error       = "git fetch origin $fetchRefSpec がタイムアウトしました (60秒超過)。"
             }
         }
         if ($fetchRes.ExitCode -ne 0) {
@@ -378,24 +399,24 @@ function Resolve-BaseMergeCommit {
                 Success     = $false
                 MergeBase   = ""
                 ResolvedRef = ""
-                Error       = "git fetch origin $fetchBranch に失敗しました: $errText"
+                Error       = "git fetch origin $fetchRefSpec に失敗しました: $errText"
             }
         }
     }
 
     $candidates = @()
-    if ($BaseRef -notmatch '^origin/') {
+    if ($normalizedBaseRef -notmatch '^origin/') {
         if ($useOriginPriority) {
-            $candidates += [PSCustomObject]@{ Name = "origin/$BaseRef"; Spec = "origin/$BaseRef^{commit}" }
-            $candidates += [PSCustomObject]@{ Name = $BaseRef; Spec = "$BaseRef^{commit}" }
+            $candidates += [PSCustomObject]@{ Name = "origin/$normalizedBaseRef"; Spec = "origin/$normalizedBaseRef^{commit}" }
+            $candidates += [PSCustomObject]@{ Name = $normalizedBaseRef; Spec = "$normalizedBaseRef^{commit}" }
         }
         else {
-            $candidates += [PSCustomObject]@{ Name = $BaseRef; Spec = "$BaseRef^{commit}" }
-            $candidates += [PSCustomObject]@{ Name = "origin/$BaseRef"; Spec = "origin/$BaseRef^{commit}" }
+            $candidates += [PSCustomObject]@{ Name = $normalizedBaseRef; Spec = "$normalizedBaseRef^{commit}" }
+            $candidates += [PSCustomObject]@{ Name = "origin/$normalizedBaseRef"; Spec = "origin/$normalizedBaseRef^{commit}" }
         }
     }
     else {
-        $candidates += [PSCustomObject]@{ Name = $BaseRef; Spec = "$BaseRef^{commit}" }
+        $candidates += [PSCustomObject]@{ Name = $normalizedBaseRef; Spec = "$normalizedBaseRef^{commit}" }
     }
 
     $resolvedTarget = $null

@@ -45,13 +45,14 @@ description: PRのレビュー指摘コメントを取得し、コードベー�
 
 ### 4. 統合検証ハーネスによる隔離ビルド・テスト検証（`.agents/rules/build_rules.md` / `loop_engineering_rules.md` 厳守）
 - ユーザーのデバッグ実行および他並列ワークツリーを阻害しないよう、原則として統合検証ハーネス **`tools/verify_loop.ps1 -Full`** を用いて隔離ビルド・全単体テスト・仕様書同期・XAML バインディング等価性・Python ツール単体テストの全 5 ゲートを一括検証します。
+  - `-BaseBranch` には PR の `baseRefName`（通常 PR は `develop`、Epic 子 Issue PR は当該 Epic の統合ブランチ `epic/<Epic番号>-<説明>`）を指定します。
   ```powershell
-  .\tools\verify_loop.ps1 -Full -JsonOut ".agent_logs\verify_review.json"
+  .\tools\verify_loop.ps1 -Full -BaseBranch "<baseRefName>" -PreferOriginBase -JsonOut ".agent_logs\verify_review.json"
   ```
-  - 並列ワークツリー（`.agent_worktrees/issue-<番号>`）内で実行する場合は、`origin/develop` が比較ベースとして自動優先され、Gate 1 ビルド工程は名前付き Mutex により安全に直列化されます（明示的に最新比較したい場合は `-PreferOriginBase -FetchBase` を併用）。
-- **レビュー対応中に `origin/develop` が進んだ場合（`BEHIND` / `CONFLICTING` 対応）**:
-  - 履歴書き換え（`rebase` / `--force`）は禁止のため、未コミット変更をコミットした後に `.\tools\sync_branch.ps1 -Json` で非破壊追従マージを実行します。
-  - `CONFLICT`（終了コード `2`）発生時は `.agents/rules/loop_engineering_rules.md` Section 4 の基準に従い、自動解消可能な独立衝突のみ解消して `.\tools\verify_loop.ps1 -Full` を再実行し、ロジック衝突や再検証連続 2 回失敗時は `.\tools\sync_branch.ps1 -Abort -Json` でロールバックしてユーザーへ報告します。
+  - 並列ワークツリー（`.agent_worktrees/issue-<番号>`）内で実行する場合は、`origin/<baseRefName>` が比較ベースとして自動優先され、Gate 1 ビルド工程は名前付き Mutex により安全に直列化されます（明示的に最新比較したい場合は `-PreferOriginBase -FetchBase` を併用）。
+- **レビュー対応中に `origin/<baseRefName>` が進んだ場合（`BEHIND` / `CONFLICTING` 対応）**:
+  - 履歴書き換え（`rebase` / `--force`）は禁止のため、未コミット変更をコミットした後に `.\tools\sync_branch.ps1 -BaseBranch "<baseRefName>" -Json` で非破壊追従マージを実行します。
+  - `CONFLICT`（終了コード `2`）発生時は `.agents/rules/loop_engineering_rules.md` Section 4 の基準に従い、自動解消可能な独立衝突のみ解消して `.\tools\verify_loop.ps1 -Full -BaseBranch "<baseRefName>" -PreferOriginBase` を再実行し、ロジック衝突や再検証連続 2 回失敗時は `.\tools\sync_branch.ps1 -BaseBranch "<baseRefName>" -Abort -Json` でロールバックしてユーザーへ報告します。
 - **警告 0・エラー 0・全テスト合格（終了コード `0`）** になるまで修正を繰り返します（StyleCop / CA 警告もすべて解消します）。
 - ビルド・テスト実行後は `.agent_build/` ディレクトリが残っていないことを必ず確認します。
 
@@ -91,7 +92,7 @@ description: PRのレビュー指摘コメントを取得し、コードベー�
 ## 完了チェックリスト
 - [ ] PR のレビュー総評・全インラインコメント・通常コメントを漏れなく確認した
 - [ ] 全指摘についてコードベースの裏付けをもとに妥当性を判定した
-- [ ] `.\tools\verify_loop.ps1 -Full -JsonOut ".agent_logs\verify_review.json"` で全 5 ゲート合格（エラー 0・警告 0・全テスト合格・仕様書同期 OK・XAML 等価性 OK・Python ツールテスト合格）、`.agent_build/` 非残留を確認した
+- [ ] `.\tools\verify_loop.ps1 -Full -BaseBranch "<baseRefName>" -PreferOriginBase -JsonOut ".agent_logs\verify_review.json"` で全 5 ゲート合格（エラー 0・警告 0・全テスト合格・仕様書同期 OK・XAML 等価性 OK・Python ツールテスト合格）、`.agent_build/` 非残留を確認した
 - [ ] 変更内容を意味のある単位ごとにコミット分割し、リモートへプッシュ（`git push origin <ブランチ名>`）まで完了した
 - [ ] PR 本文（必要な場合）を更新し、全インライン指摘への個別返信と総括コメントを投稿した
 - [ ] 最終ステップで `git status -sb` および `git log origin/<ブランチ名>..HEAD --oneline` を実行し、カレントブランチにコミット前の差分が1件も残っておらずリモートと完全同期していることを確認した
