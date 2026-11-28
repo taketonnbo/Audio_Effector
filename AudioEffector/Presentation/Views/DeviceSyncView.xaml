@@ -299,10 +299,89 @@
 
         <!-- Transfer Section -->
         <StackPanel Grid.Row="3">
-            <Grid>
-                <TextBlock Text="{Binding TransferProgress, StringFormat='Transferring: {0:0}%'}" Foreground="{DynamicResource TextForegroundBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,6" FontSize="10"/>
-            </Grid>
-            
+            <!-- 転送中の詳細進捗パネル（プログレスバー・件数・現在ファイル名・フェーズ・中止ボタン） -->
+            <Border x:Name="TransferProgressPanel"
+                    Visibility="{Binding IsTransferring, Converter={StaticResource BoolToVis}}"
+                    Background="{DynamicResource ControlBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="10,8"
+                    Margin="0,0,0,8">
+                <StackPanel>
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="TransferPhaseTextBlock"
+                                   Grid.Column="0"
+                                   Text="{Binding TransferPhaseText}"
+                                   Foreground="{DynamicResource NeonCyanBrush}"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,8,0"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="CurrentTransferFileNameTextBlock"
+                                   Grid.Column="1"
+                                   Text="{Binding CurrentTransferFileName}"
+                                   Foreground="{DynamicResource TextForegroundBrush}"
+                                   FontSize="11"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TransferProgressCountTextBlock"
+                                   Grid.Column="2"
+                                   Text="{Binding TransferProgressCountText}"
+                                   Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Margin="10,0,0,0"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ProgressBar x:Name="TransferProgressBar"
+                                     Grid.Column="0"
+                                     Minimum="0"
+                                     Maximum="100"
+                                     Value="{Binding TransferProgress, Mode=OneWay}"
+                                     Height="10"
+                                     VerticalAlignment="Center"
+                                     Margin="0,0,10,0"
+                                     Background="{DynamicResource ControlBackgroundHighlightBrush}"
+                                     Foreground="{DynamicResource NeonCyanBrush}"
+                                     BorderThickness="0"/>
+                        <Button x:Name="CancelTransferButton"
+                                Grid.Column="1"
+                                Command="{Binding CancelTransferCommand}"
+                                Height="28"
+                                Padding="12,0"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                Background="{DynamicResource ControlBackgroundHighlightBrush}"
+                                Foreground="{DynamicResource TextForegroundBrush}"
+                                FontSize="11"
+                                FontWeight="SemiBold">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Content" Value="✕ 転送を中止"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCancelling}" Value="True">
+                                            <Setter Property="Content" Value="中止中..."/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <Button Command="{Binding TransferSelectedCommand}" Height="50" Background="#00FFFF" IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}">
                 <Button.Style>
                     <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">

@@ -360,6 +360,8 @@ public partial class MainWindow : Window
                 e.Cancel = true;
                 return;
             }
+
+            vm.DeviceBrowser.CancelTransfer();
         }
         base.OnClosing(e);
     }
