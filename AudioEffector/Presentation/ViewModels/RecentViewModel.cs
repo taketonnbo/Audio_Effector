@@ -27,6 +27,7 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
 
     private readonly IRecentTrackRepository? _repository;
     private readonly IListeningStatsRepository? _statsRepository;
+    private readonly ListeningStatsApplicationService? _listeningStatsService;
     private readonly LibraryViewModel _libraryViewModel;
     private readonly IAudioService _audioService;
     private readonly Func<DateTime> _clock;
@@ -137,13 +138,15 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
     /// <param name="libraryViewModel">ライブラリViewModel</param>
     /// <param name="audioService">音声再生サービス</param>
     /// <param name="clock">現在時刻プロバイダ（テスト用、省略時はDateTime.Now）</param>
+    /// <param name="listeningStatsService">全リセット通知を購読するリスニング統計アプリケーションサービス（任意）</param>
     [ActivatorUtilitiesConstructor]
     public RecentViewModel(
         IListeningStatsRepository statsRepository,
         LibraryViewModel libraryViewModel,
         IAudioService audioService,
-        Func<DateTime>? clock = null)
-        : this(null, statsRepository ?? throw new ArgumentNullException(nameof(statsRepository)), libraryViewModel, audioService, clock)
+        Func<DateTime>? clock = null,
+        ListeningStatsApplicationService? listeningStatsService = null)
+        : this(null, statsRepository ?? throw new ArgumentNullException(nameof(statsRepository)), libraryViewModel, audioService, clock, listeningStatsService)
     {
     }
 
@@ -159,7 +162,7 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
         LibraryViewModel libraryViewModel,
         IAudioService audioService,
         Func<DateTime>? clock = null)
-        : this(repository ?? throw new ArgumentNullException(nameof(repository)), null, libraryViewModel, audioService, clock)
+        : this(repository ?? throw new ArgumentNullException(nameof(repository)), null, libraryViewModel, audioService, clock, listeningStatsService: null)
     {
     }
 
@@ -168,10 +171,12 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
         IListeningStatsRepository? statsRepository,
         LibraryViewModel libraryViewModel,
         IAudioService audioService,
-        Func<DateTime>? clock)
+        Func<DateTime>? clock,
+        ListeningStatsApplicationService? listeningStatsService)
     {
         _repository = repository;
         _statsRepository = statsRepository;
+        _listeningStatsService = listeningStatsService;
         _libraryViewModel = libraryViewModel ?? throw new ArgumentNullException(nameof(libraryViewModel));
         _audioService = audioService ?? throw new ArgumentNullException(nameof(audioService));
         _clock = clock ?? (() => DateTime.Now);
@@ -197,6 +202,10 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
         _audioService.TrackChanged += OnAudioTrackChanged;
         _libraryViewModel.Tracks.CollectionChanged += OnLibraryTracksChanged;
         _libraryViewModel.LibrarySynced += OnLibrarySynced;
+        if (_listeningStatsService != null)
+        {
+            _listeningStatsService.StatsReset += OnListeningStatsReset;
+        }
     }
 
     /// <summary>
@@ -558,6 +567,16 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private void OnListeningStatsReset()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        LoadHistory();
+    }
+
     private void ScheduleLibrarySync()
     {
         if (_disposed || _allEntries.Count == 0)
@@ -682,6 +701,10 @@ public sealed class RecentViewModel : ViewModelBase, IDisposable
             _audioService.TrackChanged -= OnAudioTrackChanged;
             _libraryViewModel.Tracks.CollectionChanged -= OnLibraryTracksChanged;
             _libraryViewModel.LibrarySynced -= OnLibrarySynced;
+            if (_listeningStatsService != null)
+            {
+                _listeningStatsService.StatsReset -= OnListeningStatsReset;
+            }
         }
     }
 }
