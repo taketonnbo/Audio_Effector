@@ -2918,7 +2918,7 @@ namespace AudioEffector.Presentation.ViewModels
                 _wasMaximizedBeforeLyrics = true;
                 IsAlbumViewMaximized = false;
             }
-            else
+            else if (ActiveRightExtensionPanel == RightExtensionPanelType.None)
             {
                 _wasMaximizedBeforeLyrics = false;
             }
@@ -2969,6 +2969,10 @@ namespace AudioEffector.Presentation.ViewModels
             {
                 _wasMaximizedBeforeLyrics = true;
                 IsAlbumViewMaximized = false;
+            }
+            else if (ActiveRightExtensionPanel == RightExtensionPanelType.None)
+            {
+                _wasMaximizedBeforeLyrics = false;
             }
 
             ActiveRightExtensionPanel = RightExtensionPanelType.LrcGenerator;
