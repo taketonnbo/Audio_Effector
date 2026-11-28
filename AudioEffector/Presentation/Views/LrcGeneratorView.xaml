@@ -656,13 +656,19 @@
                                    FontSize="11"
                                    Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                                    TextWrapping="Wrap"
+                                   Margin="0,0,0,4"/>
+                        <TextBlock x:Name="AudioTranscriptionDisclaimerText"
+                                   Text="※ ローカル AI モデルによる自動文字起こしのため、誤認識や誤表現が含まれる場合があります（生成後のプレビュー画面で手動修正できます）。"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                   TextWrapping="Wrap"
                                    Margin="0,0,0,12"/>
                         <WrapPanel>
                             <Button x:Name="TranscribeAudioButton"
                                     Content="音声から文字起こしして LRC を生成"
                                     Style="{StaticResource LrcAccentSecondaryButtonStyle}"
                                     Command="{Binding TranscribeAudioCommand}"
-                                    ToolTip="テキストファイルを使わず楽曲音声から直接文字起こしして LRC を生成します"
+                                    ToolTip="テキストファイルを使わず楽曲音声から直接文字起こしして LRC を生成します（AI 文字起こしのため誤認識・誤表現が含まれる場合があります）"
                                     AutomationProperties.Name="音声から文字起こししてLRCを生成"/>
                         </WrapPanel>
                     </StackPanel>
