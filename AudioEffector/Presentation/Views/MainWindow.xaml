@@ -793,6 +793,7 @@
                             <Setter Property="BorderThickness" Value="1"/>
                             <Setter Property="Foreground" Value="{DynamicResource MutedTextForegroundBrush}"/>
                             <Setter Property="ToolTip" Value="歌詞を表示"/>
+                            <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
                             <Setter Property="Template">
                                 <Setter.Value>
                                     <ControlTemplate TargetType="ToggleButton">
