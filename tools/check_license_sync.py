@@ -68,16 +68,11 @@ MODEL_DEFINITION_PATTERNS: Tuple[str, ...] = (
     "AudioEffector.Domain/ValueObjects/LocalSpeechModelInfo.cs",
 )
 
-PUBLISH_CONFIG_PATTERNS: Tuple[str, ...] = (
-    "Directory.Build.props",
-    "**/Properties/PublishProfiles/*.pubxml",
-)
-
 TEST_PROJECT_PREFIX_RE = re.compile(r"^[^/]+\.Tests/", re.IGNORECASE)
 BIN_DLL_RE = re.compile(r"(?:^|/)bin/.+\.dll$", re.IGNORECASE)
 HEADING_RE = re.compile(r"^\s*#{2,3}\s+(.+?)\s*$")
 VERSION_LINE_RE = re.compile(
-    r"^\s*[-*]?\s*(?:\*\*)?Version(?:\*\*)?\s*:\s*(?:\*\*)?\s*([^\s*`]+)",
+    r"^\s*[-*]?\s*(?:\*\*)?Version(?:\*\*)?\s*:\s*(?:\*\*)?\s*`?([^\s*`]+)`?",
     re.IGNORECASE,
 )
 TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
@@ -159,29 +154,71 @@ def resolve_base_ref(base_ref: str, repo_root: Path) -> Optional[str]:
     return None
 
 
+def resolve_merge_base(resolved_ref: str, repo_root: Path) -> Optional[str]:
+    """resolved_ref と HEAD のマージベースコミット SHA を取得する。"""
+    rc, out, _ = run_git(["merge-base", resolved_ref, "HEAD"], repo_root)
+    if rc == 0 and out.strip():
+        return out.strip().splitlines()[0].strip()
+    return None
+
+
 def collect_changed_files(
     base_ref: str,
     include_working: bool,
     repo_root: Path,
-) -> Tuple[List[str], Set[str], Optional[str]]:
-    """base_ref...HEAD および作業ツリーの差分ファイル一覧と新規追加ファイル集合を取得する。"""
+) -> Tuple[List[str], Set[str], Set[str], Optional[str], Optional[str], Optional[str]]:
+    """
+    base_ref...HEAD および作業ツリーの差分ファイル一覧を取得する。
+    Returns:
+        (changed_files, added_files, untracked_files, resolved_ref, merge_base_commit, base_error)
+    """
     changed: Set[str] = set()
     added: Set[str] = set()
+    untracked: Set[str] = set()
 
     resolved_ref = resolve_base_ref(base_ref, repo_root)
-    if resolved_ref:
-        rc, out, _ = run_git(["diff", "--name-status", f"{resolved_ref}...HEAD"], repo_root)
-        if rc == 0:
-            for line in out.splitlines():
-                if not line.strip():
-                    continue
-                parts = line.split("\t")
-                status = parts[0].strip()
-                path_item = normalize_path(parts[-1])
-                if path_item:
-                    changed.add(path_item)
-                    if status.startswith("A"):
-                        added.add(path_item)
+    if resolved_ref is None:
+        return (
+            [],
+            set(),
+            set(),
+            None,
+            None,
+            f"比較ベース '{base_ref}'（および 'origin/{base_ref}'）を解決できませんでした。ブランチ名またはコミット参照を確認してください。",
+        )
+
+    merge_base_commit = resolve_merge_base(resolved_ref, repo_root)
+    if merge_base_commit is None:
+        return (
+            [],
+            set(),
+            set(),
+            resolved_ref,
+            None,
+            f"比較ベース '{resolved_ref}' と HEAD のマージベースを解決できませんでした。",
+        )
+
+    rc, out, err = run_git(["diff", "--name-status", f"{merge_base_commit}..HEAD"], repo_root)
+    if rc != 0:
+        return (
+            [],
+            set(),
+            set(),
+            resolved_ref,
+            merge_base_commit,
+            f"比較ベース '{resolved_ref}' ({merge_base_commit}) からの差分取得に失敗しました: {err.strip()}",
+        )
+
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        status = parts[0].strip()
+        path_item = normalize_path(parts[-1])
+        if path_item:
+            changed.add(path_item)
+            if status.startswith("A"):
+                added.add(path_item)
 
     if include_working:
         for git_args in (
@@ -208,8 +245,9 @@ def collect_changed_files(
                 if path_item:
                     changed.add(path_item)
                     added.add(path_item)
+                    untracked.add(path_item)
 
-    return sorted(changed), added, resolved_ref
+    return sorted(changed), added, untracked, resolved_ref, merge_base_commit, None
 
 
 def parse_csproj_xml(xml_text: str) -> Tuple[Dict[str, Tuple[str, str]], bool]:
@@ -282,16 +320,22 @@ def load_product_packages(repo_root: Path) -> Tuple[Dict[str, Dict[str, Any]], L
         if has_sf:
             single_file_sources.append("Directory.Build.props")
 
-    for pubxml in sorted(repo_root.glob("**/Properties/PublishProfiles/*.pubxml")):
-        try:
-            rel = normalize_path(str(pubxml.relative_to(repo_root)))
-        except ValueError:
+    # 製品 5 プロジェクト直下の Properties/PublishProfiles/*.pubxml のみを直接走査し、
+    # .agent_worktrees/・.git/・.agent_build/・bin/・obj/・*.Tests/ を巻き込まない
+    for csproj_rel in PRODUCT_CSPROJ_PATHS:
+        profiles_dir = repo_root / Path(csproj_rel).parent / "Properties" / "PublishProfiles"
+        if not profiles_dir.is_dir():
             continue
-        if is_test_project_path(rel):
-            continue
-        _, has_sf = parse_csproj_xml(pubxml.read_text(encoding="utf-8-sig", errors="replace"))
-        if has_sf:
-            single_file_sources.append(rel)
+        for pubxml in sorted(profiles_dir.glob("*.pubxml")):
+            if not pubxml.is_file():
+                continue
+            try:
+                rel = normalize_path(str(pubxml.relative_to(repo_root)))
+            except ValueError:
+                continue
+            _, has_sf = parse_csproj_xml(pubxml.read_text(encoding="utf-8-sig", errors="replace"))
+            if has_sf:
+                single_file_sources.append(rel)
 
     return merged, sorted(set(single_file_sources))
 
@@ -432,7 +476,10 @@ def analyze_license_sync(
     mode = "all"
     changed_files: List[str] = []
     added_files: Set[str] = set()
+    untracked_files: Set[str] = set()
     resolved_base_ref: Optional[str] = None
+    merge_base_commit: Optional[str] = None
+    base_error: Optional[str] = None
 
     if files is not None:
         mode = "files"
@@ -440,7 +487,14 @@ def analyze_license_sync(
         added_files = set(changed_files)
     elif base_ref is not None:
         mode = "base"
-        changed_files, added_files, resolved_base_ref = collect_changed_files(
+        (
+            changed_files,
+            added_files,
+            untracked_files,
+            resolved_base_ref,
+            merge_base_commit,
+            base_error,
+        ) = collect_changed_files(
             base_ref=base_ref,
             include_working=not committed_only,
             repo_root=repo_root,
@@ -453,7 +507,7 @@ def analyze_license_sync(
     diff_package_violations: List[Dict[str, Any]] = []
     review_triggers: List[Dict[str, Any]] = []
 
-    if mode in ("base", "files"):
+    if mode in ("base", "files") and base_error is None:
         changed_product_csprojs = [f for f in changed_files if is_product_csproj(f)]
 
         for csproj_rel in changed_product_csprojs:
@@ -462,8 +516,8 @@ def analyze_license_sync(
             if full_csproj.is_file():
                 curr_pkgs, _ = parse_csproj_xml(full_csproj.read_text(encoding="utf-8-sig", errors="replace"))
 
-            if mode == "base" and resolved_base_ref is not None:
-                base_pkgs = load_base_csproj_packages(resolved_base_ref, csproj_rel, repo_root)
+            if mode == "base" and merge_base_commit is not None:
+                base_pkgs = load_base_csproj_packages(merge_base_commit, csproj_rel, repo_root)
                 for key, (orig_name, curr_ver) in sorted(curr_pkgs.items()):
                     if key not in base_pkgs:
                         change_kind = "added"
@@ -560,26 +614,32 @@ def analyze_license_sync(
                 ),
             })
 
-    # bin/ 配下 DLL の Git 誤追跡検知（削除済みファイルは対象外とし、追跡継続中または新規実在のみ対象）
+    # bin/ 配下 DLL の Git 誤追跡検知（git rm --cached 後に .gitignore 配下でローカル残存するファイルは除外し、
+    # 現在 Git 追跡中または .gitignore 非該当の新規未追跡ファイルのみ対象とする）
     tracked_bin_dlls = detect_tracked_bin_dlls(
         repo_root=repo_root,
         files_override=changed_files if mode == "files" else None,
     )
     tracked_bin_lower = {p.lower() for p in tracked_bin_dlls}
-    diff_tracked_bin_dlls: List[str] = (
-        sorted(
+    untracked_lower = {p.lower() for p in untracked_files}
+    if mode == "base":
+        diff_tracked_bin_dlls: List[str] = sorted(
             f for f in changed_files
             if BIN_DLL_RE.search(f)
             and not f.lower().startswith(".agent_build/")
-            and (f.lower() in tracked_bin_lower or (repo_root / f).is_file())
+            and (f.lower() in tracked_bin_lower or f.lower() in untracked_lower)
         )
-        if mode in ("base", "files")
-        else list(tracked_bin_dlls)
-    )
+    elif mode == "files":
+        diff_tracked_bin_dlls = list(tracked_bin_dlls)
+    else:
+        diff_tracked_bin_dlls = list(tracked_bin_dlls)
 
     # ブロッキングエラーと警告の集約
     blocking_errors: List[str] = []
     warnings: List[str] = []
+
+    if base_error is not None:
+        blocking_errors.append(base_error)
 
     if not notices_exists:
         blocking_errors.append(f"{NOTICES_REL_PATH} がリポジトリルートに存在しません。")
@@ -667,6 +727,7 @@ def analyze_license_sync(
         "mode": mode,
         "base_ref": base_ref,
         "resolved_base_ref": resolved_base_ref,
+        "merge_base_commit": merge_base_commit,
         "notices_path": NOTICES_REL_PATH,
         "notices_exists": notices_exists,
         "notices_updated": notices_updated,
@@ -797,24 +858,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         committed_only=args.committed_only,
     )
 
-    strict_all_failed = bool(
-        args.strict_all
-        and (
-            result["blocking_errors"]
-            or result["missing_packages"]
-            or result["version_mismatches"]
-            or result["tracked_bin_dlls"]
-        )
+    has_existing_debt = bool(
+        result["missing_packages"]
+        or result["version_mismatches"]
+        or result["tracked_bin_dlls"]
     )
-    if strict_all_failed and result["passed"]:
+    strict_all_failed = bool(args.strict_all and (result["blocking_errors"] or has_existing_debt))
+    if strict_all_failed:
+        was_passed = result["passed"]
         result["passed"] = False
-        result["blocking_errors"] = list(result["blocking_errors"]) + [
-            f"全量厳格チェック (--strict-all): 未記載パッケージ {len(result['missing_packages'])} 件 / バージョン不一致 {len(result['version_mismatches'])} 件 / 追跡 bin DLL {len(result['tracked_bin_dlls'])} 件"
-        ]
-        result["summary"] = (
-            f"全量ライセンス同期チェック (--strict-all) で不整合を検出しました "
-            f"(未記載: {len(result['missing_packages'])}件, 不一致: {len(result['version_mismatches'])}件, 追跡bin DLL: {len(result['tracked_bin_dlls'])}件)。"
-        )
+        result["needs_update"] = True
+        if has_existing_debt:
+            debt_msg = (
+                f"全量厳格チェック (--strict-all): 未記載パッケージ {len(result['missing_packages'])} 件 / "
+                f"バージョン不一致 {len(result['version_mismatches'])} 件 / 追跡 bin DLL {len(result['tracked_bin_dlls'])} 件"
+            )
+            if debt_msg not in result["blocking_errors"]:
+                result["blocking_errors"] = list(result["blocking_errors"]) + [debt_msg]
+        if was_passed:
+            result["summary"] = (
+                f"全量ライセンス同期チェック (--strict-all) で不整合を検出しました "
+                f"(未記載: {len(result['missing_packages'])}件, 不一致: {len(result['version_mismatches'])}件, 追跡bin DLL: {len(result['tracked_bin_dlls'])}件)。"
+            )
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
