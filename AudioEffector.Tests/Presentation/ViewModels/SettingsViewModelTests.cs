@@ -410,10 +410,11 @@ public class SettingsViewModelTests
         logManagerMock.SetupGet(m => m.AvailableLogLevels).Returns(["Trace", "Debug", "Info", "Warn", "Error", "Off"]);
         logManagerMock.SetupGet(m => m.DefaultLogDirectory).Returns(@"C:\App\logs");
         logManagerMock.SetupGet(m => m.CurrentLogDirectory).Returns(@"C:\App\logs");
+        logManagerMock.SetupGet(m => m.IsCustomLogDirectory).Returns(false);
         logManagerMock.Setup(m => m.NormalizeLogLevel(It.IsAny<string?>()))
             .Returns<string?>(v => string.IsNullOrWhiteSpace(v) ? "Info" : v);
-        logManagerMock.Setup(m => m.ApplyConfiguration(It.IsAny<string?>(), It.IsAny<string?>()))
-            .Returns<string?, string?>((lvl, dir) => new AudioEffector.Application.Common.LogConfigurationApplyResult(true, lvl ?? "Info", dir ?? @"C:\App\logs", false));
+        logManagerMock.Setup(m => m.ApplyConfiguration(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<bool>()))
+            .Returns<string?, string?, bool>((lvl, dir, _) => new AudioEffector.Application.Common.LogConfigurationApplyResult(true, lvl ?? "Info", dir ?? @"C:\App\logs", false));
 
         var sut = new SettingsViewModel(
             _settingsServiceMock.Object,
@@ -434,7 +435,40 @@ public class SettingsViewModelTests
         Assert.Equal("Debug", _persistedSettings.LogLevel);
         Assert.Single(notified, p => p == nameof(SettingsViewModel.SelectedLogLevel));
         _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
-        logManagerMock.Verify(m => m.ApplyConfiguration("Debug", null), Times.Once);
+        logManagerMock.Verify(m => m.ApplyConfiguration("Debug", null, true), Times.Once);
+    }
+
+    /// <summary>
+    /// 起動時フォールバック後にログレベルを変更しても、無効な旧カスタムパスを再適用せず現在有効なディレクトリ（既定）を維持することを検証します。
+    /// </summary>
+    [Fact]
+    public void SelectedLogLevel_起動時フォールバック後の変更時_無効な旧パスを再適用しないこと()
+    {
+        // Arrange
+        _initialSettings.LogDirectoryPath = @"Z:\DisconnectedDrive\Logs";
+        var logManagerMock = new Mock<AudioEffector.Application.Common.ILogConfigurationManager>();
+        logManagerMock.SetupGet(m => m.AvailableLogLevels).Returns(["Trace", "Debug", "Info", "Warn", "Error", "Off"]);
+        logManagerMock.SetupGet(m => m.DefaultLogDirectory).Returns(@"C:\App\logs");
+        logManagerMock.SetupGet(m => m.CurrentLogDirectory).Returns(@"C:\App\logs");
+        logManagerMock.SetupGet(m => m.IsCustomLogDirectory).Returns(false);
+        logManagerMock.Setup(m => m.NormalizeLogLevel(It.IsAny<string?>()))
+            .Returns<string?>(v => string.IsNullOrWhiteSpace(v) ? "Info" : v);
+        logManagerMock.Setup(m => m.ApplyConfiguration("Warn", null, true))
+            .Returns(new AudioEffector.Application.Common.LogConfigurationApplyResult(true, "Warn", @"C:\App\logs", false));
+
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            dataDirectoryProvider: null,
+            dataDirectoryMigrationService: null,
+            logConfigurationManager: logManagerMock.Object);
+
+        // Act
+        sut.SelectedLogLevel = "Warn";
+
+        // Assert
+        logManagerMock.Verify(m => m.ApplyConfiguration("Warn", null, true), Times.Once);
+        logManagerMock.Verify(m => m.ApplyConfiguration("Warn", @"Z:\DisconnectedDrive\Logs", It.IsAny<bool>()), Times.Never);
     }
 
     /// <summary>
@@ -454,8 +488,8 @@ public class SettingsViewModelTests
         logManagerMock.SetupGet(m => m.CurrentLogDirectory).Returns(() => currentLogs);
         logManagerMock.SetupGet(m => m.IsCustomLogDirectory).Returns(() => isCustom);
         logManagerMock.Setup(m => m.NormalizeLogLevel(It.IsAny<string?>())).Returns<string?>(v => v ?? "Info");
-        logManagerMock.Setup(m => m.ApplyConfiguration(It.IsAny<string?>(), It.IsAny<string?>()))
-            .Returns<string?, string?>((lvl, dir) =>
+        logManagerMock.Setup(m => m.ApplyConfiguration(It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<bool>()))
+            .Returns<string?, string?, bool>((lvl, dir, _) =>
             {
                 if (string.IsNullOrWhiteSpace(dir))
                 {
@@ -499,7 +533,7 @@ public class SettingsViewModelTests
     }
 
     /// <summary>
-    /// BrowseLogDirectoryCommand で書き込み不可フォルダが選択されフォールバックが発生した場合、エラー通知され設定値が汚染されないことを検証します。
+    /// BrowseLogDirectoryCommand で書き込み不可フォルダが選択された場合、現行の有効設定を保持したままエラー通知され設定値が汚染されないことを検証します。
     /// </summary>
     [Fact]
     public void BrowseLogDirectoryCommand_書き込み不可フォルダ選択時_エラー通知され設定が書き換わらないこと()
@@ -508,15 +542,15 @@ public class SettingsViewModelTests
         var logManagerMock = new Mock<AudioEffector.Application.Common.ILogConfigurationManager>();
         logManagerMock.SetupGet(m => m.AvailableLogLevels).Returns(["Trace", "Debug", "Info", "Warn", "Error", "Off"]);
         logManagerMock.SetupGet(m => m.DefaultLogDirectory).Returns(@"C:\App\logs");
-        logManagerMock.SetupGet(m => m.CurrentLogDirectory).Returns(@"C:\App\logs");
-        logManagerMock.SetupGet(m => m.IsCustomLogDirectory).Returns(false);
+        logManagerMock.SetupGet(m => m.CurrentLogDirectory).Returns(@"D:\ExistingCustomLogs");
+        logManagerMock.SetupGet(m => m.IsCustomLogDirectory).Returns(true);
         logManagerMock.Setup(m => m.NormalizeLogLevel(It.IsAny<string?>())).Returns<string?>(v => v ?? "Info");
-        logManagerMock.Setup(m => m.ApplyConfiguration("Info", @"Z:\ReadOnlyLogs"))
+        logManagerMock.Setup(m => m.ApplyConfiguration("Info", @"Z:\ReadOnlyLogs", false))
             .Returns(new AudioEffector.Application.Common.LogConfigurationApplyResult(
-                Succeeded: true,
+                Succeeded: false,
                 AppliedLogLevel: "Info",
-                EffectiveLogDirectory: @"C:\App\logs",
-                UsedFallbackDirectory: true,
+                EffectiveLogDirectory: @"D:\ExistingCustomLogs",
+                UsedFallbackDirectory: false,
                 WarningMessage: "アクセス拒否"));
 
         bool notifiedError = false;
@@ -536,7 +570,8 @@ public class SettingsViewModelTests
 
         // Assert
         Assert.True(notifiedError);
-        Assert.Null(_persistedSettings.LogDirectoryPath);
+        Assert.Equal(@"D:\ExistingCustomLogs", sut.LogDirectoryPath);
+        Assert.True(sut.IsCustomLogDirectory);
         _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Never);
     }
 

@@ -167,6 +167,99 @@ public sealed class LogConfigurationManagerTests : IDisposable
         Assert.Equal(Path.Combine(defaultLogsDir, "app.log"), scope.FileTarget.FileName.Render(LogEventInfo.CreateNullEvent()));
     }
 
+    /// <summary>
+    /// Off から Debug へ復帰させた際、すべての有効レベル（Debug 以上）が再度有効化されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ApplyConfiguration_OffからDebugへ復帰時_Debug以上のレベルが再有効化されること()
+    {
+        // Arrange
+        string defaultLogsDir = Path.Combine(_tempRoot, "DefaultLogsOffResume");
+        using var scope = new NLogConfigScope();
+        var sut = new LogConfigurationManager(defaultLogsDir, () => scope.Config, () => { });
+
+        // Act
+        sut.ApplyConfiguration("Off", null);
+        bool enabledDuringOff = scope.Rule.IsLoggingEnabledForLevel(LogLevel.Error);
+        var resumed = sut.ApplyConfiguration("Debug", null);
+
+        // Assert
+        Assert.False(enabledDuringOff);
+        Assert.True(resumed.Succeeded);
+        Assert.Equal("Debug", sut.CurrentLogLevel);
+        Assert.False(scope.Rule.IsLoggingEnabledForLevel(LogLevel.Trace));
+        Assert.True(scope.Rule.IsLoggingEnabledForLevel(LogLevel.Debug));
+        Assert.True(scope.Rule.IsLoggingEnabledForLevel(LogLevel.Error));
+    }
+
+    /// <summary>
+    /// ディレクトリ名に NLog レイアウト記法（${...}）を含むパスを指定した場合でも、例外を送出せず安全に適用されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ApplyConfiguration_レイアウト記法を含むパス指定時_NLog例外なくリテラル適用されること()
+    {
+        // Arrange
+        string defaultLogsDir = Path.Combine(_tempRoot, "DefaultLogsDollar");
+        string dollarLogsDir = Path.Combine(_tempRoot, "Logs_${custom_var}");
+        using var scope = new NLogConfigScope();
+        var sut = new LogConfigurationManager(defaultLogsDir, () => scope.Config, () => { });
+
+        // Act
+        var result = sut.ApplyConfiguration("Info", dollarLogsDir);
+
+        // Assert
+        Assert.True(result.Succeeded);
+        Assert.False(result.UsedFallbackDirectory);
+        Assert.Equal(dollarLogsDir, result.EffectiveLogDirectory);
+        Assert.Equal(Path.Combine(dollarLogsDir, "app.log"), scope.FileTarget.FileName.Render(LogEventInfo.CreateNullEvent()));
+        Assert.Equal(Path.Combine(dollarLogsDir, "app.log"), scope.FileTarget.ArchiveFileName!.Render(LogEventInfo.CreateNullEvent()));
+    }
+
+    /// <summary>
+    /// LoggingConfiguration が null の環境でも例外を投げずに状態更新できることを検証します。
+    /// </summary>
+    [Fact]
+    public void ApplyConfiguration_NLog構成がnullの場合_例外なく状態更新されること()
+    {
+        // Arrange
+        string defaultLogsDir = Path.Combine(_tempRoot, "DefaultLogsNullCfg");
+        int reconfigCount = 0;
+        var sut = new LogConfigurationManager(defaultLogsDir, () => null, () => reconfigCount++);
+
+        // Act
+        var result = sut.ApplyConfiguration("Trace", null);
+
+        // Assert
+        Assert.True(result.Succeeded);
+        Assert.Equal("Trace", sut.CurrentLogLevel);
+        Assert.Equal(defaultLogsDir, sut.CurrentLogDirectory);
+        Assert.Equal(0, reconfigCount);
+    }
+
+    /// <summary>
+    /// fallbackToDefaultOnError に false を指定して無効パスを渡した場合、現行のカスタムディレクトリを変更せず失敗を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public void ApplyConfiguration_フォールバック無効で無効パス指定時_現行設定を維持して失敗を返すこと()
+    {
+        // Arrange
+        string defaultLogsDir = Path.Combine(_tempRoot, "DefaultLogsNoFallback");
+        string validCustomDir = Path.Combine(_tempRoot, "ValidCustomLogs");
+        using var scope = new NLogConfigScope();
+        var sut = new LogConfigurationManager(defaultLogsDir, () => scope.Config, () => { });
+        sut.ApplyConfiguration("Debug", validCustomDir);
+
+        // Act
+        var result = sut.ApplyConfiguration("Debug", "Z:\0invalid\\logs", fallbackToDefaultOnError: false);
+
+        // Assert
+        Assert.False(result.Succeeded);
+        Assert.False(result.UsedFallbackDirectory);
+        Assert.True(sut.IsCustomLogDirectory);
+        Assert.Equal(validCustomDir, sut.CurrentLogDirectory);
+        Assert.Equal(Path.Combine(validCustomDir, "app.log"), scope.FileTarget.FileName.Render(LogEventInfo.CreateNullEvent()));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempRoot))
