@@ -137,3 +137,6 @@
 - [歌詞表示機能 仕様書](歌詞表示機能.md)（再生中の同期歌詞表示・探索優先順位・保存後即時反映の受け側仕様）
 - [歌詞表示 UI仕様書](../画面設計/歌詞表示/歌詞表示UI仕様書.md)（右側タブ下部拡張領域のレイアウト・LRC 生成画面への起動導線）
 - [全体レイアウト・ペイン構成UI仕様書](../画面設計/全体レイアウト・ペイン構成/全体レイアウト・ペイン構成UI仕様書.md)
+- [ドメイン層詳細設計書](../詳細設計/アーキテクチャ/ドメイン層詳細設計書.md)（`IAudioAlignmentEngine`・`ILocalSpeechModelManager`・`ITextEncodingService`・`LyricsForcedAligner`・各種値オブジェクト）
+- [アプリケーション層詳細設計書](../詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md)（`LrcGenerationApplicationService`）
+- [インフラストラクチャ層詳細設計書](../詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md)（`WhisperLocalAlignmentEngine`・`WhisperModelManager`・`TextEncodingService`・`AudioPcmDecoder`）
