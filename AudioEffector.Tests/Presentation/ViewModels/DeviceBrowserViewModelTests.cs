@@ -577,6 +577,110 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// ResolveDeviceKeyがMTP/FileSystem/明示DeviceKeyを正しく解決し、パス末尾区切りや大文字小文字の違いを吸収してIsCurrentFolderDefaultを判定することを検証します。
+    /// </summary>
+    [Fact]
+    public void ResolveDeviceKeyおよびパス正規化_各種機器形式とパス表記ゆれ_正しく識別および既定判定されること()
+    {
+        // Arrange
+        var explicitDevice = new MainViewModel.DeviceViewModel
+        {
+            Name = "WALKMAN",
+            DeviceKey = "MTP:EXPLICIT_ID",
+            Type = MainViewModel.DeviceType.MTP
+        };
+        var mtpFallbackDevice = new MainViewModel.DeviceViewModel
+        {
+            Name = "WALKMAN NW-A100",
+            Type = MainViewModel.DeviceType.MTP
+        };
+        var fsDevice = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (E:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = @"E:\"
+        };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.DeviceDefaultTransferFolders["FS:E:\\"] = @"E:\Music\");
+        var albums = new ObservableCollection<Album>();
+
+        using var sut = new DeviceBrowserViewModel(
+            albums,
+            () => albums,
+            () => { },
+            readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+            settingsService: settingsService);
+
+        // Act
+        string keyExplicit = DeviceBrowserViewModel.ResolveDeviceKey(explicitDevice);
+        string keyMtp = DeviceBrowserViewModel.ResolveDeviceKey(mtpFallbackDevice);
+        string keyFs = DeviceBrowserViewModel.ResolveDeviceKey(fsDevice);
+
+        sut.SelectedDevice = fsDevice;
+        sut.CurrentDevicePath = @"e:/music";
+
+        // Assert
+        Assert.Equal("MTP:EXPLICIT_ID", keyExplicit);
+        Assert.Equal("MTP:WALKMAN NW-A100", keyMtp);
+        Assert.Equal(@"FS:E:\", keyFs);
+        Assert.True(sut.IsCurrentFolderDefault);
+    }
+
+    /// <summary>
+    /// ルートフォールバック通知が表示された後、ユーザーが手動で別フォルダへ移動すると通知がクリアされることを検証します。
+    /// </summary>
+    [Fact]
+    public void NavigateDirectory_フォールバック通知表示後に手動移動時_通知がクリアされること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_NavClear_{Guid.NewGuid():N}");
+        string subDir = Path.Combine(tempRoot, "ExistingMusic");
+        Directory.CreateDirectory(subDir);
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.DeviceDefaultTransferFolders["FS:NAV_TEST"] = Path.Combine(tempRoot, "Deleted"));
+        var albums = new ObservableCollection<Album>();
+
+        try
+        {
+            var device = new MainViewModel.DeviceViewModel
+            {
+                Name = "Test USB",
+                DeviceKey = "FS:NAV_TEST",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = tempRoot
+            };
+
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService);
+
+            sut.SelectedDevice = device;
+            Assert.True(sut.HasDefaultFolderStatusMessage);
+
+            // Act
+            sut.NavigateDirectoryCommand.Execute(new MainViewModel.DirectoryItem
+            {
+                Name = "ExistingMusic",
+                FullPath = subDir,
+                IsFolder = true
+            });
+
+            // Assert
+            Assert.Equal(subDir, sut.CurrentDevicePath);
+            Assert.False(sut.HasDefaultFolderStatusMessage);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private sealed class InMemorySettingsService : ISettingsService
     {
         private AppSettings _settings = new();
