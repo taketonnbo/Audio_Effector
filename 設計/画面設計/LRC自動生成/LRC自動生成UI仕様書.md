@@ -28,6 +28,16 @@
 +-----------------------------------------------------------------------------------------+
 | モデル: Whisper (base) [準備完了]   言語: [自動判定 v]         [モデル設定 / 変更]      |
 +-----------------------------------------------------------------------------------------+
+| 【初回未承諾時: CopyrightGuidelineAcceptBanner (承諾前は生成2ボタンとも非活性)】        |
+| +-------------------------------------------------------------------------------------+ |
+| |┃ ⚠ 著作権・利用ガイドラインの確認                                                   | |
+| |┃ ・私的使用の範囲内での利用 / 無断共有・公開・配布・商用利用の禁止 / 利用者責任      | |
+| |┃                                            [ ガイドラインを確認して利用する ]       | |
+| +-------------------------------------------------------------------------------------+ |
+| 【承諾後: CopyrightGuidelineNoticeBar (常設・1〜2行表示＋詳細トグル展開可能)】          |
+| +-------------------------------------------------------------------------------------+ |
+| | ※ 生成した歌詞・LRC は私的使用の範囲内でご利用ください（無断公開・配布禁止）。[詳細] | |
+| +-------------------------------------------------------------------------------------+ |
 | [ 1. テキストファイル (.txt) から生成 ]                                                 |
 | +-------------------------------------------------------------------------------------+ |
 | |   📄  midnight_city.txt  (UTF-8 / 32 行)                                [変更] [✕]  | |
@@ -219,20 +229,33 @@
 - **言語選択コンボボックス**（`NeonComboBoxStyle`）：`自動判定` / `日本語 (ja)` / `英語 (en)` を選択可能。
 - **モデル設定／指定ボタン**（`SubtleButton` / `SecondaryButton`）：ローカルの `.bin` モデルファイル選択ダイアログ、または標準モデルのダウンロード画面を開く。
 
-### 5.3 2 つの独立した生成操作エリア（別ボタン分離）
+### 5.3 著作権・利用ガイドライン警告カードおよび常設注意表示（入力状態上部）
+入力・待機状態（`IsInputState`）の最上部に、承諾状態（`HasAcceptedCopyrightGuideline` / `NeedsCopyrightGuidelineAcceptance`）に応じて以下の 2 要素を排他表示する（非表示側は `Visibility="Collapsed"`）。全テキストへ `TextWrapping="Wrap"` を適用し、`MinWidth="260"` の狭幅でも見切れやレイアウト崩れを起こさないこと。
+
+1. **初回未承諾時の警告・確認カード（`CopyrightGuidelineAcceptBanner`）**:
+   - **表示条件**: `NeedsCopyrightGuidelineAcceptance == True`（初回未承諾時）。
+   - **デザイン**: 既存の `EncodingWarningBanner` と統一し、`ControlBackgroundBrush` 背景、`BorderBrush` 1px 枠線、角丸 `Radius.Medium (8px)`、左端 `3px` の `NeonCyanBrush` 縦バー（高負荷エフェクト不使用）で構成する。
+   - **表示内容**: 見出し「`⚠ 著作権・利用ガイドラインの確認`」、導入文、およびガイドライン 3 要点（私的使用の範囲内での利用・無断共有/公開/配布/商用利用の禁止・ローカル完結処理と利用者責任）。
+   - **アクション**: `PrimaryButton`「ガイドラインを確認して利用する」（`AcceptCopyrightGuidelineButton`, `AcceptCopyrightGuidelineCommand`）。承諾確定時に `HasAcceptedLrcCopyrightGuideline = true` を設定へ非同期永続化し、即座に両生成ボタンを活性化する。
+2. **承諾後の常設・控えめなガイドライン注意表示（`CopyrightGuidelineNoticeBar`）**:
+   - **表示条件**: `HasAcceptedCopyrightGuideline == True`（承諾済み時）。
+   - **デザイン**: 作業領域を圧迫しない 1〜2 行の控えめなカード（`ControlBackgroundBrush` 背景、`BorderBrush` 1px 枠線、角丸 `8px`、`MutedTextForegroundBrush` テキスト）に、`SubtleButton`「詳細／閉じる」（`ToggleCopyrightGuidelineButton`, `ToggleCopyrightGuidelineCommand`）を右端配置する。
+   - **詳細展開領域（`CopyrightGuidelineDetailPanel`）**: `IsCopyrightGuidelineExpanded` に連動して `Visibility="Visible"` / `Collapsed` を切り替え、ガイドライン全文 3 要点をいつでも再確認できる。
+
+### 5.4 2 つの独立した生成操作エリア（別ボタン分離）
 
 テキストからの強制アライメントと音声からの直接文字起こしは明確に異なる操作エリア・別ボタンとして配置する。
 
 | 要素 | 共通コントロール | 通常時 (Normal) | ホバー時 (Hover) | 押下時 (Pressed) | 無効時 (Disabled) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **`.txt` ドロップゾーン** | `Border`（`Radius.Medium 8px`, 破線枠 `BorderBrush`, `AllowDrop="True"`） | 背景 `ControlBackgroundBrush`、ヒント文 `MutedTextForegroundBrush` | ドラッグオーバー時：枠線 `NeonCyanBrush`、背景 `ControlBackgroundHighlightBrush` | クリックでファイル選択ダイアログを開く | 生成中・モデル未配置時は操作無効（`Opacity="0.4"`） |
-| **テキストから LRC を生成** | `PrimaryButton` | 背景 `NeonCyanBrush`、文字 `InverseTextForegroundBrush` | 背景 `DarkNeonCyanBrush` | `Opacity="0.85"` | 対象楽曲未選択・`.txt` 未選択・非 UTF-8 承諾待ち・モデル未配置・生成中は `Disabled`（`Opacity="0.4"`） |
-| **音声から文字起こしして LRC を生成** | `SecondaryButton`（アクセント枠 `NeonCyanBrush` または明確な独立ボタン） | 背景 `ControlBackgroundBrush`、枠線 `NeonCyanBrush` (1px)、文字 `TextForegroundBrush` | 背景 `ControlBackgroundHighlightBrush`、文字 `NeonCyanBrush` | `Opacity="0.85"` | 対象楽曲未選択・モデル未配置・生成中は `Disabled`（`Opacity="0.4"`）。**`.txt` 未選択でも実行可能** |
+| **テキストから LRC を生成** | `PrimaryButton` | 背景 `NeonCyanBrush`、文字 `InverseTextForegroundBrush` | 背景 `DarkNeonCyanBrush` | `Opacity="0.85"` | 著作権ガイドライン未承諾・対象楽曲未選択・`.txt` 未選択・非 UTF-8 承諾待ち・モデル未配置・生成中は `Disabled`（`Opacity="0.4"`） |
+| **音声から文字起こしして LRC を生成** | `SecondaryButton`（アクセント枠 `NeonCyanBrush` または明確な独立ボタン） | 背景 `ControlBackgroundBrush`、枠線 `NeonCyanBrush` (1px)、文字 `TextForegroundBrush` | 背景 `ControlBackgroundHighlightBrush`、文字 `NeonCyanBrush` | `Opacity="0.85"` | 著作権ガイドライン未承諾・対象楽曲未選択・モデル未配置・生成中は `Disabled`（`Opacity="0.4"`）。**承諾済みであれば `.txt` 未選択でも実行可能** |
 
 - **開始前バリデーション通知（インラインバナー）**: 空の `.txt` ファイル（0 バイトまたは空白・改行のみ）、未対応拡張子のドロップ、対象楽曲の音声ファイル欠損／読み取り不可を検出した場合は、解析を開始せず入力画面内のドロップゾーン直下にインライン案内メッセージを表示し、該当生成ボタンを非活性のまま安全に待機する。
 - **自動文字起こしセクションの注意書き表示**: セクション 2（「2. 音声から直接文字起こし（.txt 不要）」）では、機能説明テキストの直下に、ローカル AI モデルによる自動文字起こしのため誤認識・誤表現が含まれる場合がある旨および生成後のプレビュー画面で手動修正できる旨を `Typography.Caption`（`11pt`）・`MutedTextForegroundBrush`・`TextWrapping="Wrap"` で明示する（狭いペイン幅 `MinWidth="260"` でも途切れず折り返し表示）。また、「音声から文字起こしして LRC を生成」ボタンの `ToolTip` にも誤認識・誤表現に関する補足文言を併記する。
 
-### 5.4 非 UTF-8 警告・変換承諾インラインバー（入力状態内併存）
+### 5.5 非 UTF-8 警告・変換承諾インラインバー（入力状態内併存）
 - **表示方式と条件**: 入力・待機状態（`Row 2`）内のドロップゾーン直下にインライン確認カードとして併存表示する（非該当時は `Visibility="Collapsed"`）。`.txt` 選択またはドロップ時に、UTF-8 以外の文字コード（Shift-JIS / CP932、EUC-JP、UTF-16 等）が検出されユーザー未承諾の状態（`IsEncodingWarningVisible = True`）で表示する。
 - **ボタン制御**: 本バー表示中は「テキストから LRC を生成」ボタンを `Disabled` にガードし、`.txt` 不要の「音声から文字起こしして LRC を生成」ボタンは引き続き操作可能とする。
 - **表示内容**:
@@ -242,12 +265,12 @@
   - `PrimaryButton`「UTF-8 に変換して続行」：変換承諾フラグを有効化し、警告バーを閉じてテキスト生成実行可能状態へ遷移する。
   - `SecondaryButton`「キャンセル」：`.txt` ファイル選択を解除し、警告バーを閉じて安全に待機状態へ戻す。
 
-### 5.5 生成進捗・キャンセル UI
+### 5.6 生成進捗・キャンセル UI
 - **プログレスバー**: 高さ `6px`、角丸 `Radius.Small (4px)`、トラック `ControlBackgroundHighlightBrush`、充填 `NeonCyanBrush`（モデル読み込み中など進捗未確定フェーズでは不定モード、解析進行時は `0〜100%` 数値表示を併記）。
 - **フェーズ表示**: 現在の解析フェーズ名（例: `音声デコード中` / `モデル読み込み中` / `音声認識・文字起こし中` / `歌詞タイミング合わせ中` / `LRC 整形中`）および進捗メッセージ（`Typography.Caption`, `SecondaryTextForegroundBrush`）。
 - **キャンセルボタン**: `SecondaryButton`「キャンセル」。クリックで `CancellationTokenSource` をキャンセルし、中断完了までは二重押下防止のため `Disabled`＋「キャンセル中...」表示とする。
 
-### 5.6 生成結果プレビューリスト（`VirtualizedListBox`）と簡易微調整・保存 UI
+### 5.7 生成結果プレビューリスト（`VirtualizedListBox`）と簡易微調整・保存 UI
 - **全体オフセット調整ツールバー**:
   - `SecondaryButton` 群（`-0.5s`, `-0.1s`, `+0.1s`, `+0.5s`, `リセット`）と累計補正表示（例: `補正: +0.2s`、`Typography.Caption`, `Consolas`）。全行のタイムスタンプを即座にシフトする（下限 `00:00.00`）。
   - `SubtleButton`「`↺ 再生成`」：`.lrc` 手動編集・プレビュー画面から、テキストファイル選択または音声文字起こしによる一からの生成画面（モデル配置済み時は入力・待機画面、モデル未配置時はモデル未配置ガイド）へ遷移する唯一の明示操作。
@@ -353,7 +376,7 @@ flowchart TD
    - `ScrollViewer.CanContentScroll="True"` との併用時にビューポート縮小や仮想化コンテナ消滅が発生するのを防ぐため、`ItemsPresenter.Margin` に大きな余白を設定せず、内側余白は各行 `ListBoxItem` の `Padding`/`Margin` または外側コンテナ側で確保する。
 2. **非表示時の完全描画抑止（`Visibility="Collapsed"` 連動）**:
    - `LrcGeneratorView` 自体が非表示の状態（`RightExtensionPanelType != LrcGenerator`、最大化モード、右側タブ閉鎖中）では `Visibility="Collapsed"` とし、Measure / Arrange 負荷を完全抑止する。
-   - パネル内部の 6 つの排他状態コンテナ（モデル未配置、モデル DL 中、入力・待機、生成実行中、結果プレビュー、エラー）および 2 つのインライン確認バー（非 UTF-8 警告バー、既存 `.lrc` 上書き確認バー）も、非アクティブ時はすべて `Visibility="Collapsed"` とする。
+   - パネル内部の 6 つの排他状態コンテナ（モデル未配置、モデル DL 中、入力・待機、生成実行中、結果プレビュー、エラー）、著作権・利用ガイドライン警告カード／常設注意バー／詳細パネル、および 2 つのインライン確認バー（非 UTF-8 警告バー、既存 `.lrc` 上書き確認バー）も、非アクティブ時はすべて `Visibility="Collapsed"` とする。
 3. **高負荷エフェクトの排除**:
    - プログレスバー、プレビュー行テンプレート、警告カード、ドロップゾーンなどの要素には `DropShadowEffect`、`BlurEffect`、`VisualBrush` を一切適用しない。強調表現は `NeonCyanBrush` の左端 3px 縦バー・ソリッド塗り・1px 枠線のみで構成する。
 4. **進捗通知の UI スロットリングとバックグラウンド処理分離**:
