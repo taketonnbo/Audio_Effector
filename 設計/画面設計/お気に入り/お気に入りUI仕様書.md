@@ -54,7 +54,7 @@
    - `IsFavoritesView = True` の場合、見出し `CurrentPlaylistName` に `"Favorites"` を表示し、背景画像に `Assets/Images/favorites_bg.png` を適用して `PlaylistTracks` に現在のお気に入り楽曲一覧を表示する。
    - 他画面（全曲一覧、アルバム一覧、アーティスト一覧、最近再生した曲、再生キュー等）でお気に入りトグルが実行された場合も、お気に入り画面表示中であればリアルタイムにリストへ反映される。
 2. **メタデータベース永続化と照合仕様 (`FavoriteTrackEntry` / `FavoriteTrackMatcher` / `JsonFavoriteRepository`)**:
-   - **保存先とスキーマ**: `%AppData%\AudioEffector\favorites.json` に `Title`, `Artist`, `Album`, `TrackNumber`, `DurationSeconds`, `LastKnownFilePath`, `AddedAt` を持つ `FavoriteTrackEntry` のJSON配列としてアトミック保存（`.tmp` 経由）する。旧形式（ファイルパス文字列配列 `List<string>`）からは起動時に自動マイグレーションを行い、一時的なI/O読み取りエラー時には既存ファイルを空配列で上書き破壊しない保護機構を備える。
+   - **保存先とスキーマ**: `IDataDirectoryProvider` が解決するデータ保存先ディレクトリ（既定: `%AppData%\AudioEffector`、設定画面「データ管理・その他」から変更可能）配下の `favorites.json` に `Title`, `Artist`, `Album`, `TrackNumber`, `DurationSeconds`, `LastKnownFilePath`, `AddedAt` を持つ `FavoriteTrackEntry` のJSON配列としてアトミック保存（`.tmp` 経由）する。保存先変更時は `LibraryViewModel.ReloadFavoritesFromRepository()` によりお気に入り一覧と表示状態を即時再読込する。旧形式（ファイルパス文字列配列 `List<string>`）からは起動時に自動マイグレーションを行い、一時的なI/O読み取りエラー時には既存ファイルを空配列で上書き破壊しない保護機構を備える。
    - **3段階照合アルゴリズム (`FavoriteTrackMatcher`)**:
      1. 未タグ曲や旧形式エントリに対するファイルパス優先照合
      2. 正規化した `Title` + `Artist` + `Album`（および `TrackNumber`・再生時間 `±5.0秒` 許容）によるメタデータ照合（未タグ曲同士の誤マッチは防止）
