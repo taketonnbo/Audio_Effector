@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.ApplicationServices;
@@ -24,6 +25,25 @@ public sealed class ListeningStatsViewModelTests
     {
         public void Invoke(Action action) => action();
         public void BeginInvoke(Action action) => action();
+    }
+
+    private sealed class QueuedDispatcherStub : IUiDispatcher
+    {
+        private readonly Queue<Action> _pending = new();
+
+        public int PendingCount => _pending.Count;
+
+        public void Invoke(Action action) => action();
+
+        public void BeginInvoke(Action action) => _pending.Enqueue(action);
+
+        public void FlushAll()
+        {
+            while (_pending.Count > 0)
+            {
+                _pending.Dequeue().Invoke();
+            }
+        }
     }
 
     private sealed class InMemoryListeningStatsRepository : IListeningStatsRepository
@@ -311,10 +331,10 @@ public sealed class ListeningStatsViewModelTests
 
     /// <summary>
     /// DI コンテナから ListeningStatsViewModel を解決した際、単一 public コンストラクタにより曖昧性エラーなく
-    /// LibraryViewModel が自動注入されることを検証します。
+    /// LibraryViewModel が自動注入され、同名別アーティストのアルバム分離集計が実際に機能することを検証します。
     /// </summary>
     [Fact]
-    public void ServiceProvider_ListeningStatsViewModel解決時_LibraryViewModelが自動注入され初期化できること()
+    public void ServiceProvider_ListeningStatsViewModel解決時_LibraryViewModelが自動注入されアルバム分離集計できること()
     {
         // Arrange
         var audioMock = new Mock<IAudioService>();
@@ -327,6 +347,13 @@ public sealed class ListeningStatsViewModelTests
         var eventBusMock = new Mock<IEventBus>();
         var settingsMock = new Mock<ISettingsService>();
         settingsMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+
+        var albumAId = AlbumId.New();
+        var albumBId = AlbumId.New();
+        var trackA = CreateTrack("DI Song A", 180, "Artist A", "Same Title", @"C:\Music\DI_A\01.flac", albumAId);
+        var trackAGuest = CreateTrack("DI Guest A", 190, "Guest Artist", "Same Title", @"C:\Music\DI_A\02.flac", albumAId);
+        var trackB = CreateTrack("DI Song B", 200, "Artist B", "Same Title", @"C:\Music\DI_B\01.flac", albumBId);
+        audioMock.Setup(a => a.CurrentTrack).Returns(trackA);
 
         var services = new ServiceCollection();
         services.AddSingleton<IListeningStatsRepository>(new InMemoryListeningStatsRepository());
@@ -342,11 +369,223 @@ public sealed class ListeningStatsViewModelTests
         services.AddSingleton<ListeningStatsApplicationService>();
         services.AddSingleton<ListeningStatsViewModel>();
 
-        // Act & Assert
+        // Act
         using ServiceProvider provider = services.BuildServiceProvider();
+        var libraryVm = provider.GetRequiredService<LibraryViewModel>();
+        libraryVm.Albums.Add(new Album("Same Title", "Artist A", 2024, new List<Track> { trackA, trackAGuest }, albumAId));
+        libraryVm.Albums.Add(new Album("Same Title", "Artist B", 2025, new List<Track> { trackB }, albumBId));
+
+        var statsService = provider.GetRequiredService<ListeningStatsApplicationService>();
+        statsService.RecordPlaybackCompleted(trackA);
+        statsService.RecordPlaybackCompleted(trackAGuest);
+        statsService.RecordPlaybackCompleted(trackAGuest);
+        for (int i = 0; i < 5; i++)
+        {
+            statsService.RecordPlaybackCompleted(trackB);
+        }
+
         var resolved = provider.GetRequiredService<ListeningStatsViewModel>();
+
+        // Assert: DI 注入された LibraryViewModel により別アーティストのコンピレーション曲を含めつつ他アルバム曲 (trackB) を除外できること
         Assert.NotNull(resolved);
         Assert.Equal("アルバム内でよく聴く曲 TOP 5", resolved.TopTracksSectionTitle);
+        Assert.Equal(2, resolved.TopPlayedTracks.Count);
+        Assert.Equal("DI Guest A", resolved.TopPlayedTracks[0].Title);
+        Assert.Equal("DI Song A", resolved.TopPlayedTracks[1].Title);
+        Assert.DoesNotContain(resolved.TopPlayedTracks, item => item.Title == "DI Song B");
+    }
+
+    /// <summary>
+    /// 非アクティブ時（IsActiveView == false）に対象曲が別アルバムまたは null へ切り替わった際、
+    /// 前曲の解決済みアルバム名が残留せず即座にリセットされ、再アクティブ化で最新ランキングへ追従することを検証します。
+    /// </summary>
+    [Fact]
+    public void OnAudioTrackChanged_非アクティブ時に別アルバムやnullへ切替時_旧解決済みアルバム名が残留しないこと()
+    {
+        // Arrange
+        var repository = new InMemoryListeningStatsRepository();
+        var audioMock = new Mock<IAudioService>();
+        using var libraryVm = CreateLibraryViewModel(audioMock.Object);
+
+        var albumAId = AlbumId.New();
+        var albumATrack = CreateTrack("Track A", 180, "Artist A", "Album A Meta", @"C:\Music\A\01.flac", albumAId);
+        var albumBTrack = CreateTrack("Track B", 200, "Artist B", "Album B Meta", @"C:\Music\B\01.flac");
+        libraryVm.Albums.Add(new Album("Resolved Album A", "Artist A", 2024, new List<Track> { albumATrack }, albumAId));
+
+        audioMock.Setup(a => a.CurrentTrack).Returns(albumATrack);
+        using var statsService = new ListeningStatsApplicationService(repository, audioMock.Object);
+        statsService.RecordPlaybackCompleted(albumATrack);
+        statsService.RecordPlaybackCompleted(albumBTrack);
+
+        using var sut = new ListeningStatsViewModel(statsService, audioMock.Object, new ImmediateDispatcherStub(), libraryVm)
+        {
+            IsActiveView = true,
+        };
+        Assert.Equal("Resolved Album A", sut.TargetAlbumDisplay);
+
+        // Act 1: 非アクティブ化 → 別アルバム曲へ切替
+        sut.IsActiveView = false;
+        audioMock.Raise(a => a.TrackChanged += null, albumBTrack);
+
+        // Assert 1: 古い "Resolved Album A" が残留せず新曲のアルバム名が返ること
+        Assert.Equal("Album B Meta", sut.TargetAlbumDisplay);
+        Assert.True(sut.HasTargetAlbumDisplay);
+
+        // Act 2: 非アクティブのまま null（再生停止）へ遷移
+        audioMock.Raise(a => a.TrackChanged += null, (Track)null!);
+
+        // Assert 2: アルバム表示名が空になり HasTargetAlbumDisplay が false となること
+        Assert.Equal(string.Empty, sut.TargetAlbumDisplay);
+        Assert.False(sut.HasTargetAlbumDisplay);
+        Assert.Contains("楽曲を再生または選択すると", sut.TopTracksEmptyMessage);
+
+        // Act 3: 再度 Album B へ戻してからアクティブ化 → 遅延再描画で最新ランキング反映
+        audioMock.Raise(a => a.TrackChanged += null, albumBTrack);
+        sut.IsActiveView = true;
+        Assert.Single(sut.TopPlayedTracks);
+        Assert.Equal("Track B", sut.TopPlayedTracks[0].Title);
+    }
+
+    /// <summary>
+    /// ResolveAlbumForTrack が FilePath 不一致時でも有効な AlbumId 一致で所属アルバムを解決できることを検証します。
+    /// </summary>
+    [Fact]
+    public void Refresh_FilePath不一致でもAlbumId一致時_所属アルバム内TOP5が解決されること()
+    {
+        // Arrange
+        var repository = new InMemoryListeningStatsRepository();
+        var audioMock = new Mock<IAudioService>();
+        using var libraryVm = CreateLibraryViewModel(audioMock.Object);
+
+        var albumId = AlbumId.New();
+        var libraryTrack = CreateTrack("Library Track", 200, "Guest Artist", "Comp Album", @"C:\Music\Comp\01.flac", albumId);
+        var movedAliasTrack = CreateTrack("Moved Track", 180, "Artist A", "Comp Album", @"C:\Music\Comp\alias.flac", albumId);
+        var otherTrack = CreateTrack("Other Album Hit", 220, "Artist B", "Comp Album", @"C:\Music\Other\01.flac", AlbumId.New());
+
+        libraryVm.Albums.Add(new Album("Comp Album", "Various Artists", 2025, new List<Track> { libraryTrack }, albumId));
+
+        audioMock.Setup(a => a.CurrentTrack).Returns(movedAliasTrack);
+        using var statsService = new ListeningStatsApplicationService(repository, audioMock.Object);
+        statsService.RecordPlaybackCompleted(libraryTrack);
+        for (int i = 0; i < 4; i++)
+        {
+            statsService.RecordPlaybackCompleted(otherTrack);
+        }
+
+        // Act
+        using var sut = new ListeningStatsViewModel(statsService, audioMock.Object, new ImmediateDispatcherStub(), libraryVm)
+        {
+            IsActiveView = true,
+        };
+
+        // Assert
+        Assert.Single(sut.TopPlayedTracks);
+        Assert.Equal("Library Track", sut.TopPlayedTracks[0].Title);
+        Assert.DoesNotContain(sut.TopPlayedTracks, item => item.Title == "Other Album Hit");
+    }
+
+    /// <summary>
+    /// LibraryViewModel.LoadLibraryAsync による TrackRemoved・AlbumRemoved・LibrarySynced の連続発火および統計更新が
+    /// 単一の UI ディスパッチへコアレッシングされ、非アクティブ遅延と Dispose 後の購読解除も機能することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LibraryEvents_連続更新時のコアレッシングと非アクティブ遅延およびDispose後の購読解除が機能すること()
+    {
+        // Arrange
+        var repository = new InMemoryListeningStatsRepository();
+        var audioMock = new Mock<IAudioService>();
+        var trackRepoMock = new Mock<ITrackRepository>();
+        var favoriteRepoMock = new Mock<IFavoriteRepository>();
+        favoriteRepoMock
+            .Setup(r => r.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        var metadataMock = new Mock<IMetadataExtractor>();
+        var eventBusMock = new Mock<IEventBus>();
+        var settingsMock = new Mock<ISettingsService>();
+        settingsMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+
+        var libraryService = new LibraryApplicationService(
+            trackRepoMock.Object,
+            favoriteRepoMock.Object,
+            metadataMock.Object,
+            eventBusMock.Object);
+
+        string pathA1 = @"C:\VirtualMusic\AlbumA\01.flac";
+        string pathA2 = @"C:\VirtualMusic\AlbumA\02.flac";
+        string pathB1 = @"C:\VirtualMusic\AlbumB\01.flac";
+
+        var tracksByPath = new Dictionary<string, Track>(StringComparer.OrdinalIgnoreCase)
+        {
+            [pathA1] = CreateTrack("Track A1", 180, "Artist A", "Album A", pathA1),
+            [pathA2] = CreateTrack("Track A2", 200, "Artist A", "Album A", pathA2),
+            [pathB1] = CreateTrack("Track B1", 210, "Artist B", "Album B", pathB1),
+        };
+
+        IReadOnlyList<string> currentFiles = [pathA1, pathA2, pathB1];
+        using var libraryVm = new LibraryViewModel(
+            libraryService,
+            audioMock.Object,
+            settingsMock.Object,
+            playlistViewModel: null,
+            trackMetadataLoader: path => tracksByPath[path],
+            fileEnumerator: _ => currentFiles);
+
+        string existingFolder = Path.GetTempPath();
+        await libraryVm.LoadLibraryAsync(existingFolder);
+
+        Track loadedA1 = tracksByPath[pathA1];
+        Track loadedA2 = tracksByPath[pathA2];
+        Track loadedB1 = tracksByPath[pathB1];
+        audioMock.Setup(a => a.CurrentTrack).Returns(loadedA1);
+
+        using var statsService = new ListeningStatsApplicationService(repository, audioMock.Object);
+        statsService.RecordPlaybackCompleted(loadedA1);
+        statsService.RecordPlaybackCompleted(loadedA2);
+        statsService.RecordPlaybackCompleted(loadedA2);
+        statsService.RecordPlaybackCompleted(loadedB1);
+
+        var queuedDispatcher = new QueuedDispatcherStub();
+        var sut = new ListeningStatsViewModel(statsService, audioMock.Object, queuedDispatcher, libraryVm)
+        {
+            IsActiveView = true,
+        };
+        Assert.Equal(2, sut.TopPlayedTracks.Count);
+
+        // Act 1: 統計更新を 3 回連続発生させても BeginInvoke キューは 1 件へコアレッシングされること
+        statsService.RecordPlaybackCompleted(loadedA1);
+        statsService.RecordPlaybackCompleted(loadedA1);
+        statsService.RecordPlaybackCompleted(loadedA1);
+        Assert.Equal(1, queuedDispatcher.PendingCount);
+
+        queuedDispatcher.FlushAll();
+        Assert.Equal(4, sut.TotalPlayCount);
+        Assert.Equal("Track A1", sut.TopPlayedTracks[0].Title);
+
+        // Act 2: 再スキャンで 2 曲削除（TrackRemoved x2 + AlbumRemoved x1 + LibrarySynced x1）が連続発火しても 1 件へコアレッシングされること
+        currentFiles = [pathA1];
+        await libraryVm.LoadLibraryAsync(existingFolder);
+        Assert.Equal(1, queuedDispatcher.PendingCount);
+
+        queuedDispatcher.FlushAll();
+        Assert.Single(sut.TopPlayedTracks);
+        Assert.Equal("Track A1", sut.TopPlayedTracks[0].Title);
+
+        // Act 3: 非アクティブ中にライブラリ更新が発生した場合は遅延され、再アクティブ化で反映されること
+        sut.IsActiveView = false;
+        currentFiles = [pathA1, pathA2];
+        await libraryVm.LoadLibraryAsync(existingFolder);
+        Assert.Equal(1, queuedDispatcher.PendingCount);
+        queuedDispatcher.FlushAll();
+        Assert.Single(sut.TopPlayedTracks); // 非アクティブ中はまだ更新されない
+
+        sut.IsActiveView = true;
+        Assert.Equal(2, sut.TopPlayedTracks.Count);
+
+        // Act 4: Dispose 後はライブラリイベントが発火しても BeginInvoke は一切積まれないこと
+        sut.Dispose();
+        currentFiles = Array.Empty<string>();
+        await libraryVm.LoadLibraryAsync(existingFolder);
+        Assert.Equal(0, queuedDispatcher.PendingCount);
     }
 
     /// <summary>

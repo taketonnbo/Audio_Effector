@@ -242,6 +242,66 @@ public sealed class ListeningStatsApplicationServiceTests
     }
 
     /// <summary>
+    /// GetTopPlayedTracksForAlbum が非 null の空ファイルパス集合を指定された場合に、
+    /// メタデータフォールバックへ落ちず空一覧を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public void GetTopPlayedTracksForAlbum_非null空ファイルパス集合指定時_フォールバックせず空一覧を返すこと()
+    {
+        // Arrange
+        var repository = new InMemoryListeningStatsRepository();
+        var audioMock = new Mock<IAudioService>();
+        using var sut = new ListeningStatsApplicationService(repository, audioMock.Object);
+        sut.RecordPlaybackCompleted(CreateTrack("Song A", 200, "Artist A", "Greatest Hits", @"C:\Music\A\song.flac"));
+
+        // Act
+        IReadOnlyList<TrackListeningStat> result = sut.GetTopPlayedTracksForAlbum(
+            albumTrackFilePaths: Array.Empty<string>(),
+            albumName: "Greatest Hits",
+            artistName: "Artist A",
+            count: 5);
+
+        // Assert
+        Assert.Empty(result);
+    }
+
+    /// <summary>
+    /// GetTopPlayedTracksForAlbum がメタデータフォールバック時にアーティスト名が空または不明値の場合、
+    /// 別アーティスト作品の同名アルバム曲を混入させず、不明アーティスト曲のみ一致させることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Unknown Artist")]
+    public void GetTopPlayedTracksForAlbum_フォールバック時にアーティスト不明の場合_別アーティスト同名アルバム曲が混入しないこと(string? artistName)
+    {
+        // Arrange
+        var repository = new InMemoryListeningStatsRepository();
+        var audioMock = new Mock<IAudioService>();
+        var now = new DateTime(2026, 11, 29, 13, 45, 0);
+        using var sut = new ListeningStatsApplicationService(repository, audioMock.Object, () => now);
+
+        var namedArtistTrack = CreateTrack("Named Artist Hit", 200, "Artist A", "Greatest Hits", @"C:\Music\A\named.flac");
+        var unknownArtistTrack = CreateTrack("Unknown Artist Track", 180, "Unknown Artist", "Greatest Hits", @"C:\Music\U\unknown.flac");
+
+        for (int i = 0; i < 5; i++) sut.RecordPlaybackCompleted(namedArtistTrack);
+        sut.RecordPlaybackCompleted(unknownArtistTrack);
+
+        // Act
+        IReadOnlyList<TrackListeningStat> result = sut.GetTopPlayedTracksForAlbum(
+            albumTrackFilePaths: null,
+            albumName: "Greatest Hits",
+            artistName: artistName,
+            count: 5);
+
+        // Assert
+        Assert.Single(result);
+        Assert.Equal("Unknown Artist Track", result[0].Title);
+        Assert.DoesNotContain(result, s => s.Artist == "Artist A");
+    }
+
+    /// <summary>
     /// Dispose 呼び出し後は TrackPlaybackEnded イベントの購読が解除され、統計が加算されないことを検証します。
     /// </summary>
     [Fact]
