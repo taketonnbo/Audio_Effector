@@ -37,6 +37,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private readonly Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)> _readDeviceStorageSpace;
     private readonly Func<MainViewModel.DeviceViewModel, IMtpDeviceClient?> _resolveMtpClient;
     private readonly Action<string, string> _showMessage;
+    private readonly Func<TransferConfirmationRequest, bool> _confirmTransfer;
     private readonly Dictionary<string, long> _fileSizeCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<Album> _subscribedAlbums = new();
     private readonly HashSet<Track> _subscribedTracks = new();
@@ -440,6 +441,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="resolveMtpClient">MTPデバイスクライアント解決関数</param>
     /// <param name="showMessage">ユーザー通知メッセージ表示関数</param>
     /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は LRC 同梱無効）</param>
+    /// <param name="confirmTransfer">転送開始前の確認・警告ダイアログ表示関数（省略時は既定のダイアログを使用）</param>
     internal DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
@@ -450,7 +452,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         IAudioTranscodeService? audioTranscodeService,
         Func<MainViewModel.DeviceViewModel, IMtpDeviceClient?>? resolveMtpClient,
         Action<string, string>? showMessage,
-        ILrcParser? lrcParser = null)
+        ILrcParser? lrcParser = null,
+        Func<TransferConfirmationRequest, bool>? confirmTransfer = null)
     {
         _albumsRef = albumsRef ?? throw new ArgumentNullException(nameof(albumsRef));
         _getAlbums = getAlbums ?? throw new ArgumentNullException(nameof(getAlbums));
@@ -462,6 +465,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         _lrcParser = lrcParser;
         _resolveMtpClient = resolveMtpClient ?? DefaultResolveMtpClient;
         _showMessage = showMessage ?? DefaultShowMessage;
+        _confirmTransfer = confirmTransfer ?? DefaultConfirmTransfer;
 
         RemovableDrives.CollectionChanged += OnRemovableDrivesCollectionChanged;
         _albumsRef.CollectionChanged += OnAlbumsCollectionChanged;
@@ -2541,13 +2545,19 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        var transcodeOptions = GetCurrentTranscodeOptions();
+        var confirmationRequest = BuildTransferConfirmationRequest(tracksToTransfer, transcodeOptions);
+        if (confirmationRequest.NeedsConfirmation && !_confirmTransfer(confirmationRequest))
+        {
+            return;
+        }
+
         IsTransferring = true;
         TransferProgress = 0;
 
         try
         {
             var progress = new Progress<double>(p => TransferProgress = p);
-            var transcodeOptions = GetCurrentTranscodeOptions();
             var lrcTransferOptions = GetCurrentLrcTransferOptions();
 
             if (SelectedDevice.Type == MainViewModel.DeviceType.FileSystem)
@@ -3064,6 +3074,76 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
     private static MediaDeviceClientAdapter? DefaultResolveMtpClient(MainViewModel.DeviceViewModel device)
         => device.MtpDevice != null ? new MediaDeviceClientAdapter(device.MtpDevice) : null;
+
+    /// <summary>
+    /// 転送対象トラック群・変換設定・接続機器の空き容量情報から、転送前確認・警告ダイアログ用の事前チェック結果を構築します。
+    /// </summary>
+    /// <param name="tracksToTransfer">転送対象の未転送トラック一覧</param>
+    /// <param name="transcodeOptions">適用される音声フォーマット変換オプション</param>
+    /// <returns>事前チェック結果</returns>
+    internal TransferConfirmationRequest BuildTransferConfirmationRequest(
+        IReadOnlyList<Track> tracksToTransfer,
+        AudioTranscodeOptions transcodeOptions)
+    {
+        ArgumentNullException.ThrowIfNull(tracksToTransfer);
+        ArgumentNullException.ThrowIfNull(transcodeOptions);
+
+        long requiredBytes = 0L;
+        int mp4ToM4aCount = 0;
+        int flacToMp3Count = 0;
+        int copyOnlyCount = 0;
+
+        foreach (var track in tracksToTransfer)
+        {
+            string filePath = track.FilePath ?? string.Empty;
+            requiredBytes += GetCachedFileSizeBytes(filePath);
+
+            string ext = Path.GetExtension(filePath);
+            if (transcodeOptions.ConvertMp4ToM4a && ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase))
+            {
+                mp4ToM4aCount++;
+            }
+            else if (transcodeOptions.ConvertFlacToMp3 && ext.Equals(".flac", StringComparison.OrdinalIgnoreCase))
+            {
+                flacToMp3Count++;
+            }
+            else
+            {
+                copyOnlyCount++;
+            }
+        }
+
+        bool hasStorageInfo = SelectedDevice?.HasStorageInfo == true;
+        long freeSpaceBytes = hasStorageInfo ? SelectedDevice!.FreeSpaceBytes : 0L;
+
+        return new TransferConfirmationRequest(
+            totalTrackCount: tracksToTransfer.Count,
+            requiredBytes: requiredBytes,
+            hasStorageInfo: hasStorageInfo,
+            freeSpaceBytes: freeSpaceBytes,
+            mp4ToM4aCount: mp4ToM4aCount,
+            flacToMp3Count: flacToMp3Count,
+            copyOnlyCount: copyOnlyCount);
+    }
+
+    private static bool DefaultConfirmTransfer(TransferConfirmationRequest request)
+    {
+        bool confirmed = false;
+        RunOnUiThread(() =>
+        {
+            var dialog = new TransferConfirmationDialog(request);
+            var mainWindow = System.Windows.Application.Current?.MainWindow;
+            if (mainWindow != null && mainWindow.IsVisible)
+            {
+                dialog.Owner = mainWindow;
+            }
+
+            dialog.ShowDialog();
+            confirmed = dialog.IsConfirmed;
+        });
+
+        return confirmed;
+    }
 
     private static void DefaultShowMessage(string message, string caption)
     {
