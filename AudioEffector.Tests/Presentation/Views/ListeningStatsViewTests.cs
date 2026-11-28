@@ -135,19 +135,35 @@ public sealed class ListeningStatsViewTests
             var audioMock = new Mock<IAudioService>();
             var playingTrack = new Track
             {
-                FilePath = @"C:\Music\Playing.flac",
+                FilePath = @"C:\Music\Album1\Playing.flac",
                 Title = "Playing Song",
                 Artist = "Artist 1",
                 Album = "Album 1",
                 Duration = TimeSpan.FromSeconds(210),
             };
-            var selectedTrack = new Track
+            var sameAlbumTopTrack = new Track
             {
-                FilePath = @"C:\Music\Selected.flac",
+                FilePath = @"C:\Music\Album1\TopInAlbum1.flac",
+                Title = "Album 1 Hit",
+                Artist = "Artist 1",
+                Album = "Album 1",
+                Duration = TimeSpan.FromSeconds(200),
+            };
+            var selectedOtherAlbumTrack = new Track
+            {
+                FilePath = @"C:\Music\Album2\Selected.flac",
                 Title = "Selected Song",
                 Artist = "Artist 2",
                 Album = "Album 2",
                 Duration = TimeSpan.FromSeconds(180),
+            };
+            var unplayedAlbumTrack = new Track
+            {
+                FilePath = @"C:\Music\Album3\Unplayed.flac",
+                Title = "Unplayed Song",
+                Artist = "Artist 3",
+                Album = "Album 3",
+                Duration = TimeSpan.FromSeconds(190),
             };
             audioMock.Setup(a => a.CurrentTrack).Returns(playingTrack);
 
@@ -156,8 +172,13 @@ public sealed class ListeningStatsViewTests
                 audioMock.Object,
                 () => new DateTime(2026, 11, 29, 16, 0, 0));
             statsService.RecordPlaybackCompleted(playingTrack);
-            statsService.RecordPlaybackCompleted(selectedTrack);
-            statsService.RecordPlaybackCompleted(selectedTrack);
+            statsService.RecordPlaybackCompleted(sameAlbumTopTrack);
+            statsService.RecordPlaybackCompleted(sameAlbumTopTrack);
+            statsService.RecordPlaybackCompleted(sameAlbumTopTrack);
+            for (int i = 0; i < 5; i++)
+            {
+                statsService.RecordPlaybackCompleted(selectedOtherAlbumTrack);
+            }
 
             using var viewModel = new ListeningStatsViewModel(
                 statsService,
@@ -184,35 +205,73 @@ public sealed class ListeningStatsViewTests
                 host.Show();
                 host.UpdateLayout();
 
-                viewModel.SetTargetTrack(selectedTrack);
-                host.UpdateLayout();
-
                 var returnButton = sut.FindName("ReturnToPlayingTrackButton") as Button;
                 var playCountText = sut.FindName("TotalPlayCountText") as TextBlock;
+                var sectionTitleText = sut.FindName("TopTracksSectionTitleText") as TextBlock;
+                var albumNameText = sut.FindName("TopTracksAlbumNameText") as TextBlock;
+                var emptyMessageText = sut.FindName("TopTracksEmptyMessageText") as TextBlock;
 
                 Assert.NotNull(returnButton);
                 Assert.NotNull(playCountText);
+                Assert.NotNull(sectionTitleText);
+                Assert.NotNull(albumNameText);
+                Assert.NotNull(emptyMessageText);
+
+                // Assert 0: 初期状態（Album 1 の曲再生中）では見出し・アルバム名が表示され、Album 2 (5回) は混入しないこと
+                Assert.Equal("アルバム内でよく聴く曲 TOP 5", sectionTitleText!.Text);
+                Assert.Equal("Album 1", albumNameText!.Text);
+                Assert.Equal(Visibility.Visible, albumNameText.Visibility);
+                Assert.Equal(2, viewModel.TopPlayedTracks.Count);
+                Assert.Equal("Album 1 Hit", viewModel.TopPlayedTracks[0].Title);
+                Assert.Equal("Playing Song", viewModel.TopPlayedTracks[1].Title);
+                Assert.DoesNotContain(viewModel.TopPlayedTracks, item => item.Title == "Selected Song");
+                Assert.Equal(Visibility.Collapsed, emptyMessageText!.Visibility);
+
+                // Act 1: 別アルバムの曲を SetTargetTrack で選択すると、KPI と TOP 5・アルバム名が Album 2 へ切り替わること
+                viewModel.SetTargetTrack(selectedOtherAlbumTrack);
+                host.UpdateLayout();
+
                 Assert.True(returnButton!.IsEnabled);
                 Assert.Equal(Visibility.Visible, returnButton.Visibility);
-                Assert.Equal("2 回", playCountText!.Text);
+                Assert.Equal("5 回", playCountText!.Text);
+                Assert.Equal("Album 2", albumNameText.Text);
+                Assert.Equal(Visibility.Visible, albumNameText.Visibility);
+                Assert.Single(viewModel.TopPlayedTracks);
+                Assert.Equal("Selected Song", viewModel.TopPlayedTracks[0].Title);
                 Assert.Empty(listener.Errors);
 
-                // Act 2: 再生中の曲に戻す → TOP 5 の1位行クリックで対象曲切替 → 再度再生中の曲へ戻す一連操作
+                // Act 2: 再生中の曲に戻す → Album 1 TOP 5 の1位行クリックで同アルバム別曲へ切替 → 再度再生中の曲へ戻す一連操作
                 returnButton.Command!.Execute(null);
                 host.UpdateLayout();
                 Assert.Equal("1 回", playCountText.Text);
+                Assert.Equal("Album 1", albumNameText.Text);
                 Assert.Equal(Visibility.Collapsed, returnButton.Visibility);
+                Assert.Equal(2, viewModel.TopPlayedTracks.Count);
 
-                Assert.NotEmpty(viewModel.TopPlayedTracks);
                 viewModel.SelectTopTrackCommand.Execute(viewModel.TopPlayedTracks[0]);
                 host.UpdateLayout();
-                Assert.Equal("2 回", playCountText.Text);
+                Assert.Equal("3 回", playCountText.Text);
+                Assert.Equal("Album 1", albumNameText.Text);
+                Assert.Equal(2, viewModel.TopPlayedTracks.Count);
                 Assert.True(returnButton.IsEnabled);
                 Assert.Equal(Visibility.Visible, returnButton.Visibility);
 
-                returnButton.Command.Execute(null);
+                // Act 3: 再生統計 0 件のアルバム曲を選択するとエンプティ状態になること
+                viewModel.SetTargetTrack(unplayedAlbumTrack);
                 host.UpdateLayout();
-                Assert.Equal("1 回", playCountText.Text);
+                Assert.Empty(viewModel.TopPlayedTracks);
+                Assert.Equal("Album 3", albumNameText.Text);
+                Assert.Equal(Visibility.Visible, emptyMessageText.Visibility);
+                Assert.Contains("このアルバムの再生統計はまだ記録されていません", emptyMessageText.Text);
+
+                // Act 4: 対象曲未選択（null）状態ではアルバム名が Collapsed となり未選択エンプティ案内が表示されること
+                audioMock.Raise(a => a.TrackChanged += null, (Track)null!);
+                viewModel.SetTargetTrack(null);
+                host.UpdateLayout();
+                Assert.Empty(viewModel.TopPlayedTracks);
+                Assert.Equal(Visibility.Collapsed, albumNameText.Visibility);
+                Assert.Equal(Visibility.Visible, emptyMessageText.Visibility);
+                Assert.Contains("楽曲を再生または選択すると", emptyMessageText.Text);
                 Assert.Empty(listener.Errors);
             }
             finally
