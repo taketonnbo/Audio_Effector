@@ -916,8 +916,8 @@ def is_integration_pr(
     if not head or base != "develop":
         return False
     normalized_int = normalize_branch_name(integration_branch)
-    if normalized_int and head == normalized_int:
-        return True
+    if normalized_int is not None:
+        return head == normalized_int
     return is_epic_integration_branch_name(head, epic_number=epic_number)
 
 
@@ -928,6 +928,8 @@ def match_pr_to_issue_numbers(
 ) -> Set[int]:
     """PR のブランチ名・タイトル・本文から紐づく子 Issue 番号集合を抽出する（Epic 統合 PR は除外）。"""
     if is_integration_pr(pr, integration_branch=integration_branch, epic_number=epic_number):
+        return set()
+    if is_integration_pr(pr, integration_branch=None, epic_number=None):
         return set()
 
     matched: Set[int] = set()
@@ -1227,10 +1229,42 @@ def compute_next_actions(
             }
         )
 
+    # 子 Issue OPEN PR のターゲットブランチ不一致（例: 誤って develop 向き PR）を優先検知
+    base_mismatch_issues: Set[int] = set()
+    if int_branch_name:
+        for c in children:
+            if c["status"] in ("merged", "blocked"):
+                continue
+            pr = c.get("pr")
+            if not pr:
+                continue
+            pr_state = str(pr.get("state") or "OPEN").upper()
+            if pr_state != "OPEN":
+                continue
+            actual_base = normalize_branch_name(pr.get("base_branch"))
+            if actual_base and actual_base != int_branch_name:
+                base_mismatch_issues.add(c["number"])
+                pr_num = pr.get("number")
+                actions.append(
+                    {
+                        "priority": 1,
+                        "action": "fix_pr_base",
+                        "issues": [c["number"]],
+                        "pr_number": pr_num,
+                        "actual_base": actual_base,
+                        "expected_base": int_branch_name,
+                        "command_hint": f'gh pr edit {pr_num} --base "{int_branch_name}"',
+                        "summary": (
+                            f"#{c['number']} (PR #{pr_num}) のターゲットブランチ (base: {actual_base}) が "
+                            f"Epic 統合ブランチ ({int_branch_name}) と一致していないため、Base ブランチを修正する"
+                        ),
+                    }
+                )
+
     # コンフリクト / ベース追従同期が必要な OPEN 非 Draft PR を検知（コンフリクトありを高優先）
     sync_target_issues: Set[int] = set()
     for c in children:
-        if c["status"] in ("merged", "blocked"):
+        if c["status"] in ("merged", "blocked") or c["number"] in base_mismatch_issues:
             continue
         pr = c.get("pr")
         if not pr:
@@ -1286,7 +1320,7 @@ def compute_next_actions(
     ready_merge_candidates: List[Dict[str, Any]] = []
     for c in in_review_items:
         pr = c.get("pr")
-        if not pr or c["number"] in sync_target_issues:
+        if not pr or c["number"] in sync_target_issues or c["number"] in base_mismatch_issues:
             continue
         actual_base = normalize_branch_name(pr.get("base_branch"))
         if int_branch_name and actual_base and actual_base != int_branch_name:
@@ -1327,7 +1361,11 @@ def compute_next_actions(
         )
 
     for c in in_review_items:
-        if c["number"] in sync_target_issues or c["number"] in ready_merge_issue_set:
+        if (
+            c["number"] in sync_target_issues
+            or c["number"] in ready_merge_issue_set
+            or c["number"] in base_mismatch_issues
+        ):
             continue
         pr_num = c["pr"]["number"] if c.get("pr") else None
         actions.append(
@@ -1437,6 +1475,11 @@ def compute_next_actions(
             )
             if int_needs_sync:
                 sync_reason = "コンフリクトが発生している" if int_has_conflict else "origin/develop から遅れている（BEHIND）"
+                push_step = (
+                    f'; if ($?) {{ git push origin "{int_branch_name}" }}'
+                    if int_branch_name
+                    else ""
+                )
                 actions.append(
                     {
                         "priority": 1,
@@ -1447,14 +1490,37 @@ def compute_next_actions(
                         "command_hint": (
                             '.\\tools\\sync_branch.ps1 -BaseBranch "develop" -Json; '
                             'if ($?) { .\\tools\\verify_loop.ps1 -Full -BaseBranch develop -PreferOriginBase -JsonOut ".agent_logs\\verify_epic_final.json" }'
+                            f"{push_step}"
                         ),
                         "summary": (
                             f"統合 PR #{int_pr_num} ({int_branch_name} -> develop) に{sync_reason}ため、"
-                            "統合ブランチへ最新 origin/develop を追従同期し統合検証を再実行してください。"
+                            "統合ブランチへ最新 origin/develop を追従同期し統合検証・Push を実行してください。"
                         ),
                     }
                 )
             else:
+                int_cautions: List[str] = []
+                if integration_pr.get("is_draft"):
+                    int_cautions.append("Draft 状態")
+                if str(integration_pr.get("ci_state") or "").upper() == "FAIL":
+                    int_cautions.append("CI 失敗")
+                if str(integration_pr.get("review_decision") or "").upper() == "CHANGES_REQUESTED":
+                    int_cautions.append("CHANGES_REQUESTED")
+                if int(integration_pr.get("unresolved_review_threads") or 0) > 0:
+                    int_cautions.append(f"未解決コメント {integration_pr['unresolved_review_threads']} 件")
+                if int_cautions:
+                    caution_str = " / ".join(int_cautions)
+                    await_summary = (
+                        f"全子 Issue ({len(children)} 件) が統合ブランチ ({int_branch_name}) へマージ済みです。"
+                        f"統合 PR #{int_pr_num} ({int_branch_name} -> develop) は要確認状態（{caution_str}）のため、"
+                        "自動マージせずユーザー確認・対応のうえ develop へのマージ可否を判断してください。"
+                    )
+                else:
+                    await_summary = (
+                        f"全子 Issue ({len(children)} 件) が統合ブランチ ({int_branch_name}) へマージ済みで、"
+                        f"統合 PR #{int_pr_num} ({int_branch_name} -> develop) がマージ可能です。"
+                        "自動マージせず、ユーザー判断による確認・承認・develop マージを待ってください。"
+                    )
                 actions.append(
                     {
                         "priority": 1,
@@ -1462,11 +1528,7 @@ def compute_next_actions(
                         "issues": [],
                         "pr_number": int_pr_num,
                         "command_hint": "",
-                        "summary": (
-                            f"全子 Issue ({len(children)} 件) が統合ブランチ ({int_branch_name}) へマージ済みで、"
-                            f"統合 PR #{int_pr_num} ({int_branch_name} -> develop) がマージ可能です。"
-                            "自動マージせず、ユーザー判断による確認・承認・develop マージを待ってください。"
-                        ),
+                        "summary": await_summary,
                     }
                 )
         elif not integration_branch_missing and int_branch_name:
@@ -1479,11 +1541,12 @@ def compute_next_actions(
                     "command_hint": (
                         '.\\tools\\sync_branch.ps1 -BaseBranch "develop" -Json; '
                         'if ($?) { .\\tools\\verify_loop.ps1 -Full -BaseBranch develop -PreferOriginBase -JsonOut ".agent_logs\\verify_epic_final.json" }; '
+                        f'if ($?) {{ git push origin "{int_branch_name}" }}; '
                         f'if ($?) {{ gh pr create --base develop --head "{int_branch_name}" --title "[Epic] ..." --body-file "<pr_body.md>" }}'
                     ),
                     "summary": (
                         f"全子 Issue ({len(children)} 件) が統合ブランチ ({int_branch_name}) へマージ済みです。"
-                        "origin/develop 同期と verify_loop.ps1 -Full -BaseBranch develop -PreferOriginBase 合格後に "
+                        "origin/develop 同期・verify_loop.ps1 -Full -BaseBranch develop -PreferOriginBase 合格・Push 後に "
                         "develop 向け統合 PR を作成してください（最終マージはユーザー判断待ち）。"
                     ),
                 }
@@ -1959,9 +2022,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             normalized_arg = normalize_branch_name(args.integration_branch)
             if normalized_arg:
                 existing_int = state.get("integration_branch")
-                if isinstance(existing_int, dict):
-                    existing_int["name"] = normalized_arg
-                else:
+                existing_name = (
+                    normalize_branch_name(existing_int.get("name"))
+                    if isinstance(existing_int, dict)
+                    else None
+                )
+                if existing_name != normalized_arg:
                     state["integration_branch"] = {
                         "name": normalized_arg,
                         "exists_local": False,
@@ -1969,6 +2035,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         "ahead_of_develop": None,
                         "behind_develop": None,
                     }
+                    existing_int_pr = state.get("integration_pr")
+                    if (
+                        isinstance(existing_int_pr, dict)
+                        and normalize_branch_name(existing_int_pr.get("head_branch")) != normalized_arg
+                    ):
+                        state["integration_pr"] = None
+                    if isinstance(state.get("warnings"), list) and isinstance(state.get("children"), list):
+                        filtered_warnings = [
+                            w
+                            for w in state["warnings"]
+                            if "のターゲットブランチ (base:" not in str(w)
+                        ]
+                        filtered_warnings.extend(
+                            collect_base_branch_warnings(state["children"], normalized_arg)
+                        )
+                        state["warnings"] = filtered_warnings
         if args.mark_blocked is not None or args.unblock is not None:
             state = apply_offline_block_updates(
                 state=state,
