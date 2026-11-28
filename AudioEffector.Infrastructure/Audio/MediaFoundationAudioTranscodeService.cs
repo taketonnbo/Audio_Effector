@@ -16,6 +16,9 @@ public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeServic
     private const int DefaultAacBitrate = 192000;
     private const int DefaultMp3Bitrate = 320000;
     private const int MaxMp3SampleRate = 48000;
+    private const int TargetMp3BitsPerSample = 16;
+    private const int MinMp3Channels = 1;
+    private const int MaxMp3Channels = 2;
     private static readonly object MediaFoundationLock = new();
     private static volatile bool _mediaFoundationInitialized;
 
@@ -145,23 +148,47 @@ public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeServic
         }
     }
 
+    /// <summary>
+    /// 入力音声フォーマットが MP3 エンコード前のリサンプル（16bit PCM・最大 48kHz・最大 2ch への正規化）を必要とするかを判定します。
+    /// </summary>
+    /// <param name="format">判定対象の入力音声フォーマット</param>
+    /// <returns>リサンプルが必要な場合は <c>true</c>、不要な場合は <c>false</c></returns>
+    internal static bool RequiresMp3Resample(WaveFormat format)
+    {
+        ArgumentNullException.ThrowIfNull(format);
+
+        return format.SampleRate > MaxMp3SampleRate
+            || format.BitsPerSample != TargetMp3BitsPerSample
+            || format.Channels > MaxMp3Channels
+            || format.Encoding != WaveFormatEncoding.Pcm;
+    }
+
+    /// <summary>
+    /// MP3 エンコード前のリサンプル先となる 16bit PCM 音声フォーマット（最大 48kHz・1〜2ch）を生成します。
+    /// </summary>
+    /// <param name="sourceFormat">リサンプル元の音声フォーマット</param>
+    /// <returns>正規化されたリサンプル先 <see cref="WaveFormat"/></returns>
+    internal static WaveFormat BuildMp3ResampleTargetFormat(WaveFormat sourceFormat)
+    {
+        ArgumentNullException.ThrowIfNull(sourceFormat);
+
+        int targetSampleRate = sourceFormat.SampleRate > MaxMp3SampleRate
+            ? MaxMp3SampleRate
+            : sourceFormat.SampleRate;
+        int targetChannels = Math.Clamp(sourceFormat.Channels, MinMp3Channels, MaxMp3Channels);
+        return new WaveFormat(targetSampleRate, TargetMp3BitsPerSample, targetChannels);
+    }
+
     private static void EncodeReaderToMp3(MediaFoundationReader reader, string outputPath, int mp3Bitrate)
     {
         var format = reader.WaveFormat;
-        bool requiresResample = format.SampleRate > MaxMp3SampleRate
-            || format.BitsPerSample > 16
-            || format.Channels > 2
-            || format.Encoding != WaveFormatEncoding.Pcm;
-
-        if (!requiresResample)
+        if (!RequiresMp3Resample(format))
         {
             MediaFoundationEncoder.EncodeToMp3(reader, outputPath, mp3Bitrate);
             return;
         }
 
-        int targetSampleRate = format.SampleRate > MaxMp3SampleRate ? MaxMp3SampleRate : format.SampleRate;
-        int targetChannels = Math.Clamp(format.Channels, 1, 2);
-        var targetFormat = new WaveFormat(targetSampleRate, 16, targetChannels);
+        var targetFormat = BuildMp3ResampleTargetFormat(format);
         using var resampler = new MediaFoundationResampler(reader, targetFormat)
         {
             ResamplerQuality = 60
