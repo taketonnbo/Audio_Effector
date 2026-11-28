@@ -52,6 +52,11 @@ public class DeviceManagerViewModel : ViewModelBase
     public ICommand DeleteAlbumCommand { get; }
 
     /// <summary>
+    /// コンストラクタで開始された初回アルバム読み込みタスクを取得します
+    /// </summary>
+    internal Task InitialLoadTask { get; }
+
+    /// <summary>
     /// デバイス情報、ベースパス、PC側アルバム一覧を指定してインスタンスを初期化します
     /// </summary>
     /// <param name="device">対象の外部デバイス情報</param>
@@ -66,12 +71,16 @@ public class DeviceManagerViewModel : ViewModelBase
         DeleteTrackCommand = new RelayCommand(ExecuteDeleteTrack);
         DeleteAlbumCommand = new RelayCommand(ExecuteDeleteAlbum);
 
-        LoadAlbumsAsync();
+        InitialLoadTask = LoadAlbumsAsync();
     }
 
     private static readonly string[] AudioExtensions = { ".mp3", ".wav", ".aiff", ".wma", ".m4a", ".mp4", ".flac", ".aac", ".ogg", ".opus", ".alac" };
 
-    private async void LoadAlbumsAsync()
+    /// <summary>
+    /// 接続デバイスからアルバムおよび収録トラックを読み込み、楽曲順へ整列して一覧を更新します
+    /// </summary>
+    /// <returns>読み込み完了を表すタスク</returns>
+    internal async Task LoadAlbumsAsync()
     {
         if (_currentDevice == null) return;
 
@@ -100,10 +109,13 @@ public class DeviceManagerViewModel : ViewModelBase
                 {
                     Logger.Warn($"Device not fully connected or recognized.");
                 }
+
+                // 全スキャンおよび複数フォルダ結合アルバムのマージ完了後に各アルバム内の楽曲順を整列する
+                SortAlbumsTracks(loadedAlbums, _pcAlbums);
             }
             catch (Exception ex)
             {
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                System.Windows.Application.Current?.Dispatcher.Invoke(() =>
                 {
                     MessageBox.Show($"Error loading device albums: {ex.Message}");
                 });
@@ -116,6 +128,466 @@ public class DeviceManagerViewModel : ViewModelBase
             DeviceAlbums.Add(album);
         }
         IsLoading = false;
+    }
+
+    /// <summary>
+    /// 複数のデバイスアルバムについて、PC側トラック番号優先およびファイル名自然順で各アルバム内楽曲を一括整列します
+    /// </summary>
+    /// <param name="albums">整列対象のデバイスアルバム一覧</param>
+    /// <param name="pcAlbums">PC側ライブラリのアルバム一覧</param>
+    internal static void SortAlbumsTracks(IEnumerable<DeviceAlbum>? albums, IReadOnlyList<Album>? pcAlbums)
+    {
+        if (albums == null)
+        {
+            return;
+        }
+
+        var pcTrackIndex = PcAlbumTrackIndex.Create(pcAlbums);
+        foreach (var album in albums)
+        {
+            SortAlbumTracksCore(album, pcTrackIndex);
+        }
+    }
+
+    /// <summary>
+    /// 単一のデバイスアルバムについて、PC側トラック番号優先およびファイル名自然順で収録楽曲を整列します
+    /// </summary>
+    /// <param name="album">整列対象のデバイスアルバム</param>
+    /// <param name="pcAlbums">PC側ライブラリのアルバム一覧</param>
+    internal static void SortAlbumTracks(DeviceAlbum? album, IReadOnlyList<Album>? pcAlbums)
+    {
+        if (album == null || album.Tracks == null || album.Tracks.Count <= 1)
+        {
+            return;
+        }
+
+        var pcTrackIndex = PcAlbumTrackIndex.Create(pcAlbums);
+        SortAlbumTracksCore(album, pcTrackIndex);
+    }
+
+    /// <summary>
+    /// 文字列内の連続するASCII数字を数値昇順として比較する自然順比較を行います
+    /// </summary>
+    /// <param name="left">左辺文字列</param>
+    /// <param name="right">右辺文字列</param>
+    /// <returns>比較結果（左辺が小さい場合は負、等しい場合は0、大きい場合は正）</returns>
+    internal static int CompareNatural(string? left, string? right)
+        => NaturalStringComparer.Instance.Compare(left, right);
+
+    private static void SortAlbumTracksCore(DeviceAlbum? album, PcAlbumTrackIndex? pcTrackIndex)
+    {
+        if (album == null || album.Tracks == null || album.Tracks.Count <= 1)
+        {
+            return;
+        }
+
+        int count = album.Tracks.Count;
+        var keyedTracks = new KeyedDeviceTrack[count];
+        for (int i = 0; i < count; i++)
+        {
+            var track = album.Tracks[i];
+            uint trackNumber = 0;
+            bool hasTrackNumber = track != null
+                && pcTrackIndex != null
+                && pcTrackIndex.TryGetTrackNumber(album, track, out trackNumber);
+
+            keyedTracks[i] = new KeyedDeviceTrack(
+                track,
+                hasTrackNumber,
+                trackNumber,
+                track?.Title ?? string.Empty,
+                track?.Path ?? string.Empty);
+        }
+
+        Array.Sort(keyedTracks, CompareKeyedTracks);
+
+        bool orderChanged = false;
+        for (int i = 0; i < count; i++)
+        {
+            if (!ReferenceEquals(album.Tracks[i], keyedTracks[i].Track))
+            {
+                orderChanged = true;
+                break;
+            }
+        }
+
+        if (!orderChanged)
+        {
+            return;
+        }
+
+        album.Tracks.Clear();
+        for (int i = 0; i < count; i++)
+        {
+            if (keyedTracks[i].Track != null)
+            {
+                album.Tracks.Add(keyedTracks[i].Track!);
+            }
+        }
+    }
+
+    private static int CompareKeyedTracks(KeyedDeviceTrack left, KeyedDeviceTrack right)
+    {
+        // 優先順位1: PC側トラック番号（TrackNumber > 0）を持つ楽曲を先頭に配置し、トラック番号昇順で比較する
+        if (left.HasTrackNumber != right.HasTrackNumber)
+        {
+            return left.HasTrackNumber ? -1 : 1;
+        }
+
+        if (left.HasTrackNumber)
+        {
+            int trackNumberComparison = left.TrackNumber.CompareTo(right.TrackNumber);
+            if (trackNumberComparison != 0)
+            {
+                return trackNumberComparison;
+            }
+        }
+
+        // 優先順位2: ファイル名（DeviceTrack.Title）の自然順ソート（OrdinalIgnoreCase フォールバック付き）
+        int titleComparison = NaturalStringComparer.Instance.Compare(left.Title, right.Title);
+        if (titleComparison != 0)
+        {
+            return titleComparison;
+        }
+
+        // タイブレーカー: 複数フォルダ結合アルバムで同名ファイルが存在する場合もパス自然順で確定的に整列する
+        return NaturalStringComparer.Instance.Compare(left.Path, right.Path);
+    }
+
+    private readonly struct KeyedDeviceTrack
+    {
+        public KeyedDeviceTrack(DeviceTrack? track, bool hasTrackNumber, uint trackNumber, string title, string path)
+        {
+            Track = track;
+            HasTrackNumber = hasTrackNumber;
+            TrackNumber = trackNumber;
+            Title = title;
+            Path = path;
+        }
+
+        public DeviceTrack? Track { get; }
+
+        public bool HasTrackNumber { get; }
+
+        public uint TrackNumber { get; }
+
+        public string Title { get; }
+
+        public string Path { get; }
+    }
+
+    /// <summary>
+    /// PC側アルバム群からデバイス楽曲のトラック番号を高速検索するためのルックアップインデックス
+    /// </summary>
+    private sealed class PcAlbumTrackIndex
+    {
+        private readonly Dictionary<ArtistTitleKey, TrackNumberLookup> _byArtistAndTitle = new(ArtistTitleKeyComparer.Instance);
+        private readonly Dictionary<string, TrackNumberLookup> _byTitle = new(StringComparer.OrdinalIgnoreCase);
+
+        public static PcAlbumTrackIndex? Create(IReadOnlyList<Album>? pcAlbums)
+        {
+            if (pcAlbums == null || pcAlbums.Count == 0)
+            {
+                return null;
+            }
+
+            var index = new PcAlbumTrackIndex();
+            bool hasAnyTrack = false;
+
+            foreach (var album in pcAlbums)
+            {
+                if (album == null || album.Tracks == null || album.Tracks.Count == 0)
+                {
+                    continue;
+                }
+
+                var titleKeys = BuildNormalizedFolderKeys(album.Title);
+                if (titleKeys.Count == 0)
+                {
+                    continue;
+                }
+
+                var artistKeys = BuildNormalizedFolderKeys(album.Artist);
+
+                foreach (var track in album.Tracks)
+                {
+                    if (track == null || track.TrackNumber == 0 || string.IsNullOrWhiteSpace(track.FilePath))
+                    {
+                        continue;
+                    }
+
+                    hasAnyTrack = true;
+
+                    foreach (var titleKey in titleKeys)
+                    {
+                        if (!index._byTitle.TryGetValue(titleKey, out var titleLookup))
+                        {
+                            titleLookup = new TrackNumberLookup();
+                            index._byTitle[titleKey] = titleLookup;
+                        }
+                        titleLookup.Register(track);
+
+                        foreach (var artistKey in artistKeys)
+                        {
+                            var pairKey = new ArtistTitleKey(artistKey, titleKey);
+                            if (!index._byArtistAndTitle.TryGetValue(pairKey, out var pairLookup))
+                            {
+                                pairLookup = new TrackNumberLookup();
+                                index._byArtistAndTitle[pairKey] = pairLookup;
+                            }
+                            pairLookup.Register(track);
+                        }
+                    }
+                }
+            }
+
+            return hasAnyTrack ? index : null;
+        }
+
+        public bool TryGetTrackNumber(DeviceAlbum album, DeviceTrack track, out uint trackNumber)
+        {
+            trackNumber = 0;
+            if (album == null || track == null || string.IsNullOrWhiteSpace(album.Title))
+            {
+                return false;
+            }
+
+            string trimmedTitle = album.Title.Trim();
+            string trimmedArtist = album.Artist?.Trim() ?? string.Empty;
+
+            if (!string.IsNullOrEmpty(trimmedArtist)
+                && _byArtistAndTitle.TryGetValue(new ArtistTitleKey(trimmedArtist, trimmedTitle), out var pairLookup)
+                && pairLookup.TryGetTrackNumber(track, out trackNumber))
+            {
+                return true;
+            }
+
+            if (_byTitle.TryGetValue(trimmedTitle, out var titleLookup)
+                && titleLookup.TryGetTrackNumber(track, out trackNumber))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static List<string> BuildNormalizedFolderKeys(string? rawName)
+        {
+            var keys = new List<string>(2);
+            if (string.IsNullOrWhiteSpace(rawName))
+            {
+                return keys;
+            }
+
+            string trimmed = rawName.Trim();
+            keys.Add(trimmed);
+
+            string sanitized = DeviceBrowserViewModel.SanitizeFileName(trimmed);
+            if (!string.IsNullOrWhiteSpace(sanitized)
+                && !string.Equals(sanitized, trimmed, StringComparison.OrdinalIgnoreCase))
+            {
+                keys.Add(sanitized);
+            }
+
+            return keys;
+        }
+
+        private readonly struct ArtistTitleKey
+        {
+            public ArtistTitleKey(string artist, string title)
+            {
+                Artist = artist;
+                Title = title;
+            }
+
+            public string Artist { get; }
+
+            public string Title { get; }
+        }
+
+        private sealed class ArtistTitleKeyComparer : IEqualityComparer<ArtistTitleKey>
+        {
+            public static readonly ArtistTitleKeyComparer Instance = new();
+
+            public bool Equals(ArtistTitleKey x, ArtistTitleKey y)
+                => string.Equals(x.Artist, y.Artist, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(x.Title, y.Title, StringComparison.OrdinalIgnoreCase);
+
+            public int GetHashCode(ArtistTitleKey obj)
+                => HashCode.Combine(
+                    StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Artist ?? string.Empty),
+                    StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Title ?? string.Empty));
+        }
+
+        private sealed class TrackNumberLookup
+        {
+            private readonly Dictionary<string, uint> _byFileName = new(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, uint> _byFileNameWithoutExtension = new(StringComparer.OrdinalIgnoreCase);
+
+            public void Register(Track track)
+            {
+                string fileName = Path.GetFileName(track.FilePath);
+                if (!string.IsNullOrWhiteSpace(fileName))
+                {
+                    RegisterKey(_byFileName, fileName, track.TrackNumber);
+                }
+
+                string fileNameWithoutExt = Path.GetFileNameWithoutExtension(track.FilePath);
+                if (!string.IsNullOrWhiteSpace(fileNameWithoutExt))
+                {
+                    RegisterKey(_byFileNameWithoutExtension, fileNameWithoutExt, track.TrackNumber);
+                }
+            }
+
+            public bool TryGetTrackNumber(DeviceTrack deviceTrack, out uint trackNumber)
+            {
+                trackNumber = 0;
+                string candidateName = !string.IsNullOrWhiteSpace(deviceTrack.Title)
+                    ? deviceTrack.Title
+                    : Path.GetFileName(deviceTrack.Path ?? string.Empty);
+
+                if (string.IsNullOrWhiteSpace(candidateName))
+                {
+                    return false;
+                }
+
+                if (_byFileName.TryGetValue(candidateName, out trackNumber))
+                {
+                    return true;
+                }
+
+                string nameWithoutExt = Path.GetFileNameWithoutExtension(candidateName);
+                if (!string.IsNullOrWhiteSpace(nameWithoutExt)
+                    && _byFileNameWithoutExtension.TryGetValue(nameWithoutExt, out trackNumber))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            private static void RegisterKey(Dictionary<string, uint> map, string key, uint trackNumber)
+            {
+                if (!map.TryGetValue(key, out uint existing) || trackNumber < existing)
+                {
+                    map[key] = trackNumber;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 文字列中の連続数字を数値昇順として比較するゼロアロケーションの自然順比較子
+    /// </summary>
+    private sealed class NaturalStringComparer : IComparer<string?>
+    {
+        public static readonly NaturalStringComparer Instance = new();
+
+        public int Compare(string? x, string? y)
+        {
+            if (ReferenceEquals(x, y))
+            {
+                return 0;
+            }
+
+            if (x is null)
+            {
+                return -1;
+            }
+
+            if (y is null)
+            {
+                return 1;
+            }
+
+            int ix = 0;
+            int iy = 0;
+            int xLen = x.Length;
+            int yLen = y.Length;
+
+            while (ix < xLen && iy < yLen)
+            {
+                char cx = x[ix];
+                char cy = y[iy];
+
+                if (char.IsAsciiDigit(cx) && char.IsAsciiDigit(cy))
+                {
+                    int xEnd = ix;
+                    while (xEnd < xLen && char.IsAsciiDigit(x[xEnd]))
+                    {
+                        xEnd++;
+                    }
+
+                    int yEnd = iy;
+                    while (yEnd < yLen && char.IsAsciiDigit(y[yEnd]))
+                    {
+                        yEnd++;
+                    }
+
+                    int xNonZero = ix;
+                    while (xNonZero < xEnd && x[xNonZero] == '0')
+                    {
+                        xNonZero++;
+                    }
+
+                    int yNonZero = iy;
+                    while (yNonZero < yEnd && y[yNonZero] == '0')
+                    {
+                        yNonZero++;
+                    }
+
+                    int xSigLen = xEnd - xNonZero;
+                    int ySigLen = yEnd - yNonZero;
+                    if (xSigLen != ySigLen)
+                    {
+                        return xSigLen.CompareTo(ySigLen);
+                    }
+
+                    for (int k = 0; k < xSigLen; k++)
+                    {
+                        char dx = x[xNonZero + k];
+                        char dy = y[yNonZero + k];
+                        if (dx != dy)
+                        {
+                            return dx.CompareTo(dy);
+                        }
+                    }
+
+                    ix = xEnd;
+                    iy = yEnd;
+                }
+                else
+                {
+                    char ux = char.ToUpperInvariant(cx);
+                    char uy = char.ToUpperInvariant(cy);
+                    if (ux != uy)
+                    {
+                        return ux.CompareTo(uy);
+                    }
+
+                    ix++;
+                    iy++;
+                }
+            }
+
+            if (ix < xLen)
+            {
+                return 1;
+            }
+
+            if (iy < yLen)
+            {
+                return -1;
+            }
+
+            int fallback = StringComparer.OrdinalIgnoreCase.Compare(x, y);
+            if (fallback != 0)
+            {
+                return fallback;
+            }
+
+            return StringComparer.Ordinal.Compare(x, y);
+        }
     }
 
     private void ScanFileSystemDirectory(string path, List<DeviceAlbum> loadedAlbums)
