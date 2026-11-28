@@ -271,6 +271,75 @@ class SpecMapRegressionTests(unittest.TestCase):
             },
         )
 
+    def test_機器転送UI変更時にdevice_transferのみ一致し機器ストレージ管理UI仕様書がPrimary誤検知されないこと(self) -> None:
+        # Arrange
+        cases = [
+            ["AudioEffector/Presentation/ViewModels/DeviceBrowserViewModel.cs"],
+            ["AudioEffector/Presentation/Views/DeviceSyncView.xaml"],
+            [
+                "AudioEffector/Presentation/ViewModels/DeviceBrowserViewModel.cs",
+                "AudioEffector/Presentation/Views/DeviceSyncView.xaml",
+            ],
+        ]
+
+        # Act & Assert
+        for changed_files in cases:
+            with self.subTest(changed_files=changed_files):
+                result = check_spec_sync.analyze_changes(changed_files, self.spec_map)
+                matched_ids = [m["id"] for m in result["matched_entries"]]
+                primary_specs = {item["spec"] for item in result["primary_missing"]}
+                related_specs = {item["spec"] for item in result["related_missing"]}
+
+                self.assertEqual(matched_ids, ["device-transfer"])
+                self.assertEqual(result["unmapped_code_files"], [])
+                self.assertEqual(
+                    primary_specs,
+                    {
+                        "設計/画面設計/機器転送/機器転送UI仕様書.md",
+                        "設計/機能仕様/機器転送.md",
+                    },
+                )
+                self.assertNotIn(
+                    "設計/画面設計/機器ストレージ管理/機器ストレージ管理UI仕様書.md",
+                    primary_specs,
+                )
+                self.assertIn(
+                    "設計/画面設計/機器ストレージ管理/機器ストレージ管理UI仕様書.md",
+                    related_specs,
+                )
+
+    def test_機器ストレージ管理UI変更時にdevice_managerのみ一致し機器ストレージ管理UI仕様書がPrimary検知されること(self) -> None:
+        # Arrange
+        cases = [
+            ["AudioEffector/Presentation/ViewModels/DeviceManagerViewModel.cs"],
+            ["AudioEffector/Presentation/Views/DeviceManagerDialog.xaml"],
+            [
+                "AudioEffector/Presentation/ViewModels/DeviceManagerViewModel.cs",
+                "AudioEffector/Presentation/Views/DeviceManagerDialog.xaml",
+            ],
+        ]
+
+        # Act & Assert
+        for changed_files in cases:
+            with self.subTest(changed_files=changed_files):
+                result = check_spec_sync.analyze_changes(changed_files, self.spec_map)
+                matched_ids = [m["id"] for m in result["matched_entries"]]
+                primary_specs = {item["spec"] for item in result["primary_missing"]}
+                related_specs = {item["spec"] for item in result["related_missing"]}
+
+                self.assertEqual(matched_ids, ["device-manager"])
+                self.assertEqual(result["unmapped_code_files"], [])
+                self.assertEqual(
+                    primary_specs,
+                    {
+                        "設計/画面設計/機器ストレージ管理/機器ストレージ管理UI仕様書.md",
+                    },
+                )
+                self.assertNotIn("設計/画面設計/機器転送/機器転送UI仕様書.md", primary_specs)
+                self.assertNotIn("設計/機能仕様/機器転送.md", primary_specs)
+                self.assertIn("設計/画面設計/機器転送/機器転送UI仕様書.md", related_specs)
+                self.assertIn("設計/機能仕様/機器転送.md", related_specs)
+
 
 if __name__ == "__main__":
     unittest.main()
