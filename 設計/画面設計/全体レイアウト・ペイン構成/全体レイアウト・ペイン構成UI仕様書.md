@@ -26,7 +26,7 @@
 |    | | 5  | ☆ | Acoustic Evening     | Guitar Duo        | Unplugged Sessions  | 03:33 | | [Lyrics / Tag Info]       |
 | [D]| +-----------------------------------------------------------------------------+ | +-------------------------+ |
 |    |                                                                                 | [<<] スライドキュー (360px) |
-| [S]| 中央ワークスペース (ContentControl: 11画面切替)                                 | (オーバーレイ開閉)          |
+| [S]| 中央ワークスペース (ContentControl: 12画面切替)                                 | (オーバーレイ開閉)          |
 +----+---------------------------------------------------------------------------------+-----------------------------+
 | [▲] スペクトラムアナライザ (Toggle: 22px / 展開時: 140px) [ ▂▃▅▆▇█▇▆▅▃  ▂▃▅▆▇█▇▆▅▃ ]                               |
 +--------------------------------------------------------------------------------------------------------------------+
@@ -58,7 +58,7 @@
 
 | 領域 | 表示条件・構成 |
 | :--- | :--- |
-| ワークスペース | `CurrentViewType`（初期値: `ViewType.Albums`）の11値を `ContentControl.ContentTemplate` の `DataTrigger` で切り替える |
+| ワークスペース | `CurrentViewType`（初期値: `ViewType.Albums`）の12値を `ContentControl.ContentTemplate` の `DataTrigger` で切り替える |
 | 上部プレイヤー | 通常高 `60px`。右パネルの開状態（`IsRightPanelOpen = True`）に連動して高 `0px` へ格納 |
 | 右側情報パネル | `IsRightPanelOpen`（初期 `false`）で開閉、`IsAlbumViewMaximized`（初期 `true`）で最大化/コンパクトを切替。右上ボタンは拡大／縮小ボタン（`ToggleAlbumViewSizeModeCommand`）の 1 つに統一し（楽曲未再生時は拡張領域を開けないガード付き）、コンパクト時の下部拡張領域（`Grid.Row="1"`）上部に 3 タブバー（`歌詞` / `ダッシュボード` / `タグ`）を配置して現在再生中・選択中の楽曲および所属アルバムに紐づく `LyricsView`・`LrcGeneratorView`・`ListeningStatsView`（対象曲統計＋アルバム内 TOP 5）・タグパネルを排他表示 |
 | 読込中オーバーレイ | `IsMainLoadingOverlayVisible = True`（`IsLoading = True` かつ `CurrentViewType != ViewType.Folders`）でワークスペース上に半透明オーバーレイと `"LOADING..."` テキストを表示（フォルダタブ表示中はフォルダタブ内の専用プログレスインジケーターへ表示を委譲） |
@@ -68,7 +68,7 @@
 
 - 左サイドバーの項目選択で中央ワークスペースを即時切り替え。
 - 右側パネル開閉ハンドルは `600ms`、スペクトラムアナライザは開 `300ms`・閉 `250ms` でサイズをアニメーション変更する。
-- `AppSettings.StartMinimized = true` の場合は起動時に最小化状態（`DisableMiniPlayerOnMinimize == false` 時はミニプレイヤー、`true` 時はタスクバー最小化）で開始する。また、7種のキーボードショートカットおよびハードウェアメディアキーを `PreviewKeyDown` / `WM_APPCOMMAND`（`WindowShortcutHandler`）で処理し、設定ダイアログ終了時の `SettingsUpdated` イベントで最新設定を反映する（データ保存先変更時は `DataDirectoryChanged` 経由でプレイリスト・お気に入り・再生履歴・イコライザープリセットを即時再読込し、ログ出力設定変更時は `ILogConfigurationManager` で NLog 構成へ即時反映する）。
+- `AppSettings.StartMinimized = true` の場合は起動時に最小化状態（`DisableMiniPlayerOnMinimize == false` 時はミニプレイヤー、`true` 時はタスクバー最小化）で開始する。また、7種のキーボードショートカットおよびハードウェアメディアキーを `PreviewKeyDown` / `WM_APPCOMMAND`（`WindowShortcutHandler`）で処理し、設定ダイアログ終了時の `SettingsUpdated` イベントで最新設定を反映する（データ保存先変更時は `DataDirectoryChanged` 経由でプレイリスト・お気に入り・再生履歴・左右リスニング統計・イコライザープリセットを即時再読込し、再生履歴・リスニング統計全リセット時は共有 `ListeningStatsApplicationService.StatsReset` 経由で最近再生した曲・右側ダッシュボード・左側リスニング統計の 3 画面を即座に空状態へ同期し、ログ出力設定変更時は `ILogConfigurationManager` で NLog 構成へ即時反映する）。
 - メインウィンドウ最小化時は、`AppSettings.DisableMiniPlayerOnMinimize == false` の場合に `MiniPlayerWindow` を表示してメインウィンドウを非表示とし、`true` の場合は OS 標準のタスクバー最小化状態を維持する。データ転送中（`DeviceBrowser.IsTransferring`）の終了操作には確認 `MessageBox` を表示する。
 
 ## 7. パフォーマンス最適化要件

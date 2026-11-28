@@ -28,6 +28,8 @@ public sealed class ListeningStatsApplicationServiceTests
             _data = working.Clone();
             return _data.Clone();
         }
+
+        public void ClearAll() => _data = new ListeningStatsData();
     }
 
     private static Track CreateTrack(
@@ -320,5 +322,42 @@ public sealed class ListeningStatsApplicationServiceTests
         // Assert
         Assert.Empty(repository.Load().TrackStats);
         Assert.Empty(repository.Load().PlayEvents);
+    }
+
+    /// <summary>
+    /// ResetAllStats 実行時にすべての曲別統計・日時毎再生履歴が初期化され StatsReset イベントが発火すること、およびストレージ障害時・Dispose 後は false を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public void ResetAllStats_データ存在時およびストレージ障害とDispose後_全初期化通知と安全フォールバックを行うこと()
+    {
+        // Arrange
+        var repository = new InMemoryListeningStatsRepository();
+        var audioMock = new Mock<IAudioService>();
+        using var sut = new ListeningStatsApplicationService(repository, audioMock.Object);
+        var track = CreateTrack("ResetTarget");
+        sut.RecordPlaybackCompleted(track);
+        Assert.Single(repository.Load().TrackStats);
+        Assert.Single(repository.Load().PlayEvents);
+
+        int resetEventCount = 0;
+        sut.StatsReset += () => resetEventCount++;
+
+        var throwingRepoMock = new Mock<IListeningStatsRepository>();
+        throwingRepoMock.Setup(r => r.ClearAll()).Throws(new System.IO.IOException("locked"));
+        using var failingSut = new ListeningStatsApplicationService(throwingRepoMock.Object, audioMock.Object);
+
+        // Act
+        bool succeeded = sut.ResetAllStats();
+        bool failedOnIo = failingSut.ResetAllStats();
+        sut.Dispose();
+        bool afterDispose = sut.ResetAllStats();
+
+        // Assert
+        Assert.True(succeeded);
+        Assert.Equal(1, resetEventCount);
+        Assert.Empty(repository.Load().TrackStats);
+        Assert.Empty(repository.Load().PlayEvents);
+        Assert.False(failedOnIo);
+        Assert.False(afterDispose);
     }
 }

@@ -297,4 +297,41 @@ public sealed class PlaylistViewModelTests
             }
         }
     }
+
+    /// <summary>
+    /// CreatePlaylistWithTracks が順序保持・重複除外・サムネイル更新・一覧追加を行い、空名や空トラック時は作成しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void CreatePlaylistWithTracks_有効入力および無効入力時_順序保持作成と無効入力拒否を行うこと()
+    {
+        // Arrange
+        var saved = new List<UserPlaylist>();
+        _playlistRepoMock.Setup(r => r.SaveAsync(It.IsAny<UserPlaylist>(), It.IsAny<CancellationToken>()))
+            .Callback<UserPlaylist, CancellationToken>((pl, _) => saved.Add(pl))
+            .Returns(Task.CompletedTask);
+
+        using var sut = new PlaylistViewModel(
+            _playlistAppService,
+            _libraryAppService,
+            _audioServiceMock.Object,
+            _eventBus);
+
+        var track1 = new Track { FilePath = @"C:\Music\Alb1\song1.mp3", Title = "Song 1" };
+        var track2 = new Track { FilePath = @"C:\Music\Alb2\song2.mp3", Title = "Song 2" };
+
+        // Act
+        UserPlaylist? invalidName = sut.CreatePlaylistWithTracks("   ", [track1]);
+        UserPlaylist? emptyTracks = sut.CreatePlaylistWithTracks("Empty", Array.Empty<Track>());
+        UserPlaylist? created = sut.CreatePlaylistWithTracks("  TOP 10  ", [track1, track2, track1]);
+
+        // Assert
+        Assert.Null(invalidName);
+        Assert.Null(emptyTracks);
+        Assert.NotNull(created);
+        Assert.Equal("TOP 10", created!.Name);
+        Assert.Equal([track1.Id, track2.Id], created.TrackIds);
+        Assert.Equal(2, created.ThumbnailTrackPaths.Count);
+        Assert.Single(sut.UserPlaylists);
+        Assert.Single(saved);
+    }
 }

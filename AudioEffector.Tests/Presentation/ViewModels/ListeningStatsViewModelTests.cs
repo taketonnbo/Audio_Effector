@@ -61,6 +61,8 @@ public sealed class ListeningStatsViewModelTests
             _data = working.Clone();
             return _data.Clone();
         }
+
+        public void ClearAll() => _data = new ListeningStatsData();
     }
 
     private static Track CreateTrack(
@@ -603,5 +605,53 @@ public sealed class ListeningStatsViewModelTests
 
         // Assert
         Assert.Equal(expected, actual);
+    }
+
+    /// <summary>
+    /// ListeningStatsApplicationService.ResetAllStats 実行時、非表示状態（IsActiveView = false）であっても
+    /// StatsReset イベントにより即座に空状態へ同期され、Dispose 後は通知を無視することを検証します。
+    /// </summary>
+    [Fact]
+    public void StatsResetイベント受信時_非表示中でも即座に空状態へ同期されDispose後は通知を無視すること()
+    {
+        // Arrange
+        var repository = new InMemoryListeningStatsRepository();
+        var audioMock = new Mock<IAudioService>();
+        var track = CreateTrack("Reset Track", 200);
+        audioMock.Setup(a => a.CurrentTrack).Returns(track);
+
+        using var statsService = new ListeningStatsApplicationService(
+            repository,
+            audioMock.Object,
+            () => new DateTime(2026, 11, 29, 12, 0, 0));
+        statsService.RecordPlaybackCompleted(track);
+
+        var dispatcher = new QueuedDispatcherStub();
+        using var sut = new ListeningStatsViewModel(statsService, audioMock.Object, dispatcher)
+        {
+            IsActiveView = true,
+        };
+        Assert.Equal(1, sut.TotalPlayCount);
+        Assert.Single(sut.TopPlayedTracks);
+
+        // 非表示状態へ切替後に全リセットを実行
+        sut.IsActiveView = false;
+
+        // Act
+        bool succeeded = statsService.ResetAllStats();
+        dispatcher.FlushAll();
+
+        // Assert: 非表示状態のままでも即座に空状態へ反映されていること
+        Assert.True(succeeded);
+        Assert.Equal(0, sut.TotalPlayCount);
+        Assert.Equal(TimeSpan.Zero, sut.TotalListeningTime);
+        Assert.False(sut.HasTargetTrackStats);
+        Assert.Empty(sut.TopPlayedTracks);
+        Assert.False(sut.HasTopPlayedTracks);
+
+        // Dispose 後は StatsReset 通知が来てもディスパッチャに積まれないこと
+        sut.Dispose();
+        statsService.ResetAllStats();
+        Assert.Equal(0, dispatcher.PendingCount);
     }
 }

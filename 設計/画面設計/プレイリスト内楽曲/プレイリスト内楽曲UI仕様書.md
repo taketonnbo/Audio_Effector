@@ -75,5 +75,6 @@
 - [主要オブジェクト一覧](../../主要オブジェクト/index.md)
 - [デザイントークン](../../デザインシステム/01_デザイントークン仕様書.md)・[共通コントロール](../../デザインシステム/02_共通コントロールスタイル仕様書.md)
 - [お気に入りUI仕様書](../お気に入り/お気に入りUI仕様書.md)
+- [ライブラリ全体リスニング統計UI仕様書](../ライブラリ全体リスニング統計/ライブラリ全体リスニング統計UI仕様書.md)
 - [コードビハインド](../../../AudioEffector/Presentation/Views/PlaylistTracksView.xaml.cs)
 - [PlaylistViewModel](../../../AudioEffector/Presentation/ViewModels/PlaylistViewModel.cs)

@@ -178,6 +178,18 @@ public sealed class JsonListeningStatsRepository : IListeningStatsRepository, IR
     }
 
     /// <inheritdoc />
+    public void ClearAll()
+    {
+        lock (_syncLock)
+        {
+            string filePath = _filePathResolver();
+            using IDisposable fileLock = _fileLockHelper.AcquireLock(filePath);
+            WriteDataLocked(filePath, new ListeningStatsData());
+            _legacyMigrationAttemptedPaths.Add(filePath);
+        }
+    }
+
+    /// <inheritdoc />
     IReadOnlyList<RecentTrackEntry> IRecentTrackRepository.Load()
     {
         ListeningStatsData data = Load();

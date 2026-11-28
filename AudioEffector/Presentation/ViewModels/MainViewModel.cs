@@ -47,6 +47,8 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly bool _ownsLyrics;
         private readonly bool _ownsLrcGenerator;
         private readonly bool _ownsListeningStats;
+        private readonly bool _ownsLibraryStats;
+        private ListeningStatsApplicationService? _listeningStatsService;
         private ListeningStatsApplicationService? _fallbackListeningStatsService;
         private RightExtensionPanelType _activeRightExtensionPanel = RightExtensionPanelType.None;
         private Track? _selectedTagsTargetTrack;
@@ -146,6 +148,11 @@ namespace AudioEffector.Presentation.ViewModels
         public Presentation.ViewModels.ListeningStatsViewModel? ListeningStats { get; }
 
         /// <summary>
+        /// 左側メイン画面ライブラリ全体リスニング統計専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.LibraryStatsViewModel LibraryStats { get; }
+
+        /// <summary>
         /// フォルダーブラウズ専用ViewModel
         /// </summary>
         public FolderViewModel Folder { get; }
@@ -206,6 +213,11 @@ namespace AudioEffector.Presentation.ViewModels
                     if (previousViewType == ViewType.AlbumDetail && _currentViewType != ViewType.AlbumDetail)
                     {
                         AlbumDetail?.SetAlbum(null);
+                    }
+
+                    if (LibraryStats != null)
+                    {
+                        LibraryStats.IsActiveView = _currentViewType == ViewType.ListeningStats;
                     }
 
                     if (_currentViewType == ViewType.DeviceSync)
@@ -1011,6 +1023,19 @@ namespace AudioEffector.Presentation.ViewModels
             Artists.PlaybackRequested += OnArtistsPlaybackRequested;
             Artists.EnqueueRequested += OnArtistsEnqueueRequested;
 
+            ListeningStatsApplicationService? sharedListeningStatsService = App.ServiceProvider?.GetService(typeof(ListeningStatsApplicationService)) as ListeningStatsApplicationService;
+            AudioEffector.Domain.Repositories.IListeningStatsRepository? sharedStatsRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IListeningStatsRepository)) as AudioEffector.Domain.Repositories.IListeningStatsRepository;
+            if (sharedListeningStatsService == null)
+            {
+                sharedStatsRepo ??= _dataDirectoryProvider != null
+                    ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
+                    : new Infrastructure.Repository.JsonListeningStatsRepository();
+                _fallbackListeningStatsService = new ListeningStatsApplicationService(sharedStatsRepo, _audioService);
+                sharedListeningStatsService = _fallbackListeningStatsService;
+            }
+
+            _listeningStatsService = sharedListeningStatsService;
+
             var resolvedRecent = App.ServiceProvider != null
                 ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.RecentViewModel>(App.ServiceProvider)
                 : null;
@@ -1021,18 +1046,36 @@ namespace AudioEffector.Presentation.ViewModels
             }
             else
             {
-                var statsRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IListeningStatsRepository)) as AudioEffector.Domain.Repositories.IListeningStatsRepository;
-                if (statsRepo != null)
+                if (sharedStatsRepo != null)
                 {
-                    Recent = new Presentation.ViewModels.RecentViewModel(statsRepo, Library!, _audioService);
+                    Recent = new Presentation.ViewModels.RecentViewModel(
+                        sharedStatsRepo,
+                        Library!,
+                        _audioService,
+                        listeningStatsService: sharedListeningStatsService);
                 }
                 else
                 {
-                    var recentRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IRecentTrackRepository)) as AudioEffector.Domain.Repositories.IRecentTrackRepository
-                        ?? (_dataDirectoryProvider != null
+                    var recentRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IRecentTrackRepository)) as AudioEffector.Domain.Repositories.IRecentTrackRepository;
+                    if (recentRepo != null)
+                    {
+                        Recent = new Presentation.ViewModels.RecentViewModel(
+                            recentRepo,
+                            Library!,
+                            _audioService,
+                            listeningStatsService: sharedListeningStatsService);
+                    }
+                    else
+                    {
+                        sharedStatsRepo = _dataDirectoryProvider != null
                             ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
-                            : new Infrastructure.Repository.JsonListeningStatsRepository());
-                    Recent = new Presentation.ViewModels.RecentViewModel(recentRepo, Library!, _audioService);
+                            : new Infrastructure.Repository.JsonListeningStatsRepository();
+                        Recent = new Presentation.ViewModels.RecentViewModel(
+                            sharedStatsRepo,
+                            Library!,
+                            _audioService,
+                            listeningStatsService: sharedListeningStatsService);
+                    }
                 }
                 _ownsRecent = true;
             }
@@ -1114,24 +1157,45 @@ namespace AudioEffector.Presentation.ViewModels
             }
             else
             {
-                var resolvedStatsService = App.ServiceProvider?.GetService(typeof(ListeningStatsApplicationService)) as ListeningStatsApplicationService;
-                if (resolvedStatsService == null)
-                {
-                    var statsRepo = App.ServiceProvider?.GetService(typeof(AudioEffector.Domain.Repositories.IListeningStatsRepository)) as AudioEffector.Domain.Repositories.IListeningStatsRepository
-                        ?? (_dataDirectoryProvider != null
-                            ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
-                            : new Infrastructure.Repository.JsonListeningStatsRepository());
-                    _fallbackListeningStatsService = new ListeningStatsApplicationService(statsRepo, _audioService);
-                    resolvedStatsService = _fallbackListeningStatsService;
-                }
-
                 ListeningStats = new Presentation.ViewModels.ListeningStatsViewModel(
-                    resolvedStatsService,
+                    sharedListeningStatsService,
                     _audioService,
                     sharedUiDispatcher,
                     Library);
                 _ownsListeningStats = true;
             }
+
+            var resolvedLibraryStats = App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.LibraryStatsViewModel>(App.ServiceProvider)
+                : null;
+            if (resolvedLibraryStats != null)
+            {
+                LibraryStats = resolvedLibraryStats;
+                _ownsLibraryStats = false;
+            }
+            else
+            {
+                sharedStatsRepo ??= _dataDirectoryProvider != null
+                    ? new Infrastructure.Repository.JsonListeningStatsRepository(_dataDirectoryProvider)
+                    : new Infrastructure.Repository.JsonListeningStatsRepository();
+
+                var libraryStatsAppService = App.ServiceProvider?.GetService(typeof(LibraryStatsApplicationService)) as LibraryStatsApplicationService
+                    ?? new LibraryStatsApplicationService(sharedStatsRepo);
+                LibraryStats = new Presentation.ViewModels.LibraryStatsViewModel(
+                    libraryStatsAppService,
+                    sharedListeningStatsService,
+                    Library!,
+                    _audioService,
+                    sharedUiDispatcher,
+                    Playlist);
+                _ownsLibraryStats = true;
+            }
+
+            LibraryStats.PlaybackRequested += OnLibraryStatsPlaybackRequested;
+            LibraryStats.EnqueueRequested += OnLibraryStatsEnqueueRequested;
+            LibraryStats.ArtistNavigationRequested += OnLibraryStatsArtistNavigationRequested;
+            LibraryStats.AlbumNavigationRequested += OnLibraryStatsAlbumNavigationRequested;
+            LibraryStats.IsActiveView = CurrentViewType == ViewType.ListeningStats;
 
             var appSettings = _settingsService.LoadSettings();
             _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
@@ -3038,6 +3102,11 @@ namespace AudioEffector.Presentation.ViewModels
             }
         }
 
+        /// <summary>
+        /// 設定画面や単体テストから共有されるリスニング統計アプリケーションサービスを取得します
+        /// </summary>
+        internal ListeningStatsApplicationService? ListeningStatsService => _listeningStatsService;
+
         private void ShowSettings()
         {
             var settingsViewModel = new SettingsViewModel(
@@ -3045,7 +3114,8 @@ namespace AudioEffector.Presentation.ViewModels
                 _audioService,
                 _dataDirectoryProvider,
                 _dataDirectoryMigrationService,
-                _logConfigurationManager);
+                _logConfigurationManager,
+                _listeningStatsService);
 
             void OnDataDirectoryChanged() => ReloadDataAfterDirectoryChange();
             settingsViewModel.DataDirectoryChanged += OnDataDirectoryChanged;
@@ -3097,6 +3167,7 @@ namespace AudioEffector.Presentation.ViewModels
 
             Recent.LoadHistory();
             ListeningStats?.Refresh();
+            LibraryStats?.Refresh();
             if (Equalizer != null)
             {
                 _ = Equalizer.LoadPresetsAsync();
@@ -3456,6 +3527,32 @@ namespace AudioEffector.Presentation.ViewModels
             _audioService.EnqueueTracks(tracks, playNext);
         }
 
+        private void OnLibraryStatsPlaybackRequested(IReadOnlyList<Track> tracks, Track? startTrack, string name, string subtitle)
+        {
+            PlaybackListName = name;
+            PlaybackListSubtitle = subtitle;
+            PlaybackListTracks = new ObservableCollection<Track>(tracks);
+            PlayerControl?.SetPlaybackList(tracks, name, subtitle, updateAudioService: false);
+        }
+
+        private void OnLibraryStatsEnqueueRequested(IReadOnlyList<Track> tracks, bool playNext)
+        {
+            _audioService.EnqueueTracks(tracks, playNext);
+        }
+
+        private void OnLibraryStatsArtistNavigationRequested(string artistName)
+        {
+            if (Artists?.SelectArtistByName(artistName) == true)
+            {
+                CurrentViewType = ViewType.Artists;
+            }
+        }
+
+        private void OnLibraryStatsAlbumNavigationRequested(Album album)
+        {
+            NavigateToAlbumDetail(album);
+        }
+
         /// <summary>
         /// アンマネージドリソースおよびマネージドリソースを解放します
         /// </summary>
@@ -3534,6 +3631,18 @@ namespace AudioEffector.Presentation.ViewModels
                         if (_ownsListeningStats)
                         {
                             ListeningStats.Dispose();
+                        }
+                    }
+                    if (LibraryStats != null)
+                    {
+                        LibraryStats.PlaybackRequested -= OnLibraryStatsPlaybackRequested;
+                        LibraryStats.EnqueueRequested -= OnLibraryStatsEnqueueRequested;
+                        LibraryStats.ArtistNavigationRequested -= OnLibraryStatsArtistNavigationRequested;
+                        LibraryStats.AlbumNavigationRequested -= OnLibraryStatsAlbumNavigationRequested;
+                        LibraryStats.IsActiveView = false;
+                        if (_ownsLibraryStats)
+                        {
+                            LibraryStats.Dispose();
                         }
                     }
                     _fallbackListeningStatsService?.Dispose();
