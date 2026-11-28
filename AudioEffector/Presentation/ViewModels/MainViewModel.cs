@@ -35,6 +35,8 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly AudioService? _fallbackAudioService;
         private readonly LibraryApplicationService? _libraryService;
         private readonly ISettingsService _settingsService;
+        private readonly IDataDirectoryProvider? _dataDirectoryProvider;
+        private readonly IDataDirectoryMigrationService? _dataDirectoryMigrationService;
         private readonly Infrastructure.Repository.JsonSettingsRepository? _fallbackSettingsRepository;
         private readonly SettingsApplicationService? _fallbackSettings;
         private readonly bool _ownsAllSongs;
@@ -603,7 +605,29 @@ namespace AudioEffector.Presentation.ViewModels
         /// ViewModelの初期化を行い、各サービスのインスタンス生成、データの読み込み、コマンドの初期化を行います。
         /// </summary>
         public MainViewModel()
+            : this(dataDirectoryProvider: null, dataDirectoryMigrationService: null)
         {
+        }
+
+        /// <summary>
+        /// DI コンテナからデータディレクトリ関連サービスを受け取り、ViewModel を初期化します。
+        /// </summary>
+        /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ（任意）</param>
+        /// <param name="dataDirectoryMigrationService">データディレクトリ移行サービス（任意）</param>
+        [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
+        public MainViewModel(
+            IDataDirectoryProvider? dataDirectoryProvider,
+            IDataDirectoryMigrationService? dataDirectoryMigrationService)
+        {
+            _dataDirectoryProvider = dataDirectoryProvider
+                ?? (App.ServiceProvider != null
+                    ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<IDataDirectoryProvider>(App.ServiceProvider)
+                    : null);
+            _dataDirectoryMigrationService = dataDirectoryMigrationService
+                ?? (App.ServiceProvider != null
+                    ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<IDataDirectoryMigrationService>(App.ServiceProvider)
+                    : null);
+
             if (App.ServiceProvider != null)
             {
                 PlayerControl = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.PlayerControlViewModel>(App.ServiceProvider);
@@ -2817,18 +2841,11 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void ShowSettings()
         {
-            var dataDirectoryProvider = App.ServiceProvider != null
-                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<IDataDirectoryProvider>(App.ServiceProvider)
-                : null;
-            var dataDirectoryMigrationService = App.ServiceProvider != null
-                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<IDataDirectoryMigrationService>(App.ServiceProvider)
-                : null;
-
             var settingsViewModel = new SettingsViewModel(
                 _settingsService,
                 _audioService,
-                dataDirectoryProvider,
-                dataDirectoryMigrationService);
+                _dataDirectoryProvider,
+                _dataDirectoryMigrationService);
 
             void OnDataDirectoryChanged() => ReloadDataAfterDirectoryChange();
             settingsViewModel.DataDirectoryChanged += OnDataDirectoryChanged;
@@ -2850,7 +2867,7 @@ namespace AudioEffector.Presentation.ViewModels
         }
 
         /// <summary>
-        /// データ保存先ディレクトリの変更完了後に各画面の永続化データ（プレイリスト・お気に入り・再生履歴・イコライザープリセット）を再読み込みします
+        /// データ保存先ディレクトリの変更完了後に各画面の永続化データ（プレイリスト・お気に入り・再生履歴・イコライザープリセット・ライブラリトラック整合）を再読み込みします
         /// </summary>
         internal void ReloadDataAfterDirectoryChange()
         {
@@ -2860,11 +2877,35 @@ namespace AudioEffector.Presentation.ViewModels
             {
                 ShowFavorites();
             }
+            else if (Playlist?.SelectedPlaylist != null)
+            {
+                var selectedId = Playlist.SelectedPlaylist.Id;
+                var matched = Playlist.UserPlaylists.FirstOrDefault(p => p.Id == selectedId);
+                if (matched != null)
+                {
+                    _ = Playlist.SelectPlaylistAsync(matched);
+                }
+                else
+                {
+                    _ = Playlist.SelectPlaylistAsync(null);
+                    if (CurrentViewType == ViewType.PlaylistTracks)
+                    {
+                        CurrentViewType = ViewType.Playlists;
+                    }
+                }
+            }
 
             Recent.LoadHistory();
             if (Equalizer != null)
             {
                 _ = Equalizer.LoadPresetsAsync();
+            }
+
+            if (Library != null
+                && !string.IsNullOrWhiteSpace(Library.CurrentLibraryPath)
+                && Directory.Exists(Library.CurrentLibraryPath))
+            {
+                _ = Library.RescanCurrentFolderAsync();
             }
 
             if (CurrentTrack != null)

@@ -45,7 +45,7 @@ public class SettingsViewModel : ViewModelBase
     private readonly IDataDirectoryProvider? _dataDirectoryProvider;
     private readonly IDataDirectoryMigrationService? _dataDirectoryMigrationService;
     private readonly Func<string?, string?> _folderPicker;
-    private readonly Func<string, string, DataMigrationChoice> _migrationPrompt;
+    private readonly Func<string, string, bool, DataMigrationChoice> _migrationPrompt;
     private readonly Action<string, string, bool> _messageNotifier;
     private readonly string _defaultDataDirectoryFallback;
     private AppSettings _appSettings;
@@ -587,7 +587,7 @@ public class SettingsViewModel : ViewModelBase
         IDataDirectoryProvider? dataDirectoryProvider,
         IDataDirectoryMigrationService? dataDirectoryMigrationService,
         Func<string?, string?>? folderPicker,
-        Func<string, string, DataMigrationChoice>? migrationPrompt,
+        Func<string, string, bool, DataMigrationChoice>? migrationPrompt,
         Action<string, string, bool>? messageNotifier)
     {
         _settingsService = settingsService;
@@ -656,7 +656,8 @@ public class SettingsViewModel : ViewModelBase
             DataMigrationMode migrationMode = DataMigrationMode.None;
             if (_dataDirectoryMigrationService.HasExistingDataFiles(currentDirectory))
             {
-                DataMigrationChoice choice = _migrationPrompt(currentDirectory, displayTarget);
+                bool destinationHasExisting = _dataDirectoryMigrationService.HasExistingDataFiles(displayTarget);
+                DataMigrationChoice choice = _migrationPrompt(currentDirectory, displayTarget, destinationHasExisting);
                 if (choice == DataMigrationChoice.Cancel)
                 {
                     return;
@@ -735,9 +736,9 @@ public class SettingsViewModel : ViewModelBase
         return dialog.ShowDialog() == true ? dialog.FolderName : null;
     }
 
-    private static DataMigrationChoice ShowDefaultMigrationPrompt(string sourceDirectory, string targetDirectory)
+    private static DataMigrationChoice ShowDefaultMigrationPrompt(string sourceDirectory, string targetDirectory, bool destinationHasExistingData)
     {
-        var dialog = new DataMigrationDialog(sourceDirectory, targetDirectory);
+        var dialog = new DataMigrationDialog(sourceDirectory, targetDirectory, destinationHasExistingData);
         var owner = System.Windows.Application.Current?.Windows
             .OfType<Window>()
             .FirstOrDefault(w => w.IsActive)
