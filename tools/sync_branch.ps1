@@ -165,7 +165,7 @@ else {
     (Get-Location).Path
 }
 
-$normalizedBaseBranch = ($BaseBranch.Trim() -replace '^refs/heads/', '' -replace '^origin/', '')
+$normalizedBaseBranch = ($BaseBranch.Trim() -replace '^refs/heads/', '' -replace '^refs/remotes/origin/', '' -replace '^origin/', '')
 $baseRef = if ([string]::IsNullOrWhiteSpace($normalizedBaseBranch)) { "" } else { "origin/$normalizedBaseBranch" }
 $currentBranch = ""
 

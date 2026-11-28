@@ -379,7 +379,7 @@ try {
             }
 
             if (-not $UseExistingBranch) {
-                $normalizedBaseBranch = ($BaseBranch.Trim() -replace '^refs/heads/', '' -replace '^origin/', '')
+                $normalizedBaseBranch = ($BaseBranch.Trim() -replace '^refs/heads/', '' -replace '^refs/remotes/origin/', '' -replace '^origin/', '')
                 if ([string]::IsNullOrWhiteSpace($normalizedBaseBranch)) {
                     throw "-BaseBranch には空でないブランチ名を指定してください。"
                 }
