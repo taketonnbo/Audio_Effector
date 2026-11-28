@@ -24,11 +24,10 @@ public partial class LyricsView : UserControl
         nameof(IsCompactMode),
         typeof(bool),
         typeof(LyricsView),
-        new PropertyMetadata(false, OnIsCompactModeChanged));
+        new PropertyMetadata(false));
 
     private LyricsViewModel? _subscribedViewModel;
     private ScrollViewer? _scrollViewer;
-    private ItemsPresenter? _itemsPresenter;
     private LyricLineItemViewModel? _pressedLine;
     private bool _isProgrammaticScroll;
     private long _programmaticScrollGuardUntilTicks;
@@ -75,14 +74,6 @@ public partial class LyricsView : UserControl
         return originalSource != null;
     }
 
-    private static void OnIsCompactModeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-    {
-        if (d is LyricsView view)
-        {
-            view.UpdateViewportCenterPadding();
-        }
-    }
-
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         DetachViewModel();
@@ -96,7 +87,6 @@ public partial class LyricsView : UserControl
     {
         AttachViewModel(DataContext as LyricsViewModel);
         AttachScrollViewer();
-        UpdateViewportCenterPadding();
 
         if (_subscribedViewModel is { HasLyrics: true, IsSynced: true, CurrentLineIndex: >= 0, IsAutoScrollPaused: false } vm)
         {
@@ -141,14 +131,15 @@ public partial class LyricsView : UserControl
 
     private void AttachScrollViewer()
     {
-        if (_scrollViewer != null)
+        LyricsListBox.ApplyTemplate();
+        ScrollViewer? found = FindVisualChild<ScrollViewer>(LyricsListBox);
+        if (ReferenceEquals(_scrollViewer, found))
         {
             return;
         }
 
-        LyricsListBox.ApplyTemplate();
-        _scrollViewer = FindVisualChild<ScrollViewer>(LyricsListBox);
-        _itemsPresenter = FindVisualChild<ItemsPresenter>(LyricsListBox);
+        DetachScrollViewer();
+        _scrollViewer = found;
 
         if (_scrollViewer != null)
         {
@@ -169,7 +160,6 @@ public partial class LyricsView : UserControl
         _scrollViewer.RemoveHandler(Thumb.DragStartedEvent, new DragStartedEventHandler(OnScrollBarUserInteraction));
         _scrollViewer.RemoveHandler(ScrollBar.ScrollEvent, new ScrollEventHandler(OnScrollBarScroll));
         _scrollViewer = null;
-        _itemsPresenter = null;
     }
 
     private void OnScrollToLineRequested(int lineIndex)
@@ -209,20 +199,25 @@ public partial class LyricsView : UserControl
                 return;
             }
 
-            if (LyricsListBox.ItemContainerGenerator.ContainerFromIndex(lineIndex) is not FrameworkElement container)
+            if (LyricsListBox.ItemContainerGenerator.ContainerFromIndex(lineIndex) is not FrameworkElement)
             {
                 LyricsListBox.ScrollIntoView(item);
-                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
-                {
-                    if (generation != _pendingScrollGeneration ||
-                        _subscribedViewModel is { IsAutoScrollPaused: true })
-                    {
-                        return;
-                    }
+                LyricsListBox.UpdateLayout();
 
-                    CenterContainerInViewport(lineIndex);
-                }));
-                return;
+                if (LyricsListBox.ItemContainerGenerator.ContainerFromIndex(lineIndex) is not FrameworkElement)
+                {
+                    Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+                    {
+                        if (generation != _pendingScrollGeneration ||
+                            _subscribedViewModel is { IsAutoScrollPaused: true })
+                        {
+                            return;
+                        }
+
+                        CenterContainerInViewport(lineIndex);
+                    }));
+                    return;
+                }
             }
 
             CenterContainerInViewport(lineIndex);
@@ -235,6 +230,7 @@ public partial class LyricsView : UserControl
 
     private void CenterContainerInViewport(int lineIndex)
     {
+        AttachScrollViewer();
         if (_scrollViewer == null ||
             lineIndex < 0 ||
             lineIndex >= LyricsListBox.Items.Count)
@@ -247,7 +243,9 @@ public partial class LyricsView : UserControl
             return;
         }
 
-        double viewportHeight = _scrollViewer.ViewportHeight;
+        double viewportHeight = _scrollViewer.ActualHeight > 0
+            ? _scrollViewer.ActualHeight
+            : _scrollViewer.ViewportHeight;
         if (viewportHeight <= 0)
         {
             return;
@@ -256,14 +254,16 @@ public partial class LyricsView : UserControl
         BeginProgrammaticScrollGuard();
         try
         {
-            Point positionInViewport = container.TransformToAncestor(_scrollViewer).Transform(new Point(0, 0));
-            double containerCenterY = positionInViewport.Y + (container.ActualHeight / 2.0);
+            // _scrollViewer 座標系で対象行の現在中心位置とビューポート中央の差分を算出し中央寄せする
+            Point positionInScrollViewer = container.TransformToAncestor(_scrollViewer).Transform(new Point(0, 0));
+            double containerCenterY = positionInScrollViewer.Y + (container.ActualHeight / 2.0);
             double desiredOffset = _scrollViewer.VerticalOffset + (containerCenterY - (viewportHeight / 2.0));
             double clampedOffset = Math.Clamp(desiredOffset, 0.0, _scrollViewer.ScrollableHeight);
 
             if (Math.Abs(clampedOffset - _scrollViewer.VerticalOffset) > 0.5)
             {
                 _scrollViewer.ScrollToVerticalOffset(clampedOffset);
+                LyricsListBox.UpdateLayout();
             }
         }
         catch (InvalidOperationException)
@@ -334,27 +334,6 @@ public partial class LyricsView : UserControl
         {
             _subscribedViewModel?.NotifyManualScroll();
         }
-    }
-
-    private void LyricsListBox_SizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        UpdateViewportCenterPadding();
-    }
-
-    private void UpdateViewportCenterPadding()
-    {
-        AttachScrollViewer();
-        if (_itemsPresenter == null)
-        {
-            return;
-        }
-
-        double height = LyricsListBox.ActualHeight;
-        double verticalPadding = height > 0
-            ? Math.Max(IsCompactMode ? 8.0 : 16.0, Math.Min((height / 2.0) - (IsCompactMode ? 16.0 : 24.0), 160.0))
-            : (IsCompactMode ? 8.0 : 16.0);
-
-        _itemsPresenter.Margin = new Thickness(0, verticalPadding, 0, verticalPadding);
     }
 
     private void LyricRow_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

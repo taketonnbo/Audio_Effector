@@ -349,6 +349,7 @@
                 <!-- 1. 仮想化歌詞リスト（親 ScrollViewer 内包禁止・UI 仮想化 4 属性必須） -->
                 <ListBox x:Name="LyricsListBox"
                          ItemsSource="{Binding Lines}"
+                         Visibility="{Binding ShowLyricsList, Converter={StaticResource BoolToVis}}"
                          Background="Transparent"
                          BorderThickness="0"
                          Padding="0"
@@ -362,23 +363,7 @@
                          VirtualizingPanel.ScrollUnit="Pixel"
                          AutomationProperties.Name="歌詞リスト"
                          PreviewMouseWheel="LyricsListBox_PreviewMouseWheel"
-                         PreviewKeyDown="LyricsListBox_PreviewKeyDown"
-                         SizeChanged="LyricsListBox_SizeChanged">
-                    <ListBox.Style>
-                        <Style TargetType="ListBox">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                            <Style.Triggers>
-                                <MultiDataTrigger>
-                                    <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding HasLyrics}" Value="True"/>
-                                        <Condition Binding="{Binding IsLoading}" Value="False"/>
-                                        <Condition Binding="{Binding HasError}" Value="False"/>
-                                    </MultiDataTrigger.Conditions>
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </MultiDataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </ListBox.Style>
+                         PreviewKeyDown="LyricsListBox_PreviewKeyDown">
 
                     <ListBox.ItemContainerStyle>
                         <Style TargetType="ListBoxItem">
