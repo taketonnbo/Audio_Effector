@@ -943,10 +943,31 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             owners.Add(ownerAlbum);
         }
 
+        void RegisterAlbumModes(string repArtist, string repAlbum, Album ownerAlbum)
+        {
+            foreach (var (replaceWithUnderscore, trimTrailingDots, isCanonical) in DirectorySanitizeModes)
+            {
+                string artistFolder = SanitizeFileNameCore(repArtist, replaceWithUnderscore, trimTrailingDots);
+                string albumFolder = SanitizeFileNameCore(repAlbum, replaceWithUnderscore, trimTrailingDots);
+                if (isCanonical)
+                {
+                    RegisterOwner(canonicalOwnersByDir, artistFolder, albumFolder, ownerAlbum);
+                }
+
+                RegisterOwner(representativeOwnersByDir, artistFolder, albumFolder, ownerAlbum);
+            }
+        }
+
         foreach (var album in albums)
         {
-            if (album.Tracks == null)
+            if (album.Tracks == null || album.Tracks.Count == 0)
             {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(album.Artist) && !string.IsNullOrWhiteSpace(album.Title))
+            {
+                RegisterAlbumModes(album.Artist.Trim(), album.Title.Trim(), album);
                 continue;
             }
 
@@ -954,17 +975,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             {
                 string repArtist = ResolveAlbumRepresentativeArtist(album, track, fallbackIdentities);
                 string repAlbum = ResolveEffectiveDestinationAlbum(track, album.Title);
-                foreach (var (replaceWithUnderscore, trimTrailingDots, isCanonical) in DirectorySanitizeModes)
-                {
-                    string artistFolder = SanitizeFileNameCore(repArtist, replaceWithUnderscore, trimTrailingDots);
-                    string albumFolder = SanitizeFileNameCore(repAlbum, replaceWithUnderscore, trimTrailingDots);
-                    if (isCanonical)
-                    {
-                        RegisterOwner(canonicalOwnersByDir, artistFolder, albumFolder, album);
-                    }
-
-                    RegisterOwner(representativeOwnersByDir, artistFolder, albumFolder, album);
-                }
+                RegisterAlbumModes(repArtist, repAlbum, album);
             }
         }
 
@@ -2414,7 +2425,14 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     internal static string SanitizeFileName(string? name)
         => SanitizeFileNameCore(name, replaceInvalidWithUnderscore: true, trimTrailingDots: true);
 
-    private static string SanitizeFileNameCore(string? name, bool replaceInvalidWithUnderscore, bool trimTrailingDots)
+    /// <summary>
+    /// 指定されたサニタイズモード（無効文字の _ 置換または旧除去、末尾ピリオド除去有無）に従ってフォルダ名を正規化します。
+    /// </summary>
+    /// <param name="name">元のアーティスト名またはアルバム名</param>
+    /// <param name="replaceInvalidWithUnderscore">無効文字をアンダースコアへ置換する場合はtrue、旧仕様通り除去する場合はfalse</param>
+    /// <param name="trimTrailingDots">末尾ピリオド・空白を除去する場合はtrue、旧仕様通り保持する場合はfalse</param>
+    /// <returns>正規化後のフォルダ名（有効文字が残らない場合は "Unknown"）</returns>
+    internal static string SanitizeFileNameCore(string? name, bool replaceInvalidWithUnderscore, bool trimTrailingDots)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -2422,22 +2440,33 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
 
         string trimmedInput = name.Trim();
-        string cleaned;
+        const int StackAllocThreshold = 256;
+        Span<char> buffer = trimmedInput.Length <= StackAllocThreshold
+            ? stackalloc char[trimmedInput.Length]
+            : new char[trimmedInput.Length];
+
+        int writeIndex = 0;
         if (replaceInvalidWithUnderscore)
         {
-            var chars = new char[trimmedInput.Length];
             for (int i = 0; i < trimmedInput.Length; i++)
             {
                 char c = trimmedInput[i];
-                chars[i] = InvalidFileNameChars.Contains(c) ? '_' : c;
+                buffer[writeIndex++] = InvalidFileNameChars.Contains(c) ? '_' : c;
             }
-
-            cleaned = new string(chars).Trim();
         }
         else
         {
-            cleaned = new string(trimmedInput.Where(c => !InvalidFileNameChars.Contains(c)).ToArray()).Trim();
+            for (int i = 0; i < trimmedInput.Length; i++)
+            {
+                char c = trimmedInput[i];
+                if (!InvalidFileNameChars.Contains(c))
+                {
+                    buffer[writeIndex++] = c;
+                }
+            }
         }
+
+        string cleaned = new string(buffer.Slice(0, writeIndex).Trim());
 
         string withoutTrailingDots = TrimTrailingDotsAndWhitespace(cleaned);
         if (string.IsNullOrEmpty(withoutTrailingDots))
