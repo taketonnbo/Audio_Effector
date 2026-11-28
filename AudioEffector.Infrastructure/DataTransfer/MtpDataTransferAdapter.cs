@@ -212,6 +212,71 @@ public class MtpDataTransferAdapter : IDataTransferRepository
     }
 
     /// <summary>
+    /// 指定されたローカルの補助ファイル（.lrc 歌詞ファイル等）をデバイスへ転送します
+    /// </summary>
+    /// <param name="sourceFilePath">転送元ローカルファイルパス</param>
+    /// <param name="destinationFolder">転送先フォルダパス</param>
+    /// <param name="destinationFileName">転送先ファイル名（省略時は転送元ファイル名を使用）</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>転送成功時はtrue</returns>
+    public Task<bool> TransferCompanionFileAsync(
+        string sourceFilePath,
+        string destinationFolder,
+        string? destinationFileName = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() =>
+        {
+            if (string.IsNullOrWhiteSpace(sourceFilePath) || !File.Exists(sourceFilePath))
+            {
+                Logger.Warn($"転送元の補助ファイルが存在しません: {sourceFilePath}");
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(destinationFolder) || !Directory.Exists(destinationFolder))
+            {
+                Logger.Warn($"補助ファイルの転送先フォルダが存在しません: {destinationFolder}");
+                return false;
+            }
+
+            string targetFileName;
+            if (string.IsNullOrWhiteSpace(destinationFileName))
+            {
+                targetFileName = Path.GetFileName(sourceFilePath);
+            }
+            else
+            {
+                string trimmedName = destinationFileName.Trim();
+                string fileNameOnly = Path.GetFileName(trimmedName);
+                if (!string.Equals(trimmedName, fileNameOnly, StringComparison.Ordinal) || string.IsNullOrWhiteSpace(fileNameOnly))
+                {
+                    Logger.Warn($"不正な補助ファイル名が指定されました: {destinationFileName}");
+                    return false;
+                }
+
+                targetFileName = fileNameOnly;
+            }
+
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string destFilePath = Path.Combine(destinationFolder, targetFileName);
+                File.Copy(sourceFilePath, destFilePath, overwrite: true);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, $"補助ファイル {sourceFilePath} の転送中にエラーが発生しました");
+                return false;
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>
     /// デバイス上の指定ファイルを削除します
     /// </summary>
     /// <param name="deviceFilePath">削除対象ファイルパス</param>

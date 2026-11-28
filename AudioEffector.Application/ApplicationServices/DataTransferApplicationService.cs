@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Entities.DataTransfer;
 using AudioEffector.Domain.Repositories;
+using AudioEffector.Domain.Services;
 
 namespace AudioEffector.Application.ApplicationServices;
 
@@ -17,21 +20,25 @@ public class DataTransferApplicationService
     private readonly IDataTransferRepository _dataTransferRepository;
     private readonly IAudioTranscodeService? _audioTranscodeService;
     private readonly ISettingsService? _settingsService;
+    private readonly ILrcParser? _lrcParser;
 
     /// <summary>
     /// DataTransferApplicationServiceを初期化します
     /// </summary>
     /// <param name="dataTransferRepository">データ転送リポジトリ</param>
     /// <param name="audioTranscodeService">音声変換サービス（省略時は変換なし）</param>
-    /// <param name="settingsService">設定サービス（省略時は変換無効）</param>
+    /// <param name="settingsService">設定サービス（省略時は変換・LRC同梱無効）</param>
+    /// <param name="lrcParser">LRC 生成元種別判別パーサー（省略時は LRC 同梱無効）</param>
     public DataTransferApplicationService(
         IDataTransferRepository dataTransferRepository,
         IAudioTranscodeService? audioTranscodeService = null,
-        ISettingsService? settingsService = null)
+        ISettingsService? settingsService = null,
+        ILrcParser? lrcParser = null)
     {
         _dataTransferRepository = dataTransferRepository ?? throw new ArgumentNullException(nameof(dataTransferRepository));
         _audioTranscodeService = audioTranscodeService;
         _settingsService = settingsService;
+        _lrcParser = lrcParser;
     }
 
     /// <summary>
@@ -86,7 +93,7 @@ public class DataTransferApplicationService
         int successCount = 0;
         int total = trackList.Count;
 
-        var transcodeOptions = ResolveTranscodeOptions();
+        var (transcodeOptions, lrcTransferOptions) = ResolveTransferOptions();
 
         for (int i = 0; i < total; i++)
         {
@@ -94,12 +101,16 @@ public class DataTransferApplicationService
 
             var track = trackList[i];
             bool success;
+            string transferredFileName;
             if (_audioTranscodeService != null && _audioTranscodeService.NeedsTranscode(track.FilePath, transcodeOptions))
             {
                 using var prepared = await _audioTranscodeService.PrepareForTransferAsync(
                     track.FilePath,
                     transcodeOptions,
                     cancellationToken);
+                transferredFileName = !string.IsNullOrWhiteSpace(prepared.TargetFileName)
+                    ? prepared.TargetFileName
+                    : Path.GetFileName(prepared.OutputFilePath);
                 success = await _dataTransferRepository.TransferTrackAsync(
                     prepared.OutputFilePath,
                     destinationFolder,
@@ -108,6 +119,7 @@ public class DataTransferApplicationService
             }
             else
             {
+                transferredFileName = Path.GetFileName(track.FilePath);
                 success = await _dataTransferRepository.TransferTrackAsync(
                     track.FilePath,
                     destinationFolder,
@@ -118,6 +130,12 @@ public class DataTransferApplicationService
             if (success)
             {
                 successCount++;
+                await TryTransferCompanionLrcAsync(
+                    track.FilePath,
+                    transferredFileName,
+                    destinationFolder,
+                    lrcTransferOptions,
+                    cancellationToken);
             }
 
             progress?.Report((double)(i + 1) / total);
@@ -126,19 +144,58 @@ public class DataTransferApplicationService
         return successCount;
     }
 
-    private AudioTranscodeOptions ResolveTranscodeOptions()
+    private async Task TryTransferCompanionLrcAsync(
+        string sourceAudioFilePath,
+        string transferredAudioFileName,
+        string destinationFolder,
+        LrcTransferOptions lrcTransferOptions,
+        CancellationToken cancellationToken)
+    {
+        if (!CompanionLrcResolver.TryResolveCompanionLrcPath(
+            sourceAudioFilePath,
+            lrcTransferOptions,
+            _lrcParser,
+            out string lrcSourceFilePath,
+            onWarning: (msg, ex) => Debug.WriteLine($"{msg}: {ex.Message}")))
+        {
+            return;
+        }
+
+        string lrcDestinationFileName = Path.ChangeExtension(transferredAudioFileName, ".lrc");
+        try
+        {
+            await _dataTransferRepository.TransferCompanionFileAsync(
+                lrcSourceFilePath,
+                destinationFolder,
+                lrcDestinationFileName,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // 同梱 .lrc の転送失敗は音声ファイル本体の転送成功・後続トラックの転送を妨げない
+            Debug.WriteLine($"同梱 LRC ファイルの転送に失敗しました ({lrcSourceFilePath}): {ex.Message}");
+        }
+    }
+
+    private (AudioTranscodeOptions TranscodeOptions, LrcTransferOptions LrcTransferOptions) ResolveTransferOptions()
     {
         if (_settingsService == null)
         {
-            return new AudioTranscodeOptions();
+            return (new AudioTranscodeOptions(), new LrcTransferOptions());
         }
 
         var settings = _settingsService.LoadSettings();
-        return new AudioTranscodeOptions
+        var transcodeOptions = new AudioTranscodeOptions
         {
             ConvertMp4ToM4a = settings.ConvertMp4ToM4a,
             ConvertFlacToMp3 = settings.ConvertFlacToMp3
         };
+        var lrcTransferOptions = LrcTransferOptions.FromSettings(settings);
+        return (transcodeOptions, lrcTransferOptions);
     }
 
     /// <summary>
