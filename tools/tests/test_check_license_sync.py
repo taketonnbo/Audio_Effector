@@ -345,6 +345,165 @@ class CheckLicenseSyncUnitTests(unittest.TestCase):
         self.assertIn("THIRD-PARTY-NOTICES.md", out_md)
         self.assertIn("要確認", out_md)
 
+    def test_git_rm_cached後にgitignore配下のbin_dllがディスク残存しても偽陽性ブロックしないこと(self) -> None:
+        # Arrange
+        self._init_git_repo()
+        _write_file(self.repo / ".gitignore", "bin/\n")
+        _write_file(
+            self.repo / "AudioEffector.Infrastructure/AudioEffector.Infrastructure.csproj",
+            _sample_csproj([("NAudio", "2.2.1")]),
+        )
+        _write_file(
+            self.repo / "THIRD-PARTY-NOTICES.md",
+            _sample_notices([("NAudio", "2.2.1")]),
+        )
+        _write_file(self.repo / "AudioEffector/bin/Release/Legacy.dll", "legacy")
+        _run_git(["add", "-f", "AudioEffector/bin/Release/Legacy.dll"], cwd=self.repo)
+        _run_git(["add", "."], cwd=self.repo)
+        _run_git(["commit", "-m", "chore: base with tracked dll"], cwd=self.repo)
+        _run_git(["checkout", "-b", "fix/436-untrack-dll"], cwd=self.repo)
+
+        # git rm --cached で追跡解除しつつローカルディスクにはファイルを残存させる
+        _run_git(["rm", "--cached", "AudioEffector/bin/Release/Legacy.dll"], cwd=self.repo)
+        _run_git(["commit", "-m", "chore: untrack legacy dll"], cwd=self.repo)
+        self.assertTrue((self.repo / "AudioEffector/bin/Release/Legacy.dll").is_file())
+
+        # Act
+        rc, out = self._run_cli(["--base", "develop", "--strict", "--json"])
+        data = json.loads(out)
+
+        # Assert
+        self.assertEqual(rc, 0)
+        self.assertTrue(data["passed"])
+        self.assertEqual(data["tracked_bin_dlls"], [])
+        self.assertEqual(data["diff_tracked_bin_dlls"], [])
+
+    def test_無効なbase参照はstrictで失敗しベース前進時もmerge_base基準で誤検知しないこと(self) -> None:
+        # Arrange
+        self._init_git_repo()
+        _write_file(
+            self.repo / "AudioEffector.Infrastructure/AudioEffector.Infrastructure.csproj",
+            _sample_csproj([("NAudio", "2.2.1"), ("NLog", "6.2.0")]),
+        )
+        _write_file(
+            self.repo / "THIRD-PARTY-NOTICES.md",
+            _sample_notices([("NAudio", "2.2.1")]),
+        )
+        _run_git(["add", "."], cwd=self.repo)
+        _run_git(["commit", "-m", "chore: base"], cwd=self.repo)
+
+        # 作業ブランチを分岐し、.csproj にコメントのみ追記（NLog には触れない）
+        _run_git(["checkout", "-b", "feat/unrelated-csproj-edit"], cwd=self.repo)
+        _write_file(
+            self.repo / "AudioEffector.Infrastructure/AudioEffector.Infrastructure.csproj",
+            "<!-- unrelated comment -->\n" + _sample_csproj([("NAudio", "2.2.1"), ("NLog", "6.2.0")]),
+        )
+        _run_git(["add", "."], cwd=self.repo)
+        _run_git(["commit", "-m", "chore: comment only"], cwd=self.repo)
+
+        # ベース側 (develop) を進めて NLog を 6.3.0 へ更新
+        _run_git(["checkout", "develop"], cwd=self.repo)
+        _write_file(
+            self.repo / "AudioEffector.Infrastructure/AudioEffector.Infrastructure.csproj",
+            _sample_csproj([("NAudio", "2.2.1"), ("NLog", "6.3.0")]),
+        )
+        _run_git(["add", "."], cwd=self.repo)
+        _run_git(["commit", "-m", "chore: bump nlog on develop"], cwd=self.repo)
+        _run_git(["checkout", "feat/unrelated-csproj-edit"], cwd=self.repo)
+
+        # Act 1: 存在しない --base 参照は --strict で非 0
+        rc_invalid, out_invalid = self._run_cli(["--base", "nonexistent-ref", "--strict", "--json"])
+        data_invalid = json.loads(out_invalid)
+        self.assertEqual(rc_invalid, 1)
+        self.assertFalse(data_invalid["passed"])
+        self.assertTrue(any("nonexistent-ref" in e for e in data_invalid["blocking_errors"]))
+
+        # Act 2: 分岐後に develop が進んだ状態でも merge-base 比較のため NLog は誤検知されない
+        rc_mb, out_mb = self._run_cli(["--base", "develop", "--strict", "--json"])
+        data_mb = json.loads(out_mb)
+        self.assertEqual(rc_mb, 0)
+        self.assertTrue(data_mb["passed"])
+        self.assertEqual(data_mb["diff_package_violations"], [])
+        self.assertIsNotNone(data_mb["merge_base_commit"])
+
+    def test_別ワークツリーのpubxmlを巻き込まず製品直下のpubxmlのみ検知すること(self) -> None:
+        # Arrange
+        _write_file(
+            self.repo / "AudioEffector.Infrastructure/AudioEffector.Infrastructure.csproj",
+            _sample_csproj([("TagLibSharp", "2.3.0")]),
+        )
+        _write_file(
+            self.repo / "THIRD-PARTY-NOTICES.md",
+            _sample_notices([("TagLibSharp", "2.3.0")]),
+        )
+        # 別ワークツリー配下に PublishSingleFile=true の pubxml を配置
+        _write_file(
+            self.repo / ".agent_worktrees/issue-999/AudioEffector/Properties/PublishProfiles/Win.pubxml",
+            "<Project><PropertyGroup><PublishSingleFile>true</PublishSingleFile></PropertyGroup></Project>\n",
+        )
+
+        # Act 1: 別ワークツリーの pubxml は無視されること
+        rc_ok, out_ok = self._run_cli(["--strict", "--json"])
+        self.assertEqual(rc_ok, 0)
+        self.assertEqual(json.loads(out_ok)["lgpl_single_file_risks"], [])
+
+        # Act 2: 製品プロジェクト直下の pubxml は確実に検知されること
+        _write_file(
+            self.repo / "AudioEffector/Properties/PublishProfiles/Release.pubxml",
+            "<Project><PropertyGroup><PublishSingleFile>true</PublishSingleFile></PropertyGroup></Project>\n",
+        )
+        rc_fail, out_fail = self._run_cli(["--strict", "--json"])
+        data_fail = json.loads(out_fail)
+        self.assertEqual(rc_fail, 1)
+        self.assertEqual(len(data_fail["lgpl_single_file_risks"]), 1)
+        self.assertEqual(
+            data_fail["lgpl_single_file_risks"][0]["file"],
+            "AudioEffector/Properties/PublishProfiles/Release.pubxml",
+        )
+
+    def test_strict_all時のneeds_update整合性とバッククォートおよびテーブル記法パースが正しいこと(self) -> None:
+        # Arrange: バッククォート記法とテーブル記法を含む THIRD-PARTY-NOTICES.md + 既存未記載 NLog
+        self._init_git_repo()
+        _write_file(
+            self.repo / "AudioEffector.Infrastructure/AudioEffector.Infrastructure.csproj",
+            _sample_csproj([("NAudio", "2.2.1"), ("MediaDevices", "1.10.0"), ("NLog", "6.2.0")]),
+        )
+        _write_file(
+            self.repo / "THIRD-PARTY-NOTICES.md",
+            "# Third-Party Notices\n\n"
+            "## NAudio\n"
+            "- **Version:** `2.2.1`\n\n"
+            "| Package | Version | License |\n"
+            "| :--- | :--- | :--- |\n"
+            "| `MediaDevices` | `1.10.0` | MIT |\n",
+        )
+        _run_git(["add", "."], cwd=self.repo)
+        _run_git(["commit", "-m", "chore: base"], cwd=self.repo)
+        _run_git(["checkout", "-b", "feat/strict-all-check"], cwd=self.repo)
+
+        # Act 1: 差分なし＋--strict-all → NAudio / MediaDevices は正しく一致認識され、NLog のみ未記載かつ needs_update=True
+        rc_all, out_all = self._run_cli(["--base", "develop", "--strict", "--strict-all", "--json"])
+        data_all = json.loads(out_all)
+        self.assertEqual(rc_all, 1)
+        self.assertFalse(data_all["passed"])
+        self.assertTrue(data_all["needs_update"])
+        self.assertEqual([p["name"] for p in data_all["missing_packages"]], ["NLog"])
+        self.assertEqual(data_all["version_mismatches"], [])
+        self.assertTrue(any("--strict-all" in err for err in data_all["blocking_errors"]))
+
+        # Act 2: 差分違反併発時も --strict-all の既存負債サマリが blocking_errors に併記されること
+        _write_file(
+            self.repo / "AudioEffector.Infrastructure/AudioEffector.Infrastructure.csproj",
+            _sample_csproj([("NAudio", "2.2.1"), ("MediaDevices", "1.10.0"), ("NLog", "6.2.0"), ("Whisper.net", "1.9.0")]),
+        )
+        rc_both, out_both = self._run_cli(["--base", "develop", "--strict", "--strict-all", "--json"])
+        data_both = json.loads(out_both)
+        self.assertEqual(rc_both, 1)
+        self.assertFalse(data_both["passed"])
+        self.assertTrue(data_both["needs_update"])
+        self.assertTrue(any("Whisper.net" in err for err in data_both["blocking_errors"]))
+        self.assertTrue(any("--strict-all" in err for err in data_both["blocking_errors"]))
+
 
 if __name__ == "__main__":
     unittest.main()

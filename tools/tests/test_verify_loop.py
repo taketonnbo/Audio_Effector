@@ -685,6 +685,53 @@ $res | ConvertTo-Json -Depth 6
         self.assertTrue(fail_data["Report"]["needs_update"])
         self.assertIn("Whisper.net", fail_data["Report"]["missing_packages"])
 
+        # Act 3: スキップ分岐・非-Full 対象外ファイル・-Full -SkipLicenseSync 併用・-StrictAllLicenses の検証
+        # ベースコミットへ既存未記載パッケージ (NLog) を含めたブランチを作成して -StrictAllLicenses も同時検証
+        _run_git(["checkout", "develop"], cwd=lic_repo)
+        infra_csproj.write_text(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+            "  <ItemGroup>\n"
+            "    <PackageReference Include=\"NAudio\" Version=\"2.2.1\" />\n"
+            "    <PackageReference Include=\"NLog\" Version=\"6.2.0\" />\n"
+            "  </ItemGroup>\n"
+            "</Project>\n",
+            encoding="utf-8",
+        )
+        _run_git(["add", "."], cwd=lic_repo)
+        _run_git(["commit", "-m", "chore: base with existing missing"], cwd=lic_repo)
+        base_with_debt = _run_git(["rev-parse", "HEAD"], cwd=lic_repo).stdout.strip()
+        _run_git(["checkout", "-b", "feat/437-branches"], cwd=lic_repo)
+
+        ps_branches = loader + f"""
+$rSkipOnly      = Invoke-LicenseSyncGate -RepoRootPath '{escaped_repo}' -BaseCommit '{base_with_debt}' -ChangedFiles @('AudioEffector.Infrastructure/AudioEffector.Infrastructure.csproj') -SkipLicenseSync
+$rFullOverrides = Invoke-LicenseSyncGate -RepoRootPath '{escaped_repo}' -BaseCommit '{base_with_debt}' -ChangedFiles @() -Full -SkipLicenseSync
+$rUnrelatedSkip = Invoke-LicenseSyncGate -RepoRootPath '{escaped_repo}' -BaseCommit '{base_with_debt}' -ChangedFiles @('README.md')
+$rTargetExec    = Invoke-LicenseSyncGate -RepoRootPath '{escaped_repo}' -BaseCommit '{base_with_debt}' -ChangedFiles @('AudioEffector.Infrastructure/AudioEffector.Infrastructure.csproj')
+$rStrictAll     = Invoke-LicenseSyncGate -RepoRootPath '{escaped_repo}' -BaseCommit '{base_with_debt}' -ChangedFiles @() -Full -StrictAllLicenses
+[PSCustomObject]@{{
+    skip_only      = $rSkipOnly
+    full_overrides = $rFullOverrides
+    unrelated_skip = $rUnrelatedSkip
+    target_exec    = $rTargetExec
+    strict_all     = $rStrictAll
+}} | ConvertTo-Json -Depth 6
+"""
+        res_branches = _run_ps_command(ps_branches, cwd=REPO_ROOT)
+        self.assertEqual(res_branches.returncode, 0, msg=res_branches.stdout + "\n" + res_branches.stderr)
+        b_data = json.loads(res_branches.stdout)
+
+        self.assertTrue(b_data["skip_only"]["Passed"])
+        self.assertEqual(b_data["skip_only"]["GateResult"]["status"], "SKIPPED")
+        self.assertTrue(b_data["full_overrides"]["Passed"])
+        self.assertEqual(b_data["full_overrides"]["GateResult"]["status"], "PASSED")
+        self.assertTrue(b_data["unrelated_skip"]["Passed"])
+        self.assertEqual(b_data["unrelated_skip"]["GateResult"]["status"], "SKIPPED")
+        self.assertTrue(b_data["target_exec"]["Passed"])
+        self.assertEqual(b_data["target_exec"]["GateResult"]["status"], "PASSED")
+        self.assertFalse(b_data["strict_all"]["Passed"])
+        self.assertEqual(b_data["strict_all"]["GateResult"]["status"], "FAILED")
+        self.assertTrue(b_data["strict_all"]["Report"]["needs_update"])
+
 
 if __name__ == "__main__":
     unittest.main()
