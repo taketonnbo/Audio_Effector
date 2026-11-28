@@ -307,8 +307,8 @@ public sealed class ArtistsViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 指定されたアーティスト名に一致するアーティストグループを検索して選択状態にします。
-    /// 検索フィルタが設定されている場合は解除してから選択します。
+    /// 指定されたアーティスト名に一致するアーティストグループを検索して選択状態にします
+    /// 検索フィルタが設定されている場合は解除してから選択します
     /// </summary>
     /// <param name="artistName">選択対象のアーティスト名</param>
     /// <returns>一致するアーティストを選択できた場合は true</returns>
@@ -334,6 +334,14 @@ public sealed class ArtistsViewModel : ViewModelBase, IDisposable
 
         ArtistGroup? matched = FilteredArtists.FirstOrDefault(
             a => string.Equals(a.Name, normalized, StringComparison.OrdinalIgnoreCase));
+        if (matched == null && Volatile.Read(ref _isLibraryRefreshPending) != 0)
+        {
+            Interlocked.Exchange(ref _isLibraryRefreshPending, 0);
+            RefreshArtists();
+            matched = FilteredArtists.FirstOrDefault(
+                a => string.Equals(a.Name, normalized, StringComparison.OrdinalIgnoreCase));
+        }
+
         if (matched == null)
         {
             return false;

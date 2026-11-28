@@ -477,7 +477,7 @@ public sealed class PlaylistViewModel : ViewModelBase, IDisposable, IHandle<Play
     }
 
     /// <summary>
-    /// 指定された名称と楽曲一覧で新規ユーザープレイリストを作成して永続化します。
+    /// 指定された名称と楽曲一覧で新規ユーザープレイリストを作成して永続化します
     /// </summary>
     /// <param name="playlistName">新規プレイリスト名</param>
     /// <param name="tracks">追加する楽曲一覧（順序を保持し重複を除外します）</param>

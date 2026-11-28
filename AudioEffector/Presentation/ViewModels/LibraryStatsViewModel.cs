@@ -15,9 +15,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AudioEffector.Presentation.ViewModels;
 
 /// <summary>
-/// 左側メイン画面「リスニング統計」ビューを担当する ViewModel。
+/// 左側メイン画面「リスニング統計」ビューを担当する ViewModel
 /// 期間フィルタ別の KPI サマリ、曲・アーティスト・アルバム TOP 10 ランキング、
-/// 日別・月別再生推移、時間帯別・曜日別傾向、および再生・プレイリスト作成・画面遷移アクションを提供します。
+/// 日別・月別再生推移、時間帯別・曜日別傾向、および再生・プレイリスト作成・画面遷移アクションを提供します
 /// </summary>
 public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
 {
@@ -496,9 +496,13 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
             return null;
         }
 
-        List<Track> tracks = ResolveCurrentTopTracks();
+        List<Track> tracks = ResolveCurrentTopLibraryTracks();
         if (tracks.Count == 0)
         {
+            _messageNotifier(
+                "現在のライブラリ内に存在する楽曲が見つからないため、プレイリストを作成できませんでした。",
+                "プレイリスト作成不可",
+                true);
             return null;
         }
 
@@ -516,8 +520,9 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
         UserPlaylist? created = playlistVm.CreatePlaylistWithTracks(playlistName.Trim(), tracks);
         if (created != null)
         {
+            int registeredCount = created.TrackIds.Count > 0 ? created.TrackIds.Count : created.TrackPaths.Count;
             _messageNotifier(
-                string.Format(CultureInfo.InvariantCulture, "プレイリスト「{0}」を作成しました（{1} 曲）。", created.Name, tracks.Count),
+                string.Format(CultureInfo.InvariantCulture, "プレイリスト「{0}」を作成しました（{1} 曲）。", created.Name, registeredCount),
                 "プレイリスト作成完了",
                 false);
         }
@@ -602,9 +607,18 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
     private void AddTrackToPlaylist(object? parameter)
     {
         PlaylistViewModel? playlistVm = Playlist;
-        Track? target = ResolveTrackFromParameter(parameter);
-        if (playlistVm == null || target == null)
+        if (playlistVm == null)
         {
+            return;
+        }
+
+        Track? target = ResolveLibraryTrackFromParameter(parameter);
+        if (target == null)
+        {
+            _messageNotifier(
+                "現在のライブラリ内に該当楽曲が見つからないため、プレイリストへ追加できませんでした。",
+                "プレイリスト追加不可",
+                true);
             return;
         }
 
@@ -639,6 +653,10 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
         Album? album = ResolveAlbumFromLibrary(albumItem);
         if (album == null)
         {
+            _messageNotifier(
+                "現在のライブラリ内に対象アルバムが見つかりませんでした。",
+                "アルバム未検出",
+                true);
             return;
         }
 
@@ -656,6 +674,31 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
             string s => !string.IsNullOrWhiteSpace(s),
             _ => false,
         };
+
+    private List<Track> ResolveCurrentTopLibraryTracks()
+    {
+        var tracks = new List<Track>(TopTracks.Count);
+        foreach (LibraryStatsTrackItemViewModel item in TopTracks)
+        {
+            Track? resolved = ResolveTrackFromLibrary(item.FilePath);
+            if (resolved != null)
+            {
+                tracks.Add(resolved);
+            }
+        }
+
+        return tracks;
+    }
+
+    private Track? ResolveLibraryTrackFromParameter(object? parameter)
+    {
+        return parameter switch
+        {
+            LibraryStatsTrackItemViewModel item => ResolveTrackFromLibrary(item.FilePath),
+            Track track => ResolveTrackFromLibrary(track.FilePath),
+            _ => null,
+        };
+    }
 
     private List<Track> ResolveCurrentTopTracks()
     {
@@ -722,16 +765,9 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
             }
         }
 
-        Album? exactMatch = _libraryViewModel.Albums.FirstOrDefault(a =>
+        return _libraryViewModel.Albums.FirstOrDefault(a =>
             string.Equals(a.Title, albumItem.AlbumTitle, StringComparison.OrdinalIgnoreCase)
             && string.Equals(a.Artist, albumItem.ArtistName, StringComparison.OrdinalIgnoreCase));
-        if (exactMatch != null)
-        {
-            return exactMatch;
-        }
-
-        return _libraryViewModel.Albums.FirstOrDefault(a =>
-            string.Equals(a.Title, albumItem.AlbumTitle, StringComparison.OrdinalIgnoreCase));
     }
 
     private static Track CreateTrackFromRankedStat(RankedTrackStat stat)
@@ -859,11 +895,14 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
             ? _currentSnapshot.MonthlyTrends
             : _currentSnapshot.DailyTrends;
         int maxCount = source.Count > 0 ? source.Max(p => p.PlayCount) : 0;
+        int labelStep = source.Count > 15 ? 5 : (source.Count > 10 ? 2 : 1);
 
-        foreach (ListeningTrendPoint point in source)
+        for (int i = 0; i < source.Count; i++)
         {
+            ListeningTrendPoint point = source[i];
+            bool showAxisLabel = labelStep == 1 || i == 0 || i == source.Count - 1 || (i % labelStep == 0);
             TrendBars.Add(new LibraryStatsChartBarViewModel(
-                point.Label,
+                showAxisLabel ? point.Label : string.Empty,
                 point.DetailLabel,
                 point.PlayCount,
                 point.TotalListeningDuration,
@@ -883,11 +922,14 @@ public sealed class LibraryStatsViewModel : ViewModelBase, IDisposable
         IReadOnlyList<ListeningHabitBucket> source = _isDayOfWeekHabitSelected
             ? _currentSnapshot.Habits.DayOfWeekBuckets
             : _currentSnapshot.Habits.HourlyBuckets;
+        bool thinHourlyLabels = !_isDayOfWeekHabitSelected && source.Count == 24;
 
-        foreach (ListeningHabitBucket bucket in source)
+        for (int i = 0; i < source.Count; i++)
         {
+            ListeningHabitBucket bucket = source[i];
+            bool showAxisLabel = !thinHourlyLabels || (i % 3 == 0);
             HabitBars.Add(new LibraryStatsChartBarViewModel(
-                bucket.Label,
+                showAxisLabel ? bucket.Label : string.Empty,
                 bucket.DetailLabel,
                 bucket.PlayCount,
                 bucket.TotalListeningDuration,

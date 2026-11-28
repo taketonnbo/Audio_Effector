@@ -3520,8 +3520,10 @@ namespace AudioEffector.Presentation.ViewModels
 
         private void OnLibraryStatsArtistNavigationRequested(string artistName)
         {
-            CurrentViewType = ViewType.Artists;
-            Artists?.SelectArtistByName(artistName);
+            if (Artists?.SelectArtistByName(artistName) == true)
+            {
+                CurrentViewType = ViewType.Artists;
+            }
         }
 
         private void OnLibraryStatsAlbumNavigationRequested(Album album)

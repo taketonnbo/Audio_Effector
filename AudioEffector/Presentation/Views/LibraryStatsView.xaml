@@ -196,21 +196,15 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 1. 上部ヘッダー（タイトル・期間フィルタ・クイックアクション） -->
+        <!-- 1. 上部ヘッダー（タイトル・期間フィルタ・クイックアクション / 狭幅折り返し対応） -->
         <Border Grid.Row="0"
                 Background="{DynamicResource PanelBackgroundBrush}"
                 BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="0,0,0,1"
-                Padding="20,14">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
+                Padding="20,12">
+            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <!-- 画面タイトル -->
-                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,20,0">
+                <StackPanel VerticalAlignment="Center" Margin="0,2,20,2">
                     <TextBlock Text="リスニング統計"
                                FontSize="20"
                                FontWeight="Bold"
@@ -222,10 +216,9 @@
                 </StackPanel>
 
                 <!-- 期間フィルタ（今週 / 今月 / 今年 / 全期間） -->
-                <StackPanel Grid.Column="1"
-                            Orientation="Horizontal"
+                <StackPanel Orientation="Horizontal"
                             VerticalAlignment="Center"
-                            HorizontalAlignment="Left">
+                            Margin="0,4,16,4">
                     <RadioButton x:Name="PeriodThisWeekButton"
                                  Content="今週"
                                  GroupName="LibraryStatsPeriodFilter"
@@ -258,7 +251,9 @@
                 </StackPanel>
 
                 <!-- クイックアクション -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Margin="0,4,0,4">
                     <Button x:Name="PlayTopTracksButton"
                             Content="▶ TOP 10 を再生"
                             Style="{StaticResource StatsPrimaryButtonStyle}"
@@ -269,7 +264,7 @@
                             Style="{StaticResource StatsSecondaryButtonStyle}"
                             Command="{Binding CreateTopTracksPlaylistCommand}"/>
                 </StackPanel>
-            </Grid>
+            </WrapPanel>
         </Border>
 
         <!-- 2. メインコンテンツ領域（縦スクロール オールインワン構成） -->
@@ -792,16 +787,16 @@
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="{x:Type vm:LibraryStatsChartBarViewModel}">
-                                                <Grid Margin="2,0" ToolTip="{Binding ToolTipText}">
+                                                <Grid ToolTip="{Binding ToolTipText}">
                                                     <Grid.RowDefinitions>
                                                         <RowDefinition Height="116"/>
-                                                        <RowDefinition Height="Auto"/>
+                                                        <RowDefinition Height="16"/>
                                                     </Grid.RowDefinitions>
                                                     <Border Grid.Row="0"
                                                             Height="{Binding BarHeight}"
                                                             VerticalAlignment="Bottom"
-                                                            CornerRadius="3,3,0,0"
-                                                            Margin="2,0">
+                                                            CornerRadius="2,2,0,0"
+                                                            Margin="0.5,0">
                                                         <Border.Style>
                                                             <Style TargetType="Border">
                                                                 <Setter Property="Background" Value="{DynamicResource DarkNeonCyanBrush}"/>
@@ -819,13 +814,12 @@
                                                             </Style>
                                                         </Border.Style>
                                                     </Border>
-                                                    <TextBlock Grid.Row="1"
-                                                               Text="{Binding Label}"
-                                                               FontSize="9"
-                                                               Foreground="{DynamicResource MutedTextForegroundBrush}"
-                                                               HorizontalAlignment="Center"
-                                                               Margin="0,4,0,0"
-                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <Canvas Grid.Row="1" ClipToBounds="False">
+                                                        <TextBlock Text="{Binding Label}"
+                                                                   FontSize="9"
+                                                                   Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                                                   Canvas.Top="2"/>
+                                                    </Canvas>
                                                 </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
@@ -884,16 +878,16 @@
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="{x:Type vm:LibraryStatsChartBarViewModel}">
-                                                <Grid Margin="1,0" ToolTip="{Binding ToolTipText}">
+                                                <Grid ToolTip="{Binding ToolTipText}">
                                                     <Grid.RowDefinitions>
                                                         <RowDefinition Height="116"/>
-                                                        <RowDefinition Height="Auto"/>
+                                                        <RowDefinition Height="16"/>
                                                     </Grid.RowDefinitions>
                                                     <Border Grid.Row="0"
                                                             Height="{Binding BarHeight}"
                                                             VerticalAlignment="Bottom"
-                                                            CornerRadius="3,3,0,0"
-                                                            Margin="1,0">
+                                                            CornerRadius="2,2,0,0"
+                                                            Margin="0.5,0">
                                                         <Border.Style>
                                                             <Style TargetType="Border">
                                                                 <Setter Property="Background" Value="{DynamicResource DarkNeonCyanBrush}"/>
@@ -911,12 +905,12 @@
                                                             </Style>
                                                         </Border.Style>
                                                     </Border>
-                                                    <TextBlock Grid.Row="1"
-                                                               Text="{Binding Label}"
-                                                               FontSize="9"
-                                                               Foreground="{DynamicResource MutedTextForegroundBrush}"
-                                                               HorizontalAlignment="Center"
-                                                               Margin="0,4,0,0"/>
+                                                    <Canvas Grid.Row="1" ClipToBounds="False">
+                                                        <TextBlock Text="{Binding Label}"
+                                                                   FontSize="9"
+                                                                   Foreground="{DynamicResource MutedTextForegroundBrush}"
+                                                                   Canvas.Top="2"/>
+                                                    </Canvas>
                                                 </Grid>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
