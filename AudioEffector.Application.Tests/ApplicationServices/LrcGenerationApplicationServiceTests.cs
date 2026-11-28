@@ -215,17 +215,194 @@ public sealed class LrcGenerationApplicationServiceTests
         Assert.False(eventFired);
     }
 
+    /// <summary>
+    /// 既定パスに既存 .lrc が存在する場合、LoadExistingLrcAsync が透過的に UTF-8 読み込み・パースし、LrcFile ソース付きドキュメントを返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadExistingLrcAsync_既存Lrcファイルが存在する場合_パース済みLyricsDocumentを返す()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_app_load_lrc_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "Song.flac");
+        string lrcPath = Path.Combine(tempDir, "Song.lrc");
+        File.WriteAllText(audioPath, "dummy");
+        File.WriteAllText(lrcPath, "[00:05.00]既存歌詞一行目");
+
+        try
+        {
+            var textService = new FakeTextEncodingService
+            {
+                TextContent = "[00:05.00]既存歌詞一行目\n[00:12.00]既存歌詞二行目",
+            };
+            var parser = new StubLrcParser
+            {
+                ParseHandler = _ => new LyricsDocument(
+                    [
+                        new LyricLine(0, TimeSpan.FromSeconds(5), "既存歌詞一行目"),
+                        new LyricLine(1, TimeSpan.FromSeconds(12), "既存歌詞二行目"),
+                    ],
+                    isSynced: true,
+                    title: "Song"),
+            };
+            LrcGenerationApplicationService sut = CreateSut(textService: textService, lrcParser: parser);
+            var track = new Track { FilePath = audioPath, Title = "Song" };
+
+            // Act
+            Result<LyricsDocument?> result = await sut.LoadExistingLrcAsync(track);
+
+            // Assert
+            Assert.True(result.IsSuccess);
+            Assert.NotNull(result.Value);
+            Assert.Equal(2, result.Value!.Lines.Count);
+            Assert.Equal("既存歌詞一行目", result.Value.Lines[0].Text);
+            Assert.Equal(LyricsSourceType.LrcFile, result.Value.SourceType);
+            Assert.Equal(lrcPath, result.Value.SourcePath);
+            Assert.True(textService.LastAllowEncodingConversion);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 既定パスに .lrc が存在しない場合、LoadExistingLrcAsync が成功 Result(null) を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadExistingLrcAsync_既存Lrcファイルが存在しない場合_成功ResultでNullを返す()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_app_nolrc_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "NoLyrics.flac");
+        File.WriteAllText(audioPath, "dummy");
+
+        try
+        {
+            LrcGenerationApplicationService sut = CreateSut();
+            var track = new Track { FilePath = audioPath, Title = "NoLyrics" };
+
+            // Act
+            Result<LyricsDocument?> result = await sut.LoadExistingLrcAsync(track);
+
+            // Assert
+            Assert.True(result.IsSuccess);
+            Assert.Null(result.Value);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 既存 .lrc ファイルが空または有効な歌詞行を含まない場合、LoadExistingLrcAsync が安全に失敗 Result を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   \r\n  ")]
+    [InlineData("[ti:HeaderOnly]")]
+    public async Task LoadExistingLrcAsync_空または有効行なしの既存Lrc_失敗Resultを返す(string content)
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_app_emptylrc_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "Broken.flac");
+        string lrcPath = Path.Combine(tempDir, "Broken.lrc");
+        File.WriteAllText(audioPath, "dummy");
+        File.WriteAllText(lrcPath, content);
+
+        try
+        {
+            var textService = new FakeTextEncodingService { TextContent = content };
+            LrcGenerationApplicationService sut = CreateSut(textService: textService);
+            var track = new Track { FilePath = audioPath, Title = "Broken" };
+
+            // Act
+            Result<LyricsDocument?> result = await sut.LoadExistingLrcAsync(track);
+
+            // Assert
+            Assert.True(result.IsFailure);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 既存 .lrc ファイルがタイムタグのないプレーン歌詞（IsSynced == false）または読み込み時 I/O 例外の場合、
+    /// LoadExistingLrcAsync が安全に失敗 Result を返すことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task LoadExistingLrcAsync_非同期歌詞および読み込み例外発生時_失敗Resultを返す()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_app_unsynced_lrc_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "Unsynced.flac");
+        string lrcPath = Path.Combine(tempDir, "Unsynced.lrc");
+        File.WriteAllText(audioPath, "dummy");
+        File.WriteAllText(lrcPath, "タイムタグのない歌詞行");
+
+        try
+        {
+            var plainParser = new StubLrcParser
+            {
+                ParseHandler = _ => new LyricsDocument(
+                    [new LyricLine(0, null, "タイムタグのない歌詞行")],
+                    isSynced: false),
+            };
+            var textService = new FakeTextEncodingService { TextContent = "タイムタグのない歌詞行" };
+            LrcGenerationApplicationService sutUnsynced = CreateSut(textService: textService, lrcParser: plainParser);
+            var track = new Track { FilePath = audioPath, Title = "Unsynced" };
+
+            // Act 1: IsSynced == false のドキュメント
+            Result<LyricsDocument?> unsyncedResult = await sutUnsynced.LoadExistingLrcAsync(track);
+
+            // Assert 1
+            Assert.True(unsyncedResult.IsFailure);
+
+            // Act 2: ReadAsUtf8TextAsync で例外発生
+            textService.ThrowOnRead = new IOException("読み込み失敗テスト");
+            LrcGenerationApplicationService sutReadError = CreateSut(textService: textService, lrcParser: plainParser);
+            Result<LyricsDocument?> errorResult = await sutReadError.LoadExistingLrcAsync(track);
+
+            // Assert 2
+            Assert.True(errorResult.IsFailure);
+            Assert.Contains("読み込み失敗テスト", errorResult.ErrorMessage, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static LrcGenerationApplicationService CreateSut(
         FakeAudioAlignmentEngine? engine = null,
         FakeTextEncodingService? textService = null,
         FakeLocalSpeechModelManager? modelManager = null,
-        LyricsApplicationService? lyricsService = null)
+        LyricsApplicationService? lyricsService = null,
+        StubLrcParser? lrcParser = null)
     {
         return new LrcGenerationApplicationService(
             engine ?? new FakeAudioAlignmentEngine(),
             textService ?? new FakeTextEncodingService(),
             modelManager ?? new FakeLocalSpeechModelManager(),
-            new StubLrcParser(),
+            lrcParser ?? new StubLrcParser(),
             lyricsService ?? new LyricsApplicationService(new StubLyricsProvider(), new InMemoryEventBus()));
     }
 
@@ -263,7 +440,9 @@ public sealed class LrcGenerationApplicationServiceTests
         public Func<string, TextEncodingInspectionResult>? InspectionFactory { get; set; }
         public string TextContent { get; set; } = "デフォルト歌詞";
         public bool ThrowIoOnSave { get; set; }
+        public Exception? ThrowOnRead { get; set; }
         public string? LastSavedPath { get; private set; }
+        public bool LastAllowEncodingConversion { get; private set; }
 
         public Task<TextEncodingInspectionResult> InspectAsync(string textFilePath, CancellationToken cancellationToken = default)
         {
@@ -277,6 +456,12 @@ public sealed class LrcGenerationApplicationServiceTests
         public Task<string> ReadAsUtf8TextAsync(string textFilePath, bool allowEncodingConversion, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            LastAllowEncodingConversion = allowEncodingConversion;
+            if (ThrowOnRead is not null)
+            {
+                return Task.FromException<string>(ThrowOnRead);
+            }
+
             return Task.FromResult(TextContent);
         }
 
@@ -315,7 +500,9 @@ public sealed class LrcGenerationApplicationServiceTests
 
     private sealed class StubLrcParser : ILrcParser
     {
-        public LyricsDocument Parse(string content) => LyricsDocument.Empty;
+        public Func<string, LyricsDocument>? ParseHandler { get; set; }
+
+        public LyricsDocument Parse(string content) => ParseHandler is not null ? ParseHandler(content) : LyricsDocument.Empty;
 
         public string Format(LyricsDocument document) => "[00:01.00]formatted";
     }

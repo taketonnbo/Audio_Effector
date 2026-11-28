@@ -387,7 +387,9 @@ public sealed class MainViewModelTests
 
     private sealed class StubLrcParserForMain : ILrcParser
     {
-        public LyricsDocument Parse(string content) => LyricsDocument.Empty;
+        public Func<string, LyricsDocument>? ParseHandler { get; set; }
+
+        public LyricsDocument Parse(string content) => ParseHandler is not null ? ParseHandler(content) : LyricsDocument.Empty;
 
         public string Format(LyricsDocument document) => "[00:04.00]再作成テスト歌詞";
     }
@@ -452,5 +454,82 @@ public sealed class MainViewModelTests
         // Assert 2: テキスト生成が TextAlignment モードで完了
         Assert.True(sut.LrcGenerator.IsPreviewState);
         Assert.Equal(LrcGenerationMode.TextAlignment, engine.LastMode);
+    }
+
+    /// <summary>
+    /// 既存 .lrc ファイルが存在する楽曲に対して歌詞パネルの RequestGenerateLrcCommand から開いた場合、
+    /// LRC 編集画面（IsPreviewState == true）がメイン表示され、「↺ 再生成」操作時のみ入力画面へ遷移してテキスト生成・自動文字起こしを再開できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task OpenLrcGenerator_既存Lrcが存在する楽曲を歌詞パネルから再起動_編集画面をメイン表示し再生成押下時のみ入力画面へ遷移すること()
+    {
+        // Arrange
+        string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ae_main_lrc_edit_{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempDir);
+        string audioPath = System.IO.Path.Combine(tempDir, "ExistingMain.flac");
+        string lrcPath = System.IO.Path.Combine(tempDir, "ExistingMain.lrc");
+        System.IO.File.WriteAllText(audioPath, "dummy");
+        System.IO.File.WriteAllText(lrcPath, "[00:08.00]既存保存済み歌詞");
+
+        try
+        {
+            var engine = new StubAlignmentEngineForMain();
+            var parser = new StubLrcParserForMain
+            {
+                ParseHandler = _ => new LyricsDocument(
+                    [new LyricLine(0, TimeSpan.FromSeconds(8), "既存保存済み歌詞")],
+                    isSynced: true,
+                    title: "ExistingMain"),
+            };
+            var track = new Track { FilePath = audioPath, Title = "ExistingMain", Artist = "Artist" };
+
+            using var scope = new ServiceProviderScope((lyricsSvc, audioSvc, dispatcher) =>
+            {
+                var genSvc = new LrcGenerationApplicationService(
+                    engine,
+                    new StubTextEncodingServiceForMain(),
+                    new StubModelManagerForMain(),
+                    parser,
+                    lyricsSvc);
+                return new LrcGeneratorViewModel(
+                    genSvc,
+                    audioSvc,
+                    dispatcher,
+                    selectTextFileFunc: null,
+                    selectModelFileFunc: null,
+                    openFolderAction: _ => { },
+                    fileExistsFunc: System.IO.File.Exists);
+            });
+            using var sut = new MainViewModel();
+            sut.IsRightPanelOpen = true;
+            await sut.Lyrics!.HandleAsync(new TrackChangedEvent(track, TimeSpan.Zero));
+
+            // Act 1: 歌詞パネルヘッダーの「LRC 自動生成・再生成」から既存 .lrc 付き楽曲を開く（OpenLrcGenerator 単体経路を検証）
+            sut.Lyrics.RequestGenerateLrcCommand.Execute(null);
+
+            // Assert 1: 既存 .lrc の手動編集画面がメイン表示される
+            Assert.True(sut.IsLrcGeneratorViewVisible);
+            Assert.True(sut.LrcGenerator!.IsPreviewState);
+            Assert.Single(sut.LrcGenerator.PreviewLines);
+            Assert.Equal("既存保存済み歌詞", sut.LrcGenerator.PreviewLines[0].Text);
+
+            // Act 2: 「↺ 再生成」クリック時のみ入力・待機画面へ遷移し、テキスト生成・自動文字起こしを再開可能
+            sut.LrcGenerator.RegenerateCommand.Execute(null);
+            Assert.True(sut.LrcGenerator.IsInputState);
+            Assert.True(sut.LrcGenerator.TranscribeAudioCommand.CanExecute(null));
+
+            await sut.LrcGenerator.InspectAndSelectTextFileAsync(@"C:\Lyrics\ExistingMain.txt");
+            Assert.True(sut.LrcGenerator.GenerateLrcCommand.CanExecute(null));
+            await sut.LrcGenerator.GenerateFromTextAsync();
+            Assert.True(sut.LrcGenerator.IsPreviewState);
+            Assert.Equal(LrcGenerationMode.TextAlignment, engine.LastMode);
+        }
+        finally
+        {
+            if (System.IO.Directory.Exists(tempDir))
+            {
+                System.IO.Directory.Delete(tempDir, recursive: true);
+            }
+        }
     }
 }

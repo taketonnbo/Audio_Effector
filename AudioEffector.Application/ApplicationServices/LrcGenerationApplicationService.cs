@@ -352,6 +352,72 @@ public class LrcGenerationApplicationService
     }
 
     /// <summary>
+    /// 対象楽曲の既定保存先に存在する `.lrc` ファイルを読み込み、<see cref="LyricsDocument"/> として復元します
+    /// </summary>
+    /// <param name="track">対象楽曲</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>
+    /// 既存 `.lrc` の読み込み結果を含む <see cref="Result{T}"/>（ファイルが存在しない場合は成功かつ <see langword="null"/>）
+    /// </returns>
+    public async Task<Result<LyricsDocument?>> LoadExistingLrcAsync(
+        Track track,
+        CancellationToken cancellationToken = default)
+    {
+        if (track is null || string.IsNullOrWhiteSpace(track.FilePath))
+        {
+            return Result.Success<LyricsDocument?>(null);
+        }
+
+        string lrcPath;
+        try
+        {
+            lrcPath = ResolveDefaultLrcPath(track);
+        }
+        catch (ArgumentException ex)
+        {
+            return Result.Failure<LyricsDocument?>($"既存の .lrc パス解決に失敗しました: {ex.Message}");
+        }
+
+        if (!File.Exists(lrcPath))
+        {
+            return Result.Success<LyricsDocument?>(null);
+        }
+
+        try
+        {
+            string lrcContent = await _textEncodingService
+                .ReadAsUtf8TextAsync(lrcPath, allowEncodingConversion: true, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (string.IsNullOrWhiteSpace(lrcContent))
+            {
+                return Result.Failure<LyricsDocument?>("既存の .lrc ファイルが空のため、編集画面を読み込めませんでした。");
+            }
+
+            LyricsDocument parsed = _lrcParser.Parse(lrcContent);
+            if (!parsed.IsSynced || !parsed.HasVisibleLyrics)
+            {
+                return Result.Failure<LyricsDocument?>("既存の .lrc ファイルに有効な同期歌詞行が含まれていないため、編集画面を読み込めませんでした。");
+            }
+
+            LyricsDocument loaded = parsed.WithSource(LyricsSourceType.LrcFile, lrcPath);
+            return Result.Success<LyricsDocument?>(loaded);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (FileNotFoundException)
+        {
+            return Result.Success<LyricsDocument?>(null);
+        }
+        catch (Exception ex)
+        {
+            return Result.Failure<LyricsDocument?>($"既存の .lrc ファイルの読み込みに失敗しました: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// <see cref="LyricsDocument"/> を LRC 形式の文字列へ整形します
     /// </summary>
     /// <param name="document">整形対象の歌詞ドキュメント</param>
