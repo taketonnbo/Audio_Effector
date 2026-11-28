@@ -2200,6 +2200,254 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// FileSystem・MTP 双方の機器転送において、3 種別（手動・外部 / テキスト自動生成 / 音声自動文字起こし）の個別 ON/OFF 設定に応じて
+    /// 有効種別の .lrc のみが同梱転送され、形式変換（MP4→M4A / FLAC→MP3）併用時も変換後音声ファイルと同名ベースで保存されることを検証します。
+    /// </summary>
+    /// <param name="enableManual">手動・外部 LRC 同梱設定</param>
+    /// <param name="enableTextAligned">テキスト自動生成 LRC 同梱設定</param>
+    /// <param name="enableTranscribed">音声自動文字起こし LRC 同梱設定</param>
+    /// <returns>非同期タスク</returns>
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
+    public async Task TransferTracks_FileSystemおよびMTPでLrc種別設定と形式変換併用時_有効種別のみ変換後同名ベースで同梱転送されること(
+        bool enableManual,
+        bool enableTextAligned,
+        bool enableTranscribed)
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_LrcTransfer_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string fsDeviceDir = Path.Combine(tempRoot, "FsDevice");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(fsDeviceDir);
+
+        string manualPath = Path.Combine(sourceDir, "01_Manual.mp3");
+        string alignedPath = Path.Combine(sourceDir, "02_Aligned.flac");
+        string transcribedPath = Path.Combine(sourceDir, "03_Transcribed.mp4");
+        string noLrcPath = Path.Combine(sourceDir, "04_NoLrc.mp3");
+
+        File.WriteAllText(manualPath, "mp3-1");
+        File.WriteAllText(Path.ChangeExtension(manualPath, ".lrc"), "[00:01.00]手動歌詞");
+        File.WriteAllText(alignedPath, "flac-2");
+        File.WriteAllText(Path.ChangeExtension(alignedPath, ".lrc"), "[ti:Aligned]\n[re:Audio Effector (TextAlignment)]\n[00:02.00]テキスト生成歌詞");
+        File.WriteAllText(transcribedPath, "mp4-3");
+        File.WriteAllText(Path.ChangeExtension(transcribedPath, ".lrc"), "[re:Audio Effector (AudioTranscription)]\n[00:03.00]自動文字起こし歌詞");
+        File.WriteAllText(noLrcPath, "mp3-4");
+
+        var t1 = new Track { Title = "Manual", Artist = "ArtistA", Album = "AlbumA", FilePath = manualPath };
+        var t2 = new Track { Title = "Aligned", Artist = "ArtistA", Album = "AlbumA", FilePath = alignedPath };
+        var t3 = new Track { Title = "Transcribed", Artist = "ArtistA", Album = "AlbumA", FilePath = transcribedPath };
+        var t4 = new Track { Title = "NoLrc", Artist = "ArtistA", Album = "AlbumA", FilePath = noLrcPath };
+        var album = new Album("AlbumA", "ArtistA", 2026, new[] { t1, t2, t3, t4 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s =>
+        {
+            s.ConvertMp4ToM4a = true;
+            s.ConvertFlacToMp3 = true;
+            s.TransferManualLrcFiles = enableManual;
+            s.TransferTextAlignedLrcFiles = enableTextAligned;
+            s.TransferTranscribedLrcFiles = enableTranscribed;
+        });
+
+        var fakeMtp = new FakeMtpDeviceClient();
+        fakeMtp.AddDirectory(@"\Music");
+
+        try
+        {
+            // FileSystem 転送
+            using (var fsSut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: new FakeAudioTranscodeService(),
+                resolveMtpClient: null,
+                showMessage: (_, _) => { }))
+            {
+                fsSut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "LrcFS",
+                    Type = MainViewModel.DeviceType.FileSystem,
+                    RootPath = fsDeviceDir
+                };
+                await fsSut.CheckDeviceAlbumsAsync();
+
+                album.IsSelected = true;
+                await fsSut.TransferSelectedAsync();
+
+                string fsAlbumDir = Path.Combine(fsDeviceDir, "ArtistA", "AlbumA");
+                Assert.True(File.Exists(Path.Combine(fsAlbumDir, "01_Manual.mp3")));
+                Assert.True(File.Exists(Path.Combine(fsAlbumDir, "02_Aligned.mp3")));
+                Assert.True(File.Exists(Path.Combine(fsAlbumDir, "03_Transcribed.m4a")));
+                Assert.True(File.Exists(Path.Combine(fsAlbumDir, "04_NoLrc.mp3")));
+
+                Assert.Equal(enableManual, File.Exists(Path.Combine(fsAlbumDir, "01_Manual.lrc")));
+                Assert.Equal(enableTextAligned, File.Exists(Path.Combine(fsAlbumDir, "02_Aligned.lrc")));
+                Assert.Equal(enableTranscribed, File.Exists(Path.Combine(fsAlbumDir, "03_Transcribed.lrc")));
+                Assert.False(File.Exists(Path.Combine(fsAlbumDir, "04_NoLrc.lrc")));
+            }
+
+            // MTP 転送
+            using (var mtpSut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: new FakeAudioTranscodeService(),
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: (_, _) => { }))
+            {
+                mtpSut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "LrcMTP",
+                    Type = MainViewModel.DeviceType.MTP,
+                    RootPath = @"\"
+                };
+                mtpSut.CurrentDevicePath = @"\Music";
+                await mtpSut.CheckDeviceAlbumsAsync();
+
+                album.IsSelected = true;
+                await mtpSut.TransferSelectedAsync();
+
+                Assert.True(fakeMtp.FileExists(@"\Music\ArtistA\AlbumA\01_Manual.mp3"));
+                Assert.True(fakeMtp.FileExists(@"\Music\ArtistA\AlbumA\02_Aligned.mp3"));
+                Assert.True(fakeMtp.FileExists(@"\Music\ArtistA\AlbumA\03_Transcribed.m4a"));
+                Assert.True(fakeMtp.FileExists(@"\Music\ArtistA\AlbumA\04_NoLrc.mp3"));
+
+                Assert.Equal(enableManual, fakeMtp.FileExists(@"\Music\ArtistA\AlbumA\01_Manual.lrc"));
+                Assert.Equal(enableTextAligned, fakeMtp.FileExists(@"\Music\ArtistA\AlbumA\02_Aligned.lrc"));
+                Assert.Equal(enableTranscribed, fakeMtp.FileExists(@"\Music\ArtistA\AlbumA\03_Transcribed.lrc"));
+                Assert.False(fakeMtp.FileExists(@"\Music\ArtistA\AlbumA\04_NoLrc.lrc"));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 同梱 .lrc ファイルの転送中に例外が発生しても、音声ファイル本体および後続トラックの転送が中断されず完了すること、
+    /// および音声ファイル既存スキップ時には .lrc が転送されず .lrc のみ存在する機器上で曲が誤って転送済み判定されないことを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracks_Lrc転送失敗時継続および音声既存スキップ時非同梱とLrc単独非重複判定が正しく動作すること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_LrcEdge_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string fsDeviceDir = Path.Combine(tempRoot, "FsDevice");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(fsDeviceDir);
+
+        string track1Path = Path.Combine(sourceDir, "01.mp3");
+        string track2Path = Path.Combine(sourceDir, "02.mp3");
+        File.WriteAllText(track1Path, "audio-1");
+        File.WriteAllText(Path.ChangeExtension(track1Path, ".lrc"), "[00:01.00]lyric-1");
+        File.WriteAllText(track2Path, "audio-2");
+        File.WriteAllText(Path.ChangeExtension(track2Path, ".lrc"), "[00:01.00]lyric-2");
+
+        var t1 = new Track { Title = "Track 1", Artist = "ArtistB", Album = "AlbumB", FilePath = track1Path };
+        var t2 = new Track { Title = "Track 2", Artist = "ArtistB", Album = "AlbumB", FilePath = track2Path };
+        var album = new Album("AlbumB", "ArtistB", 2026, new[] { t1, t2 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.TransferManualLrcFiles = true);
+
+        // 1. MTP 経路で 1 曲目の .lrc アップロードのみ例外を投げる
+        var fakeMtp = new FakeMtpDeviceClient();
+        fakeMtp.AddDirectory(@"\Music");
+        fakeMtp.OnUploadFile = (_, dest) =>
+        {
+            if (dest.EndsWith("01.lrc", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("MTP LRC upload failed");
+            }
+        };
+
+        // 2. FileSystem 側に 01.lrc のみ配置（音声 01.mp3 なし）＋ 02.mp3 のみ既配置（音声既存スキップ確認）
+        string fsAlbumDir = Path.Combine(fsDeviceDir, "ArtistB", "AlbumB");
+        Directory.CreateDirectory(fsAlbumDir);
+        File.WriteAllText(Path.Combine(fsAlbumDir, "01.lrc"), "orphan-lrc");
+        File.WriteAllText(Path.Combine(fsAlbumDir, "02.mp3"), "existing-audio-2");
+
+        try
+        {
+            // Assert 1: MTP で 01.lrc 転送失敗しても 01.mp3・02.mp3・02.lrc がすべて正常転送されること
+            using (var mtpSut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: null,
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: (_, _) => { }))
+            {
+                await mtpSut.TransferTracksToMtpAsync(
+                    fakeMtp,
+                    new[] { t1, t2 },
+                    @"\Music",
+                    new AudioTranscodeOptions());
+
+                Assert.True(fakeMtp.FileExists(@"\Music\ArtistB\AlbumB\01.mp3"));
+                Assert.False(fakeMtp.FileExists(@"\Music\ArtistB\AlbumB\01.lrc"));
+                Assert.True(fakeMtp.FileExists(@"\Music\ArtistB\AlbumB\02.mp3"));
+                Assert.True(fakeMtp.FileExists(@"\Music\ArtistB\AlbumB\02.lrc"));
+            }
+
+            // Assert 2: FileSystem で 01.lrc 単独配置は重複判定に影響せず（t1 未転送）、02.mp3 既存スキップ時は 02.lrc を転送しないこと
+            using (var fsSut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { }))
+            {
+                fsSut.SelectedDevice = new MainViewModel.DeviceViewModel
+                {
+                    Name = "EdgeFS",
+                    Type = MainViewModel.DeviceType.FileSystem,
+                    RootPath = fsDeviceDir
+                };
+                await fsSut.CheckDeviceAlbumsAsync();
+
+                Assert.False(t1.IsOnDevice);
+                Assert.True(t2.IsOnDevice);
+
+                await fsSut.TransferTracksToFileSystemAsync(
+                    new[] { t2 },
+                    fsDeviceDir,
+                    new AudioTranscodeOptions());
+
+                Assert.False(File.Exists(Path.Combine(fsAlbumDir, "02.lrc")));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private sealed class FakeMtpDeviceClient : DeviceBrowserViewModel.IMtpDeviceClient
     {
         private readonly object _sync = new();

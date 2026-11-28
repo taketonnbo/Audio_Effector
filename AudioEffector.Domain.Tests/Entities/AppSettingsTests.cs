@@ -161,4 +161,40 @@ public sealed class AppSettingsTests
         Assert.Equal("Info", legacyRestored!.LogLevel);
         Assert.Null(legacyRestored.LogDirectoryPath);
     }
+
+    /// <summary>
+    /// LRC 歌詞ファイル同梱転送設定 3 項目の既定値（false）、JSON ラウンドトリップ、および旧形式 JSON（キー欠落）からのデシリアライズ互換性を検証します。
+    /// </summary>
+    [Fact]
+    public void LrcTransferSettings_JSONシリアライズおよび旧形式デシリアライズ_既定値falseと互換性が維持されること()
+    {
+        // Arrange
+        var defaultSettings = new AppSettings();
+        var sut = new AppSettings
+        {
+            TransferManualLrcFiles = true,
+            TransferTextAlignedLrcFiles = true,
+            TransferTranscribedLrcFiles = true
+        };
+
+        // Act
+        string json = JsonSerializer.Serialize(sut);
+        var restored = JsonSerializer.Deserialize<AppSettings>(json);
+        var legacyRestored = JsonSerializer.Deserialize<AppSettings>("{\"Theme\":0,\"ConvertMp4ToM4a\":true}");
+
+        // Assert
+        Assert.False(defaultSettings.TransferManualLrcFiles);
+        Assert.False(defaultSettings.TransferTextAlignedLrcFiles);
+        Assert.False(defaultSettings.TransferTranscribedLrcFiles);
+
+        Assert.NotNull(restored);
+        Assert.True(restored!.TransferManualLrcFiles);
+        Assert.True(restored.TransferTextAlignedLrcFiles);
+        Assert.True(restored.TransferTranscribedLrcFiles);
+
+        Assert.NotNull(legacyRestored);
+        Assert.False(legacyRestored!.TransferManualLrcFiles);
+        Assert.False(legacyRestored.TransferTextAlignedLrcFiles);
+        Assert.False(legacyRestored.TransferTranscribedLrcFiles);
+    }
 }

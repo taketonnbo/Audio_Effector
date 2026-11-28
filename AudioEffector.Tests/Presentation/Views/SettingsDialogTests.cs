@@ -561,4 +561,46 @@ public sealed class SettingsDialogTests
             }
         });
     }
+
+    /// <summary>
+    /// データ管理・その他カテゴリの機器転送設定に .lrc 同梱転送の 3 種別チェックボックスが配置されており、
+    /// 各チェック操作が SettingsViewModel へ TwoWay 反映されバインディングエラー 0 件であることを検証します。
+    /// </summary>
+    [Fact]
+    public void データ管理その他カテゴリ_LRC同梱転送チェックボックス3種操作時_ViewModelへ双方向反映されバインディングエラーがないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var listener = new BindingErrorTraceListener();
+            var vm = CreateViewModel();
+            vm.SelectedCategory = "データ管理・その他";
+
+            var sut = new SettingsDialog(vm);
+            var rootContent = Assert.IsAssignableFrom<FrameworkElement>(sut.Content);
+            rootContent.Measure(new Size(760, 520));
+            rootContent.Arrange(new Rect(0, 0, 760, 520));
+            rootContent.UpdateLayout();
+
+            var manualCheckBox = Assert.IsType<CheckBox>(sut.FindName("TransferManualLrcFilesCheckBox"));
+            var textAlignedCheckBox = Assert.IsType<CheckBox>(sut.FindName("TransferTextAlignedLrcFilesCheckBox"));
+            var transcribedCheckBox = Assert.IsType<CheckBox>(sut.FindName("TransferTranscribedLrcFilesCheckBox"));
+
+            // Act
+            Assert.False(manualCheckBox.IsChecked);
+            Assert.False(textAlignedCheckBox.IsChecked);
+            Assert.False(transcribedCheckBox.IsChecked);
+
+            manualCheckBox.IsChecked = true;
+            textAlignedCheckBox.IsChecked = true;
+            transcribedCheckBox.IsChecked = true;
+            rootContent.UpdateLayout();
+
+            // Assert
+            Assert.True(vm.TransferManualLrcFiles);
+            Assert.True(vm.TransferTextAlignedLrcFiles);
+            Assert.True(vm.TransferTranscribedLrcFiles);
+            Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
 }
