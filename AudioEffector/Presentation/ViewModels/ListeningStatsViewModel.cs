@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using System.Windows.Input;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
@@ -55,6 +56,7 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
     private bool _isPinnedToSelectedTrack;
     private bool _isActiveView;
     private bool _isDirty;
+    private int _isDeferredRefreshScheduled;
     private int _totalPlayCount;
     private TimeSpan _totalListeningTime;
     private DateTime? _lastPlayedAt;
@@ -75,6 +77,7 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
         {
             if (SetProperty(ref _targetTrack, value))
             {
+                _resolvedAlbumTitle = string.Empty;
                 OnPropertyChanged(nameof(HasTargetTrack));
                 OnPropertyChanged(nameof(TargetTrackTitle));
                 OnPropertyChanged(nameof(TargetTrackArtist));
@@ -432,30 +435,31 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
     private void OnLibrarySynced(LibrarySyncResult syncResult)
     {
         _ = syncResult;
-        ScheduleRefreshOnLibraryUpdated();
+        ScheduleDeferredRefresh();
     }
 
     private void OnLibraryTrackRemoved(Track removedTrack)
     {
         _ = removedTrack;
-        ScheduleRefreshOnLibraryUpdated();
+        ScheduleDeferredRefresh();
     }
 
     private void OnLibraryAlbumRemoved(Album removedAlbum)
     {
         _ = removedAlbum;
-        ScheduleRefreshOnLibraryUpdated();
+        ScheduleDeferredRefresh();
     }
 
-    private void ScheduleRefreshOnLibraryUpdated()
+    private void ScheduleDeferredRefresh()
     {
-        if (_disposed)
+        if (_disposed || Interlocked.Exchange(ref _isDeferredRefreshScheduled, 1) != 0)
         {
             return;
         }
 
         _uiDispatcher.BeginInvoke(() =>
         {
+            Interlocked.Exchange(ref _isDeferredRefreshScheduled, 0);
             if (_disposed)
             {
                 return;
@@ -514,28 +518,8 @@ public sealed class ListeningStatsViewModel : ViewModelBase, IDisposable
 
     private void OnStatsUpdated(TrackListeningStat updatedStat)
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _uiDispatcher.BeginInvoke(() =>
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (_isActiveView)
-            {
-                _isDirty = false;
-                RefreshCore();
-            }
-            else
-            {
-                _isDirty = true;
-            }
-        });
+        _ = updatedStat;
+        ScheduleDeferredRefresh();
     }
 
     private void RefreshCore()
