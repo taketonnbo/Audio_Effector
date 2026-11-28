@@ -573,7 +573,8 @@
       "id": "lrc-generation",
       "name": "LRC自動生成（UI）",
       "code_patterns": [
-        "AudioEffector/Presentation/**/*LrcGenerator*"
+        "AudioEffector/Presentation/**/*LrcGenerator*",
+        "AudioEffector/Presentation/**/*LrcPreview*"
       ],
       "primary_specs": [
         "設計/機能仕様/LRC自動生成.md",
