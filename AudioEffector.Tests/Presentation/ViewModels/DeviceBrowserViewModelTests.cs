@@ -1144,7 +1144,8 @@ public sealed class DeviceBrowserViewModelTests
                 settingsService: settingsService,
                 audioTranscodeService: fakeTranscoder,
                 resolveMtpClient: null,
-                showMessage: (_, _) => { });
+                showMessage: (_, _) => { },
+                confirmTransfer: _ => true);
 
             sut.SelectedDevice = new MainViewModel.DeviceViewModel
             {
@@ -1531,7 +1532,8 @@ public sealed class DeviceBrowserViewModelTests
                 settingsService: settingsService,
                 audioTranscodeService: fakeTranscoder,
                 resolveMtpClient: null,
-                showMessage: (_, _) => { });
+                showMessage: (_, _) => { },
+                confirmTransfer: _ => true);
 
             sut.SelectedDevice = new MainViewModel.DeviceViewModel
             {
@@ -1730,7 +1732,8 @@ public sealed class DeviceBrowserViewModelTests
                 settingsService: settingsService,
                 audioTranscodeService: fakeTranscoder,
                 resolveMtpClient: _ => fakeMtp,
-                showMessage: (_, _) => { });
+                showMessage: (_, _) => { },
+                confirmTransfer: _ => true);
 
             sut.SelectedDevice = new MainViewModel.DeviceViewModel
             {
@@ -2757,7 +2760,8 @@ public sealed class DeviceBrowserViewModelTests
                 audioTranscodeService: new FakeAudioTranscodeService(),
                 resolveMtpClient: null,
                 showMessage: (_, _) => { },
-                lrcParser: lrcParser))
+                lrcParser: lrcParser,
+                confirmTransfer: _ => true))
             {
                 fsSut.SelectedDevice = new MainViewModel.DeviceViewModel
                 {
@@ -2793,7 +2797,8 @@ public sealed class DeviceBrowserViewModelTests
                 audioTranscodeService: new FakeAudioTranscodeService(),
                 resolveMtpClient: _ => fakeMtp,
                 showMessage: (_, _) => { },
-                lrcParser: lrcParser))
+                lrcParser: lrcParser,
+                confirmTransfer: _ => true))
             {
                 mtpSut.SelectedDevice = new MainViewModel.DeviceViewModel
                 {
@@ -3170,6 +3175,391 @@ public sealed class DeviceBrowserViewModelTests
         Assert.False(colonTrack.IsOnDevice);
         Assert.False(compilationTrack.IsOnDevice);
         Assert.True(legacyMatchTrack.IsOnDevice);
+    }
+
+    /// <summary>
+    /// 選択楽曲の合計サイズが接続機器の空き容量を超える場合、転送前に容量不足警告ダイアログが呼ばれ、
+    /// キャンセル選択時はファイルが転送されないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferSelectedAsync_空き容量不足でキャンセル選択時_警告確認が呼ばれ転送が開始されないこと()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmSpaceCancel_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string trackPath = Path.Combine(sourceDir, "01.mp3");
+        File.WriteAllText(trackPath, "audio-content");
+
+        var track = new Track { Title = "Song 1", Artist = "ArtistA", Album = "AlbumA", FilePath = trackPath, IsSelected = true };
+        var album = new Album("AlbumA", "ArtistA", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (E:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+        device.UpdateStorageSpace(totalBytes: 1000L * 1024 * 1024, freeBytes: 50L * 1024 * 1024);
+
+        TransferConfirmationRequest? capturedRequest = null;
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => 80L * 1024 * 1024,
+                readDeviceStorageSpace: (_, _) => (true, 1000L * 1024 * 1024, 50L * 1024 * 1024),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: req =>
+                {
+                    confirmCallCount++;
+                    capturedRequest = req;
+                    return false;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(1, confirmCallCount);
+            Assert.NotNull(capturedRequest);
+            Assert.True(capturedRequest!.IsInsufficientSpace);
+            Assert.False(capturedRequest.HasTranscodeTargets);
+            Assert.Equal(80L * 1024 * 1024, capturedRequest.RequiredBytes);
+            Assert.Equal(50L * 1024 * 1024, capturedRequest.FreeSpaceBytes);
+            Assert.Equal(30L * 1024 * 1024, capturedRequest.ShortageBytes);
+            Assert.False(File.Exists(Path.Combine(deviceDir, "ArtistA", "AlbumA", "01.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 形式変換（MP4→M4A および FLAC→MP3）が ON で変換対象曲が含まれ、かつ空き容量も不足している場合、
+    /// 二重表示にならず 1 回の確認コールバックに両方の情報と変換内訳が集約され、続行選択で転送されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferSelectedAsync_容量不足と形式変換が同時該当し続行選択時_1回のみ統合確認され転送されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmCombined_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string flacPath = Path.Combine(sourceDir, "01.flac");
+        string mp4Path = Path.Combine(sourceDir, "02.mp4");
+        string mp3Path = Path.Combine(sourceDir, "03.mp3");
+        File.WriteAllText(flacPath, "flac-data");
+        File.WriteAllText(mp4Path, "mp4-data");
+        File.WriteAllText(mp3Path, "mp3-data");
+
+        var t1 = new Track { Title = "Track 1", Artist = "ArtistB", Album = "AlbumB", FilePath = flacPath, IsSelected = true };
+        var t2 = new Track { Title = "Track 2", Artist = "ArtistB", Album = "AlbumB", FilePath = mp4Path, IsSelected = true };
+        var t3 = new Track { Title = "Track 3", Artist = "ArtistB", Album = "AlbumB", FilePath = mp3Path, IsSelected = true };
+        var album = new Album("AlbumB", "ArtistB", 2026, new[] { t1, t2, t3 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s =>
+        {
+            s.ConvertFlacToMp3 = true;
+            s.ConvertMp4ToM4a = true;
+        });
+
+        var transcodeService = new FakeAudioTranscodeService();
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (F:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+
+        TransferConfirmationRequest? capturedRequest = null;
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => 40L * 1024 * 1024,
+                readDeviceStorageSpace: (_, _) => (true, 500L * 1024 * 1024, 100L * 1024 * 1024),
+                settingsService: settingsService,
+                audioTranscodeService: transcodeService,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: req =>
+                {
+                    confirmCallCount++;
+                    capturedRequest = req;
+                    return true;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(1, confirmCallCount);
+            Assert.NotNull(capturedRequest);
+            Assert.True(capturedRequest!.IsInsufficientSpace);
+            Assert.True(capturedRequest.HasTranscodeTargets);
+            Assert.True(capturedRequest.ShowEstimatedSizeNote);
+            Assert.Equal(3, capturedRequest.TotalTrackCount);
+            Assert.Equal(1, capturedRequest.FlacToMp3Count);
+            Assert.Equal(1, capturedRequest.Mp4ToM4aCount);
+            Assert.Equal(1, capturedRequest.CopyOnlyCount);
+            Assert.Equal(120L * 1024 * 1024, capturedRequest.RequiredBytes);
+            Assert.Equal(20L * 1024 * 1024, capturedRequest.ShortageBytes);
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistB", "AlbumB", "01.mp3")));
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistB", "AlbumB", "02.m4a")));
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistB", "AlbumB", "03.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 空き容量が十分かつ形式変換対象がない通常転送では、確認ダイアログが表示されず即座に転送が実行されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferSelectedAsync_空き容量十分かつ形式変換対象なしの場合_確認ダイアログを表示せず転送されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmSkip_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string mp3Path = Path.Combine(sourceDir, "01.mp3");
+        File.WriteAllText(mp3Path, "mp3-data");
+
+        var track = new Track { Title = "Track 1", Artist = "ArtistC", Album = "AlbumC", FilePath = mp3Path, IsSelected = true };
+        var album = new Album("AlbumC", "ArtistC", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s =>
+        {
+            // 設定が ON でも対象拡張子（.flac / .mp4）が無ければ変換確認は不要
+            s.ConvertFlacToMp3 = true;
+            s.ConvertMp4ToM4a = true;
+        });
+
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (G:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => 5L * 1024 * 1024,
+                readDeviceStorageSpace: (_, _) => (true, 1000L * 1024 * 1024, 500L * 1024 * 1024),
+                settingsService: settingsService,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: _ =>
+                {
+                    confirmCallCount++;
+                    return false;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(0, confirmCallCount);
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistC", "AlbumC", "01.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 空き容量は十分だが形式変換対象曲が含まれる場合、形式変換確認ダイアログが表示され、
+    /// キャンセル選択時は転送されないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferSelectedAsync_空き容量十分で形式変換対象ありかつキャンセル選択時_変換確認が呼ばれ転送されないこと()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmTranscodeOnly_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string flacPath = Path.Combine(sourceDir, "01.flac");
+        File.WriteAllText(flacPath, "flac-data");
+
+        var track = new Track { Title = "Track 1", Artist = "ArtistD", Album = "AlbumD", FilePath = flacPath, IsSelected = true };
+        var album = new Album("AlbumD", "ArtistD", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.ConvertFlacToMp3 = true);
+
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (H:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+
+        TransferConfirmationRequest? capturedRequest = null;
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => 10L * 1024 * 1024,
+                readDeviceStorageSpace: (_, _) => (true, 1000L * 1024 * 1024, 500L * 1024 * 1024),
+                settingsService: settingsService,
+                audioTranscodeService: new FakeAudioTranscodeService(),
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: req =>
+                {
+                    confirmCallCount++;
+                    capturedRequest = req;
+                    return false;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(1, confirmCallCount);
+            Assert.NotNull(capturedRequest);
+            Assert.False(capturedRequest!.IsInsufficientSpace);
+            Assert.True(capturedRequest.HasTranscodeTargets);
+            Assert.Equal(1, capturedRequest.FlacToMp3Count);
+            Assert.Equal(0, capturedRequest.Mp4ToM4aCount);
+            Assert.Equal(0, capturedRequest.CopyOnlyCount);
+            Assert.False(File.Exists(Path.Combine(deviceDir, "ArtistD", "AlbumD", "01.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 必要容量と空き容量が完全に一致する境界値、および容量情報未取得の機器において、
+    /// 形式変換対象がなければ容量不足として誤検知せず確認ダイアログなしで転送が開始されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(true, 100L * 1024 * 1024, 100L * 1024 * 1024)]
+    [InlineData(false, 0L, 100L * 1024 * 1024)]
+    public async Task TransferSelectedAsync_空き容量一致または容量情報未取得で変換なしの場合_確認ダイアログを表示せず転送されること(
+        bool hasStorageInfo,
+        long freeBytes,
+        long trackBytes)
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmBoundary_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string mp3Path = Path.Combine(sourceDir, "01.mp3");
+        File.WriteAllText(mp3Path, "mp3-data");
+
+        var track = new Track { Title = "Track 1", Artist = "ArtistE", Album = "AlbumE", FilePath = mp3Path, IsSelected = true };
+        var album = new Album("AlbumE", "ArtistE", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (I:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => trackBytes,
+                readDeviceStorageSpace: (_, _) => (hasStorageInfo, hasStorageInfo ? 1000L * 1024 * 1024 : 0L, freeBytes),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: _ =>
+                {
+                    confirmCallCount++;
+                    return false;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(0, confirmCallCount);
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistE", "AlbumE", "01.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
     }
 
     private sealed class FakeMtpDeviceClient : DeviceBrowserViewModel.IMtpDeviceClient
