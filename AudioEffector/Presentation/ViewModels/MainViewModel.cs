@@ -1220,7 +1220,8 @@ namespace AudioEffector.Presentation.ViewModels
                 () => { },
                 settingsService: _settingsService,
                 audioTranscodeService: transcodeService,
-                lrcParser: deviceLrcParser);
+                lrcParser: deviceLrcParser,
+                onLibraryImportCompleted: OnDeviceLibraryImportCompleted);
             ShowSettingsCommand = new RelayCommand(o => ShowSettings());
             ToggleRightPanelCommand = new RelayCommand(o => IsRightPanelOpen = !IsRightPanelOpen);
             TogglePlayQueuePanelCommand = new RelayCommand(o => IsPlayQueuePanelOpen = !IsPlayQueuePanelOpen);
@@ -2859,6 +2860,28 @@ namespace AudioEffector.Presentation.ViewModels
         private void LoadLibrary(string? rootFolder = null)
         {
             Library?.LoadLibrary(rootFolder);
+        }
+
+        private void OnDeviceLibraryImportCompleted(string importedDestinationFolder)
+        {
+            if (string.IsNullOrWhiteSpace(importedDestinationFolder))
+            {
+                return;
+            }
+
+            try
+            {
+                string? currentLibraryPath = _settingsService.LoadSettings().LastLibraryPath;
+                if (!string.IsNullOrWhiteSpace(currentLibraryPath)
+                    && DeviceManagerViewModel.IsPathWithinDirectory(importedDestinationFolder, currentLibraryPath))
+                {
+                    LoadLibrary(currentLibraryPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "逆転送完了後のPCライブラリ自動反映に失敗しました。");
+            }
         }
 
         private void ToggleFavorite(object? obj)

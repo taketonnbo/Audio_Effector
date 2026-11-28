@@ -1144,7 +1144,8 @@ public sealed class DeviceBrowserViewModelTests
                 settingsService: settingsService,
                 audioTranscodeService: fakeTranscoder,
                 resolveMtpClient: null,
-                showMessage: (_, _) => { });
+                showMessage: (_, _) => { },
+                confirmTransfer: _ => true);
 
             sut.SelectedDevice = new MainViewModel.DeviceViewModel
             {
@@ -1531,7 +1532,8 @@ public sealed class DeviceBrowserViewModelTests
                 settingsService: settingsService,
                 audioTranscodeService: fakeTranscoder,
                 resolveMtpClient: null,
-                showMessage: (_, _) => { });
+                showMessage: (_, _) => { },
+                confirmTransfer: _ => true);
 
             sut.SelectedDevice = new MainViewModel.DeviceViewModel
             {
@@ -1730,7 +1732,8 @@ public sealed class DeviceBrowserViewModelTests
                 settingsService: settingsService,
                 audioTranscodeService: fakeTranscoder,
                 resolveMtpClient: _ => fakeMtp,
-                showMessage: (_, _) => { });
+                showMessage: (_, _) => { },
+                confirmTransfer: _ => true);
 
             sut.SelectedDevice = new MainViewModel.DeviceViewModel
             {
@@ -2757,7 +2760,8 @@ public sealed class DeviceBrowserViewModelTests
                 audioTranscodeService: new FakeAudioTranscodeService(),
                 resolveMtpClient: null,
                 showMessage: (_, _) => { },
-                lrcParser: lrcParser))
+                lrcParser: lrcParser,
+                confirmTransfer: _ => true))
             {
                 fsSut.SelectedDevice = new MainViewModel.DeviceViewModel
                 {
@@ -2793,7 +2797,8 @@ public sealed class DeviceBrowserViewModelTests
                 audioTranscodeService: new FakeAudioTranscodeService(),
                 resolveMtpClient: _ => fakeMtp,
                 showMessage: (_, _) => { },
-                lrcParser: lrcParser))
+                lrcParser: lrcParser,
+                confirmTransfer: _ => true))
             {
                 mtpSut.SelectedDevice = new MainViewModel.DeviceViewModel
                 {
@@ -3044,6 +3049,928 @@ public sealed class DeviceBrowserViewModelTests
         }
     }
 
+    /// <summary>
+    /// SanitizeFileNameCore の旧禁止文字除去モード（非 LINQ 実装）および新置換モードにおいて、
+    /// 空文字・空白・禁止文字のみ・制御文字・末尾ピリオド・長文字列など全境界ケースで期待通りの出力を返すことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(null, false, true, "Unknown")]
+    [InlineData("", false, true, "Unknown")]
+    [InlineData("   \t  ", false, true, "Unknown")]
+    [InlineData(":*?<>|", false, true, "Unknown")]
+    [InlineData(":*?<>|", true, true, "______")]
+    [InlineData(" : . . : ", false, true, "Unknown")]
+    [InlineData("...", false, true, "Unknown")]
+    [InlineData("...", false, false, "Unknown")]
+    [InlineData("  Artist:Name...  ", false, true, "ArtistName")]
+    [InlineData("  Artist:Name...  ", false, false, "ArtistName...")]
+    [InlineData("  Artist:Name...  ", true, true, "Artist_Name")]
+    [InlineData("  Artist:Name...  ", true, false, "Artist_Name...")]
+    [InlineData("A\0B\u0001C:D?", false, true, "ABCD")]
+    [InlineData("A\0B\u0001C:D?", true, true, "A_B_C_D_")]
+    [InlineData("  AC/DC  ", false, true, "ACDC")]
+    [InlineData("  AC/DC  ", true, true, "AC_DC")]
+    [InlineData("Title . . ", false, false, "Title . .")]
+    [InlineData("Title . . ", false, true, "Title")]
+    public void SanitizeFileNameCore_旧除去モードと新置換モードの境界ケース_期待される正規化結果を返すこと(
+        string? input,
+        bool replaceInvalidWithUnderscore,
+        bool trimTrailingDots,
+        string expected)
+    {
+        // Arrange & Act
+        string actual = DeviceBrowserViewModel.SanitizeFileNameCore(
+            input,
+            replaceInvalidWithUnderscore,
+            trimTrailingDots);
+
+        // Assert
+        Assert.Equal(expected, actual);
+    }
+
+    /// <summary>
+    /// SanitizeFileNameCore がスタック確保閾値（256文字）を超える長い文字列に対しても
+    /// 旧除去モード・新置換モードの双方で正確にサニタイズできることを検証します。
+    /// </summary>
+    [Fact]
+    public void SanitizeFileNameCore_256文字超の長文字列_旧除去および新置換モードとも正確に正規化されること()
+    {
+        // Arrange
+        string prefix = new string('A', 200);
+        string suffix = new string('B', 100);
+        string input = $"  {prefix}:*?{suffix}...  ";
+
+        // Act
+        string legacyTrimmed = DeviceBrowserViewModel.SanitizeFileNameCore(input, replaceInvalidWithUnderscore: false, trimTrailingDots: true);
+        string legacyKeepDots = DeviceBrowserViewModel.SanitizeFileNameCore(input, replaceInvalidWithUnderscore: false, trimTrailingDots: false);
+        string canonicalTrimmed = DeviceBrowserViewModel.SanitizeFileNameCore(input, replaceInvalidWithUnderscore: true, trimTrailingDots: true);
+
+        // Assert
+        Assert.Equal(prefix + suffix, legacyTrimmed);
+        Assert.Equal(prefix + suffix + "...", legacyKeepDots);
+        Assert.Equal(prefix + "___" + suffix, canonicalTrimmed);
+    }
+
+    /// <summary>
+    /// BuildPrimaryDirectoryOwnerMap のアルバム単位ショートカット適用時に、
+    /// Artist/Title 確定済みの複数トラックアルバム・空白メタデータでフォールバック解決を要するアルバム・空アルバムが混在しても
+    /// 別アルバム衝突防止が従来と完全に等価に動作することを検証します。
+    /// </summary>
+    [Fact]
+    public void ApplyDeviceTrackIndex_確定済みアルバムと空白フォールバックアルバム混在時_所有者マップによる別アルバム衝突防止が等価に動作すること()
+    {
+        // Arrange
+        // 1. Artist/Title が確定済みの複数トラックアルバム（前後空白付きプロパティでショートカット側の Trim() を直接検証）
+        var confirmedTrack1 = new Track { Title = "Track 1", Artist = "Performer X", AlbumArtist = "A_B", Album = "Album_1", FilePath = @"C:\Music\confirmed\01.mp3" };
+        var confirmedTrack2 = new Track { Title = "Track 2", Artist = "Performer Y", AlbumArtist = "A_B", Album = "Album_1", FilePath = @"C:\Music\confirmed\02.mp3" };
+        var confirmedAlbum = new Album
+        {
+            Title = "  Album_1  ",
+            Artist = "  A_B  ",
+            Year = 2026,
+            Tracks = new List<Track> { confirmedTrack1, confirmedTrack2 }
+        };
+
+        // 2. 禁止文字を含む別アルバム（旧除去互換候補 "AB\Album1" が下の空白アルバム正規配置と衝突）
+        var colonTrack = new Track { Title = "Colon Song", Artist = "A:B", AlbumArtist = "A:B", Album = "Album:1", FilePath = @"C:\Music\colon\01.mp3" };
+        var colonAlbum = new Album("Album:1", "A:B", 2026, new[] { colonTrack });
+
+        // 3. Album.Artist / Album.Title が空白で fallbackIdentities / Track フォールバック経路を通るアルバム
+        var fallbackTrack1 = new Track { Title = "Fallback 1", Artist = "AB", AlbumArtist = "AB", Album = "Album1", FilePath = @"C:\Music\fallback\01.mp3" };
+        var fallbackTrack2 = new Track { Title = "Fallback 2", Artist = "AB", AlbumArtist = "AB", Album = "Album1", FilePath = @"C:\Music\fallback\02.mp3" };
+        var fallbackAlbum = new Album
+        {
+            Title = "   ",
+            Artist = "",
+            Year = 2026,
+            Tracks = new List<Track> { fallbackTrack1, fallbackTrack2 }
+        };
+
+        // 4. 旧曲別アーティスト配置が confirmedAlbum の正規配置 "A_B\Album_1" と衝突する別アルバム
+        var compilationTrack = new Track { Title = "Comp Song", Artist = "A_B", AlbumArtist = "Various Artists", Album = "Album_1", FilePath = @"C:\Music\comp\02.mp3" };
+        var compilationAlbum = new Album("Album_1", "Various Artists", 2026, new[] { compilationTrack });
+
+        // 5. 空トラックアルバム（Tracks.Count == 0）は所有権を登録せず他アルバムをブロックしない
+        var emptyAlbum = new Album("Legacy", "LegacyArtist", 2026, Array.Empty<Track>());
+        var legacyMatchTrack = new Track { Title = "Legacy Match", Artist = "Legacy:Artist", AlbumArtist = "Legacy:Artist", Album = "Legacy", FilePath = @"C:\Music\legacy\03.mp3" };
+        var legacyMatchAlbum = new Album("Legacy", "Legacy:Artist", 2026, new[] { legacyMatchTrack });
+
+        var albums = new[] { confirmedAlbum, colonAlbum, fallbackAlbum, compilationAlbum, emptyAlbum, legacyMatchAlbum };
+
+        var deviceFileKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            @"A_B\Album_1\02",        // confirmedAlbum の正規配置（compilationTrack の旧曲別配置と衝突）
+            @"AB\Album1\01",          // fallbackAlbum の正規配置（colonTrack の旧除去配置と衝突）
+            @"LegacyArtist\Legacy\03" // legacyMatchTrack の旧除去配置（emptyAlbum は空なのでブロックされない）
+        };
+
+        // Act
+        DeviceBrowserViewModel.ApplyDeviceTrackIndex(albums, deviceFileKeys);
+
+        // Assert
+        Assert.False(confirmedTrack1.IsOnDevice);
+        Assert.True(confirmedTrack2.IsOnDevice);
+        Assert.True(fallbackTrack1.IsOnDevice);
+        Assert.False(fallbackTrack2.IsOnDevice);
+        Assert.False(colonTrack.IsOnDevice);
+        Assert.False(compilationTrack.IsOnDevice);
+        Assert.True(legacyMatchTrack.IsOnDevice);
+    }
+
+    /// <summary>
+    /// 選択楽曲の合計サイズが接続機器の空き容量を超える場合、転送前に容量不足警告ダイアログが呼ばれ、
+    /// キャンセル選択時はファイルが転送されないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferSelectedAsync_空き容量不足でキャンセル選択時_警告確認が呼ばれ転送が開始されないこと()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmSpaceCancel_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string trackPath = Path.Combine(sourceDir, "01.mp3");
+        File.WriteAllText(trackPath, "audio-content");
+
+        var track = new Track { Title = "Song 1", Artist = "ArtistA", Album = "AlbumA", FilePath = trackPath, IsSelected = true };
+        var album = new Album("AlbumA", "ArtistA", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (E:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+        device.UpdateStorageSpace(totalBytes: 1000L * 1024 * 1024, freeBytes: 50L * 1024 * 1024);
+
+        TransferConfirmationRequest? capturedRequest = null;
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => 80L * 1024 * 1024,
+                readDeviceStorageSpace: (_, _) => (true, 1000L * 1024 * 1024, 50L * 1024 * 1024),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: req =>
+                {
+                    confirmCallCount++;
+                    capturedRequest = req;
+                    return false;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(1, confirmCallCount);
+            Assert.NotNull(capturedRequest);
+            Assert.True(capturedRequest!.IsInsufficientSpace);
+            Assert.False(capturedRequest.HasTranscodeTargets);
+            Assert.Equal(80L * 1024 * 1024, capturedRequest.RequiredBytes);
+            Assert.Equal(50L * 1024 * 1024, capturedRequest.FreeSpaceBytes);
+            Assert.Equal(30L * 1024 * 1024, capturedRequest.ShortageBytes);
+            Assert.False(File.Exists(Path.Combine(deviceDir, "ArtistA", "AlbumA", "01.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 形式変換（MP4→M4A および FLAC→MP3）が ON で変換対象曲が含まれ、かつ空き容量も不足している場合、
+    /// 二重表示にならず 1 回の確認コールバックに両方の情報と変換内訳が集約され、続行選択で転送されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferSelectedAsync_容量不足と形式変換が同時該当し続行選択時_1回のみ統合確認され転送されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmCombined_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string flacPath = Path.Combine(sourceDir, "01.flac");
+        string mp4Path = Path.Combine(sourceDir, "02.mp4");
+        string mp3Path = Path.Combine(sourceDir, "03.mp3");
+        File.WriteAllText(flacPath, "flac-data");
+        File.WriteAllText(mp4Path, "mp4-data");
+        File.WriteAllText(mp3Path, "mp3-data");
+
+        var t1 = new Track { Title = "Track 1", Artist = "ArtistB", Album = "AlbumB", FilePath = flacPath, IsSelected = true };
+        var t2 = new Track { Title = "Track 2", Artist = "ArtistB", Album = "AlbumB", FilePath = mp4Path, IsSelected = true };
+        var t3 = new Track { Title = "Track 3", Artist = "ArtistB", Album = "AlbumB", FilePath = mp3Path, IsSelected = true };
+        var album = new Album("AlbumB", "ArtistB", 2026, new[] { t1, t2, t3 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s =>
+        {
+            s.ConvertFlacToMp3 = true;
+            s.ConvertMp4ToM4a = true;
+        });
+
+        var transcodeService = new FakeAudioTranscodeService();
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (F:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+
+        TransferConfirmationRequest? capturedRequest = null;
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => 40L * 1024 * 1024,
+                readDeviceStorageSpace: (_, _) => (true, 500L * 1024 * 1024, 100L * 1024 * 1024),
+                settingsService: settingsService,
+                audioTranscodeService: transcodeService,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: req =>
+                {
+                    confirmCallCount++;
+                    capturedRequest = req;
+                    return true;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(1, confirmCallCount);
+            Assert.NotNull(capturedRequest);
+            Assert.True(capturedRequest!.IsInsufficientSpace);
+            Assert.True(capturedRequest.HasTranscodeTargets);
+            Assert.True(capturedRequest.ShowEstimatedSizeNote);
+            Assert.Equal(3, capturedRequest.TotalTrackCount);
+            Assert.Equal(1, capturedRequest.FlacToMp3Count);
+            Assert.Equal(1, capturedRequest.Mp4ToM4aCount);
+            Assert.Equal(1, capturedRequest.CopyOnlyCount);
+            Assert.Equal(120L * 1024 * 1024, capturedRequest.RequiredBytes);
+            Assert.Equal(20L * 1024 * 1024, capturedRequest.ShortageBytes);
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistB", "AlbumB", "01.mp3")));
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistB", "AlbumB", "02.m4a")));
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistB", "AlbumB", "03.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 空き容量が十分かつ形式変換対象がない通常転送では、確認ダイアログが表示されず即座に転送が実行されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferSelectedAsync_空き容量十分かつ形式変換対象なしの場合_確認ダイアログを表示せず転送されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmSkip_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string mp3Path = Path.Combine(sourceDir, "01.mp3");
+        File.WriteAllText(mp3Path, "mp3-data");
+
+        var track = new Track { Title = "Track 1", Artist = "ArtistC", Album = "AlbumC", FilePath = mp3Path, IsSelected = true };
+        var album = new Album("AlbumC", "ArtistC", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s =>
+        {
+            // 設定が ON でも対象拡張子（.flac / .mp4）が無ければ変換確認は不要
+            s.ConvertFlacToMp3 = true;
+            s.ConvertMp4ToM4a = true;
+        });
+
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (G:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => 5L * 1024 * 1024,
+                readDeviceStorageSpace: (_, _) => (true, 1000L * 1024 * 1024, 500L * 1024 * 1024),
+                settingsService: settingsService,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: _ =>
+                {
+                    confirmCallCount++;
+                    return false;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(0, confirmCallCount);
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistC", "AlbumC", "01.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 空き容量は十分だが形式変換対象曲が含まれる場合、形式変換確認ダイアログが表示され、
+    /// キャンセル選択時は転送されないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferSelectedAsync_空き容量十分で形式変換対象ありかつキャンセル選択時_変換確認が呼ばれ転送されないこと()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmTranscodeOnly_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string flacPath = Path.Combine(sourceDir, "01.flac");
+        File.WriteAllText(flacPath, "flac-data");
+
+        var track = new Track { Title = "Track 1", Artist = "ArtistD", Album = "AlbumD", FilePath = flacPath, IsSelected = true };
+        var album = new Album("AlbumD", "ArtistD", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.ConvertFlacToMp3 = true);
+
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (H:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+
+        TransferConfirmationRequest? capturedRequest = null;
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => 10L * 1024 * 1024,
+                readDeviceStorageSpace: (_, _) => (true, 1000L * 1024 * 1024, 500L * 1024 * 1024),
+                settingsService: settingsService,
+                audioTranscodeService: new FakeAudioTranscodeService(),
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: req =>
+                {
+                    confirmCallCount++;
+                    capturedRequest = req;
+                    return false;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(1, confirmCallCount);
+            Assert.NotNull(capturedRequest);
+            Assert.False(capturedRequest!.IsInsufficientSpace);
+            Assert.True(capturedRequest.HasTranscodeTargets);
+            Assert.Equal(1, capturedRequest.FlacToMp3Count);
+            Assert.Equal(0, capturedRequest.Mp4ToM4aCount);
+            Assert.Equal(0, capturedRequest.CopyOnlyCount);
+            Assert.False(File.Exists(Path.Combine(deviceDir, "ArtistD", "AlbumD", "01.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 必要容量と空き容量が完全に一致する境界値、および容量情報未取得の機器において、
+    /// 形式変換対象がなければ容量不足として誤検知せず確認ダイアログなしで転送が開始されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData(true, 100L * 1024 * 1024, 100L * 1024 * 1024)]
+    [InlineData(false, 0L, 100L * 1024 * 1024)]
+    public async Task TransferSelectedAsync_空き容量一致または容量情報未取得で変換なしの場合_確認ダイアログを表示せず転送されること(
+        bool hasStorageInfo,
+        long freeBytes,
+        long trackBytes)
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ConfirmBoundary_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string mp3Path = Path.Combine(sourceDir, "01.mp3");
+        File.WriteAllText(mp3Path, "mp3-data");
+
+        var track = new Track { Title = "Track 1", Artist = "ArtistE", Album = "AlbumE", FilePath = mp3Path, IsSelected = true };
+        var album = new Album("AlbumE", "ArtistE", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var device = new MainViewModel.DeviceViewModel
+        {
+            Name = "USB (I:\\)",
+            Type = MainViewModel.DeviceType.FileSystem,
+            RootPath = deviceDir
+        };
+
+        int confirmCallCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: _ => trackBytes,
+                readDeviceStorageSpace: (_, _) => (hasStorageInfo, hasStorageInfo ? 1000L * 1024 * 1024 : 0L, freeBytes),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: null,
+                showMessage: (_, _) => { },
+                confirmTransfer: _ =>
+                {
+                    confirmCallCount++;
+                    return false;
+                });
+
+            sut.SelectedDevice = device;
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            await sut.TransferSelectedAsync();
+
+            // Assert
+            Assert.Equal(0, confirmCallCount);
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistE", "AlbumE", "01.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 複数曲の転送中に 1 曲目の変換・転送完了後に CancelTransfer を実行した場合、
+    /// 2 曲目以降が安全に中止され、一時ファイルや不完全ファイルが残らず、成功済み曲のみ IsOnDevice が反映されてキャンセル結果サマリが通知されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferSelectedAsync_転送中にCancelTransfer呼び出し時_安全に中止され一時ファイルが残らずキャンセルサマリが通知されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_CancelTransfer_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string track1Path = Path.Combine(sourceDir, "01.flac");
+        string track2Path = Path.Combine(sourceDir, "02.flac");
+        File.WriteAllText(track1Path, "flac-track-1");
+        File.WriteAllText(track2Path, "flac-track-2");
+
+        var t1 = new Track { Title = "Track 1", Artist = "ArtistCancel", Album = "AlbumCancel", FilePath = track1Path, IsSelected = true };
+        var t2 = new Track { Title = "Track 2", Artist = "ArtistCancel", Album = "AlbumCancel", FilePath = track2Path, IsSelected = true };
+        var album = new Album("AlbumCancel", "ArtistCancel", 2026, new[] { t1, t2 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.ConvertFlacToMp3 = true);
+
+        using var secondTrackStarted = new ManualResetEventSlim(false);
+        string? secondTempDir = null;
+        var cancelableTranscoder = new CallbackAudioTranscodeService(async (sourcePath, options, ct) =>
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"AE_CancelTmp_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            string targetName = Path.ChangeExtension(Path.GetFileName(sourcePath), ".mp3");
+            string outputPath = Path.Combine(tempDir, targetName);
+            File.WriteAllText(outputPath, "transcoded-mp3");
+
+            if (sourcePath.EndsWith("02.flac", StringComparison.OrdinalIgnoreCase))
+            {
+                secondTempDir = tempDir;
+                secondTrackStarted.Set();
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, recursive: true);
+                    }
+
+                    throw;
+                }
+            }
+
+            return new TranscodedAudioResult(sourcePath, outputPath, targetName, wasTranscoded: true, temporaryDirectoryPath: tempDir);
+        });
+
+        TransferResultSummary? capturedSummary = null;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (true, 1000L * 1024 * 1024, 500L * 1024 * 1024),
+                settingsService: settingsService,
+                audioTranscodeService: cancelableTranscoder,
+                resolveMtpClient: null,
+                showMessage: null,
+                confirmTransfer: _ => true,
+                showTransferResult: summary => capturedSummary = summary);
+
+            sut.SelectedDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "USB (C:\\)",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = deviceDir
+            };
+            await sut.CheckDeviceAlbumsAsync();
+            await sut.RefreshSelectedDeviceStorageAsync();
+
+            // Act
+            var transferTask = sut.TransferSelectedAsync();
+            Assert.True(secondTrackStarted.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(sut.CancelTransferCommand.CanExecute(null));
+
+            sut.CancelTransferCommand.Execute(null);
+            Assert.True(sut.IsCancelling);
+            Assert.False(sut.CancelTransferCommand.CanExecute(null));
+
+            await transferTask;
+
+            // Assert
+            Assert.NotNull(capturedSummary);
+            Assert.True(capturedSummary!.WasCancelled);
+            Assert.Equal(1, capturedSummary.SuccessCount);
+            Assert.Equal(0, capturedSummary.FailedCount);
+            Assert.True(File.Exists(Path.Combine(deviceDir, "ArtistCancel", "AlbumCancel", "01.mp3")));
+            Assert.False(File.Exists(Path.Combine(deviceDir, "ArtistCancel", "AlbumCancel", "02.mp3")));
+            Assert.True(secondTempDir == null || !Directory.Exists(secondTempDir));
+            Assert.True(t1.IsOnDevice);
+            Assert.False(t2.IsOnDevice);
+            Assert.False(sut.IsTransferring);
+            Assert.False(sut.IsCancelling);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 転送対象のうち 1 曲で変換エラー・1 曲でファイル不在が発生しても残りの曲の転送が継続され、
+    /// 成功件数・スキップ件数・失敗曲一覧（曲名・エラー理由）および詳細進捗（変換中／コピー中／スキップ中）が正しく通知されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferTracksToFileSystemAsync_個別曲エラーおよび重複スキップ混在時_残り曲が継続転送され結果サマリと詳細進捗が正確であること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_PerTrackError_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string existingPath = Path.Combine(sourceDir, "01_Existing.mp3");
+        string failTranscodePath = Path.Combine(sourceDir, "02_Corrupt.flac");
+        string missingPath = Path.Combine(sourceDir, "03_Missing.mp3");
+        string okFlacPath = Path.Combine(sourceDir, "04_Success.flac");
+        File.WriteAllText(existingPath, "mp3-1");
+        File.WriteAllText(failTranscodePath, "corrupt-flac");
+        File.WriteAllText(okFlacPath, "good-flac");
+
+        // 01_Existing は既にデバイス上に存在させて重複スキップにする
+        string destAlbumDir = Path.Combine(deviceDir, "ArtistErr", "AlbumErr");
+        Directory.CreateDirectory(destAlbumDir);
+        File.WriteAllText(Path.Combine(destAlbumDir, "01_Existing.mp3"), "already-on-device");
+
+        var t1 = new Track { Title = "Existing Song", Artist = "ArtistErr", Album = "AlbumErr", FilePath = existingPath };
+        var t2 = new Track { Title = "Corrupt FLAC", Artist = "ArtistErr", Album = "AlbumErr", FilePath = failTranscodePath };
+        var t3 = new Track { Title = "Missing File", Artist = "ArtistErr", Album = "AlbumErr", FilePath = missingPath };
+        var t4 = new Track { Title = "Good FLAC", Artist = "ArtistErr", Album = "AlbumErr", FilePath = okFlacPath };
+        var album = new Album("AlbumErr", "ArtistErr", 2026, new[] { t1, t2, t3, t4 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var transcoder = new CallbackAudioTranscodeService((sourcePath, options, ct) =>
+        {
+            if (sourcePath.EndsWith("02_Corrupt.flac", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException("FLAC デコードに失敗しました");
+            }
+
+            string tempDir = Path.Combine(Path.GetTempPath(), $"AE_OkTrans_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            string targetName = Path.ChangeExtension(Path.GetFileName(sourcePath), ".mp3");
+            string outPath = Path.Combine(tempDir, targetName);
+            File.WriteAllText(outPath, "ok-mp3");
+            return Task.FromResult(new TranscodedAudioResult(sourcePath, outPath, targetName, wasTranscoded: true, temporaryDirectoryPath: tempDir));
+        });
+
+        var observedPhases = new List<string>();
+        var detailProgress = new SynchronousProgress<TransferProgressInfo>(info => observedPhases.Add(info.PhaseText));
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                audioTranscodeService: transcoder);
+
+            // Act
+            var summary = await sut.TransferTracksToFileSystemAsync(
+                new[] { t1, t2, t3, t4 },
+                deviceDir,
+                new AudioTranscodeOptions { ConvertFlacToMp3 = true },
+                detailProgress: detailProgress);
+
+            // Assert
+            Assert.False(summary.WasCancelled);
+            Assert.False(summary.WasAbortedByFatalError);
+            Assert.Equal(1, summary.SuccessCount);
+            Assert.Equal(1, summary.SkippedCount);
+            Assert.Equal(2, summary.FailedCount);
+            Assert.Contains(summary.FailedItems, item => item.TrackTitle == "Corrupt FLAC" && item.ErrorReason.Contains("FLAC デコードに失敗しました"));
+            Assert.Contains(summary.FailedItems, item => item.TrackTitle == "Missing File" && item.ErrorReason.Contains("見つかりません"));
+            Assert.True(File.Exists(Path.Combine(destAlbumDir, "04_Success.mp3")));
+            Assert.Contains("スキップ中...", observedPhases);
+            Assert.Contains("変換中 (FLAC → MP3)...", observedPhases);
+            Assert.Contains("コピー中...", observedPhases);
+            Assert.Contains("エラー", observedPhases);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// アプリ終了時の CancelTransfer(suppressResultDialog: true) または転送中の Dispose() 呼び出し時に、
+    /// 転送が安全に中断され、結果サマリ通知および再走査が抑止されることを検証します
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferSelectedAsync_終了時キャンセルまたはDispose呼び出し時_結果サマリ通知が抑止され安全に終了すること(bool callDispose)
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ShutdownCancel_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        string deviceDir = Path.Combine(tempRoot, "Device");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(deviceDir);
+
+        string trackPath = Path.Combine(sourceDir, "01.flac");
+        File.WriteAllText(trackPath, "flac-data");
+
+        var track = new Track { Title = "Track 1", Artist = "ArtistShutdown", Album = "AlbumShutdown", FilePath = trackPath, IsSelected = true };
+        var album = new Album("AlbumShutdown", "ArtistShutdown", 2026, new[] { track });
+        var albums = new ObservableCollection<Album> { album };
+
+        var settingsService = new InMemorySettingsService();
+        settingsService.UpdateSettings(s => s.ConvertFlacToMp3 = true);
+
+        using var started = new ManualResetEventSlim(false);
+        var transcoder = new CallbackAudioTranscodeService(async (sourcePath, options, ct) =>
+        {
+            started.Set();
+            await Task.Delay(TimeSpan.FromSeconds(10), ct);
+            return TranscodedAudioResult.Passthrough(sourcePath);
+        });
+
+        int resultNotificationCount = 0;
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: settingsService,
+                audioTranscodeService: transcoder,
+                resolveMtpClient: null,
+                showMessage: null,
+                confirmTransfer: _ => true,
+                showTransferResult: _ => resultNotificationCount++);
+
+            sut.SelectedDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "USB (Z:\\)",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = deviceDir
+            };
+            await sut.CheckDeviceAlbumsAsync();
+
+            // Act
+            var transferTask = sut.TransferSelectedAsync();
+            Assert.True(started.Wait(TimeSpan.FromSeconds(5)));
+
+            if (callDispose)
+            {
+                sut.Dispose();
+            }
+            else
+            {
+                sut.CancelTransfer(suppressResultDialog: true);
+            }
+
+            await transferTask;
+
+            // Assert
+            Assert.Equal(0, resultNotificationCount);
+            Assert.False(sut.IsTransferring);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// MTP 転送中にデバイス切断が発生した場合、回復不能エラーとして残りの転送を安全に中断し、
+    /// WasAbortedByFatalError とエラーメッセージが結果サマリに記録されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task TransferTracksToMtpAsync_転送中にデバイス切断発生時_回復不能エラーとして安全中断されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_MtpDisconnect_{Guid.NewGuid():N}");
+        string sourceDir = Path.Combine(tempRoot, "Source");
+        Directory.CreateDirectory(sourceDir);
+
+        string track1Path = Path.Combine(sourceDir, "01.mp3");
+        string track2Path = Path.Combine(sourceDir, "02.mp3");
+        File.WriteAllText(track1Path, "mp3-1");
+        File.WriteAllText(track2Path, "mp3-2");
+
+        var t1 = new Track { Title = "Track 1", Artist = "ArtistMtp", Album = "AlbumMtp", FilePath = track1Path };
+        var t2 = new Track { Title = "Track 2", Artist = "ArtistMtp", Album = "AlbumMtp", FilePath = track2Path };
+        var album = new Album("AlbumMtp", "ArtistMtp", 2026, new[] { t1, t2 });
+        var albums = new ObservableCollection<Album> { album };
+
+        var fakeMtp = new FakeMtpDeviceClient();
+        fakeMtp.Connect();
+        fakeMtp.AddDirectory(@"\Music");
+        int uploadAttempts = 0;
+        fakeMtp.OnUploadFile = (_, _) =>
+        {
+            uploadAttempts++;
+            fakeMtp.Disconnect();
+            throw new IOException("デバイスが切断されました");
+        };
+
+        try
+        {
+            using var sut = new DeviceBrowserViewModel(
+                albums,
+                () => albums,
+                () => { },
+                getFileSizeBytes: null,
+                readDeviceStorageSpace: (_, _) => (false, 0L, 0L),
+                settingsService: null,
+                audioTranscodeService: null,
+                resolveMtpClient: _ => fakeMtp,
+                showMessage: null);
+
+            // Act
+            var summary = await sut.TransferTracksToMtpAsync(
+                fakeMtp,
+                new[] { t1, t2 },
+                @"\Music",
+                new AudioTranscodeOptions());
+
+            // Assert
+            Assert.True(summary.WasAbortedByFatalError);
+            Assert.True(summary.HasFatalError);
+            Assert.Equal(0, summary.SuccessCount);
+            Assert.Equal(1, summary.FailedCount);
+            Assert.Equal(1, uploadAttempts);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed class SynchronousProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _onReport;
+
+        public SynchronousProgress(Action<T> onReport)
+        {
+            _onReport = onReport;
+        }
+
+        public void Report(T value) => _onReport(value);
+    }
+
+    private sealed class CallbackAudioTranscodeService : IAudioTranscodeService
+    {
+        private readonly Func<string, AudioTranscodeOptions, CancellationToken, Task<TranscodedAudioResult>> _prepare;
+
+        public CallbackAudioTranscodeService(
+            Func<string, AudioTranscodeOptions, CancellationToken, Task<TranscodedAudioResult>> prepare)
+        {
+            _prepare = prepare;
+        }
+
+        public bool NeedsTranscode(string sourceFilePath, AudioTranscodeOptions options)
+        {
+            string ext = Path.GetExtension(sourceFilePath);
+            return (options.ConvertFlacToMp3 && ext.Equals(".flac", StringComparison.OrdinalIgnoreCase))
+                || (options.ConvertMp4ToM4a && ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase));
+        }
+
+        public string ResolveTargetFileName(string sourceFilePath, AudioTranscodeOptions options)
+        {
+            string fileName = Path.GetFileName(sourceFilePath);
+            if (NeedsTranscode(sourceFilePath, options))
+            {
+                string ext = Path.GetExtension(fileName);
+                return ext.Equals(".flac", StringComparison.OrdinalIgnoreCase)
+                    ? Path.ChangeExtension(fileName, ".mp3")
+                    : Path.ChangeExtension(fileName, ".m4a");
+            }
+
+            return fileName;
+        }
+
+        public Task<TranscodedAudioResult> PrepareForTransferAsync(
+            string sourceFilePath,
+            AudioTranscodeOptions options,
+            CancellationToken cancellationToken = default)
+        {
+            if (!NeedsTranscode(sourceFilePath, options))
+            {
+                return Task.FromResult(TranscodedAudioResult.Passthrough(sourceFilePath));
+            }
+
+            return _prepare(sourceFilePath, options, cancellationToken);
+        }
+    }
+
     private sealed class FakeMtpDeviceClient : DeviceBrowserViewModel.IMtpDeviceClient
     {
         private readonly object _sync = new();
@@ -3222,6 +4149,17 @@ public sealed class DeviceBrowserViewModelTests
 
             OnUploadFile?.Invoke(sourceFilePath, destinationFilePath);
             AddFile(destinationFilePath);
+        }
+
+        public void DownloadFile(string sourceFilePath, Stream outputStream)
+        {
+            if (!FileExists(sourceFilePath))
+            {
+                throw new FileNotFoundException("MTP source file not found.", sourceFilePath);
+            }
+
+            byte[] data = System.Text.Encoding.UTF8.GetBytes($"mtp-content:{sourceFilePath}");
+            outputStream.Write(data, 0, data.Length);
         }
 
         private void AddDirectoryUnsafe(string path)

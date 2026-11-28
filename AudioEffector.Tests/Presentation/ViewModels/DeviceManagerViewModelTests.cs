@@ -2,7 +2,10 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.ApplicationServices;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Entities.DataTransfer;
 using AudioEffector.Presentation.ViewModels;
@@ -636,7 +639,7 @@ public sealed class DeviceManagerViewModelTests
             };
 
             // Act
-            var sut = new DeviceManagerViewModel(device, tempRoot, new List<Album>());
+            using var sut = new DeviceManagerViewModel(device, tempRoot, new List<Album>());
             await sut.InitialLoadTask;
 
             // Assert
@@ -699,5 +702,718 @@ public sealed class DeviceManagerViewModelTests
         }
 
         return album;
+    }
+
+    /// <summary>
+    /// ファイルシステム機器からアルバム単位で PC ライブラリフォルダ配下へ逆転送した際、
+    /// 既存同名ファイルは上書きされずスキップされ、1 曲欠落エラー時も残り曲が継続取り込みされ、
+    /// 結果サマリ通知および PC ライブラリ自動再反映コールバックが発火することを検証します
+    /// </summary>
+    [Fact]
+    public async Task ImportAlbumAsync_ファイルシステム機器からライブラリ配下へ逆転送時_重複スキップとエラー継続のうえライブラリ自動反映されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ReverseFs_{Guid.NewGuid():N}");
+        string deviceRoot = Path.Combine(tempRoot, "Device");
+        string deviceAlbumDir = Path.Combine(deviceRoot, "ArtistR", "AlbumR");
+        string pcLibraryDir = Path.Combine(tempRoot, "PcLibrary");
+        string destSubDir = Path.Combine(pcLibraryDir, "Imported");
+        Directory.CreateDirectory(deviceAlbumDir);
+        Directory.CreateDirectory(destSubDir);
+
+        string existingSrc = Path.Combine(deviceAlbumDir, "01_Exist.mp3");
+        string missingSrc = Path.Combine(deviceAlbumDir, "02_Missing.mp3");
+        string newSrc = Path.Combine(deviceAlbumDir, "03_New.flac");
+        File.WriteAllText(existingSrc, "device-version");
+        File.WriteAllText(newSrc, "device-flac-bytes");
+
+        // PC 側に既存同名ファイルを配置して上書き防止を検証
+        string pcExistingDir = Path.Combine(destSubDir, "ArtistR", "AlbumR");
+        Directory.CreateDirectory(pcExistingDir);
+        string pcExistingFile = Path.Combine(pcExistingDir, "01_Exist.mp3");
+        File.WriteAllText(pcExistingFile, "pc-original-content");
+
+        var settingsService = new FakeImportSettingsService(pcLibraryDir);
+        string? refreshedPath = null;
+        TransferResultSummary? capturedSummary = null;
+
+        try
+        {
+            var device = new MainViewModel.DeviceViewModel
+            {
+                Name = "Test USB",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = deviceRoot
+            };
+
+            using var sut = new DeviceManagerViewModel(
+                device,
+                deviceRoot,
+                new List<Album>(),
+                settingsService: settingsService,
+                onLibraryRefreshRequested: path => refreshedPath = path,
+                resolveMtpClient: null,
+                selectDestinationFolder: _ => destSubDir,
+                showImportResult: summary => capturedSummary = summary);
+            await sut.InitialLoadTask;
+
+            var deviceAlbum = new DeviceAlbum("AlbumR", "ArtistR", deviceAlbumDir);
+            deviceAlbum.Tracks.Add(new DeviceTrack("01_Exist.mp3", "ArtistR", "AlbumR", existingSrc));
+            deviceAlbum.Tracks.Add(new DeviceTrack("02_Missing.mp3", "ArtistR", "AlbumR", missingSrc));
+            deviceAlbum.Tracks.Add(new DeviceTrack("03_New.flac", "ArtistR", "AlbumR", newSrc));
+
+            // Act
+            var summary = await sut.ImportAlbumAsync(deviceAlbum);
+
+            // Assert
+            Assert.NotNull(summary);
+            Assert.Same(summary, capturedSummary);
+            Assert.Equal("取り込み", summary!.OperationLabel);
+            Assert.Equal(1, summary.SuccessCount);
+            Assert.Equal(1, summary.SkippedCount);
+            Assert.Equal(1, summary.FailedCount);
+            Assert.False(summary.WasCancelled);
+            Assert.Equal("pc-original-content", File.ReadAllText(pcExistingFile));
+            Assert.Equal("device-flac-bytes", File.ReadAllText(Path.Combine(pcExistingDir, "03_New.flac")));
+            Assert.Equal(destSubDir, refreshedPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 登録済み PC ライブラリフォルダ以外の保存先へ曲単位で逆転送した場合、
+    /// ファイルは正しくコピーされる一方でライブラリ自動再反映コールバックは発火しないことを検証します
+    /// </summary>
+    [Fact]
+    public async Task ImportTrackAsync_ライブラリフォルダ外へ曲単位逆転送時_取り込み成功しライブラリ再反映は発火しないこと()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ReverseSingle_{Guid.NewGuid():N}");
+        string deviceRoot = Path.Combine(tempRoot, "Device");
+        string deviceAlbumDir = Path.Combine(deviceRoot, "SoloArtist", "SoloAlbum");
+        string pcLibraryDir = Path.Combine(tempRoot, "PcLibrary");
+        string outsideDir = Path.Combine(tempRoot, "ExternalExport");
+        Directory.CreateDirectory(deviceAlbumDir);
+        Directory.CreateDirectory(pcLibraryDir);
+        Directory.CreateDirectory(outsideDir);
+
+        string trackSrc = Path.Combine(deviceAlbumDir, "01_Solo.mp3");
+        File.WriteAllText(trackSrc, "solo-track-data");
+
+        var settingsService = new FakeImportSettingsService(pcLibraryDir);
+        int refreshCount = 0;
+
+        try
+        {
+            var device = new MainViewModel.DeviceViewModel
+            {
+                Name = "Test USB",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = deviceRoot
+            };
+
+            using var sut = new DeviceManagerViewModel(
+                device,
+                deviceRoot,
+                new List<Album>(),
+                settingsService: settingsService,
+                onLibraryRefreshRequested: _ => refreshCount++,
+                resolveMtpClient: null,
+                selectDestinationFolder: _ => outsideDir,
+                showImportResult: _ => { });
+            await sut.InitialLoadTask;
+
+            var album = new DeviceAlbum("SoloAlbum", "SoloArtist", deviceAlbumDir);
+            var track = new DeviceTrack("01_Solo.mp3", "SoloArtist", "SoloAlbum", trackSrc);
+            album.Tracks.Add(track);
+            sut.DeviceAlbums.Add(album);
+
+            // Act
+            var summary = await sut.ImportTrackAsync(track);
+
+            // Assert
+            Assert.NotNull(summary);
+            Assert.Equal(1, summary!.SuccessCount);
+            Assert.Equal(0, summary.FailedCount);
+            Assert.Equal("solo-track-data", File.ReadAllText(Path.Combine(outsideDir, "SoloArtist", "SoloAlbum", "01_Solo.mp3")));
+            Assert.Equal(0, refreshCount);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// MTP デバイスからのアルバム逆転送中に 2 曲目のダウンロードでキャンセル要求した場合、
+    /// 1 曲目は正常保存され、2 曲目の不完全ファイルは残らず WasCancelled=true のサマリが通知されることを検証します
+    /// </summary>
+    [Fact]
+    public async Task ImportAlbumAsync_MTP機器からの逆転送中にキャンセル時_不完全ファイルが残らずキャンセルサマリが通知されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ReverseMtpCancel_{Guid.NewGuid():N}");
+        string destDir = Path.Combine(tempRoot, "Dest");
+        Directory.CreateDirectory(destDir);
+
+        using var secondStarted = new ManualResetEventSlim(false);
+        using var allowSecondFinish = new ManualResetEventSlim(false);
+
+        var fakeMtp = new FakeImportMtpClient();
+        fakeMtp.Connect();
+        fakeMtp.AddFile(@"\Music\ArtistM\AlbumM\01.mp3", "mtp-track-1");
+        fakeMtp.AddFile(@"\Music\ArtistM\AlbumM\02.mp3", "mtp-track-2-partial");
+        fakeMtp.OnDownloadFile = (src, stream) =>
+        {
+            if (src.EndsWith("02.mp3", StringComparison.OrdinalIgnoreCase))
+            {
+                byte[] partial = System.Text.Encoding.UTF8.GetBytes("partial");
+                stream.Write(partial, 0, partial.Length);
+                secondStarted.Set();
+                allowSecondFinish.Wait(TimeSpan.FromSeconds(5));
+            }
+        };
+
+        TransferResultSummary? capturedSummary = null;
+
+        try
+        {
+            var device = new MainViewModel.DeviceViewModel
+            {
+                Name = "Fake MTP",
+                Type = MainViewModel.DeviceType.MTP,
+                RootPath = @"\"
+            };
+
+            using var sut = new DeviceManagerViewModel(
+                device,
+                @"\Music",
+                new List<Album>(),
+                settingsService: null,
+                onLibraryRefreshRequested: null,
+                resolveMtpClient: _ => fakeMtp,
+                selectDestinationFolder: _ => destDir,
+                showImportResult: summary => capturedSummary = summary);
+            await sut.InitialLoadTask;
+
+            var album = new DeviceAlbum("AlbumM", "ArtistM", @"\Music\ArtistM\AlbumM");
+            album.Tracks.Add(new DeviceTrack("01.mp3", "ArtistM", "AlbumM", @"\Music\ArtistM\AlbumM\01.mp3"));
+            album.Tracks.Add(new DeviceTrack("02.mp3", "ArtistM", "AlbumM", @"\Music\ArtistM\AlbumM\02.mp3"));
+
+            // Act
+            var importTask = sut.ImportAlbumAsync(album);
+            Assert.True(secondStarted.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(sut.CancelImportCommand.CanExecute(null));
+
+            sut.CancelImportCommand.Execute(null);
+            Assert.True(sut.IsCancellingImport);
+            Assert.False(sut.CancelImportCommand.CanExecute(null));
+            allowSecondFinish.Set();
+
+            var summary = await importTask;
+
+            // Assert
+            Assert.NotNull(summary);
+            Assert.Same(summary, capturedSummary);
+            Assert.True(summary!.WasCancelled);
+            Assert.Equal(1, summary.SuccessCount);
+            Assert.Equal("mtp-track-1", File.ReadAllText(Path.Combine(destDir, "ArtistM", "AlbumM", "01.mp3")));
+            Assert.False(File.Exists(Path.Combine(destDir, "ArtistM", "AlbumM", "02.mp3")));
+            Assert.False(sut.IsImporting);
+            Assert.False(sut.IsCancellingImport);
+        }
+        finally
+        {
+            allowSecondFinish.Set();
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// MTP 逆転送中にデバイス切断が発生した場合、回復不能エラーとして安全に中断され不完全ファイルが残らないことを検証します
+    /// </summary>
+    [Fact]
+    public async Task ImportTracksToPcAsync_MTP切断発生時_回復不能エラーで安全中断され不完全ファイルが残らないこと()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ReverseMtpDisconnect_{Guid.NewGuid():N}");
+        string destDir = Path.Combine(tempRoot, "Dest");
+        Directory.CreateDirectory(destDir);
+
+        var fakeMtp = new FakeImportMtpClient();
+        fakeMtp.Connect();
+        fakeMtp.AddFile(@"\Music\ArtistD\AlbumD\01.mp3", "track-1");
+        fakeMtp.AddFile(@"\Music\ArtistD\AlbumD\02.mp3", "track-2");
+        int downloadAttempts = 0;
+        fakeMtp.OnDownloadFile = (_, _) =>
+        {
+            downloadAttempts++;
+            fakeMtp.Disconnect();
+            throw new IOException("MTP ケーブルが切断されました");
+        };
+
+        try
+        {
+            var device = new MainViewModel.DeviceViewModel
+            {
+                Name = "Fake MTP",
+                Type = MainViewModel.DeviceType.MTP,
+                RootPath = @"\"
+            };
+
+            using var sut = new DeviceManagerViewModel(
+                device,
+                @"\Music",
+                new List<Album>(),
+                settingsService: null,
+                onLibraryRefreshRequested: null,
+                resolveMtpClient: _ => fakeMtp,
+                selectDestinationFolder: _ => destDir,
+                showImportResult: _ => { });
+            await sut.InitialLoadTask;
+
+            var album = new DeviceAlbum("AlbumD", "ArtistD", @"\Music\ArtistD\AlbumD");
+            var t1 = new DeviceTrack("01.mp3", "ArtistD", "AlbumD", @"\Music\ArtistD\AlbumD\01.mp3");
+            var t2 = new DeviceTrack("02.mp3", "ArtistD", "AlbumD", @"\Music\ArtistD\AlbumD\02.mp3");
+
+            // Act
+            var summary = await sut.ImportTracksToPcAsync(new[] { (album, t1), (album, t2) }, destDir);
+
+            // Assert
+            Assert.True(summary.WasAbortedByFatalError);
+            Assert.True(summary.HasFatalError);
+            Assert.Equal(0, summary.SuccessCount);
+            Assert.Equal(1, summary.FailedCount);
+            Assert.Equal(1, downloadAttempts);
+            Assert.False(File.Exists(Path.Combine(destDir, "ArtistD", "AlbumD", "01.mp3")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// ResolveImportFileName が通常ファイル名を保持し、コロン・禁止文字をサニタイズし、相対セグメントを拒否することを検証します
+    /// </summary>
+    [Theory]
+    [InlineData(@"\Music\Artist\Album\01_Track (Live).flac", "01_Track (Live).flac")]
+    [InlineData(@"\Music\Artist\Album\01.日本語.mp3", "01.日本語.mp3")]
+    [InlineData(@"\Music\Artist\Album\Re:Zero.mp3", "Re_Zero.mp3")]
+    [InlineData(@"\Music\Artist\Album\What?.mp3", "What_.mp3")]
+    [InlineData(@"\Music\Artist\Album\Track*1.flac", "Track_1.flac")]
+    [InlineData(@"\Music\Artist\Album\..", "")]
+    [InlineData(@"\Music\Artist\Album\.", "")]
+    [InlineData(@"\Music\Artist\Album\", "")]
+    public void ResolveImportFileName_各種ファイル名と境界入力_適切にサニタイズまたは拒否されること(string devicePath, string expected)
+    {
+        // Arrange
+        var track = new DeviceTrack("Title", "Artist", "Album", devicePath);
+
+        // Act
+        string actual = DeviceManagerViewModel.ResolveImportFileName(track);
+
+        // Assert
+        Assert.Equal(expected, actual);
+    }
+
+    /// <summary>
+    /// IsPathWithinDirectory が同一パス・子ディレクトリを true、兄弟プレフィックス不一致ディレクトリを false と判定することを検証します
+    /// </summary>
+    [Fact]
+    public void IsPathWithinDirectory_兄弟プレフィックスや末尾区切りを含む境界値_正しく判定されること()
+    {
+        // Arrange
+        string baseDir = Path.Combine(Path.GetTempPath(), "AE_Boundary_PcLibrary");
+        string subDir = Path.Combine(baseDir, "Imported", "ArtistA");
+        string siblingDir = Path.Combine(Path.GetTempPath(), "AE_Boundary_PcLibrary2");
+
+        // Act & Assert
+        Assert.True(DeviceManagerViewModel.IsPathWithinDirectory(baseDir, baseDir));
+        Assert.True(DeviceManagerViewModel.IsPathWithinDirectory(baseDir + Path.DirectorySeparatorChar, baseDir));
+        Assert.True(DeviceManagerViewModel.IsPathWithinDirectory(subDir, baseDir));
+        Assert.False(DeviceManagerViewModel.IsPathWithinDirectory(siblingDir, baseDir));
+        Assert.False(DeviceManagerViewModel.IsPathWithinDirectory(Path.Combine(siblingDir, "Sub"), baseDir));
+        Assert.False(DeviceManagerViewModel.IsPathWithinDirectory(string.Empty, baseDir));
+    }
+
+    /// <summary>
+    /// FileSystem 逆転送で転送元ルートが開始前に不在または途中で消失した場合、回復不能エラーとして安全中断されることを検証します
+    /// </summary>
+    [Fact]
+    public async Task ImportTracksToPcAsync_FileSystem転送元ルート不在時_回復不能エラーで安全中断されること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ReverseFsDisconnect_{Guid.NewGuid():N}");
+        string missingDeviceRoot = Path.Combine(tempRoot, "RemovedUsb");
+        string activeDeviceRoot = Path.Combine(tempRoot, "ActiveUsb");
+        string activeAlbumDir = Path.Combine(activeDeviceRoot, "ArtistX", "AlbumX");
+        string destDir = Path.Combine(tempRoot, "Dest");
+        Directory.CreateDirectory(activeAlbumDir);
+        Directory.CreateDirectory(destDir);
+
+        string track1Path = Path.Combine(activeAlbumDir, "01.mp3");
+        string track2Path = Path.Combine(activeAlbumDir, "02.mp3");
+        string track3Path = Path.Combine(activeAlbumDir, "03.mp3");
+        File.WriteAllText(track1Path, "track1-data");
+        File.WriteAllText(track2Path, "track2-data");
+        File.WriteAllText(track3Path, "track3-data");
+
+        try
+        {
+            // ケース 1: 開始前から転送元ルートが不在
+            var missingDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "Removed USB",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = missingDeviceRoot
+            };
+            using var missingSut = new DeviceManagerViewModel(
+                missingDevice,
+                missingDeviceRoot,
+                new List<Album>(),
+                settingsService: null,
+                onLibraryRefreshRequested: null,
+                resolveMtpClient: null,
+                selectDestinationFolder: _ => destDir,
+                showImportResult: _ => { });
+            await missingSut.InitialLoadTask;
+
+            var missingAlbum = new DeviceAlbum("AlbumX", "ArtistX", Path.Combine(missingDeviceRoot, "ArtistX", "AlbumX"));
+            var missingTrack = new DeviceTrack("01.mp3", "ArtistX", "AlbumX", Path.Combine(missingDeviceRoot, "ArtistX", "AlbumX", "01.mp3"));
+
+            var preDisconnectedSummary = await missingSut.ImportTracksToPcAsync(new[] { (missingAlbum, missingTrack) }, destDir);
+            Assert.True(preDisconnectedSummary.WasAbortedByFatalError);
+            Assert.Equal(0, preDisconnectedSummary.SuccessCount);
+
+            // ケース 2: 1 曲目完了後に転送元ルートが消失（USB 抜去相当）
+            var activeDevice = new MainViewModel.DeviceViewModel
+            {
+                Name = "Active USB",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = activeDeviceRoot
+            };
+            using var activeSut = new DeviceManagerViewModel(
+                activeDevice,
+                activeDeviceRoot,
+                new List<Album>(),
+                settingsService: null,
+                onLibraryRefreshRequested: null,
+                resolveMtpClient: null,
+                selectDestinationFolder: _ => destDir,
+                showImportResult: _ => { });
+            await activeSut.InitialLoadTask;
+
+            var activeAlbum = new DeviceAlbum("AlbumX", "ArtistX", activeAlbumDir);
+            var t1 = new DeviceTrack("01.mp3", "ArtistX", "AlbumX", track1Path);
+            var t2 = new DeviceTrack("02.mp3", "ArtistX", "AlbumX", track2Path);
+            var t3 = new DeviceTrack("03.mp3", "ArtistX", "AlbumX", track3Path);
+
+            bool removedRoot = false;
+            var disconnectProgress = new SyncTestProgress<TransferProgressInfo>(info =>
+            {
+                if (!removedRoot && info.CurrentCount == 1 && info.Percent > 0)
+                {
+                    removedRoot = true;
+                    Directory.Delete(activeDeviceRoot, recursive: true);
+                }
+            });
+
+            var midDisconnectedSummary = await activeSut.ImportTracksToPcAsync(
+                new[] { (activeAlbum, t1), (activeAlbum, t2), (activeAlbum, t3) },
+                destDir,
+                disconnectProgress);
+
+            Assert.True(midDisconnectedSummary.WasAbortedByFatalError);
+            Assert.Equal(1, midDisconnectedSummary.SuccessCount);
+            Assert.Equal(1, midDisconnectedSummary.FailedCount);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// FileSystem 逆転送の途中でキャンセルした場合、2 曲目の不完全ファイルが残らず WasCancelled=true で安全終了することを検証します
+    /// </summary>
+    [Fact]
+    public async Task ImportTracksToPcAsync_FileSystem逆転送途中キャンセル時_不完全ファイルが残らないこと()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ReverseFsCancel_{Guid.NewGuid():N}");
+        string deviceRoot = Path.Combine(tempRoot, "Device");
+        string albumDir = Path.Combine(deviceRoot, "ArtistC", "AlbumC");
+        string destDir = Path.Combine(tempRoot, "Dest");
+        Directory.CreateDirectory(albumDir);
+        Directory.CreateDirectory(destDir);
+
+        string track1Path = Path.Combine(albumDir, "01.wav");
+        string track2Path = Path.Combine(albumDir, "02.wav");
+        File.WriteAllBytes(track1Path, new byte[64 * 1024]);
+        File.WriteAllBytes(track2Path, new byte[512 * 1024]);
+
+        try
+        {
+            var device = new MainViewModel.DeviceViewModel
+            {
+                Name = "Test USB",
+                Type = MainViewModel.DeviceType.FileSystem,
+                RootPath = deviceRoot
+            };
+            using var sut = new DeviceManagerViewModel(
+                device,
+                deviceRoot,
+                new List<Album>(),
+                settingsService: null,
+                onLibraryRefreshRequested: null,
+                resolveMtpClient: null,
+                selectDestinationFolder: _ => destDir,
+                showImportResult: _ => { });
+            await sut.InitialLoadTask;
+
+            var album = new DeviceAlbum("AlbumC", "ArtistC", albumDir);
+            var t1 = new DeviceTrack("01.wav", "ArtistC", "AlbumC", track1Path);
+            var t2 = new DeviceTrack("02.wav", "ArtistC", "AlbumC", track2Path);
+
+            using var cts = new CancellationTokenSource();
+            var progress = new SyncTestProgress<TransferProgressInfo>(info =>
+            {
+                if (info.CurrentFileName == "02.wav" && info.PhaseText == "取り込み中...")
+                {
+                    cts.Cancel();
+                }
+            });
+
+            // Act
+            var summary = await sut.ImportTracksToPcAsync(new[] { (album, t1), (album, t2) }, destDir, progress, cts.Token);
+
+            // Assert
+            Assert.True(summary.WasCancelled);
+            Assert.Equal(1, summary.SuccessCount);
+            Assert.True(File.Exists(Path.Combine(destDir, "ArtistC", "AlbumC", "01.wav")));
+            Assert.False(File.Exists(Path.Combine(destDir, "ArtistC", "AlbumC", "02.wav")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// CancelImport(suppressResultDialog: true) を呼び出した場合、結果通知およびライブラリ再反映が抑止され、
+    /// ActiveImportTask で進行中バックグラウンドタスクの完了を追跡できることを検証します
+    /// </summary>
+    [Fact]
+    public async Task CancelImport_抑止フラグ有効時_結果通知とライブラリ再反映が抑止されActiveImportTaskで完了追跡できること()
+    {
+        // Arrange
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"AE_ReverseSuppress_{Guid.NewGuid():N}");
+        string pcLibraryDir = Path.Combine(tempRoot, "PcLibrary");
+        Directory.CreateDirectory(pcLibraryDir);
+
+        using var downloadStarted = new ManualResetEventSlim(false);
+        using var allowDownloadFinish = new ManualResetEventSlim(false);
+
+        var fakeMtp = new FakeImportMtpClient();
+        fakeMtp.Connect();
+        fakeMtp.AddFile(@"\Music\ArtistS\AlbumS\01.mp3", "track-1");
+        fakeMtp.AddFile(@"\Music\ArtistS\AlbumS\02.mp3", "track-2");
+        fakeMtp.OnDownloadFile = (src, _) =>
+        {
+            if (src.EndsWith("02.mp3", StringComparison.OrdinalIgnoreCase))
+            {
+                downloadStarted.Set();
+                allowDownloadFinish.Wait(TimeSpan.FromSeconds(5));
+            }
+        };
+
+        int resultDialogCalls = 0;
+        int refreshCalls = 0;
+
+        try
+        {
+            var device = new MainViewModel.DeviceViewModel
+            {
+                Name = "Fake MTP",
+                Type = MainViewModel.DeviceType.MTP,
+                RootPath = @"\"
+            };
+
+            using var sut = new DeviceManagerViewModel(
+                device,
+                @"\Music",
+                new List<Album>(),
+                settingsService: new FakeImportSettingsService(pcLibraryDir),
+                onLibraryRefreshRequested: _ => refreshCalls++,
+                resolveMtpClient: _ => fakeMtp,
+                selectDestinationFolder: _ => pcLibraryDir,
+                showImportResult: _ => resultDialogCalls++);
+            await sut.InitialLoadTask;
+
+            var album = new DeviceAlbum("AlbumS", "ArtistS", @"\Music\ArtistS\AlbumS");
+            album.Tracks.Add(new DeviceTrack("01.mp3", "ArtistS", "AlbumS", @"\Music\ArtistS\AlbumS\01.mp3"));
+            album.Tracks.Add(new DeviceTrack("02.mp3", "ArtistS", "AlbumS", @"\Music\ArtistS\AlbumS\02.mp3"));
+
+            // Act
+            var importTask = sut.ImportAlbumAsync(album);
+            Assert.True(downloadStarted.Wait(TimeSpan.FromSeconds(5)));
+
+            Task? trackedTask = sut.ActiveImportTask;
+            Assert.NotNull(trackedTask);
+            Assert.False(trackedTask!.IsCompleted);
+
+            sut.CancelImport(suppressResultDialog: true);
+            allowDownloadFinish.Set();
+
+            var summary = await importTask;
+            await trackedTask;
+
+            // Assert
+            Assert.NotNull(summary);
+            Assert.True(summary!.WasCancelled);
+            Assert.Equal(1, summary.SuccessCount);
+            Assert.Equal(0, resultDialogCalls);
+            Assert.Equal(0, refreshCalls);
+            Assert.Null(sut.ActiveImportTask);
+        }
+        finally
+        {
+            allowDownloadFinish.Set();
+            if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed class SyncTestProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _handler;
+
+        public SyncTestProgress(Action<T> handler) => _handler = handler;
+
+        public void Report(T value) => _handler(value);
+    }
+
+    private sealed class FakeImportSettingsService : ISettingsService
+    {
+        private AppSettings _settings;
+
+        public FakeImportSettingsService(string lastLibraryPath)
+        {
+            _settings = new AppSettings { LastLibraryPath = lastLibraryPath };
+        }
+
+        public AppSettings LoadSettings() => _settings;
+
+        public Task<AppSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_settings);
+
+        public void SaveSettings(AppSettings settings) => _settings = settings;
+
+        public Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
+        {
+            _settings = settings;
+            return Task.CompletedTask;
+        }
+
+        public void UpdateSettings(Action<AppSettings> updateAction) => updateAction(_settings);
+
+        public Task UpdateSettingsAsync(Action<AppSettings> updateAction, CancellationToken cancellationToken = default)
+        {
+            updateAction(_settings);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeImportMtpClient : DeviceBrowserViewModel.IMtpDeviceClient
+    {
+        private readonly object _sync = new();
+        private readonly Dictionary<string, string> _files = new(StringComparer.OrdinalIgnoreCase);
+        private bool _isConnected;
+
+        public Action<string, Stream>? OnDownloadFile { get; set; }
+
+        public bool IsConnected
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _isConnected;
+                }
+            }
+        }
+
+        public void Connect()
+        {
+            lock (_sync)
+            {
+                _isConnected = true;
+            }
+        }
+
+        public void Disconnect()
+        {
+            lock (_sync)
+            {
+                _isConnected = false;
+            }
+        }
+
+        public void AddFile(string path, string content)
+        {
+            lock (_sync)
+            {
+                _files[path] = content;
+            }
+        }
+
+        public bool DirectoryExists(string path) => true;
+
+        public void CreateDirectory(string path)
+        {
+        }
+
+        public IEnumerable<string> GetDirectories(string path) => Array.Empty<string>();
+
+        public IEnumerable<string> GetFiles(string path) => Array.Empty<string>();
+
+        public bool FileExists(string path)
+        {
+            lock (_sync)
+            {
+                return _files.ContainsKey(path);
+            }
+        }
+
+        public void DeleteFile(string path)
+        {
+            lock (_sync)
+            {
+                _files.Remove(path);
+            }
+        }
+
+        public void UploadFile(string sourceFilePath, string destinationFilePath)
+        {
+        }
+
+        public void DownloadFile(string sourceFilePath, Stream outputStream)
+        {
+            OnDownloadFile?.Invoke(sourceFilePath, outputStream);
+            string content;
+            lock (_sync)
+            {
+                if (!_files.TryGetValue(sourceFilePath, out content!))
+                {
+                    throw new FileNotFoundException("MTP file not found.", sourceFilePath);
+                }
+            }
+
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(content);
+            outputStream.Write(bytes, 0, bytes.Length);
+        }
     }
 }

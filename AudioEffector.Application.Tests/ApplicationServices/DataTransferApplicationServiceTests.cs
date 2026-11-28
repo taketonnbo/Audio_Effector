@@ -497,4 +497,65 @@ public sealed class DataTransferApplicationServiceTests
         Assert.Equal(1, countFromNull);
         mockRepo.Verify(r => r.TransferCompanionFileAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    /// <summary>
+    /// TransferTracksWithResultAsync において 1 曲目で例外が発生しても残りの曲の転送が継続され、
+    /// 成功件数と失敗曲一覧がサマリへ正確に記録されることを検証します
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracksWithResultAsync_1曲目で例外発生時_残り曲が継続転送され結果サマリに失敗理由が記録されること()
+    {
+        // Arrange
+        var t1 = CreateTestTrack("FailTrack");
+        var t2 = CreateTestTrack("SuccessTrack");
+
+        var mockRepo = new Mock<IDataTransferRepository>();
+        mockRepo.Setup(r => r.TransferTrackAsync(t1.FilePath, @"E:\Music", null, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("ディスク書き込みエラー"));
+        mockRepo.Setup(r => r.TransferTrackAsync(t2.FilePath, @"E:\Music", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var sut = new DataTransferApplicationService(mockRepo.Object);
+
+        // Act
+        var summary = await sut.TransferTracksWithResultAsync([t1, t2], @"E:\Music");
+
+        // Assert
+        Assert.False(summary.WasCancelled);
+        Assert.Equal(1, summary.SuccessCount);
+        Assert.Equal(1, summary.FailedCount);
+        Assert.Contains(summary.FailedItems, item => item.TrackTitle == "FailTrack" && item.ErrorReason.Contains("ディスク書き込みエラー"));
+    }
+
+    /// <summary>
+    /// TransferTracksWithResultAsync の途中でキャンセルされた場合、WasCancelled が true で結果サマリが返却されることを検証します
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracksWithResultAsync_途中キャンセル時_後続曲が処理されずWasCancelledがTrueになること()
+    {
+        // Arrange
+        var t1 = CreateTestTrack("First");
+        var t2 = CreateTestTrack("Second");
+        using var cts = new CancellationTokenSource();
+
+        var mockRepo = new Mock<IDataTransferRepository>();
+        mockRepo.Setup(r => r.TransferTrackAsync(t1.FilePath, @"E:\Music", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                cts.Cancel();
+                return true;
+            });
+
+        var sut = new DataTransferApplicationService(mockRepo.Object);
+
+        // Act
+        var summary = await sut.TransferTracksWithResultAsync([t1, t2], @"E:\Music", cancellationToken: cts.Token);
+
+        // Assert
+        Assert.True(summary.WasCancelled);
+        Assert.Equal(0, summary.FailedCount);
+        mockRepo.Verify(r => r.TransferTrackAsync(t2.FilePath, @"E:\Music", null, It.IsAny<CancellationToken>()), Times.Never);
+    }
 }

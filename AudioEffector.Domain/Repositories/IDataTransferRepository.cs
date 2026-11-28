@@ -62,6 +62,20 @@ public interface IDataTransferRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// デバイス上の指定ファイルを PC 側の保存先パスへダウンロード（逆転送）します
+    /// </summary>
+    /// <param name="deviceFilePath">デバイス上の転送元ファイルパス</param>
+    /// <param name="destinationFilePath">PC 側の保存先フルファイルパス</param>
+    /// <param name="progress">進捗通知（0.0〜1.0）</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>ダウンロード成功時はtrue</returns>
+    Task<bool> DownloadTrackFromDeviceAsync(
+        string deviceFilePath,
+        string destinationFilePath,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// デバイス上の指定ファイルを削除します
     /// </summary>
     /// <param name="deviceFilePath">デバイス上のファイルパス</param>

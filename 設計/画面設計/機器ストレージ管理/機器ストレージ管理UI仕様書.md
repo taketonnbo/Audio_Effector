@@ -2,7 +2,7 @@
 
 ## 1. 概要 (Overview)
 
-接続機器内のアルバムと楽曲を確認し、不要なデータを削除する。対象はDevice、Album、Track。
+接続機器内のアルバムと楽曲を確認し、不要なデータの削除および PC 指定フォルダへの逆転送（インポート）を行う。対象はDevice、Album、Track。
 
 ## 2. 実装イメージ（モックアップ）
 
@@ -33,14 +33,14 @@
 +---------------------------------------------------------------------------------------------------+
 ```
 
-> **構想要素に関する注記**: モックアップ内の容量内訳バー・総数サマリー・再スキャンボタン・アルバムアート表示は拡張構想（関連Issue: #233, #254）です。`DeviceManagerDialog.xaml` では幅 `300px` のアルバム `Expander` カードを `WrapPanel` で折り返し表示する構成となります。
+> **構想要素に関する注記**: モックアップ内の容量内訳バー・総数サマリー・再スキャンボタン・アルバムアート表示は拡張構想（関連Issue: #233, #254）です。`DeviceManagerDialog.xaml` では幅 `320px` のアルバム `Expander` カードを `WrapPanel` で折り返し表示する構成となります。
 
 ### 2.2 Figmaモックアップ
 - [Figmaデザイン（準備中 / 別タスクにて作成予定）](#)
 
 ## 3. 画面配置とペインレイアウト
 
-ウィンドウタイトル `"Device Storage Manager"`、`800×600px`、`WindowStartupLocation="CenterOwner"`。行0がヘッダー（`Auto`：`"Installed Albums on Device"`）、行1が一覧領域（`*`）、行2が `"Close"` ボタン（`Auto`）の3行構成。各アルバム `Expander` は幅 `300px` で `WrapPanel` 内に折り返し配置される。
+ウィンドウタイトル `"Device Storage Manager"`、`820×640px`、`WindowStartupLocation="CenterOwner"`。行0がヘッダー（`Auto`：`"Installed Albums on Device"`）、行1が一覧領域（`*`）、行2が逆転送詳細進捗パネル（`Auto`、`IsImporting=True` 時のみ表示）、行3が `"Close"` ボタン（`Auto`）の4行構成。各アルバム `Expander` は幅 `320px`（ヘッダー `Grid` 幅 `296px`）で `WrapPanel` 内に折り返し配置される。
 
 ## 4. デザイントークンの適用
 
@@ -53,17 +53,19 @@
 | `MutedTextForegroundBrush` | <span style="background-color:#718096;color:#161920;padding:2px 8px;border-radius:3px;">■ #718096</span> | `#718096` | 曲数（`{Tracks.Count} tracks`） |
 | `NeonCyanBrush` | <span style="background-color:#00FFFF;color:#161920;padding:2px 8px;border-radius:3px;">■ #00FFFF</span> | `#00FFFF` | 見出し・プログレスバーアクセント |
 
-`"Installed Albums on Device"` 見出し `24pt / Bold`、アルバム名 `14pt / Bold`、アーティスト名 `12pt`、曲数 `10pt`。`"Close"` ボタンは `100×30px`、削除ボタンはアルバム `30×30px`、曲 `24×24px`。
+`"Installed Albums on Device"` 見出し `24pt / Bold`、アルバム名 `14pt / Bold`、アーティスト名 `12pt`、曲数 `10pt`。`"Close"` ボタンは `100×30px`、PC 取り込みボタンおよび削除ボタンはアルバム `30×30px`、曲 `24×24px`、逆転送中止ボタンは高さ `28px`（横パディング `12px`）。
 
 ## 5. 構成要素と共通コントロール
 
 - デバイス走査中（`IsLoading = True`）は `"Scanning device..."` と不定進捗バー（`ProgressBar IsIndeterminate="True"`）を表示する。
-- 走査完了後は `DeviceAlbums`（`DeviceAlbum`）の名称（`Title`）、アーティスト名（`Artist`）、収録曲数（`{Tracks.Count} tracks`）、およびアルバム削除ボタンを表示する（アルバムアート画像は表示しない）。
-- `Expander` 展開時は配下の `DeviceTrack` 一覧（表示名は実ファイル名）と曲単位の削除ボタンを表示する。各アルバム内の楽曲は、PC側ライブラリ情報と一致するトラック番号（未設定を除く）を優先したうえで、ファイル名の自然順（数値昇順・大文字小文字非区別フォールバック）で整列して表示する。
+- 走査完了後は `DeviceAlbums`（`DeviceAlbum`）の名称（`Title`）、アーティスト名（`Artist`）、収録曲数（`{Tracks.Count} tracks`）、PC 取り込みボタン（`⬇` / `ImportAlbumCommand`）、およびアルバム削除ボタン（`🗑`）を表示する（アルバムアート画像は表示しない）。
+- `Expander` 展開時は配下の `DeviceTrack` 一覧（表示名は実ファイル名）と曲単位の PC 取り込みボタン（`⬇` / `ImportTrackCommand`）・削除ボタン（`✖`）を表示する。各アルバム内の楽曲は、PC側ライブラリ情報と一致するトラック番号（未設定を除く）を優先したうえで、ファイル名の自然順（数値昇順・大文字小文字非区別フォールバック）で整列して表示する。
+- 逆転送実行中（`IsImporting = True`）は一覧領域を非活性にして誤操作を防ぎ、下部に詳細進捗パネル（`ProgressBar` 0〜100% `Mode=OneWay`、件数・パーセント `ImportProgressCountText`、処理中ファイル名 `CurrentImportFileName`、フェーズ `ImportPhaseText`、および `✕ 取り込みを中止` / `中止中...` ボタン `CancelImportCommand`）を表示する。
 
 ## 6. アニメーションとインタラクション
 
 - アルバム `Expander` の展開で収録曲一覧を表示する。
+- **アルバム／楽曲の PC 逆転送（インポート）（`ImportAlbumCommand` / `ImportTrackCommand`）**: Windows フォルダ選択ダイアログ（`OpenFolderDialog`、初期フォルダは登録済み PC ライブラリフォルダ優先）で保存先を指定し、リムーバブルドライブまたは MTP デバイスから `<保存先>\<Artist>\<Album>\<FileName>` へ非同期コピー／ダウンロードする。保存先に同名ファイルが存在する場合は重複スキップし、途中キャンセル・例外時は不完全ファイルを削除する。1 曲単位エラーハンドリングにより残り曲を継続し、完了・中止後に `TransferResultDialog`（操作ラベル: `取り込み`）で結果サマリを表示する。保存先が現在の登録済み PC ライブラリフォルダ配下の場合はライブラリ自動再スキャンを実行して PC 側一覧へ反映する。逆転送中にダイアログを閉じようとした場合は確認ダイアログを表示し、終了確定時は安全にキャンセル・リソース解放を行う。
 - **アルバム削除 (`DeleteAlbumCommand`)**: 確認 `MessageBox` を表示した上でデバイス上のアルバムフォルダを削除し、親アーティストフォルダが空になった場合はあわせて削除する。
 - **楽曲削除 (`DeleteTrackCommand`)**: デバイス上の対象楽曲ファイルを削除する。アルバム内の最後の1曲を削除した場合は、確認ダイアログなしで親アルバムフォルダ（および空になったアーティストフォルダ）も自動削除し、`DeviceAlbums` から該当アルバムカードを除去する。
 - **ダイアログ終了時連携**: `"Close"` ボタンでダイアログを閉じた後、呼び出し元の `DeviceBrowserViewModel` が現在フォルダ（既定フォルダ遷移後・機器ルート含む）の再読み込み・重複インデックス（`.m4a`/`.mp3` 等の拡張子変換後ファイル、アルバム代表アーティスト配置・旧曲別アーティスト配置・末尾ピリオド正規化済みフォルダ名を含む）の再構築および接続機器の空き容量情報更新を実行し、転送画面側の曲単位・アルバム単位の `IsOnDevice` グレーアウト状態・ディレクトリ表示・容量表示を最新化する。

@@ -37,13 +37,20 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private readonly Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)> _readDeviceStorageSpace;
     private readonly Func<MainViewModel.DeviceViewModel, IMtpDeviceClient?> _resolveMtpClient;
     private readonly Action<string, string> _showMessage;
+    private readonly Func<TransferConfirmationRequest, bool> _confirmTransfer;
+    private readonly Action<TransferResultSummary> _showTransferResult;
+    private readonly Action<string>? _onLibraryImportCompleted;
     private readonly Dictionary<string, long> _fileSizeCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<Album> _subscribedAlbums = new();
     private readonly HashSet<Track> _subscribedTracks = new();
+    private readonly ExplicitRelayCommand _cancelTransferCommand;
     private Dictionary<string, string>? _defaultFoldersCache;
     private CancellationTokenSource? _checkDeviceAlbumsCts;
     private CancellationTokenSource? _storageRefreshCts;
+    private CancellationTokenSource? _transferCts;
     private bool _suppressSelectionSummaryUpdates;
+    private volatile bool _isDisposed;
+    private volatile bool _suppressTransferResultNotification;
 
     private static readonly HashSet<string> SupportedAudioExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -278,29 +285,108 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
     private double _transferProgress;
     /// <summary>
-    /// ファイル転送の進捗状況（0-100）。
+    /// ファイル転送の進捗状況（0-100）
     /// </summary>
     public double TransferProgress
     {
         get => _transferProgress;
         set
         {
-            _transferProgress = value;
-            OnPropertyChanged();
+            if (SetProperty(ref _transferProgress, value))
+            {
+                OnPropertyChanged(nameof(TransferProgressCountText));
+            }
         }
     }
 
+    private int _transferCurrentCount;
+    /// <summary>
+    /// 現在転送処理中または完了済みの曲数を取得します
+    /// </summary>
+    public int TransferCurrentCount
+    {
+        get => _transferCurrentCount;
+        private set
+        {
+            if (SetProperty(ref _transferCurrentCount, value))
+            {
+                OnPropertyChanged(nameof(TransferProgressCountText));
+            }
+        }
+    }
+
+    private int _transferTotalCount;
+    /// <summary>
+    /// 転送対象の総曲数を取得します
+    /// </summary>
+    public int TransferTotalCount
+    {
+        get => _transferTotalCount;
+        private set
+        {
+            if (SetProperty(ref _transferTotalCount, value))
+            {
+                OnPropertyChanged(nameof(TransferProgressCountText));
+            }
+        }
+    }
+
+    private string _currentTransferFileName = string.Empty;
+    /// <summary>
+    /// 現在転送処理中の楽曲ファイル名を取得します
+    /// </summary>
+    public string CurrentTransferFileName
+    {
+        get => _currentTransferFileName;
+        private set => SetProperty(ref _currentTransferFileName, value);
+    }
+
+    private string _transferPhaseText = string.Empty;
+    /// <summary>
+    /// 現在の転送処理フェーズテキストを取得します
+    /// </summary>
+    public string TransferPhaseText
+    {
+        get => _transferPhaseText;
+        private set => SetProperty(ref _transferPhaseText, value);
+    }
+
+    private bool _isCancelling;
+    /// <summary>
+    /// 転送キャンセル処理中かどうかを取得します（二重押下防止用）
+    /// </summary>
+    public bool IsCancelling
+    {
+        get => _isCancelling;
+        private set
+        {
+            if (SetProperty(ref _isCancelling, value))
+            {
+                InvalidateCommandRequery();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 転送進捗の件数およびパーセント表示文字列を取得します
+    /// </summary>
+    public string TransferProgressCountText => TransferTotalCount > 0
+        ? $"{TransferCurrentCount} / {TransferTotalCount} 曲 ({TransferProgress:0}%)"
+        : $"{TransferProgress:0}%";
+
     private bool _isTransferring;
     /// <summary>
-    /// ファイル転送中かどうか。
+    /// ファイル転送中かどうか
     /// </summary>
     public bool IsTransferring
     {
         get => _isTransferring;
         set
         {
-            _isTransferring = value;
-            OnPropertyChanged();
+            if (SetProperty(ref _isTransferring, value))
+            {
+                InvalidateCommandRequery();
+            }
         }
     }
 
@@ -346,6 +432,11 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// 選択された楽曲を外部デバイスへ転送するコマンドを取得します
     /// </summary>
     public ICommand TransferSelectedCommand { get; }
+
+    /// <summary>
+    /// 実行中の楽曲転送を安全に中止するコマンドを取得します
+    /// </summary>
+    public ICommand CancelTransferCommand { get; }
 
     /// <summary>
     /// 接続中の外部ドライブ一覧を再検出するコマンドを取得します
@@ -404,6 +495,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="settingsService">アプリケーション設定永続化サービス（既定フォルダ記憶・形式変換・LRC同梱設定用）</param>
     /// <param name="audioTranscodeService">転送時の音声フォーマット変換サービス（省略時は変換なしのパススルー動作）</param>
     /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は LRC 同梱無効）</param>
+    /// <param name="onLibraryImportCompleted">機器からの逆転送完了時に PC ライブラリ再反映を要求するコールバック（引数は保存先フォルダパス）</param>
     public DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
@@ -412,7 +504,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)>? readDeviceStorageSpace = null,
         ISettingsService? settingsService = null,
         IAudioTranscodeService? audioTranscodeService = null,
-        ILrcParser? lrcParser = null)
+        ILrcParser? lrcParser = null,
+        Action<string>? onLibraryImportCompleted = null)
         : this(
             albumsRef,
             getAlbums,
@@ -423,7 +516,10 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             audioTranscodeService,
             resolveMtpClient: null,
             showMessage: null,
-            lrcParser: lrcParser)
+            lrcParser: lrcParser,
+            confirmTransfer: null,
+            showTransferResult: null,
+            onLibraryImportCompleted: onLibraryImportCompleted)
     {
     }
 
@@ -440,6 +536,9 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="resolveMtpClient">MTPデバイスクライアント解決関数</param>
     /// <param name="showMessage">ユーザー通知メッセージ表示関数</param>
     /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は LRC 同梱無効）</param>
+    /// <param name="confirmTransfer">転送開始前の確認・警告ダイアログ表示関数（省略時は既定のダイアログを使用）</param>
+    /// <param name="showTransferResult">転送結果サマリダイアログ表示関数（省略時は既定のダイアログまたは showMessage へ委譲）</param>
+    /// <param name="onLibraryImportCompleted">機器からの逆転送完了時に PC ライブラリ再反映を要求するコールバック</param>
     internal DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
@@ -450,7 +549,10 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         IAudioTranscodeService? audioTranscodeService,
         Func<MainViewModel.DeviceViewModel, IMtpDeviceClient?>? resolveMtpClient,
         Action<string, string>? showMessage,
-        ILrcParser? lrcParser = null)
+        ILrcParser? lrcParser = null,
+        Func<TransferConfirmationRequest, bool>? confirmTransfer = null,
+        Action<TransferResultSummary>? showTransferResult = null,
+        Action<string>? onLibraryImportCompleted = null)
     {
         _albumsRef = albumsRef ?? throw new ArgumentNullException(nameof(albumsRef));
         _getAlbums = getAlbums ?? throw new ArgumentNullException(nameof(getAlbums));
@@ -462,6 +564,19 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         _lrcParser = lrcParser;
         _resolveMtpClient = resolveMtpClient ?? DefaultResolveMtpClient;
         _showMessage = showMessage ?? DefaultShowMessage;
+        _confirmTransfer = confirmTransfer ?? DefaultConfirmTransfer;
+        _onLibraryImportCompleted = onLibraryImportCompleted;
+        _showTransferResult = showTransferResult ?? (showMessage != null
+            ? summary =>
+            {
+                bool hasErrors = summary.HasFailedItems || summary.WasAbortedByFatalError;
+                string caption = hasErrors ? "Error" : "Success";
+                string message = hasErrors
+                    ? $"{summary.StatusDescription}\n{string.Join("\n", summary.FailedItems.Select(f => $"{f.TrackTitle}: {f.ErrorReason}"))}"
+                    : summary.StatusDescription;
+                showMessage(message, caption);
+            }
+            : DefaultShowTransferResult);
 
         RemovableDrives.CollectionChanged += OnRemovableDrivesCollectionChanged;
         _albumsRef.CollectionChanged += OnAlbumsCollectionChanged;
@@ -470,6 +585,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
         RefreshDrivesCommand = new RelayCommand(o => RefreshDrives());
         TransferSelectedCommand = new RelayCommand(o => TransferSelected());
+        _cancelTransferCommand = new ExplicitRelayCommand(() => CancelTransfer(), () => IsTransferring && !IsCancelling);
+        CancelTransferCommand = _cancelTransferCommand;
         NavigateDirectoryCommand = new RelayCommand(o => NavigateDirectory(o as MainViewModel.DirectoryItem));
         NavigateUpCommand = new RelayCommand(o => NavigateUp());
         RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
@@ -943,10 +1060,31 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             owners.Add(ownerAlbum);
         }
 
+        void RegisterAlbumModes(string repArtist, string repAlbum, Album ownerAlbum)
+        {
+            foreach (var (replaceWithUnderscore, trimTrailingDots, isCanonical) in DirectorySanitizeModes)
+            {
+                string artistFolder = SanitizeFileNameCore(repArtist, replaceWithUnderscore, trimTrailingDots);
+                string albumFolder = SanitizeFileNameCore(repAlbum, replaceWithUnderscore, trimTrailingDots);
+                if (isCanonical)
+                {
+                    RegisterOwner(canonicalOwnersByDir, artistFolder, albumFolder, ownerAlbum);
+                }
+
+                RegisterOwner(representativeOwnersByDir, artistFolder, albumFolder, ownerAlbum);
+            }
+        }
+
         foreach (var album in albums)
         {
-            if (album.Tracks == null)
+            if (album.Tracks == null || album.Tracks.Count == 0)
             {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(album.Artist) && !string.IsNullOrWhiteSpace(album.Title))
+            {
+                RegisterAlbumModes(album.Artist.Trim(), album.Title.Trim(), album);
                 continue;
             }
 
@@ -954,17 +1092,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             {
                 string repArtist = ResolveAlbumRepresentativeArtist(album, track, fallbackIdentities);
                 string repAlbum = ResolveEffectiveDestinationAlbum(track, album.Title);
-                foreach (var (replaceWithUnderscore, trimTrailingDots, isCanonical) in DirectorySanitizeModes)
-                {
-                    string artistFolder = SanitizeFileNameCore(repArtist, replaceWithUnderscore, trimTrailingDots);
-                    string albumFolder = SanitizeFileNameCore(repAlbum, replaceWithUnderscore, trimTrailingDots);
-                    if (isCanonical)
-                    {
-                        RegisterOwner(canonicalOwnersByDir, artistFolder, albumFolder, album);
-                    }
-
-                    RegisterOwner(representativeOwnersByDir, artistFolder, albumFolder, album);
-                }
+                RegisterAlbumModes(repArtist, repAlbum, album);
             }
         }
 
@@ -1606,6 +1734,9 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// </summary>
     public void Dispose()
     {
+        _isDisposed = true;
+        _suppressTransferResultNotification = true;
+
         var cts = Interlocked.Exchange(ref _checkDeviceAlbumsCts, null);
         if (cts != null)
         {
@@ -1618,6 +1749,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         {
             try { storageCts.Cancel(); } catch (ObjectDisposedException) { }
             storageCts.Dispose();
+        }
+
+        var transferCts = Interlocked.Exchange(ref _transferCts, null);
+        if (transferCts != null)
+        {
+            try { transferCts.Cancel(); } catch (ObjectDisposedException) { }
+            transferCts.Dispose();
         }
 
         RemovableDrives.CollectionChanged -= OnRemovableDrivesCollectionChanged;
@@ -2414,7 +2552,14 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     internal static string SanitizeFileName(string? name)
         => SanitizeFileNameCore(name, replaceInvalidWithUnderscore: true, trimTrailingDots: true);
 
-    private static string SanitizeFileNameCore(string? name, bool replaceInvalidWithUnderscore, bool trimTrailingDots)
+    /// <summary>
+    /// 指定されたサニタイズモード（無効文字の _ 置換または旧除去、末尾ピリオド除去有無）に従ってフォルダ名を正規化します。
+    /// </summary>
+    /// <param name="name">元のアーティスト名またはアルバム名</param>
+    /// <param name="replaceInvalidWithUnderscore">無効文字をアンダースコアへ置換する場合はtrue、旧仕様通り除去する場合はfalse</param>
+    /// <param name="trimTrailingDots">末尾ピリオド・空白を除去する場合はtrue、旧仕様通り保持する場合はfalse</param>
+    /// <returns>正規化後のフォルダ名（有効文字が残らない場合は "Unknown"）</returns>
+    internal static string SanitizeFileNameCore(string? name, bool replaceInvalidWithUnderscore, bool trimTrailingDots)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -2422,22 +2567,33 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
 
         string trimmedInput = name.Trim();
-        string cleaned;
+        const int STACK_ALLOC_THRESHOLD = 256;
+        Span<char> buffer = trimmedInput.Length <= STACK_ALLOC_THRESHOLD
+            ? stackalloc char[trimmedInput.Length]
+            : new char[trimmedInput.Length];
+
+        int writeIndex = 0;
         if (replaceInvalidWithUnderscore)
         {
-            var chars = new char[trimmedInput.Length];
             for (int i = 0; i < trimmedInput.Length; i++)
             {
                 char c = trimmedInput[i];
-                chars[i] = InvalidFileNameChars.Contains(c) ? '_' : c;
+                buffer[writeIndex++] = InvalidFileNameChars.Contains(c) ? '_' : c;
             }
-
-            cleaned = new string(chars).Trim();
         }
         else
         {
-            cleaned = new string(trimmedInput.Where(c => !InvalidFileNameChars.Contains(c)).ToArray()).Trim();
+            for (int i = 0; i < trimmedInput.Length; i++)
+            {
+                char c = trimmedInput[i];
+                if (!InvalidFileNameChars.Contains(c))
+                {
+                    buffer[writeIndex++] = c;
+                }
+            }
         }
+
+        string cleaned = new string(buffer.Slice(0, writeIndex).Trim());
 
         string withoutTrailingDots = TrimTrailingDotsAndWhitespace(cleaned);
         if (string.IsNullOrEmpty(withoutTrailingDots))
@@ -2460,6 +2616,63 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
+    /// 実行中の楽曲転送処理を安全にキャンセル要求します
+    /// </summary>
+    /// <param name="suppressResultDialog">アプリ終了時などキャンセル後の結果サマリ通知および再走査を抑止する場合は true</param>
+    public void CancelTransfer(bool suppressResultDialog = false)
+    {
+        if (suppressResultDialog)
+        {
+            _suppressTransferResultNotification = true;
+        }
+
+        var cts = Volatile.Read(ref _transferCts);
+        if (cts == null || !IsTransferring)
+        {
+            return;
+        }
+
+        if (!IsCancelling)
+        {
+            IsCancelling = true;
+            TransferPhaseText = "キャンセル中...";
+        }
+
+        try
+        {
+            cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private void ApplyTransferProgress(TransferProgressInfo info)
+    {
+        RunOnUiThread(() =>
+        {
+            if (!IsTransferring)
+            {
+                return;
+            }
+
+            TransferCurrentCount = info.CurrentCount;
+            TransferTotalCount = info.TotalCount;
+            TransferProgress = info.Percent;
+            CurrentTransferFileName = info.CurrentFileName;
+            if (!IsCancelling)
+            {
+                TransferPhaseText = info.PhaseText;
+            }
+        });
+    }
+
+    private void InvalidateCommandRequery()
+    {
+        RunOnUiThread(() => _cancelTransferCommand?.RaiseCanExecuteChanged());
+    }
+
+    /// <summary>
     /// 選択されたアルバムまたはトラックを、現在選択されているデバイスへ転送します。
     /// </summary>
     private async void TransferSelected()
@@ -2468,7 +2681,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 選択されたアルバムまたはトラックを現在選択されているデバイスへ転送し、再走査による状態反映完了後に完了通知を行います。
+    /// 選択されたアルバムまたはトラックを現在選択されているデバイスへ転送し、再走査による状態反映完了後に結果サマリ通知を行います。
     /// </summary>
     /// <returns>非同期タスク</returns>
     internal async Task TransferSelectedAsync()
@@ -2512,18 +2725,47 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        var transcodeOptions = GetCurrentTranscodeOptions();
+        var confirmationRequest = BuildTransferConfirmationRequest(tracksToTransfer, transcodeOptions);
+        if (confirmationRequest.NeedsConfirmation && !_confirmTransfer(confirmationRequest))
+        {
+            return;
+        }
+
+        var transferCts = new CancellationTokenSource();
+        var previousTransferCts = Interlocked.Exchange(ref _transferCts, transferCts);
+        if (previousTransferCts != null)
+        {
+            try { previousTransferCts.Cancel(); } catch (ObjectDisposedException) { }
+            previousTransferCts.Dispose();
+        }
+
+        _suppressTransferResultNotification = false;
         IsTransferring = true;
+        IsCancelling = false;
         TransferProgress = 0;
+        TransferCurrentCount = 0;
+        TransferTotalCount = tracksToTransfer.Count;
+        CurrentTransferFileName = string.Empty;
+        TransferPhaseText = "転送を準備中...";
+
+        TransferResultSummary? resultSummary = null;
 
         try
         {
-            var progress = new Progress<double>(p => TransferProgress = p);
-            var transcodeOptions = GetCurrentTranscodeOptions();
+            var detailProgress = new InlineProgress<TransferProgressInfo>(ApplyTransferProgress);
             var lrcTransferOptions = GetCurrentLrcTransferOptions();
 
             if (SelectedDevice.Type == MainViewModel.DeviceType.FileSystem)
             {
-                await TransferTracksToFileSystemAsync(tracksToTransfer, destinationFolder, transcodeOptions, progress, lrcTransferOptions: lrcTransferOptions);
+                resultSummary = await TransferTracksToFileSystemAsync(
+                    tracksToTransfer,
+                    destinationFolder,
+                    transcodeOptions,
+                    progress: null,
+                    lrcTransferOptions: lrcTransferOptions,
+                    detailProgress: detailProgress,
+                    cancellationToken: transferCts.Token);
             }
             else if (SelectedDevice.Type == MainViewModel.DeviceType.MTP)
             {
@@ -2532,17 +2774,51 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                     throw new InvalidOperationException("MTP device is not connected.");
                 }
 
-                await TransferTracksToMtpAsync(mtpClient, tracksToTransfer, destinationFolder, transcodeOptions, progress, lrcTransferOptions: lrcTransferOptions);
+                resultSummary = await TransferTracksToMtpAsync(
+                    mtpClient,
+                    tracksToTransfer,
+                    destinationFolder,
+                    transcodeOptions,
+                    progress: null,
+                    lrcTransferOptions: lrcTransferOptions,
+                    detailProgress: detailProgress,
+                    cancellationToken: transferCts.Token);
             }
 
-            LoadDeviceDirectoriesCore(destinationFolder);
-            _ = RefreshSelectedDeviceStorageAsync();
-            await CheckDeviceAlbumsAsync();
+            if (_isDisposed || _suppressTransferResultNotification)
+            {
+                return;
+            }
 
-            _showMessage("Transfer completed successfully!", "Success");
+            try
+            {
+                LoadDeviceDirectoriesCore(destinationFolder, showErrorMessage: false);
+                _ = RefreshSelectedDeviceStorageAsync();
+                await CheckDeviceAlbumsAsync();
+            }
+            catch (Exception refreshEx)
+            {
+                Logger.Warn(refreshEx, "転送後のデバイス再走査に失敗しました。");
+            }
+
+            if (_isDisposed || _suppressTransferResultNotification)
+            {
+                return;
+            }
+
+            if (resultSummary != null)
+            {
+                _showTransferResult(resultSummary);
+            }
         }
         catch (Exception ex)
         {
+            Logger.Error(ex, "転送処理で予期しないエラーが発生しました。");
+            if (_isDisposed || _suppressTransferResultNotification)
+            {
+                return;
+            }
+
             try
             {
                 LoadDeviceDirectoriesCore(destinationFolder, showErrorMessage: false);
@@ -2554,17 +2830,30 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 // 転送失敗後の再走査エラーは元の失敗通知を優先して握りつぶす
             }
 
-            _showMessage($"Transfer failed: {ex.Message}", "Error");
+            if (!_isDisposed && !_suppressTransferResultNotification)
+            {
+                _showMessage($"Transfer failed: {ex.Message}", "Error");
+            }
         }
         finally
         {
+            if (ReferenceEquals(Interlocked.CompareExchange(ref _transferCts, null, transferCts), transferCts))
+            {
+                transferCts.Dispose();
+            }
+
             IsTransferring = false;
+            IsCancelling = false;
             TransferProgress = 0;
+            TransferCurrentCount = 0;
+            TransferTotalCount = 0;
+            CurrentTransferFileName = string.Empty;
+            TransferPhaseText = string.Empty;
         }
     }
 
     /// <summary>
-    /// MTP デバイスへトラック群を転送します（設定に応じて形式変換・一時ファイル後始末・新規転送トラックへの .lrc 同梱転送を実施。重複スキップ時は .lrc も転送しません）。
+    /// MTP デバイスへトラック群を転送します（設定に応じて形式変換・一時ファイル後始末・新規転送トラックへの .lrc 同梱転送・1 曲単位エラー個別ハンドリング・キャンセル対応を実施。重複スキップ時は .lrc も転送しません）。
     /// </summary>
     /// <param name="mtpClient">接続済みのMTPデバイスクライアント</param>
     /// <param name="tracksToTransfer">転送対象トラック一覧</param>
@@ -2572,15 +2861,17 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="transcodeOptions">音声フォーマット変換オプション</param>
     /// <param name="progress">進捗通知（0〜100）</param>
     /// <param name="lrcTransferOptions">種別別 `.lrc` 歌詞ファイル同梱オプション（省略時は現在の設定から取得）</param>
+    /// <param name="detailProgress">詳細進捗通知（件数・ファイル名・処理フェーズ）</param>
     /// <param name="cancellationToken">キャンセルトークン</param>
-    /// <returns>非同期タスク</returns>
-    internal Task TransferTracksToMtpAsync(
+    /// <returns>転送結果サマリ</returns>
+    internal Task<TransferResultSummary> TransferTracksToMtpAsync(
         IMtpDeviceClient mtpClient,
         IReadOnlyList<Track> tracksToTransfer,
         string destinationFolder,
         AudioTranscodeOptions transcodeOptions,
         IProgress<double>? progress = null,
         LrcTransferOptions? lrcTransferOptions = null,
+        IProgress<TransferProgressInfo>? detailProgress = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(mtpClient);
@@ -2594,75 +2885,165 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         return Task.Run(async () =>
         {
             var directoryFileKeysCache = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            var failedItems = new List<TransferFailedItem>();
             int total = tracksToTransfer.Count;
-            int current = 0;
+            int processed = 0;
+            int successCount = 0;
+            int skippedCount = 0;
+            bool wasCancelled = false;
+            bool wasAbortedByFatalError = false;
+            string? fatalErrorMessage = null;
+
             foreach (var track in tracksToTransfer)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!File.Exists(track.FilePath)) continue;
-
-                var metadata = destinationMetadataByTrack.TryGetValue(track, out var resolvedMeta)
-                    ? resolvedMeta
-                    : new TrackDestinationMetadata(null, ResolveEffectiveDestinationArtist(track, representativeArtist: null), track.Album);
-                var candidateDirs = ResolveEffectiveCandidateDirectories(
-                    track,
-                    metadata.OwnerAlbum,
-                    metadata.RepresentativeArtist,
-                    metadata.RepresentativeAlbum,
-                    primaryDirOwners);
-                var (artist, album) = candidateDirs[0];
-
-                string targetFileName = _audioTranscodeService.ResolveTargetFileName(track.FilePath, transcodeOptions);
-                string expectedFileKey = NormalizeTrackDuplicateKey(track.FilePath);
-
-                string artistDir = Path.Combine(destinationFolder, artist);
-                string targetDir = Path.Combine(artistDir, album);
-                string destPath = Path.Combine(targetDir, targetFileName);
-
-                // 拡張子違い（変換前後）を含め、新配置または旧配置に同一音声ファイルが既に存在する場合はスキップ（.lrc も同梱しない）
-                bool fileExists = CheckMtpTrackAlreadyExists(
-                    mtpClient,
-                    destinationFolder,
-                    candidateDirs,
-                    expectedFileKey,
-                    directoryFileKeysCache);
-
-                if (fileExists)
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    current++;
-                    progress?.Report((double)current / total * 100);
+                    wasCancelled = true;
+                    break;
+                }
+
+                string sourceFileName = Path.GetFileName(track.FilePath ?? string.Empty);
+                string displayTitle = !string.IsNullOrWhiteSpace(track.Title) ? track.Title : sourceFileName;
+                int currentDisplayIndex = processed + 1;
+
+                if (string.IsNullOrWhiteSpace(track.FilePath) || !File.Exists(track.FilePath))
+                {
+                    Logger.Warn($"転送元ファイルが見つからないためスキップします: {track.FilePath}");
+                    failedItems.Add(new TransferFailedItem(displayTitle, sourceFileName, "元の楽曲ファイルが見つかりません。"));
+                    processed++;
+                    double missingPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
+                    progress?.Report(missingPercent);
+                    detailProgress?.Report(new TransferProgressInfo(processed, total, missingPercent, sourceFileName, "エラー（ファイル不在）"));
                     continue;
                 }
 
+                string? destPathForCleanup = null;
                 try
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var metadata = destinationMetadataByTrack.TryGetValue(track, out var resolvedMeta)
+                        ? resolvedMeta
+                        : new TrackDestinationMetadata(null, ResolveEffectiveDestinationArtist(track, representativeArtist: null), track.Album);
+                    var candidateDirs = ResolveEffectiveCandidateDirectories(
+                        track,
+                        metadata.OwnerAlbum,
+                        metadata.RepresentativeArtist,
+                        metadata.RepresentativeAlbum,
+                        primaryDirOwners);
+                    var (artist, album) = candidateDirs[0];
+
+                    string targetFileName = _audioTranscodeService.ResolveTargetFileName(track.FilePath, transcodeOptions);
+                    string expectedFileKey = NormalizeTrackDuplicateKey(track.FilePath);
+
+                    string artistDir = Path.Combine(destinationFolder, artist);
+                    string targetDir = Path.Combine(artistDir, album);
+                    string destPath = Path.Combine(targetDir, targetFileName);
+
+                    // 拡張子違い（変換前後）を含め、新配置または旧配置に同一音声ファイルが既に存在する場合はスキップ（.lrc も同梱しない）
+                    bool fileExists = CheckMtpTrackAlreadyExists(
+                        mtpClient,
+                        destinationFolder,
+                        candidateDirs,
+                        expectedFileKey,
+                        directoryFileKeysCache);
+
+                    if (fileExists)
+                    {
+                        skippedCount++;
+                        processed++;
+                        double skipPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
+                        progress?.Report(skipPercent);
+                        detailProgress?.Report(new TransferProgressInfo(processed, total, skipPercent, targetFileName, "スキップ中..."));
+                        continue;
+                    }
+
                     if (!mtpClient.DirectoryExists(artistDir))
                     {
                         mtpClient.CreateDirectory(artistDir);
                     }
+
                     if (!mtpClient.DirectoryExists(targetDir))
                     {
                         mtpClient.CreateDirectory(targetDir);
                     }
+
+                    double preTrackPercent = total > 0 ? (double)processed / total * 100.0 : 0.0;
+                    if (_audioTranscodeService.NeedsTranscode(track.FilePath, transcodeOptions))
+                    {
+                        string transcodePhase = ResolveTranscodePhaseText(track.FilePath);
+                        detailProgress?.Report(new TransferProgressInfo(currentDisplayIndex, total, preTrackPercent, sourceFileName, transcodePhase));
+                    }
+
+                    using var prepared = await _audioTranscodeService.PrepareForTransferAsync(track.FilePath, transcodeOptions, cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    detailProgress?.Report(new TransferProgressInfo(currentDisplayIndex, total, preTrackPercent, targetFileName, "コピー中..."));
+                    destPathForCleanup = destPath;
+                    mtpClient.UploadFile(prepared.OutputFilePath, destPath);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        TryCleanupIncompleteMtpFile(mtpClient, destPath);
+                        wasCancelled = true;
+                        break;
+                    }
+
+                    destPathForCleanup = null;
+
+                    if (!string.IsNullOrEmpty(expectedFileKey) && directoryFileKeysCache.TryGetValue(targetDir, out var cachedKeys))
+                    {
+                        cachedKeys.Add(expectedFileKey);
+                    }
+
+                    successCount++;
+                    processed++;
+                    double donePercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
+                    progress?.Report(donePercent);
+                    detailProgress?.Report(new TransferProgressInfo(processed, total, donePercent, targetFileName, "コピー中..."));
+
+                    TryTransferCompanionLrcToMtp(mtpClient, track.FilePath, destPath, effectiveLrcOptions, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    if (!string.IsNullOrEmpty(destPathForCleanup))
+                    {
+                        TryCleanupIncompleteMtpFile(mtpClient, destPathForCleanup);
+                    }
+
+                    wasCancelled = true;
+                    break;
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Error creating MTP directory: {ex.Message}");
+                    if (!string.IsNullOrEmpty(destPathForCleanup))
+                    {
+                        TryCleanupIncompleteMtpFile(mtpClient, destPathForCleanup);
+                    }
+
+                    Logger.Error(ex, "MTP デバイスへのトラック転送に失敗しました: {0}", track.FilePath);
+                    failedItems.Add(new TransferFailedItem(displayTitle, sourceFileName, ex.Message));
+                    processed++;
+                    double errPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
+                    progress?.Report(errPercent);
+                    detailProgress?.Report(new TransferProgressInfo(processed, total, errPercent, sourceFileName, "エラー"));
+
+                    if (IsFatalMtpTransferException(mtpClient, ex))
+                    {
+                        wasAbortedByFatalError = true;
+                        fatalErrorMessage = $"MTP デバイスとの通信が切断されたため転送を中断しました: {ex.Message}";
+                        break;
+                    }
                 }
-
-                using var prepared = await _audioTranscodeService.PrepareForTransferAsync(track.FilePath, transcodeOptions, cancellationToken).ConfigureAwait(false);
-                mtpClient.UploadFile(prepared.OutputFilePath, destPath);
-                if (!string.IsNullOrEmpty(expectedFileKey) && directoryFileKeysCache.TryGetValue(targetDir, out var cachedKeys))
-                {
-                    cachedKeys.Add(expectedFileKey);
-                }
-
-                TryTransferCompanionLrcToMtp(mtpClient, track.FilePath, destPath, effectiveLrcOptions, cancellationToken);
-
-                current++;
-                progress?.Report((double)current / total * 100);
             }
-        }, cancellationToken);
+
+            return new TransferResultSummary(
+                successCount: successCount,
+                skippedCount: skippedCount,
+                failedItems: failedItems,
+                wasCancelled: wasCancelled,
+                wasAbortedByFatalError: wasAbortedByFatalError,
+                fatalErrorMessage: fatalErrorMessage);
+        });
     }
 
     private static bool CheckMtpTrackAlreadyExists(
@@ -2899,21 +3280,23 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// ファイルシステムデバイスへトラック群を転送します（設定に応じて形式変換・一時ファイル後始末・新規転送トラックへの .lrc 同梱転送を実施。重複スキップ時は .lrc も転送しません）。
+    /// ファイルシステムデバイスへトラック群を転送します（設定に応じて形式変換・一時ファイル後始末・新規転送トラックへの .lrc 同梱転送・1 曲単位エラー個別ハンドリング・キャンセル対応を実施。重複スキップ時は .lrc も転送しません）。
     /// </summary>
     /// <param name="tracksToTransfer">転送対象トラック一覧</param>
     /// <param name="destinationFolder">転送先ルートフォルダ</param>
     /// <param name="transcodeOptions">音声フォーマット変換オプション</param>
     /// <param name="progress">進捗通知（0〜100）</param>
     /// <param name="lrcTransferOptions">種別別 `.lrc` 歌詞ファイル同梱オプション（省略時は現在の設定から取得）</param>
+    /// <param name="detailProgress">詳細進捗通知（件数・ファイル名・処理フェーズ）</param>
     /// <param name="cancellationToken">キャンセルトークン</param>
-    /// <returns>非同期タスク</returns>
-    internal Task TransferTracksToFileSystemAsync(
+    /// <returns>転送結果サマリ</returns>
+    internal Task<TransferResultSummary> TransferTracksToFileSystemAsync(
         IReadOnlyList<Track> tracksToTransfer,
         string destinationFolder,
         AudioTranscodeOptions transcodeOptions,
         IProgress<double>? progress = null,
         LrcTransferOptions? lrcTransferOptions = null,
+        IProgress<TransferProgressInfo>? detailProgress = null,
         CancellationToken cancellationToken = default)
     {
         var effectiveLrcOptions = lrcTransferOptions ?? GetCurrentLrcTransferOptions();
@@ -2925,55 +3308,254 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         return Task.Run(async () =>
         {
             var directoryFileKeysCache = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            var failedItems = new List<TransferFailedItem>();
             int total = tracksToTransfer.Count;
-            int current = 0;
+            int processed = 0;
+            int successCount = 0;
+            int skippedCount = 0;
+            bool wasCancelled = false;
+            bool wasAbortedByFatalError = false;
+            string? fatalErrorMessage = null;
+
             foreach (var track in tracksToTransfer)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!System.IO.File.Exists(track.FilePath)) continue;
-
-                var metadata = destinationMetadataByTrack.TryGetValue(track, out var resolvedMeta)
-                    ? resolvedMeta
-                    : new TrackDestinationMetadata(null, ResolveEffectiveDestinationArtist(track, representativeArtist: null), track.Album);
-                var candidateDirs = ResolveEffectiveCandidateDirectories(
-                    track,
-                    metadata.OwnerAlbum,
-                    metadata.RepresentativeArtist,
-                    metadata.RepresentativeAlbum,
-                    primaryDirOwners);
-                var (artist, album) = candidateDirs[0];
-                string targetFileName = _audioTranscodeService.ResolveTargetFileName(track.FilePath, transcodeOptions);
-                string expectedFileKey = NormalizeTrackDuplicateKey(track.FilePath);
-
-                string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
-                string destPath = System.IO.Path.Combine(targetDir, targetFileName);
-
-                // 拡張子違い（変換前後）を含め、新配置または旧配置に同一音声ファイルが既に存在する場合はスキップ（#170 / #398 重複判定整合・.lrc も同梱しない）
-                if (CheckFileSystemTrackAlreadyExists(destinationFolder, candidateDirs, expectedFileKey, directoryFileKeysCache))
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    current++;
-                    progress?.Report((double)current / total * 100);
+                    wasCancelled = true;
+                    break;
+                }
+
+                string sourceFileName = Path.GetFileName(track.FilePath ?? string.Empty);
+                string displayTitle = !string.IsNullOrWhiteSpace(track.Title) ? track.Title : sourceFileName;
+                int currentDisplayIndex = processed + 1;
+
+                if (string.IsNullOrWhiteSpace(track.FilePath) || !System.IO.File.Exists(track.FilePath))
+                {
+                    Logger.Warn($"転送元ファイルが見つからないためスキップします: {track.FilePath}");
+                    failedItems.Add(new TransferFailedItem(displayTitle, sourceFileName, "元の楽曲ファイルが見つかりません。"));
+                    processed++;
+                    double missingPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
+                    progress?.Report(missingPercent);
+                    detailProgress?.Report(new TransferProgressInfo(processed, total, missingPercent, sourceFileName, "エラー（ファイル不在）"));
                     continue;
                 }
 
-                if (!System.IO.Directory.Exists(targetDir))
+                try
                 {
-                    System.IO.Directory.CreateDirectory(targetDir);
-                }
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                using var prepared = await _audioTranscodeService.PrepareForTransferAsync(track.FilePath, transcodeOptions, cancellationToken).ConfigureAwait(false);
-                System.IO.File.Copy(prepared.OutputFilePath, destPath, true);
-                if (!string.IsNullOrEmpty(expectedFileKey) && directoryFileKeysCache.TryGetValue(targetDir, out var cachedKeys))
+                    var metadata = destinationMetadataByTrack.TryGetValue(track, out var resolvedMeta)
+                        ? resolvedMeta
+                        : new TrackDestinationMetadata(null, ResolveEffectiveDestinationArtist(track, representativeArtist: null), track.Album);
+                    var candidateDirs = ResolveEffectiveCandidateDirectories(
+                        track,
+                        metadata.OwnerAlbum,
+                        metadata.RepresentativeArtist,
+                        metadata.RepresentativeAlbum,
+                        primaryDirOwners);
+                    var (artist, album) = candidateDirs[0];
+                    string targetFileName = _audioTranscodeService.ResolveTargetFileName(track.FilePath, transcodeOptions);
+                    string expectedFileKey = NormalizeTrackDuplicateKey(track.FilePath);
+
+                    string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
+                    string destPath = System.IO.Path.Combine(targetDir, targetFileName);
+
+                    // 拡張子違い（変換前後）を含め、新配置または旧配置に同一音声ファイルが既に存在する場合はスキップ（#170 / #398 重複判定整合・.lrc も同梱しない）
+                    if (CheckFileSystemTrackAlreadyExists(destinationFolder, candidateDirs, expectedFileKey, directoryFileKeysCache))
+                    {
+                        skippedCount++;
+                        processed++;
+                        double skipPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
+                        progress?.Report(skipPercent);
+                        detailProgress?.Report(new TransferProgressInfo(processed, total, skipPercent, targetFileName, "スキップ中..."));
+                        continue;
+                    }
+
+                    if (!System.IO.Directory.Exists(targetDir))
+                    {
+                        System.IO.Directory.CreateDirectory(targetDir);
+                    }
+
+                    double preTrackPercent = total > 0 ? (double)processed / total * 100.0 : 0.0;
+                    if (_audioTranscodeService.NeedsTranscode(track.FilePath, transcodeOptions))
+                    {
+                        string transcodePhase = ResolveTranscodePhaseText(track.FilePath);
+                        detailProgress?.Report(new TransferProgressInfo(currentDisplayIndex, total, preTrackPercent, sourceFileName, transcodePhase));
+                    }
+
+                    using var prepared = await _audioTranscodeService.PrepareForTransferAsync(track.FilePath, transcodeOptions, cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    detailProgress?.Report(new TransferProgressInfo(currentDisplayIndex, total, preTrackPercent, targetFileName, "コピー中..."));
+                    await CopyFileWithCancellationAsync(prepared.OutputFilePath, destPath, cancellationToken).ConfigureAwait(false);
+
+                    if (!string.IsNullOrEmpty(expectedFileKey) && directoryFileKeysCache.TryGetValue(targetDir, out var cachedKeys))
+                    {
+                        cachedKeys.Add(expectedFileKey);
+                    }
+
+                    successCount++;
+                    processed++;
+                    double donePercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
+                    progress?.Report(donePercent);
+                    detailProgress?.Report(new TransferProgressInfo(processed, total, donePercent, targetFileName, "コピー中..."));
+
+                    TryTransferCompanionLrcToFileSystem(track.FilePath, destPath, effectiveLrcOptions, cancellationToken);
+                }
+                catch (OperationCanceledException)
                 {
-                    cachedKeys.Add(expectedFileKey);
+                    wasCancelled = true;
+                    break;
                 }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "ファイルシステムデバイスへのトラック転送に失敗しました: {0}", track.FilePath);
+                    failedItems.Add(new TransferFailedItem(displayTitle, sourceFileName, ex.Message));
+                    processed++;
+                    double errPercent = total > 0 ? (double)processed / total * 100.0 : 100.0;
+                    progress?.Report(errPercent);
+                    detailProgress?.Report(new TransferProgressInfo(processed, total, errPercent, sourceFileName, "エラー"));
 
-                TryTransferCompanionLrcToFileSystem(track.FilePath, destPath, effectiveLrcOptions, cancellationToken);
-
-                current++;
-                progress?.Report((double)current / total * 100);
+                    if (IsFatalFileSystemTransferException(destinationFolder, ex))
+                    {
+                        wasAbortedByFatalError = true;
+                        fatalErrorMessage = $"転送先ドライブまたはフォルダにアクセスできなくなったため転送を中断しました: {ex.Message}";
+                        break;
+                    }
+                }
             }
-        }, cancellationToken);
+
+            return new TransferResultSummary(
+                successCount: successCount,
+                skippedCount: skippedCount,
+                failedItems: failedItems,
+                wasCancelled: wasCancelled,
+                wasAbortedByFatalError: wasAbortedByFatalError,
+                fatalErrorMessage: fatalErrorMessage);
+        });
+    }
+
+    private static async Task CopyFileWithCancellationAsync(
+        string sourcePath,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        const int COPY_BUFFER_SIZE = 64 * 1024;
+        var buffer = new byte[COPY_BUFFER_SIZE];
+        bool destCreated = false;
+        bool completed = false;
+
+        try
+        {
+            await using var sourceStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, COPY_BUFFER_SIZE, useAsync: true);
+            await using var destStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, COPY_BUFFER_SIZE, useAsync: true);
+            destCreated = true;
+
+            int bytesRead;
+            while ((bytesRead = await sourceStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await destStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+            }
+
+            await destStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            completed = true;
+        }
+        finally
+        {
+            if (!completed && destCreated)
+            {
+                TryDeleteFileQuietly(destinationPath);
+            }
+        }
+    }
+
+    private static void TryDeleteFileQuietly(string filePath)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "不完全な転送ファイルのクリーンアップに失敗しました: {0}", filePath);
+        }
+    }
+
+    private static void TryCleanupIncompleteMtpFile(IMtpDeviceClient mtpClient, string destPath)
+    {
+        try
+        {
+            if (mtpClient.IsConnected && mtpClient.FileExists(destPath))
+            {
+                mtpClient.DeleteFile(destPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "MTP 不完全ファイルのクリーンアップに失敗しました: {0}", destPath);
+        }
+    }
+
+    private static bool IsFatalMtpTransferException(IMtpDeviceClient mtpClient, Exception ex)
+    {
+        return !mtpClient.IsConnected || ex is System.Runtime.InteropServices.COMException;
+    }
+
+    private static bool IsFatalFileSystemTransferException(string destinationFolder, Exception ex)
+    {
+        return ex is DriveNotFoundException || !Directory.Exists(destinationFolder);
+    }
+
+    private static string ResolveTranscodePhaseText(string? sourceFilePath)
+    {
+        string ext = Path.GetExtension(sourceFilePath ?? string.Empty);
+        if (ext.Equals(".flac", StringComparison.OrdinalIgnoreCase))
+        {
+            return "変換中 (FLAC → MP3)...";
+        }
+
+        if (ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase))
+        {
+            return "変換中 (MP4 → M4A)...";
+        }
+
+        return "変換中...";
+    }
+
+    private sealed class InlineProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _handler;
+
+        public InlineProgress(Action<T> handler)
+        {
+            _handler = handler ?? throw new ArgumentNullException(nameof(handler));
+        }
+
+        public void Report(T value) => _handler(value);
+    }
+
+    private sealed class ExplicitRelayCommand : ICommand
+    {
+        private readonly Action _execute;
+        private readonly Func<bool> _canExecute;
+
+        public ExplicitRelayCommand(Action execute, Func<bool> canExecute)
+        {
+            _execute = execute ?? throw new ArgumentNullException(nameof(execute));
+            _canExecute = canExecute ?? throw new ArgumentNullException(nameof(canExecute));
+        }
+
+        public event EventHandler? CanExecuteChanged;
+
+        public bool CanExecute(object? parameter) => _canExecute();
+
+        public void Execute(object? parameter) => _execute();
+
+        public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -3016,10 +3598,59 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
         string basePath = !string.IsNullOrEmpty(CurrentDevicePath) ? CurrentDevicePath : SelectedDevice.RootPath;
         var albums = _getAlbums();
-        var dialogViewModel = new DeviceManagerViewModel(SelectedDevice, basePath, albums.ToList());
+        using var dialogViewModel = new DeviceManagerViewModel(
+            SelectedDevice,
+            basePath,
+            albums.ToList(),
+            settingsService: _settingsService,
+            onLibraryRefreshRequested: _onLibraryImportCompleted,
+            resolveMtpClient: _resolveMtpClient);
         var dialog = new DeviceManagerDialog(dialogViewModel);
+        var mainWindow = System.Windows.Application.Current?.MainWindow;
+        if (mainWindow != null && mainWindow.IsVisible)
+        {
+            dialog.Owner = mainWindow;
+        }
+
         dialog.ShowDialog();
 
+        // 逆転送中に「中止して閉じる」を実行した直後は、バックグラウンドの MTP DownloadFile 等が
+        // 完了・後始末を終えるまで待ってから同一デバイスへの再走査・空き容量更新を行う（UI スレッドは非ブロック）
+        Task? pendingImportTask = dialogViewModel.ActiveImportTask;
+        if (pendingImportTask != null && !pendingImportTask.IsCompleted)
+        {
+            _ = RefreshAfterDeviceManagerClosedAsync(pendingImportTask);
+        }
+        else
+        {
+            RefreshAfterDeviceManagerClosedCore();
+        }
+    }
+
+    private async Task RefreshAfterDeviceManagerClosedAsync(Task pendingImportTask)
+    {
+        try
+        {
+            await pendingImportTask.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "デバイス管理ダイアログ閉鎖後の逆転送完了待機中に例外が発生しました。");
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.HasShutdownStarted && !dispatcher.HasShutdownFinished)
+        {
+            await dispatcher.InvokeAsync(RefreshAfterDeviceManagerClosedCore);
+        }
+        else if (dispatcher == null)
+        {
+            RefreshAfterDeviceManagerClosedCore();
+        }
+    }
+
+    private void RefreshAfterDeviceManagerClosedCore()
+    {
         // デバイス管理ダイアログを閉じた後、ディレクトリ表示・重複状態・空き容量を最新化する
         if (!string.IsNullOrEmpty(CurrentDevicePath))
         {
@@ -3033,8 +3664,118 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         _ = RefreshSelectedDeviceStorageAsync();
     }
 
-    private static MediaDeviceClientAdapter? DefaultResolveMtpClient(MainViewModel.DeviceViewModel device)
+    /// <summary>
+    /// 選択中デバイスから既定の MTP クライアントアダプターを解決します
+    /// </summary>
+    /// <param name="device">対象デバイス情報</param>
+    /// <returns>MTP クライアント（非 MTP デバイス時は null）</returns>
+    internal static IMtpDeviceClient? DefaultResolveMtpClient(MainViewModel.DeviceViewModel device)
         => device.MtpDevice != null ? new MediaDeviceClientAdapter(device.MtpDevice) : null;
+
+    /// <summary>
+    /// 転送対象トラック群・変換設定・接続機器の空き容量情報から、転送前確認・警告ダイアログ用の事前チェック結果を構築します。
+    /// </summary>
+    /// <param name="tracksToTransfer">転送対象の未転送トラック一覧</param>
+    /// <param name="transcodeOptions">適用される音声フォーマット変換オプション</param>
+    /// <returns>事前チェック結果</returns>
+    internal TransferConfirmationRequest BuildTransferConfirmationRequest(
+        IReadOnlyList<Track> tracksToTransfer,
+        AudioTranscodeOptions transcodeOptions)
+    {
+        ArgumentNullException.ThrowIfNull(tracksToTransfer);
+        ArgumentNullException.ThrowIfNull(transcodeOptions);
+
+        long requiredBytes = 0L;
+        int mp4ToM4aCount = 0;
+        int flacToMp3Count = 0;
+        int copyOnlyCount = 0;
+
+        foreach (var track in tracksToTransfer)
+        {
+            string filePath = track.FilePath ?? string.Empty;
+            requiredBytes += GetCachedFileSizeBytes(filePath);
+
+            string ext = Path.GetExtension(filePath);
+            if (transcodeOptions.ConvertMp4ToM4a && ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase))
+            {
+                mp4ToM4aCount++;
+            }
+            else if (transcodeOptions.ConvertFlacToMp3 && ext.Equals(".flac", StringComparison.OrdinalIgnoreCase))
+            {
+                flacToMp3Count++;
+            }
+            else
+            {
+                copyOnlyCount++;
+            }
+        }
+
+        bool hasStorageInfo = SelectedDevice?.HasStorageInfo == true;
+        long freeSpaceBytes = hasStorageInfo ? SelectedDevice!.FreeSpaceBytes : 0L;
+
+        return new TransferConfirmationRequest(
+            totalTrackCount: tracksToTransfer.Count,
+            requiredBytes: requiredBytes,
+            hasStorageInfo: hasStorageInfo,
+            freeSpaceBytes: freeSpaceBytes,
+            mp4ToM4aCount: mp4ToM4aCount,
+            flacToMp3Count: flacToMp3Count,
+            copyOnlyCount: copyOnlyCount);
+    }
+
+    private static bool DefaultConfirmTransfer(TransferConfirmationRequest request)
+    {
+        bool confirmed = false;
+        RunOnUiThread(() =>
+        {
+            var dialog = new TransferConfirmationDialog(request);
+            var mainWindow = System.Windows.Application.Current?.MainWindow;
+            if (mainWindow != null && mainWindow.IsVisible)
+            {
+                dialog.Owner = mainWindow;
+            }
+
+            dialog.ShowDialog();
+            confirmed = dialog.IsConfirmed;
+        });
+
+        return confirmed;
+    }
+
+    private static void DefaultShowTransferResult(TransferResultSummary summary)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        void ShowDialogCore()
+        {
+            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+
+            var dialog = new TransferResultDialog(summary);
+            var mainWindow = System.Windows.Application.Current?.MainWindow;
+            if (mainWindow != null && mainWindow.IsVisible)
+            {
+                dialog.Owner = mainWindow;
+            }
+
+            dialog.ShowDialog();
+        }
+
+        if (dispatcher.CheckAccess())
+        {
+            ShowDialogCore();
+        }
+        else
+        {
+            dispatcher.Invoke(ShowDialogCore);
+        }
+    }
 
     private static void DefaultShowMessage(string message, string caption)
     {
@@ -3114,6 +3855,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         /// <param name="sourceFilePath">転送元ローカルファイルパス</param>
         /// <param name="destinationFilePath">転送先デバイスファイルパス</param>
         void UploadFile(string sourceFilePath, string destinationFilePath);
+
+        /// <summary>
+        /// デバイス上の指定ファイルを出力ストリームへダウンロードします
+        /// </summary>
+        /// <param name="sourceFilePath">デバイス上の転送元ファイルパス</param>
+        /// <param name="outputStream">書き込み先のローカルストリーム</param>
+        void DownloadFile(string sourceFilePath, Stream outputStream);
     }
 
     private sealed class MediaDeviceClientAdapter : IMtpDeviceClient
@@ -3144,6 +3892,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         public void DeleteFile(string path) => _device.DeleteFile(path);
 
         public void UploadFile(string sourceFilePath, string destinationFilePath) => _device.UploadFile(sourceFilePath, destinationFilePath);
+
+        public void DownloadFile(string sourceFilePath, Stream outputStream) => _device.DownloadFile(sourceFilePath, outputStream);
     }
 
     private sealed class PassthroughAudioTranscodeService : IAudioTranscodeService
