@@ -1,5 +1,6 @@
 ﻿using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
+using AudioEffector.Domain.Services;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AudioEffector.Application;
@@ -28,6 +29,8 @@ public static class DependencyInjection
         services.AddSingleton<SettingsApplicationService>();
         services.AddSingleton<ISettingsService>(sp => sp.GetRequiredService<SettingsApplicationService>());
         services.AddSingleton<LyricsApplicationService>();
+        services.AddSingleton<LyricsForcedAligner>();
+        services.AddSingleton<LrcGenerationApplicationService>();
 
         return services;
     }
