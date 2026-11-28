@@ -29,7 +29,7 @@
     dotnet test のタイムアウト秒数 (既定: 180)
 
 .PARAMETER BuildTimeoutSeconds
-    dotnet build のタイムアウト秒数 (既定: 120)
+    dotnet build のタイムアウト秒数 (既定: 180)
 
 .PARAMETER PythonTestTimeoutSeconds
     Python ツール単体テスト (Gate 5) のタイムアウト秒数 (既定: 240)
@@ -74,7 +74,7 @@ param(
     [switch]$FetchBase,
     [string]$TestFilter = "",
     [int]$TestTimeoutSeconds = 180,
-    [int]$BuildTimeoutSeconds = 120,
+    [int]$BuildTimeoutSeconds = 180,
     [int]$PythonTestTimeoutSeconds = 240,
     [int]$BuildLockTimeoutSeconds = 300,
     [switch]$NoBuildLock,
@@ -172,29 +172,155 @@ function Invoke-ExternalCommand {
         }
 
         if (-not $startFailed) {
-            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-            $stderrTask = $proc.StandardError.ReadToEndAsync()
+            $stdoutBuilder = New-Object System.Text.StringBuilder
+            $stderrBuilder = New-Object System.Text.StringBuilder
+            $stdoutBuf = New-Object char[] 8192
+            $stderrBuf = New-Object char[] 8192
+            $stdoutTask = $proc.StandardOutput.ReadAsync($stdoutBuf, 0, $stdoutBuf.Length)
+            $stderrTask = $proc.StandardError.ReadAsync($stderrBuf, 0, $stderrBuf.Length)
+            $stdoutDone = $false
+            $stderrDone = $false
 
-            $exited = $proc.WaitForExit($TimeoutSeconds * 1000)
-            if (-not $exited) {
-                $timedOut = $true
-                Stop-ProcessTree -ProcessId $proc.Id
-                try { $proc.WaitForExit(5000) | Out-Null } catch {}
+            $timeoutMs = [Math]::Max(1L, [long]([Math]::Min([double]$TimeoutSeconds * 1000.0, [double][int]::MaxValue)))
+
+            # タイムアウト強制終了直前までの標準出力・標準エラーを取りこぼさないよう、
+            # 実行中も非同期チャンク読み取りで逐次バッファへ回収する
+            while ($true) {
+                if (-not $stdoutDone -and $null -ne $stdoutTask -and $stdoutTask.IsCompleted) {
+                    if ($stdoutTask.IsFaulted -or $stdoutTask.IsCanceled) {
+                        $stdoutDone = $true
+                        $stdoutTask = $null
+                    }
+                    else {
+                        $readCount = $stdoutTask.Result
+                        if ($readCount -gt 0) {
+                            [void]$stdoutBuilder.Append($stdoutBuf, 0, $readCount)
+                            $stdoutTask = $proc.StandardOutput.ReadAsync($stdoutBuf, 0, $stdoutBuf.Length)
+                        }
+                        else {
+                            $stdoutDone = $true
+                            $stdoutTask = $null
+                        }
+                    }
+                }
+
+                if (-not $stderrDone -and $null -ne $stderrTask -and $stderrTask.IsCompleted) {
+                    if ($stderrTask.IsFaulted -or $stderrTask.IsCanceled) {
+                        $stderrDone = $true
+                        $stderrTask = $null
+                    }
+                    else {
+                        $readCount = $stderrTask.Result
+                        if ($readCount -gt 0) {
+                            [void]$stderrBuilder.Append($stderrBuf, 0, $readCount)
+                            $stderrTask = $proc.StandardError.ReadAsync($stderrBuf, 0, $stderrBuf.Length)
+                        }
+                        else {
+                            $stderrDone = $true
+                            $stderrTask = $null
+                        }
+                    }
+                }
+
+                if ($proc.HasExited) {
+                    break
+                }
+
+                $remainingMs = $timeoutMs - $sw.ElapsedMilliseconds
+                if ($remainingMs -le 0) {
+                    $timedOut = $true
+                    Stop-ProcessTree -ProcessId $proc.Id
+                    try { $proc.WaitForExit(5000) | Out-Null } catch {}
+                    break
+                }
+
+                $sliceMs = [int][Math]::Max(1L, [Math]::Min(50L, $remainingMs))
+                $waitList = New-Object System.Collections.Generic.List[System.Threading.Tasks.Task]
+                if (-not $stdoutDone -and $null -ne $stdoutTask) { $waitList.Add($stdoutTask) }
+                if (-not $stderrDone -and $null -ne $stderrTask) { $waitList.Add($stderrTask) }
+
+                if ($waitList.Count -gt 0) {
+                    [void][System.Threading.Tasks.Task]::WaitAny($waitList.ToArray(), $sliceMs)
+                }
+                else {
+                    try { $proc.WaitForExit($sliceMs) | Out-Null } catch {}
+                }
             }
-            else {
-                # リダイレクトストリームのフラッシュ完了を保証
+
+            # プロセス終了・強制終了直後にパイプへ残存している出力を最大 3 秒まで回収する
+            $drainSw = [System.Diagnostics.Stopwatch]::StartNew()
+            while ((-not $stdoutDone) -or (-not $stderrDone)) {
+                $progressed = $false
+
+                if (-not $stdoutDone -and $null -ne $stdoutTask -and $stdoutTask.IsCompleted) {
+                    $progressed = $true
+                    if ($stdoutTask.IsFaulted -or $stdoutTask.IsCanceled) {
+                        $stdoutDone = $true
+                        $stdoutTask = $null
+                    }
+                    else {
+                        $readCount = $stdoutTask.Result
+                        if ($readCount -gt 0) {
+                            [void]$stdoutBuilder.Append($stdoutBuf, 0, $readCount)
+                            $stdoutTask = $proc.StandardOutput.ReadAsync($stdoutBuf, 0, $stdoutBuf.Length)
+                        }
+                        else {
+                            $stdoutDone = $true
+                            $stdoutTask = $null
+                        }
+                    }
+                }
+
+                if (-not $stderrDone -and $null -ne $stderrTask -and $stderrTask.IsCompleted) {
+                    $progressed = $true
+                    if ($stderrTask.IsFaulted -or $stderrTask.IsCanceled) {
+                        $stderrDone = $true
+                        $stderrTask = $null
+                    }
+                    else {
+                        $readCount = $stderrTask.Result
+                        if ($readCount -gt 0) {
+                            [void]$stderrBuilder.Append($stderrBuf, 0, $readCount)
+                            $stderrTask = $proc.StandardError.ReadAsync($stderrBuf, 0, $stderrBuf.Length)
+                        }
+                        else {
+                            $stderrDone = $true
+                            $stderrTask = $null
+                        }
+                    }
+                }
+
+                if ($stdoutDone -and $stderrDone) {
+                    break
+                }
+
+                if (-not $progressed) {
+                    $drainRemaining = 3000L - $drainSw.ElapsedMilliseconds
+                    if ($drainRemaining -le 0) {
+                        break
+                    }
+                    $drainSlice = [int][Math]::Max(1L, [Math]::Min(50L, $drainRemaining))
+                    $drainList = New-Object System.Collections.Generic.List[System.Threading.Tasks.Task]
+                    if (-not $stdoutDone -and $null -ne $stdoutTask) { $drainList.Add($stdoutTask) }
+                    if (-not $stderrDone -and $null -ne $stderrTask) { $drainList.Add($stderrTask) }
+                    if ($drainList.Count -gt 0) {
+                        [void][System.Threading.Tasks.Task]::WaitAny($drainList.ToArray(), $drainSlice)
+                    }
+                    else {
+                        break
+                    }
+                }
+            }
+            $drainSw.Stop()
+
+            if (-not $timedOut) {
+                # プロセス完全終了と終了コード取得を保証
                 $proc.WaitForExit()
                 $exitCode = $proc.ExitCode
             }
 
-            try {
-                if ($stdoutTask.Wait(3000)) { $stdoutText = $stdoutTask.Result }
-            }
-            catch {}
-            try {
-                if ($stderrTask.Wait(3000)) { $stderrText = $stderrTask.Result }
-            }
-            catch {}
+            $stdoutText = $stdoutBuilder.ToString()
+            $stderrText = $stderrBuilder.ToString()
         }
     }
     finally {
@@ -949,6 +1075,16 @@ try {
         $preflightErrors.Add("-Full（最終ゲート）と -TestFilter の併用は禁止されています。最終ゲートでは全テストを実行してください。")
     }
 
+    if ($BuildTimeoutSeconds -le 0) {
+        $preflightOk = $false
+        $preflightErrors.Add("-BuildTimeoutSeconds には 1 以上の整数を指定してください (指定値: $BuildTimeoutSeconds)。")
+    }
+
+    if ($TestTimeoutSeconds -le 0) {
+        $preflightOk = $false
+        $preflightErrors.Add("-TestTimeoutSeconds には 1 以上の整数を指定してください (指定値: $TestTimeoutSeconds)。")
+    }
+
     if ($BuildLockTimeoutSeconds -le 0) {
         $preflightOk = $false
         $preflightErrors.Add("-BuildLockTimeoutSeconds には 1 以上の整数を指定してください (指定値: $BuildLockTimeoutSeconds)。")
@@ -1059,9 +1195,11 @@ try {
     }
     elseif ($buildExec.TimedOut) {
         $overallPassed = $false
-        $msg = "ビルドがタイムアウトしました (${BuildTimeoutSeconds}秒超過)。"
+        $msg = "ビルドがタイムアウトしました (${BuildTimeoutSeconds}秒超過)。プロセスツリーを強制終了しました。"
         Write-Host "  [FAIL] $msg" -ForegroundColor Red
-        $gateResults.Add((New-GateResult -Name "build" -Status "FAILED" -DurationSeconds $buildExec.DurationSeconds -WarningCount $warningCount -ErrorCount 1 -Summary $msg))
+        $tailLines = @($buildLines | Where-Object { $_.Trim() -ne "" } | Select-Object -Last 15)
+        foreach ($d in $tailLines) { Write-Host "    $d" -ForegroundColor Red }
+        $gateResults.Add((New-GateResult -Name "build" -Status "FAILED" -DurationSeconds $buildExec.DurationSeconds -WarningCount $warningCount -ErrorCount 1 -Summary $msg -Details $tailLines))
     }
     elseif ($buildExec.ExitCode -ne 0 -or $errorCount -gt 0) {
         $overallPassed = $false
