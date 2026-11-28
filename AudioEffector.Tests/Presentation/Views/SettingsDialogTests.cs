@@ -477,4 +477,88 @@ public sealed class SettingsDialogTests
             }
         });
     }
+
+    /// <summary>
+    /// データ管理・その他カテゴリにログレベル選択・ログ保存先パス表示・参照/リセット/フォルダを開くボタンが配置され、
+    /// 実 WPF ウィンドウ上でカスタム変更・リセット時の ResetLogDirectoryButton.IsEnabled 遷移およびバインディングエラー 0 件であることを検証します。
+    /// </summary>
+    [Fact]
+    public void データ管理その他カテゴリ_ログ出力設定操作時_双方向反映とリセットボタン活性遷移が正常でバインディングエラーがないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var listener = new BindingErrorTraceListener();
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+            var audioServiceMock = new Mock<IAudioService>();
+            var vm = new SettingsViewModel(
+                settingsServiceMock.Object,
+                audioServiceMock.Object,
+                dataDirectoryProvider: null,
+                dataDirectoryMigrationService: null,
+                folderPicker: _ => @"D:\CustomLogFolder",
+                migrationPrompt: null,
+                messageNotifier: (_, _, _) => { },
+                logConfigurationManager: null,
+                folderOpener: _ => { });
+            vm.SelectedCategory = "データ管理・その他";
+
+            var sut = new SettingsDialog(vm)
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -10000,
+                Top = -10000,
+                ShowActivated = false,
+                ShowInTaskbar = false,
+            };
+
+            try
+            {
+                sut.Show();
+                sut.UpdateLayout();
+
+                var levelComboBox = Assert.IsType<ComboBox>(sut.FindName("LogLevelComboBox"));
+                var logPathTextBox = Assert.IsType<TextBox>(sut.FindName("LogDirectoryPathTextBox"));
+                var browseLogButton = Assert.IsType<Button>(sut.FindName("BrowseLogDirectoryButton"));
+                var resetLogButton = Assert.IsType<Button>(sut.FindName("ResetLogDirectoryButton"));
+                var openLogButton = Assert.IsType<Button>(sut.FindName("OpenLogFolderButton"));
+
+                Assert.Equal("Info", levelComboBox.SelectedItem);
+                Assert.True(logPathTextBox.IsReadOnly);
+                Assert.Same(vm.BrowseLogDirectoryCommand, browseLogButton.Command);
+                Assert.Same(vm.ResetLogDirectoryCommand, resetLogButton.Command);
+                Assert.Same(vm.OpenLogFolderCommand, openLogButton.Command);
+                Assert.False(resetLogButton.IsEnabled);
+
+                // Act 1: ログレベル変更 + カスタムログ保存先変更
+                levelComboBox.SelectedItem = "Debug";
+                vm.BrowseLogDirectoryCommand.Execute(null);
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                    System.Windows.Threading.DispatcherPriority.Background,
+                    new Action(() => { }));
+                sut.UpdateLayout();
+
+                // Assert 1
+                Assert.Equal("Debug", vm.SelectedLogLevel);
+                Assert.Equal(@"D:\CustomLogFolder", logPathTextBox.Text);
+                Assert.True(resetLogButton.IsEnabled);
+
+                // Act 2: ログ保存先リセット
+                vm.ResetLogDirectoryCommand.Execute(null);
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                    System.Windows.Threading.DispatcherPriority.Background,
+                    new Action(() => { }));
+                sut.UpdateLayout();
+
+                // Assert 2
+                Assert.False(resetLogButton.IsEnabled);
+                Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+            }
+            finally
+            {
+                sut.Close();
+            }
+        });
+    }
 }
