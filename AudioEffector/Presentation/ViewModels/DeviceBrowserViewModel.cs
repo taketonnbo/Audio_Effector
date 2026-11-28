@@ -2,8 +2,10 @@ using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
+using AudioEffector.Infrastructure.Lyrics;
 using AudioEffector.Presentation.Views;
 using MediaDevices;
+using NLog;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -25,10 +27,13 @@ namespace AudioEffector.Presentation.ViewModels;
 /// </summary>
 public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 {
+    private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+
     private readonly Func<IReadOnlyList<Album>> _getAlbums;
     private readonly Action _onCheckDeviceAlbumsRequested;
     private readonly ISettingsService? _settingsService;
     private readonly IAudioTranscodeService _audioTranscodeService;
+    private readonly ILrcParser _lrcParser;
     private readonly Func<string, long> _getFileSizeBytes;
     private readonly Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)> _readDeviceStorageSpace;
     private readonly Func<MainViewModel.DeviceViewModel, IMtpDeviceClient?> _resolveMtpClient;
@@ -397,8 +402,9 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="onCheckDeviceAlbumsRequested">デバイスアルバムチェック要求コールバック</param>
     /// <param name="getFileSizeBytes">トラックのファイルサイズ取得関数（テスト差し替え用、省略時はFileInfoを使用）</param>
     /// <param name="readDeviceStorageSpace">接続機器の容量取得関数（テスト差し替え用、省略時は実ストレージ読取を使用）</param>
-    /// <param name="settingsService">アプリケーション設定永続化サービス（既定フォルダ記憶・形式変換設定用）</param>
+    /// <param name="settingsService">アプリケーション設定永続化サービス（既定フォルダ記憶・形式変換・LRC同梱設定用）</param>
     /// <param name="audioTranscodeService">転送時の音声フォーマット変換サービス（省略時は変換なしのパススルー動作）</param>
+    /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は標準 <see cref="LrcParser"/> を使用）</param>
     public DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
@@ -406,7 +412,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         Func<string, long>? getFileSizeBytes = null,
         Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)>? readDeviceStorageSpace = null,
         ISettingsService? settingsService = null,
-        IAudioTranscodeService? audioTranscodeService = null)
+        IAudioTranscodeService? audioTranscodeService = null,
+        ILrcParser? lrcParser = null)
         : this(
             albumsRef,
             getAlbums,
@@ -416,7 +423,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             settingsService,
             audioTranscodeService,
             resolveMtpClient: null,
-            showMessage: null)
+            showMessage: null,
+            lrcParser: lrcParser)
     {
     }
 
@@ -432,6 +440,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="audioTranscodeService">転送時の音声フォーマット変換サービス</param>
     /// <param name="resolveMtpClient">MTPデバイスクライアント解決関数</param>
     /// <param name="showMessage">ユーザー通知メッセージ表示関数</param>
+    /// <param name="lrcParser">`.lrc` 生成元種別判別に使用するパーサー（省略時は標準 <see cref="LrcParser"/> を使用）</param>
     internal DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
@@ -441,7 +450,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         ISettingsService? settingsService,
         IAudioTranscodeService? audioTranscodeService,
         Func<MainViewModel.DeviceViewModel, IMtpDeviceClient?>? resolveMtpClient,
-        Action<string, string>? showMessage)
+        Action<string, string>? showMessage,
+        ILrcParser? lrcParser = null)
     {
         _albumsRef = albumsRef ?? throw new ArgumentNullException(nameof(albumsRef));
         _getAlbums = getAlbums ?? throw new ArgumentNullException(nameof(getAlbums));
@@ -450,6 +460,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         _readDeviceStorageSpace = readDeviceStorageSpace ?? ReadDeviceStorageSpace;
         _settingsService = settingsService;
         _audioTranscodeService = audioTranscodeService ?? PassthroughAudioTranscodeService.Instance;
+        _lrcParser = lrcParser ?? new LrcParser();
         _resolveMtpClient = resolveMtpClient ?? DefaultResolveMtpClient;
         _showMessage = showMessage ?? DefaultShowMessage;
 
@@ -2509,10 +2520,11 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         {
             var progress = new Progress<double>(p => TransferProgress = p);
             var transcodeOptions = GetCurrentTranscodeOptions();
+            var lrcTransferOptions = GetCurrentLrcTransferOptions();
 
             if (SelectedDevice.Type == MainViewModel.DeviceType.FileSystem)
             {
-                await TransferTracksToFileSystemAsync(tracksToTransfer, destinationFolder, transcodeOptions, progress);
+                await TransferTracksToFileSystemAsync(tracksToTransfer, destinationFolder, transcodeOptions, progress, lrcTransferOptions: lrcTransferOptions);
             }
             else if (SelectedDevice.Type == MainViewModel.DeviceType.MTP)
             {
@@ -2521,7 +2533,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                     throw new InvalidOperationException("MTP device is not connected.");
                 }
 
-                await TransferTracksToMtpAsync(mtpClient, tracksToTransfer, destinationFolder, transcodeOptions, progress);
+                await TransferTracksToMtpAsync(mtpClient, tracksToTransfer, destinationFolder, transcodeOptions, progress, lrcTransferOptions: lrcTransferOptions);
             }
 
             LoadDeviceDirectoriesCore(destinationFolder);
@@ -2553,13 +2565,14 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// MTP デバイスへトラック群を転送します（設定に応じて形式変換および一時ファイル後始末を実施）。
+    /// MTP デバイスへトラック群を転送します（設定に応じて形式変換・一時ファイル後始末・新規転送トラックへの .lrc 同梱転送を実施。重複スキップ時は .lrc も転送しません）。
     /// </summary>
     /// <param name="mtpClient">接続済みのMTPデバイスクライアント</param>
     /// <param name="tracksToTransfer">転送対象トラック一覧</param>
     /// <param name="destinationFolder">転送先フォルダパス</param>
     /// <param name="transcodeOptions">音声フォーマット変換オプション</param>
     /// <param name="progress">進捗通知（0〜100）</param>
+    /// <param name="lrcTransferOptions">種別別 `.lrc` 歌詞ファイル同梱オプション（省略時は現在の設定から取得）</param>
     /// <param name="cancellationToken">キャンセルトークン</param>
     /// <returns>非同期タスク</returns>
     internal Task TransferTracksToMtpAsync(
@@ -2568,10 +2581,12 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         string destinationFolder,
         AudioTranscodeOptions transcodeOptions,
         IProgress<double>? progress = null,
+        LrcTransferOptions? lrcTransferOptions = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(mtpClient);
 
+        var effectiveLrcOptions = lrcTransferOptions ?? GetCurrentLrcTransferOptions();
         var albumsSnapshot = _getAlbums();
         var fallbackIdentities = BuildFallbackAlbumIdentitiesIfNeeded(albumsSnapshot);
         var primaryDirOwners = BuildPrimaryDirectoryOwnerMap(albumsSnapshot, fallbackIdentities);
@@ -2605,7 +2620,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 string targetDir = Path.Combine(artistDir, album);
                 string destPath = Path.Combine(targetDir, targetFileName);
 
-                // 拡張子違い（変換前後）を含め、新配置または旧配置に同一音声ファイルが既に存在する場合はスキップ
+                // 拡張子違い（変換前後）を含め、新配置または旧配置に同一音声ファイルが既に存在する場合はスキップ（.lrc も同梱しない）
                 bool fileExists = CheckMtpTrackAlreadyExists(
                     mtpClient,
                     destinationFolder,
@@ -2642,6 +2657,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 {
                     cachedKeys.Add(expectedFileKey);
                 }
+
+                TryTransferCompanionLrcToMtp(mtpClient, track.FilePath, destPath, effectiveLrcOptions, cancellationToken);
 
                 current++;
                 progress?.Report((double)current / total * 100);
@@ -2786,12 +2803,105 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// ファイルシステムデバイスへトラック群を転送します（設定に応じて形式変換および一時ファイル後始末を実施）。
+    /// 現在の設定から `.lrc` 歌詞ファイル同梱転送オプションを取得します。
+    /// </summary>
+    /// <returns>種別別 `.lrc` 同梱転送オプション</returns>
+    internal LrcTransferOptions GetCurrentLrcTransferOptions()
+    {
+        if (_settingsService == null)
+        {
+            return new LrcTransferOptions();
+        }
+
+        try
+        {
+            var settings = _settingsService.LoadSettings();
+            return LrcTransferOptions.FromSettings(settings);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "LRC 同梱転送設定の読み込みに失敗したため、既定値（すべて無効）を使用します。");
+            return new LrcTransferOptions();
+        }
+    }
+
+    private void TryTransferCompanionLrcToMtp(
+        IMtpDeviceClient mtpClient,
+        string sourceAudioFilePath,
+        string destinationAudioPath,
+        LrcTransferOptions lrcTransferOptions,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CompanionLrcResolver.TryResolveCompanionLrcPath(
+            sourceAudioFilePath,
+            lrcTransferOptions,
+            _lrcParser,
+            out string lrcSourcePath,
+            onWarning: (msg, ex) => Logger.Warn(ex, msg)))
+        {
+            return;
+        }
+
+        string lrcDestPath = Path.ChangeExtension(destinationAudioPath, ".lrc");
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            mtpClient.UploadFile(lrcSourcePath, lrcDestPath);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // 同梱 .lrc の転送失敗は音声ファイル本体の転送成功・後続トラックの転送を妨げない
+            Logger.Warn(ex, "MTP デバイスへの同梱 LRC 転送に失敗しました: {0} -> {1}", lrcSourcePath, lrcDestPath);
+        }
+    }
+
+    private void TryTransferCompanionLrcToFileSystem(
+        string sourceAudioFilePath,
+        string destinationAudioPath,
+        LrcTransferOptions lrcTransferOptions,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CompanionLrcResolver.TryResolveCompanionLrcPath(
+            sourceAudioFilePath,
+            lrcTransferOptions,
+            _lrcParser,
+            out string lrcSourcePath,
+            onWarning: (msg, ex) => Logger.Warn(ex, msg)))
+        {
+            return;
+        }
+
+        string lrcDestPath = Path.ChangeExtension(destinationAudioPath, ".lrc");
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Copy(lrcSourcePath, lrcDestPath, overwrite: true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // 同梱 .lrc の転送失敗は音声ファイル本体の転送成功・後続トラックの転送を妨げない
+            Logger.Warn(ex, "ファイルシステムデバイスへの同梱 LRC 転送に失敗しました: {0} -> {1}", lrcSourcePath, lrcDestPath);
+        }
+    }
+
+    /// <summary>
+    /// ファイルシステムデバイスへトラック群を転送します（設定に応じて形式変換・一時ファイル後始末・新規転送トラックへの .lrc 同梱転送を実施。重複スキップ時は .lrc も転送しません）。
     /// </summary>
     /// <param name="tracksToTransfer">転送対象トラック一覧</param>
     /// <param name="destinationFolder">転送先ルートフォルダ</param>
     /// <param name="transcodeOptions">音声フォーマット変換オプション</param>
     /// <param name="progress">進捗通知（0〜100）</param>
+    /// <param name="lrcTransferOptions">種別別 `.lrc` 歌詞ファイル同梱オプション（省略時は現在の設定から取得）</param>
     /// <param name="cancellationToken">キャンセルトークン</param>
     /// <returns>非同期タスク</returns>
     internal Task TransferTracksToFileSystemAsync(
@@ -2799,8 +2909,10 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         string destinationFolder,
         AudioTranscodeOptions transcodeOptions,
         IProgress<double>? progress = null,
+        LrcTransferOptions? lrcTransferOptions = null,
         CancellationToken cancellationToken = default)
     {
+        var effectiveLrcOptions = lrcTransferOptions ?? GetCurrentLrcTransferOptions();
         var albumsSnapshot = _getAlbums();
         var fallbackIdentities = BuildFallbackAlbumIdentitiesIfNeeded(albumsSnapshot);
         var primaryDirOwners = BuildPrimaryDirectoryOwnerMap(albumsSnapshot, fallbackIdentities);
@@ -2832,7 +2944,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
                 string destPath = System.IO.Path.Combine(targetDir, targetFileName);
 
-                // 拡張子違い（変換前後）を含め、新配置または旧配置に同一音声ファイルが既に存在する場合はスキップ（#170 / #398 重複判定整合）
+                // 拡張子違い（変換前後）を含め、新配置または旧配置に同一音声ファイルが既に存在する場合はスキップ（#170 / #398 重複判定整合・.lrc も同梱しない）
                 if (CheckFileSystemTrackAlreadyExists(destinationFolder, candidateDirs, expectedFileKey, directoryFileKeysCache))
                 {
                     current++;
@@ -2851,6 +2963,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 {
                     cachedKeys.Add(expectedFileKey);
                 }
+
+                TryTransferCompanionLrcToFileSystem(track.FilePath, destPath, effectiveLrcOptions, cancellationToken);
 
                 current++;
                 progress?.Report((double)current / total * 100);

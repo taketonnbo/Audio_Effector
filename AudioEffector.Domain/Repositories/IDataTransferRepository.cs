@@ -48,6 +48,20 @@ public interface IDataTransferRepository
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 指定されたローカルの補助ファイル（.lrc 歌詞ファイル等）をデバイスの目的フォルダへ転送します
+    /// </summary>
+    /// <param name="sourceFilePath">転送元ローカルファイルパス</param>
+    /// <param name="destinationFolder">転送先デバイスフォルダパス</param>
+    /// <param name="destinationFileName">転送先ファイル名（省略時は転送元ファイル名を使用）</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>転送成功時はtrue</returns>
+    Task<bool> TransferCompanionFileAsync(
+        string sourceFilePath,
+        string destinationFolder,
+        string? destinationFileName = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// デバイス上の指定ファイルを削除します
     /// </summary>
     /// <param name="deviceFilePath">デバイス上のファイルパス</param>
