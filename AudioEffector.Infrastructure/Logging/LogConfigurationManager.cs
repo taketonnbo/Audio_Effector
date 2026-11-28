@@ -134,19 +134,42 @@ public sealed class LogConfigurationManager : ILogConfigurationManager
     }
 
     /// <inheritdoc />
-    public LogConfigurationApplyResult ApplyConfiguration(string? logLevel, string? logDirectoryPath)
+    public LogConfigurationApplyResult ApplyConfiguration(string? logLevel, string? logDirectoryPath, bool fallbackToDefaultOnError = true)
     {
         string normalizedLevel = NormalizeLogLevel(logLevel);
-        (string effectiveDirectory, bool isCustom, bool usedFallback, string? warningMessage) = ResolveWritableLogDirectory(logDirectoryPath);
+        (bool resolved, string effectiveDirectory, bool isCustom, bool usedFallback, string? warningMessage) =
+            ResolveWritableLogDirectory(logDirectoryPath, fallbackToDefaultOnError);
+
+        if (!resolved)
+        {
+            return new LogConfigurationApplyResult(
+                Succeeded: false,
+                AppliedLogLevel: CurrentLogLevel,
+                EffectiveLogDirectory: CurrentLogDirectory,
+                UsedFallbackDirectory: false,
+                WarningMessage: warningMessage);
+        }
 
         lock (_sync)
         {
             LoggingConfiguration? config = _configurationAccessor();
             if (config != null)
             {
-                ApplyTargetDirectory(config, effectiveDirectory);
-                ApplyLoggingLevel(config, normalizedLevel);
-                _reconfigureAction();
+                try
+                {
+                    ApplyTargetDirectory(config, effectiveDirectory);
+                    ApplyLoggingLevel(config, normalizedLevel);
+                    _reconfigureAction();
+                }
+                catch (Exception ex) when (ex is NLogConfigurationException or IOException or UnauthorizedAccessException or ArgumentException)
+                {
+                    return new LogConfigurationApplyResult(
+                        Succeeded: false,
+                        AppliedLogLevel: _currentLogLevel,
+                        EffectiveLogDirectory: _currentLogDirectory,
+                        UsedFallbackDirectory: false,
+                        WarningMessage: $"ログ構成の再反映に失敗しました: {ex.Message}");
+                }
             }
 
             _currentLogLevel = normalizedLevel;
@@ -162,7 +185,9 @@ public sealed class LogConfigurationManager : ILogConfigurationManager
             WarningMessage: warningMessage);
     }
 
-    private (string EffectiveDirectory, bool IsCustom, bool UsedFallback, string? WarningMessage) ResolveWritableLogDirectory(string? requestedPath)
+    private (bool Resolved, string EffectiveDirectory, bool IsCustom, bool UsedFallback, string? WarningMessage) ResolveWritableLogDirectory(
+        string? requestedPath,
+        bool fallbackToDefaultOnError)
     {
         bool requestedCustom = !string.IsNullOrWhiteSpace(requestedPath);
         if (requestedCustom)
@@ -173,12 +198,23 @@ public sealed class LogConfigurationManager : ILogConfigurationManager
                 bool isDefault = string.Equals(normalizedRequested, DefaultLogDirectory, StringComparison.OrdinalIgnoreCase);
                 string candidate = isDefault ? DefaultLogDirectory : normalizedRequested;
                 EnsureDirectoryWritable(candidate);
-                return (candidate, !isDefault, false, null);
+                return (true, candidate, !isDefault, false, null);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
             {
+                if (!fallbackToDefaultOnError)
+                {
+                    return (
+                        false,
+                        CurrentLogDirectory,
+                        IsCustomLogDirectory,
+                        false,
+                        $"指定されたログ保存先フォルダへ書き込めませんでした: {ex.Message}");
+                }
+
                 TryEnsureDirectoryExists(DefaultLogDirectory);
                 return (
+                    true,
                     DefaultLogDirectory,
                     false,
                     true,
@@ -187,7 +223,7 @@ public sealed class LogConfigurationManager : ILogConfigurationManager
         }
 
         TryEnsureDirectoryExists(DefaultLogDirectory);
-        return (DefaultLogDirectory, false, false, null);
+        return (true, DefaultLogDirectory, false, false, null);
     }
 
     private static void ApplyTargetDirectory(LoggingConfiguration config, string effectiveDirectory)
@@ -202,8 +238,8 @@ public sealed class LogConfigurationManager : ILogConfigurationManager
 
         fileTarget.FileName = Layout.FromLiteral(Path.Combine(effectiveDirectory, LOG_FILE_NAME));
 
-        // ArchiveFileName は NLog の {#} プレースホルダを活かしつつディレクトリ名内の ${ をエスケープする
-        string escapedDir = effectiveDirectory.Replace("${", "$${", StringComparison.Ordinal);
+        // ArchiveFileName は NLog の {#} プレースホルダを活かしつつディレクトリ名内の ${ を NLog 正式リテラル構文でエスケープする
+        string escapedDir = effectiveDirectory.Replace("${", "${literal:text=$}{", StringComparison.Ordinal);
         fileTarget.ArchiveFileName = new SimpleLayout(Path.Combine(escapedDir, ARCHIVE_FILE_NAME_PATTERN));
     }
 
