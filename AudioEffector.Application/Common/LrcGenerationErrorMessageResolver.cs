@@ -148,6 +148,9 @@ public static class LrcGenerationErrorMessageResolver
         "ディスクに十分な空き領域がありません",
         "メディアは書き込み禁止",
         "ネットワーク パスが見つかりません",
+        "ファイル '",
+        "パス '",
+        "ファイルまたはアセンブリ",
     ];
 
     /// <summary>
@@ -288,9 +291,19 @@ public static class LrcGenerationErrorMessageResolver
 
         if (exception is FileNotFoundException fnf)
         {
-            return !IsWin32HResult(fnf) && IsSafeUserMessage(fnf.Message)
+            return IsSafeUserMessage(fnf.Message)
                 ? fnf.Message
                 : AUDIO_FILE_ACCESS_FAILED_MESSAGE;
+        }
+
+        if (ContainsException<EndOfStreamException>(exception))
+        {
+            return AUDIO_DECODE_FAILED_MESSAGE;
+        }
+
+        if (exception is PathTooLongException)
+        {
+            return AUDIO_FILE_ACCESS_FAILED_MESSAGE;
         }
 
         if (exception is IOException ioEx && IsDiskFullException(ioEx))
@@ -342,7 +355,7 @@ public static class LrcGenerationErrorMessageResolver
             return IsSafeUserMessage(lrcEx.Message) ? lrcEx.Message : DEFAULT_MODEL_DOWNLOAD_ERROR_MESSAGE;
         }
 
-        if (isTimeout || ContainsException<TimeoutException>(exception) || exception is TaskCanceledException)
+        if (isTimeout || ContainsException<TimeoutException>(exception) || ContainsException<TaskCanceledException>(exception))
         {
             return MODEL_DOWNLOAD_TIMEOUT_MESSAGE;
         }
@@ -394,11 +407,17 @@ public static class LrcGenerationErrorMessageResolver
             return IsSafeUserMessage(lrcEx.Message) ? lrcEx.Message : DEFAULT_SAVE_LRC_ERROR_MESSAGE;
         }
 
+        if (exception is PathTooLongException or ArgumentException or NotSupportedException)
+        {
+            return "保存先パスが不正または長すぎるため、LRC ファイルを保存できませんでした。";
+        }
+
         if (exception is UnauthorizedAccessException)
         {
             return SAVE_LRC_ACCESS_DENIED_MESSAGE;
         }
 
+        // DirectoryNotFoundException を含む IOException 派生型をここで処理する
         if (exception is IOException ioEx)
         {
             if (IsDiskFullException(ioEx))
@@ -412,16 +431,6 @@ public static class LrcGenerationErrorMessageResolver
             }
 
             return SAVE_LRC_IO_ERROR_MESSAGE;
-        }
-
-        if (exception is DirectoryNotFoundException)
-        {
-            return SAVE_LRC_IO_ERROR_MESSAGE;
-        }
-
-        if (exception is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return "保存先パスが不正または長すぎるため、LRC ファイルを保存できませんでした。";
         }
 
         return DEFAULT_SAVE_LRC_ERROR_MESSAGE;
@@ -453,6 +462,21 @@ public static class LrcGenerationErrorMessageResolver
                 : "指定されたテキストファイルが見つかりません。";
         }
 
+        if (exception is PathTooLongException or ArgumentException or NotSupportedException)
+        {
+            string candidate = exception is ArgumentException argEx
+                ? StripArgumentParameterSuffix(argEx)
+                : exception.Message;
+            if (IsSafeUserMessage(candidate))
+            {
+                return candidate;
+            }
+
+            return isExistingLrc
+                ? "既存の .lrc ファイルのパスが不正です。"
+                : "指定されたテキストファイルのパスが不正です。";
+        }
+
         if (exception is UnauthorizedAccessException)
         {
             return isExistingLrc
@@ -460,7 +484,8 @@ public static class LrcGenerationErrorMessageResolver
                 : "テキストファイルへアクセスできませんでした。アクセス権限や USB メモリ・ドライブの接続状態をご確認ください。";
         }
 
-        if (exception is DirectoryNotFoundException or IOException)
+        // DirectoryNotFoundException を含む IOException 派生型をここで処理する
+        if (exception is IOException)
         {
             if (!IsWin32HResult(exception) && IsSafeUserMessage(exception.Message))
             {
@@ -472,18 +497,6 @@ public static class LrcGenerationErrorMessageResolver
             return isExistingLrc
                 ? "既存の .lrc ファイルを読み込めませんでした。ファイルの存在や USB メモリ・ドライブの接続状態をご確認ください。"
                 : "テキストファイルを読み込めませんでした。ファイルの存在や USB メモリ・ドライブの接続状態をご確認ください。";
-        }
-
-        if (exception is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            if (IsSafeUserMessage(exception.Message))
-            {
-                return exception.Message;
-            }
-
-            return isExistingLrc
-                ? "既存の .lrc ファイルのパスが不正です。"
-                : "指定されたテキストファイルのパスが不正です。";
         }
 
         return isExistingLrc
@@ -507,21 +520,42 @@ public static class LrcGenerationErrorMessageResolver
                 : "モデル設定の更新に失敗しました。モデルファイルの状態をご確認ください。";
         }
 
+        if (exception is FileNotFoundException fnf)
+        {
+            return IsSafeUserMessage(fnf.Message)
+                ? fnf.Message
+                : "指定されたモデルファイルが見つかりませんでした。ファイルの存在をご確認ください。";
+        }
+
+        if (exception is PathTooLongException)
+        {
+            return "指定されたモデルファイルのパスが不正または長すぎます。";
+        }
+
+        if (exception is ArgumentException argEx)
+        {
+            string cleaned = StripArgumentParameterSuffix(argEx);
+            return IsSafeUserMessage(cleaned)
+                ? cleaned
+                : "指定されたモデル設定が不正です。選択内容をご確認ください。";
+        }
+
+        if (exception is InvalidDataException)
+        {
+            return IsSafeUserMessage(exception.Message)
+                ? exception.Message
+                : "指定されたモデルファイルを使用できませんでした。ファイルの存在や形式をご確認ください。";
+        }
+
         if (exception is UnauthorizedAccessException)
         {
             return "指定されたモデルファイルへアクセスできませんでした。アクセス権限やドライブの接続状態をご確認ください。";
         }
 
-        if (exception is DirectoryNotFoundException or IOException)
+        // DirectoryNotFoundException を含む IOException 派生型をここで処理する
+        if (exception is IOException)
         {
             return "指定されたモデルファイルを読み込めませんでした。ファイルの存在やドライブの接続状態をご確認ください。";
-        }
-
-        if (exception is ArgumentException or FileNotFoundException or InvalidDataException)
-        {
-            return !IsWin32HResult(exception) && IsSafeUserMessage(exception.Message)
-                ? exception.Message
-                : "指定されたモデルファイルを使用できませんでした。ファイルの存在や形式をご確認ください。";
         }
 
         return "モデル設定の更新に失敗しました。モデルファイルの状態をご確認ください。";
@@ -536,6 +570,29 @@ public static class LrcGenerationErrorMessageResolver
     public static string EnsureSafeUserMessage(string? message, string fallbackMessage)
     {
         return IsSafeUserMessage(message) ? message!.Trim() : fallbackMessage;
+    }
+
+    private static string StripArgumentParameterSuffix(ArgumentException exception)
+    {
+        string message = exception.Message ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(exception.ParamName))
+        {
+            return message.Trim();
+        }
+
+        string modernSuffix = $" (Parameter '{exception.ParamName}')";
+        if (message.EndsWith(modernSuffix, StringComparison.Ordinal))
+        {
+            return message[..^modernSuffix.Length].Trim();
+        }
+
+        int lineBreakIndex = message.IndexOfAny(['\r', '\n']);
+        if (lineBreakIndex > 0)
+        {
+            return message[..lineBreakIndex].Trim();
+        }
+
+        return message.Trim();
     }
 
     private static bool IsWin32HResult(Exception exception)

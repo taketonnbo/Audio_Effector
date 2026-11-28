@@ -132,7 +132,9 @@ public class LrcGenerationApplicationService
         }
         catch (Exception ex)
         {
-            bool isTimeout = ex is OperationCanceledException or TimeoutException;
+            bool isTimeout = ex is OperationCanceledException or TimeoutException
+                || LrcGenerationErrorMessageResolver.ContainsException<TimeoutException>(ex)
+                || LrcGenerationErrorMessageResolver.ContainsException<TaskCanceledException>(ex);
             LogException($"ローカルモデルのダウンロードに失敗しました (ModelId={modelId ?? "default"}, IsTimeout={isTimeout})", ex);
             return Result.Failure<LocalSpeechModelInfo>(LrcGenerationErrorMessageResolver.ResolveModelDownloadErrorMessage(ex, isTimeout));
         }

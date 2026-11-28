@@ -1211,7 +1211,9 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             Interlocked.Increment(ref _operationGeneration);
-            bool isTimeout = ex is OperationCanceledException or TimeoutException;
+            bool isTimeout = ex is OperationCanceledException or TimeoutException
+                || LrcGenerationErrorMessageResolver.ContainsException<TimeoutException>(ex)
+                || LrcGenerationErrorMessageResolver.ContainsException<TaskCanceledException>(ex);
             Logger.Error(
                 ex,
                 "ローカルモデルのダウンロード中に予期しないエラーが発生しました: IsTimeout={IsTimeout}, ExceptionType={ExceptionType}",
