@@ -54,8 +54,9 @@ public static class DependencyInjection
             sp.GetRequiredService<IDataDirectoryProvider>().GetFilePath("RecentTracks.json"),
             sp.GetRequiredService<IJsonFileLockHelper>()));
 
-        // データ転送アダプター
+        // データ転送アダプターおよび音声変換サービス
         services.AddSingleton<IDataTransferRepository, MtpDataTransferAdapter>();
+        services.AddSingleton<IAudioTranscodeService, MediaFoundationAudioTranscodeService>();
 
         // ロギングサービス
         services.AddSingleton<NLogService>();
