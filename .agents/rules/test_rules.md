@@ -1,5 +1,5 @@
 ---
-description: 本プロジェクトにおける単体テストコード作成ルール（5テストプロジェクト1対1対称配置、名前空間規則、sut命名、テストメソッド命名規則、日本語XMLコメント付与、モック・WPFアニメーション/非同期待機パターン・フレーク対策方針）
+description: 本プロジェクトにおける単体テストコード作成ルール（5テストプロジェクト1対1対称配置、名前空間規則、sut命名、テストメソッド命名規則、日本語XMLコメント付与、モック・フェイク同期方針・WPFアニメーション/非同期待機パターン・フレーク対策方針）
 ---
 
 # テストコード作成ルール
@@ -185,6 +185,16 @@ public void IsHiRes判定_サンプリングレートとビット深度の組み
        }
        ```
      - **Verifier 保護・プロダクションコード非改変との整合**: テスト検証のためだけにプロダクションコードへ安易にテスト専用状態やフックを追加せず、まず `CompositionTarget.Rendering` 等の WPF 標準イベントによるテスト側同期手段を検討すること（[loop_engineering_rules.md](loop_engineering_rules.md) 準拠）。
+4. **バックグラウンドタスクと競合し得るインメモリフェイク／スタブの同期方針**:
+   - バックグラウンドタスク（`Task.Run` 等）とテストスレッドの双方から同時にアクセスされ得るインメモリフェイク／スタブ（例: `FakeMtpDeviceClient`）では、以下の同期方針を徹底すること。
+   - **内部コレクションの排他保護とスナップショット返却**:
+     - 内部状態やコレクション（`HashSet` / `List` / `Dictionary` 等）の読み書きは専用のロックオブジェクト（例: `private readonly object _sync = new();`）を用いた `lock` で保護すること。
+     - 検証用プロパティ（例: `EnumeratedDirectories`）では内部コレクションの参照を直接返さず、ロック内で `.ToArray()` 等のスナップショット配列を複製して返却すること。
+   - **コールバックフックのロック外呼び出し（デッドロック防止）**:
+     - テスト側で待機・例外注入・観測のために設定するコールバックフック（例: `OnGetFiles` / `OnUploadFile`）は `lock` ブロックの外で呼び出し、テスト側同期プリミティブの待機やフェイクへの再入に伴うデッドロックを回避すること。
+   - **同期コールバック内での待機手段**:
+     - 同期コールバック内の待機では `Task.Wait()` や `GetAwaiter().GetResult()`（`xUnit1031` 警告およびスレッドプール枯渇の要因）を避け、`ManualResetEventSlim` 等にタイムアウトを指定して待機すること（例: `allowScanToComplete.Wait(TimeSpan.FromSeconds(5))`、`using` で確実に破棄すること）。
+   - **参照実装**: `AudioEffector.Tests\Presentation\ViewModels\DeviceBrowserViewModelTests.cs` の `FakeMtpDeviceClient` および `TransferSelectedAsync_書き込み可能なMTP機器のルートおよびサブフォルダ転送時_再走査完了後に通知され再読込後も非活性を維持すること`。
 
 ---
 
@@ -227,6 +237,16 @@ public void IsHiRes判定_サンプリングレートとビット深度の組み
          return lastResult;
      }
      ```
-4. **フレーク修正時の Verifier 保護と再現確認（必須厳守）**:
+4. **プロパティ設定・初期化に伴う fire-and-forget 非同期処理を持つ ViewModel のテスト**:
+   - **アンチパターン**: プロパティセッター（例: `sut.SelectedDevice = device;`）やコンストラクタ内で `CheckDeviceAlbums()` 等の fire-and-forget 非同期処理を起動する ViewModel に対し、同期 `void` テストのまま直後に状態変更やアサートを行うこと。WPF の `Application.Current` / Dispatcher が存在しない単体テスト環境では、スレッドプール上の継続処理とテストスレッドが競合し、一括更新抑制フラグ（例: `_suppressSelectionSummaryUpdates`）やコレクション操作とレースして並列テスト実行時などに間欠失敗（フレーク）します。
+   - **推奨パターン**:
+     - テストメソッドを `async Task` とし、初期化トリガー直後に該当する非同期処理の完了タスク（例: `await sut.CheckDeviceAlbumsAsync();` や `await sut.RefreshSelectedDeviceStorageAsync();`）を明示的に待機してから Act / Assert へ進むこと。
+     - **参照実装**: `AudioEffector.Tests\Presentation\ViewModels\DeviceBrowserViewModelTests.cs` の `UpdateSelectionSummary_選択状態変更時_合計サイズと空き容量判定がリアルタイム更新されること`。
+     ```csharp
+     sut.SelectedDevice = device;
+     await sut.CheckDeviceAlbumsAsync();
+     await sut.RefreshSelectedDeviceStorageAsync();
+     ```
+5. **フレーク修正時の Verifier 保護と再現確認（必須厳守）**:
    - フレーク解消を目的とした **テストケースの削除、`Skip` 属性の付与、アサーション条件の弱体化・コメントアウトは一切禁止** します（[loop_engineering_rules.md](loop_engineering_rules.md) の Verifier 保護に準拠）。
    - 修正後は、対象テストの **単独連続実行** および **`.\tools\verify_loop.ps1 -Full` によるソリューション全体の並列実行** の両方で安定合格することを確認してください。
