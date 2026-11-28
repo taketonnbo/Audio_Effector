@@ -46,6 +46,16 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         ".mp3", ".flac", ".wav", ".m4a", ".mp4", ".aac", ".ogg", ".wma", ".aiff", ".aif", ".alac", ".opus", ".dsf", ".dff"
     };
 
+    private static readonly HashSet<char> InvalidFileNameChars = new(Path.GetInvalidFileNameChars());
+
+    private static readonly (bool ReplaceInvalidWithUnderscore, bool TrimTrailingDots, bool IsCanonical)[] DirectorySanitizeModes =
+    {
+        (true, true, true),   // 新規則: 禁止文字 _ 置換 + 末尾ピリオド除去（正規新配置）
+        (false, true, false), // 互換: 旧禁止文字除去 + 末尾ピリオド除去
+        (true, false, false), // 互換: 禁止文字 _ 置換 + 旧末尾ピリオド保持
+        (false, false, false) // 互換: 旧禁止文字除去 + 旧末尾ピリオド保持
+    };
+
     /// <summary>
     /// 接続されている外部デバイス一覧を取得または設定します
     /// </summary>
@@ -783,7 +793,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// トラックの正規化済み転送先キー（代表アーティスト配下）に加え、旧フォルダ名規則（末尾ピリオド保持）および旧配置（曲別アーティスト配下）の互換キーを列挙します。
+    /// トラックの正規化済み転送先キー（代表アーティスト配下・禁止文字 _ 置換）に加え、旧フォルダ名規則（禁止文字除去・末尾ピリオド保持）および旧配置（曲別アーティスト配下）の互換キーを列挙します。
     /// </summary>
     /// <param name="track">対象トラック</param>
     /// <param name="representativeArtist">所属アルバムの代表アーティスト名（省略時は Track.AlbumArtist 優先、未設定時は Track.Artist を使用）</param>
@@ -811,7 +821,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// トラックの新配置（代表アーティスト配下）および互換配置（旧末尾ピリオド規則・旧曲別アーティスト配下）の候補フォルダ一覧を重複なく生成します。
+    /// トラックの新配置（代表アーティスト配下・禁止文字 _ 置換）および互換配置（旧禁止文字除去・旧末尾ピリオド保持・旧曲別アーティスト配下）の候補フォルダ一覧を重複なく生成します。
     /// </summary>
     /// <param name="track">対象トラック</param>
     /// <param name="representativeArtist">所属アルバムの代表アーティスト名（省略可）</param>
@@ -832,10 +842,18 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         return result;
     }
 
-    private readonly record struct TrackCandidateDirectory(string ArtistFolder, string AlbumFolder, bool IsLegacyPerformer)
+    private readonly record struct TrackCandidateDirectory(
+        string ArtistFolder,
+        string AlbumFolder,
+        bool IsCanonical,
+        bool IsLegacyPerformer)
     {
         public string DirectoryKey => $"{ArtistFolder}\\{AlbumFolder}";
     }
+
+    private readonly record struct PrimaryDirectoryOwnerMaps(
+        Dictionary<string, HashSet<Album>> CanonicalOwnersByDir,
+        Dictionary<string, HashSet<Album>> RepresentativeOwnersByDir);
 
     private readonly record struct TrackDestinationMetadata(Album? OwnerAlbum, string RepresentativeArtist, string RepresentativeAlbum);
 
@@ -844,10 +862,10 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         string? representativeArtist,
         string? representativeAlbum)
     {
-        var candidates = new List<TrackCandidateDirectory>(4);
+        var candidates = new List<TrackCandidateDirectory>(DirectorySanitizeModes.Length * 2);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        void AddCandidate(string artistFolder, string albumFolder, bool isLegacyPerformer)
+        void AddCandidate(string artistFolder, string albumFolder, bool isCanonical, bool isLegacyPerformer)
         {
             if (string.IsNullOrWhiteSpace(artistFolder) || string.IsNullOrWhiteSpace(albumFolder))
             {
@@ -857,35 +875,48 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             string key = $"{artistFolder}\\{albumFolder}";
             if (seen.Add(key))
             {
-                candidates.Add(new TrackCandidateDirectory(artistFolder, albumFolder, isLegacyPerformer));
+                candidates.Add(new TrackCandidateDirectory(artistFolder, albumFolder, isCanonical, isLegacyPerformer));
             }
         }
 
         string effectiveArtist = ResolveEffectiveDestinationArtist(track, representativeArtist);
         string effectiveAlbum = ResolveEffectiveDestinationAlbum(track, representativeAlbum);
 
-        // 1. 新配置（代表アーティスト・正規化フォルダ名）
-        AddCandidate(SanitizeFileName(effectiveArtist), SanitizeFileName(effectiveAlbum), isLegacyPerformer: false);
+        // 1. 代表アーティスト配下（先頭が新規則の正規新配置、続いて旧禁止文字除去・旧末尾ピリオド保持互換）
+        foreach (var (replaceWithUnderscore, trimTrailingDots, isCanonical) in DirectorySanitizeModes)
+        {
+            AddCandidate(
+                SanitizeFileNameCore(effectiveArtist, replaceWithUnderscore, trimTrailingDots),
+                SanitizeFileNameCore(effectiveAlbum, replaceWithUnderscore, trimTrailingDots),
+                isCanonical: isCanonical,
+                isLegacyPerformer: false);
+        }
 
-        // 2. 新配置（代表アーティスト・旧末尾ピリオド保持フォルダ名）
-        AddCandidate(SanitizeLegacyFileName(effectiveArtist), SanitizeLegacyFileName(effectiveAlbum), isLegacyPerformer: false);
-
-        // 3. 旧配置（曲別アーティスト・正規化フォルダ名）
-        AddCandidate(SanitizeFileName(track.Artist), SanitizeFileName(track.Album), isLegacyPerformer: true);
-
-        // 4. 旧配置（曲別アーティスト・旧末尾ピリオド保持フォルダ名）
-        AddCandidate(SanitizeLegacyFileName(track.Artist), SanitizeLegacyFileName(track.Album), isLegacyPerformer: true);
+        // 2. 旧配置（曲別アーティスト配下・新旧サニタイズ互換）
+        foreach (var (replaceWithUnderscore, trimTrailingDots, _) in DirectorySanitizeModes)
+        {
+            AddCandidate(
+                SanitizeFileNameCore(track.Artist, replaceWithUnderscore, trimTrailingDots),
+                SanitizeFileNameCore(track.Album, replaceWithUnderscore, trimTrailingDots),
+                isCanonical: false,
+                isLegacyPerformer: true);
+        }
 
         return candidates;
     }
 
-    private static Dictionary<string, HashSet<Album>> BuildPrimaryDirectoryOwnerMap(
+    private static PrimaryDirectoryOwnerMaps BuildPrimaryDirectoryOwnerMap(
         IReadOnlyList<Album> albums,
         IReadOnlyDictionary<AudioEffector.Domain.ValueObjects.TrackId, ResolvedAlbumIdentity>? fallbackIdentities)
     {
-        var ownersByDir = new Dictionary<string, HashSet<Album>>(StringComparer.OrdinalIgnoreCase);
+        var canonicalOwnersByDir = new Dictionary<string, HashSet<Album>>(StringComparer.OrdinalIgnoreCase);
+        var representativeOwnersByDir = new Dictionary<string, HashSet<Album>>(StringComparer.OrdinalIgnoreCase);
 
-        void RegisterOwner(string artistFolder, string albumFolder, Album ownerAlbum)
+        static void RegisterOwner(
+            Dictionary<string, HashSet<Album>> map,
+            string artistFolder,
+            string albumFolder,
+            Album ownerAlbum)
         {
             if (string.IsNullOrWhiteSpace(artistFolder) || string.IsNullOrWhiteSpace(albumFolder))
             {
@@ -893,10 +924,10 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             }
 
             string dirKey = $"{artistFolder}\\{albumFolder}";
-            if (!ownersByDir.TryGetValue(dirKey, out var owners))
+            if (!map.TryGetValue(dirKey, out var owners))
             {
                 owners = new HashSet<Album>(ReferenceEqualityComparer.Instance);
-                ownersByDir[dirKey] = owners;
+                map[dirKey] = owners;
             }
 
             owners.Add(ownerAlbum);
@@ -913,12 +944,21 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             {
                 string repArtist = ResolveAlbumRepresentativeArtist(album, track, fallbackIdentities);
                 string repAlbum = ResolveEffectiveDestinationAlbum(track, album.Title);
-                RegisterOwner(SanitizeFileName(repArtist), SanitizeFileName(repAlbum), album);
-                RegisterOwner(SanitizeLegacyFileName(repArtist), SanitizeLegacyFileName(repAlbum), album);
+                foreach (var (replaceWithUnderscore, trimTrailingDots, isCanonical) in DirectorySanitizeModes)
+                {
+                    string artistFolder = SanitizeFileNameCore(repArtist, replaceWithUnderscore, trimTrailingDots);
+                    string albumFolder = SanitizeFileNameCore(repAlbum, replaceWithUnderscore, trimTrailingDots);
+                    if (isCanonical)
+                    {
+                        RegisterOwner(canonicalOwnersByDir, artistFolder, albumFolder, album);
+                    }
+
+                    RegisterOwner(representativeOwnersByDir, artistFolder, albumFolder, album);
+                }
             }
         }
 
-        return ownersByDir;
+        return new PrimaryDirectoryOwnerMaps(canonicalOwnersByDir, representativeOwnersByDir);
     }
 
     private static List<(string ArtistFolder, string AlbumFolder)> ResolveEffectiveCandidateDirectories(
@@ -926,20 +966,30 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         Album? ownerAlbum,
         string? representativeArtist,
         string? representativeAlbum,
-        Dictionary<string, HashSet<Album>>? primaryDirOwners)
+        PrimaryDirectoryOwnerMaps? primaryDirOwners)
     {
         var classified = BuildClassifiedTrackCandidateDirectories(track, representativeArtist, representativeAlbum);
         var result = new List<(string ArtistFolder, string AlbumFolder)>(classified.Count);
 
         foreach (var candidate in classified)
         {
-            if (candidate.IsLegacyPerformer
-                && primaryDirOwners != null
-                && primaryDirOwners.TryGetValue(candidate.DirectoryKey, out var owners)
-                && IsOwnedByAnotherAlbum(owners, ownerAlbum))
+            if (!candidate.IsCanonical && primaryDirOwners.HasValue)
             {
-                // 別アルバムの正規新配置ディレクトリと衝突する旧配置候補は誤判定防止のため除外
-                continue;
+                var maps = primaryDirOwners.Value;
+                if (maps.CanonicalOwnersByDir.TryGetValue(candidate.DirectoryKey, out var canonicalOwners)
+                    && IsOwnedByAnotherAlbum(canonicalOwners, ownerAlbum))
+                {
+                    // 別アルバムの正規新配置ディレクトリと衝突する互換候補は誤判定防止のため除外
+                    continue;
+                }
+
+                if (candidate.IsLegacyPerformer
+                    && maps.RepresentativeOwnersByDir.TryGetValue(candidate.DirectoryKey, out var repOwners)
+                    && IsOwnedByAnotherAlbum(repOwners, ownerAlbum))
+                {
+                    // 別アルバムの代表アーティスト配置ディレクトリと衝突する旧曲別配置候補は誤判定防止のため除外
+                    continue;
+                }
             }
 
             result.Add((candidate.ArtistFolder, candidate.AlbumFolder));
@@ -2346,39 +2396,46 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// 転送先フォルダ名に使用できるよう無効文字および末尾のピリオド・空白を除去して正規化します。
-    /// Windows ファイルシステムが末尾のピリオドや空白を暗黙除去する仕様と保存・照合規則を一致させます。
+    /// 転送先フォルダ名に使用できるよう無効文字をアンダースコア（_）へ置換し、末尾のピリオド・空白を除去して正規化します。
+    /// 他ツールの一般的な転送フォルダ命名規則および Windows ファイルシステムの末尾ピリオド暗黙除去仕様と保存・照合規則を一致させます。
     /// </summary>
     /// <param name="name">元のアーティスト名またはアルバム名</param>
     /// <returns>安全なフォルダ名（空になる場合は "Unknown"）</returns>
     internal static string SanitizeFileName(string? name)
+        => SanitizeFileNameCore(name, replaceInvalidWithUnderscore: true, trimTrailingDots: true);
+
+    private static string SanitizeFileNameCore(string? name, bool replaceInvalidWithUnderscore, bool trimTrailingDots)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
             return "Unknown";
         }
 
-        var invalid = Path.GetInvalidFileNameChars();
-        string cleaned = new string(name.Where(c => !invalid.Contains(c)).ToArray()).Trim();
-        cleaned = TrimTrailingDotsAndWhitespace(cleaned);
-        return string.IsNullOrEmpty(cleaned) ? "Unknown" : cleaned;
-    }
+        string trimmedInput = name.Trim();
+        string cleaned;
+        if (replaceInvalidWithUnderscore)
+        {
+            var chars = new char[trimmedInput.Length];
+            for (int i = 0; i < trimmedInput.Length; i++)
+            {
+                char c = trimmedInput[i];
+                chars[i] = InvalidFileNameChars.Contains(c) ? '_' : c;
+            }
 
-    private static string SanitizeLegacyFileName(string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
+            cleaned = new string(chars).Trim();
+        }
+        else
+        {
+            cleaned = new string(trimmedInput.Where(c => !InvalidFileNameChars.Contains(c)).ToArray()).Trim();
+        }
+
+        string withoutTrailingDots = TrimTrailingDotsAndWhitespace(cleaned);
+        if (string.IsNullOrEmpty(withoutTrailingDots))
         {
             return "Unknown";
         }
 
-        var invalid = Path.GetInvalidFileNameChars();
-        string cleaned = new string(name.Where(c => !invalid.Contains(c)).ToArray()).Trim();
-        if (string.IsNullOrEmpty(TrimTrailingDotsAndWhitespace(cleaned)))
-        {
-            return "Unknown";
-        }
-
-        return cleaned;
+        return trimTrailingDots ? withoutTrailingDots : cleaned;
     }
 
     private static string TrimTrailingDotsAndWhitespace(string value)
