@@ -52,7 +52,7 @@
 
 ## 6. アニメーションとインタラクション
 
-- **新規作成**: 「`+ Create New Playlist`」ボタン（`CreatePlaylistCommand`）押下で `InputBox` ダイアログを表示し、名称を入力して新規作成・保存する。
+- **新規作成**: 「`+ Create New Playlist`」ボタン（`CreatePlaylistCommand`）押下で `InputBox` ダイアログを表示し、名称を入力して新規作成・保存する。また、リスニング統計ビューの「`＋ プレイリスト化`」アクションから `CreatePlaylistWithTracks` 経由で TOP 10 楽曲を順序保持で一括登録した新規プレイリストを作成・一覧へ即時追加できる。
 - **詳細画面への遷移**: カード左クリックまたは右クリック「開く」（`SelectPlaylistCommand`）で `PlaylistTracksView`（収録曲画面）へ遷移する。
 - **コンテキストメニュー**: カード右クリックで「開く」「再生」（`PlayPlaylistCommand`）「シャッフル再生」（`ShufflePlayPlaylistCommand`）「名前の変更」（`RenamePlaylistCommand`、`InputBox` に現在名をプリセット）「削除」（`DeletePlaylistCommand`）を表示する。登録曲が0件のプレイリストに対する再生・シャッフル再生は何も行わない。
 - **削除確認**: カード右上の「`-`」ボタンまたは右クリック「削除」実行時は、確認 `MessageBox` を表示した上で削除・保存する。

@@ -667,6 +667,42 @@ public sealed class ArtistsViewModelTests
         return null;
     }
 
+    /// <summary>
+    /// SelectArtistByName が検索フィルタ解除・大文字小文字無視での選択・未一致および Dispose 後の false 返却を行うことを検証します。
+    /// </summary>
+    [Fact]
+    public void SelectArtistByName_検索絞り込み中や大文字小文字違いおよび未一致とDispose後_期待通り選択とfalse返却を行うこと()
+    {
+        // Arrange
+        using var audio = new StubAudioService();
+        var libService = new LibraryApplicationService(
+            new InMemoryTrackRepository(),
+            new InMemoryFavoriteRepository(),
+            new AudioEffector.Infrastructure.Library.TagLibMetadataExtractor(),
+            new InMemoryEventBus());
+        using var libraryVm = new LibraryViewModel(libService, audio, new StubSettingsService());
+        libraryVm.Tracks.Add(new Track { FilePath = @"C:\m\1.mp3", Title = "S1", Artist = "Aimer", Album = "Al1" });
+        libraryVm.Tracks.Add(new Track { FilePath = @"C:\m\2.mp3", Title = "S2", Artist = "M83", Album = "Al2" });
+
+        var sut = new ArtistsViewModel(libraryVm, audio, TimeSpan.Zero);
+        sut.SearchKeyword = "M83";
+
+        // Act
+        bool matchedLower = sut.SelectArtistByName("aimer");
+        string? selectedName = sut.SelectedArtist?.Name;
+        string searchAfterSelect = sut.SearchKeyword;
+        bool missing = sut.SelectArtistByName("NonExistent");
+        sut.Dispose();
+        bool afterDispose = sut.SelectArtistByName("Aimer");
+
+        // Assert
+        Assert.True(matchedLower);
+        Assert.Equal("Aimer", selectedName);
+        Assert.Equal(string.Empty, searchAfterSelect);
+        Assert.False(missing);
+        Assert.False(afterDispose);
+    }
+
     private static void RunInStaThread(Action action)
     {
         Exception? threadEx = null;

@@ -142,6 +142,9 @@
         "AudioEffector/Presentation/**/*Library*",
         "AudioEffector/Presentation/**/*Favorite*"
       ],
+      "exclude_patterns": [
+        "AudioEffector/Presentation/**/*LibraryStats*"
+      ],
       "primary_specs": [
         "設計/画面設計/アルバム一覧/アルバム一覧UI仕様書.md",
         "設計/画面設計/お気に入り/お気に入りUI仕様書.md"
@@ -169,7 +172,8 @@
         "AudioEffector.Infrastructure/Library/**"
       ],
       "exclude_patterns": [
-        "AudioEffector.Infrastructure/Ipc/**"
+        "AudioEffector.Infrastructure/Ipc/**",
+        "AudioEffector.Application/**/*LibraryStats*"
       ],
       "primary_specs": [],
       "related_specs": [
@@ -660,6 +664,41 @@
         "設計/詳細設計/アーキテクチャ/ドメイン層詳細設計書.md",
         "設計/詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md",
         "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md"
+      ]
+    },
+    {
+      "id": "library-listening-stats",
+      "name": "ライブラリ全体リスニング統計（UI）",
+      "code_patterns": [
+        "AudioEffector/Presentation/**/*LibraryStats*"
+      ],
+      "primary_specs": [
+        "設計/機能仕様/ライブラリ全体リスニング統計.md",
+        "設計/画面設計/ライブラリ全体リスニング統計/ライブラリ全体リスニング統計UI仕様書.md"
+      ],
+      "related_specs": [
+        "設計/詳細設計/ライブラリ全体リスニング統計.md",
+        "設計/画面設計/左サイドバー/左サイドバーUI仕様書.md",
+        "設計/画面設計/画面遷移・ナビゲーション設計書.md",
+        "設計/詳細設計/アーキテクチャ/プレゼンテーション層詳細設計書.md"
+      ]
+    },
+    {
+      "id": "library-listening-stats-backend",
+      "name": "ライブラリ全体リスニング統計（バックエンド集計モデル・サービス）",
+      "code_patterns": [
+        "AudioEffector.Domain/**/*LibraryStats*",
+        "AudioEffector.Domain/**/*StatsPeriodFilter*",
+        "AudioEffector.Domain/**/*StatsDateRange*",
+        "AudioEffector.Application/**/*LibraryStats*"
+      ],
+      "primary_specs": [
+        "設計/詳細設計/ライブラリ全体リスニング統計.md"
+      ],
+      "related_specs": [
+        "設計/機能仕様/ライブラリ全体リスニング統計.md",
+        "設計/詳細設計/アーキテクチャ/ドメイン層詳細設計書.md",
+        "設計/詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md"
       ]
     }
   ]
