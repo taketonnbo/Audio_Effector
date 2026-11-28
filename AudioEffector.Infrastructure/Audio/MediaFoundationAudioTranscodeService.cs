@@ -149,7 +149,7 @@ public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeServic
     }
 
     /// <summary>
-    /// 入力音声フォーマットが MP3 エンコード前のリサンプル（16bit PCM・最大 48kHz・最大 2ch への正規化）を必要とするかを判定します。
+    /// 入力音声フォーマットが MP3 エンコード前のリサンプル（16bit PCM・最大 48kHz・最大 2ch への正規化）を必要とするかを判定する
     /// </summary>
     /// <param name="format">判定対象の入力音声フォーマット</param>
     /// <returns>リサンプルが必要な場合は <c>true</c>、不要な場合は <c>false</c></returns>
@@ -164,13 +164,14 @@ public sealed class MediaFoundationAudioTranscodeService : IAudioTranscodeServic
     }
 
     /// <summary>
-    /// MP3 エンコード前のリサンプル先となる 16bit PCM 音声フォーマット（最大 48kHz・1〜2ch）を生成します。
+    /// MP3 エンコード前のリサンプル先となる 16bit PCM 音声フォーマット（最大 48kHz・1〜2ch）を生成する
     /// </summary>
     /// <param name="sourceFormat">リサンプル元の音声フォーマット</param>
     /// <returns>正規化されたリサンプル先 <see cref="WaveFormat"/></returns>
     internal static WaveFormat BuildMp3ResampleTargetFormat(WaveFormat sourceFormat)
     {
         ArgumentNullException.ThrowIfNull(sourceFormat);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sourceFormat.SampleRate);
 
         int targetSampleRate = sourceFormat.SampleRate > MaxMp3SampleRate
             ? MaxMp3SampleRate
