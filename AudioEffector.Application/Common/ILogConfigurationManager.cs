@@ -44,8 +44,9 @@ public interface ILogConfigurationManager
     /// </summary>
     /// <param name="logLevel">適用するログ出力レベル（Trace / Debug / Info / Warn / Error / Off）</param>
     /// <param name="logDirectoryPath">ログ保存先ディレクトリパス（null または空白時は既定の logs フォルダ）</param>
+    /// <param name="fallbackToDefaultOnError">指定先へ書き込めない場合に既定フォルダへフォールバックする場合は true、現行構成を維持して失敗を返す場合は false</param>
     /// <returns>適用結果</returns>
-    LogConfigurationApplyResult ApplyConfiguration(string? logLevel, string? logDirectoryPath);
+    LogConfigurationApplyResult ApplyConfiguration(string? logLevel, string? logDirectoryPath, bool fallbackToDefaultOnError = true);
 }
 
 /// <summary>
