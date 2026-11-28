@@ -107,7 +107,7 @@ flowchart TD
        1. 親リポジトリルートへ戻る（`Set-Location -LiteralPath "<親リポジトリルート>"`）
        2. `gh pr merge <PR番号> --merge`（**`--delete-branch` なし**）で GitHub 上の **Epic 統合ブランチ** へのマージを実行する
        3. `.\tools\worktree_manager.ps1 -Action remove -IssueNumber <子Issue番号> -Force -Json` でワークツリーを削除する
-       4. `git branch -D "<作業ブランチ名>"` でローカル作業ブランチを削除し、必要に応じてリモート作業ブランチ削除（`git push origin --delete "<作業ブランチ名>"`）および `git fetch origin "<統合ブランチ>" --prune` を実行したうえで、`git checkout "<統合ブランチ>"` および `git pull origin "<統合ブランチ>"` を実行する
+       4. `git branch -D "<作業ブランチ名>"` でローカル作業ブランチを削除し、必要に応じてリモート作業ブランチ削除（`git push origin --delete "<作業ブランチ名>"`）および `git fetch origin --prune`（単一ブランチ指定なし：削除済みリモート作業ブランチ参照の整理と `origin/<統合ブランチ>` 更新を両立）を実行したうえで、`git checkout "<統合ブランチ>"` および `git pull origin "<統合ブランチ>"` を実行する
      ```powershell
      Set-Location -LiteralPath "<親リポジトリルート>"
      if ($?) {
@@ -121,20 +121,20 @@ flowchart TD
              git branch -D "<作業ブランチ名>"
              if ($LASTEXITCODE -ne 0) { throw "ローカル作業ブランチ削除に失敗しました (exit=$LASTEXITCODE)" }
              # リモート作業ブランチ削除が必要な場合（未削除なら削除）
-             $null = git push origin --delete "<作業ブランチ名>" 2>&1
-             if ($LASTEXITCODE -ne 0) { Write-Warning "リモート作業ブランチの削除をスキップしました（既に削除済みの可能性があります / exit=$LASTEXITCODE）" }
-             $null = git fetch origin "<統合ブランチ>" --prune 2>&1
-             if ($LASTEXITCODE -ne 0) { throw "git fetch origin <統合ブランチ> --prune に失敗しました (exit=$LASTEXITCODE)" }
-             $null = git checkout "<統合ブランチ>" 2>&1
-             if ($LASTEXITCODE -ne 0) { throw "git checkout <統合ブランチ> に失敗しました (exit=$LASTEXITCODE)" }
-             $null = git pull origin "<統合ブランチ>" 2>&1
-             if ($LASTEXITCODE -ne 0) { throw "git pull origin <統合ブランチ> に失敗しました (exit=$LASTEXITCODE)" }
+             $deleteRemoteOut = git push origin --delete "<作業ブランチ名>" 2>&1
+             if ($LASTEXITCODE -ne 0) { Write-Warning "リモート作業ブランチの削除をスキップしました（既に削除済みの可能性があります / exit=$LASTEXITCODE）: $($deleteRemoteOut -join ' ')" }
+             $fetchOut = git fetch origin --prune 2>&1
+             if ($LASTEXITCODE -ne 0) { throw "git fetch origin --prune に失敗しました (exit=$LASTEXITCODE): $($fetchOut -join ' ')" }
+             $checkoutOut = git checkout "<統合ブランチ>" 2>&1
+             if ($LASTEXITCODE -ne 0) { throw "git checkout <統合ブランチ> に失敗しました (exit=$LASTEXITCODE): $($checkoutOut -join ' ')" }
+             $pullOut = git pull origin "<統合ブランチ>" 2>&1
+             if ($LASTEXITCODE -ne 0) { throw "git pull origin <統合ブランチ> に失敗しました (exit=$LASTEXITCODE): $($pullOut -join ' ')" }
          } finally {
              $ErrorActionPreference = $prevEap
          }
      }
      ```
-     - **PowerShell `$ErrorActionPreference = "Stop"` 下での注意点**: `git push origin --delete`、`git fetch`、`git checkout`、`git pull` などの Git コマンドは正常終了時にも標準エラー出力（stderr）へ進捗・削除ログを出力する。PowerShell 5.1 で `$ErrorActionPreference = "Stop"` が有効な場合、stderr への正常ログが `NativeCommandError` として例外中断する原因となるため、上記のように一時的に `$ErrorActionPreference = "Continue"` へ切り替えたうえで出力リダイレクト（`2>&1`）と終了コード（`$LASTEXITCODE`）判定により成否を制御すること。
+     - **PowerShell `$ErrorActionPreference = "Stop"` 下での注意点**: `git push origin --delete`、`git fetch`、`git checkout`、`git pull` などの Git コマンドは正常終了時にも標準エラー出力（stderr）へ進捗・削除ログを出力する。PowerShell 5.1 で `$ErrorActionPreference = "Stop"` が有効な場合、stderr への正常ログが `NativeCommandError` として例外中断する原因となるため、上記のように一時的に `$ErrorActionPreference = "Continue"` へ切り替えたうえで出力リダイレクト（`2>&1`）を変数へ捕捉し、終了コード（`$LASTEXITCODE`）が非 0 の場合のみ詳細を出力して制御すること。
    - **残存並列 PR への順次追従同期**: 他に稼働中またはレビュー済みの並列 PR が残っている場合、`python tools/epic_tracker.py --epic <Epic番号> --next --max-parallel 3` を再実行して `sync_branch` / `ready_to_merge` 状態を再評価し、次の 1 件に対して追従同期 → 検証 → 統合ブランチへマージを順次繰り返す。
    - 孤立ディレクトリが残っている場合は `.\tools\worktree_manager.ps1 -Action prune -Json` で整理する（既定で稼働中ワークツリーの `.agent_build/` は保護される）。
 2. 子 Issue が Inner Loop の停止条件に到達し `blocked` となった場合：
