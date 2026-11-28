@@ -1,15 +1,23 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.LrcGeneration;
 using AudioEffector.Infrastructure.Lyrics;
+using NAudio;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
 
 namespace AudioEffector.Infrastructure.Tests.LrcGeneration;
 
+[SuppressMessage("Usage", "CA2201:Do not raise reserved exception types", Justification = "外部ライブラリや OS 起因の予約済み例外の分類・日本語ラップ動作を単体テストで検証するため")]
 public sealed class WhisperLocalAlignmentEngineTests : IDisposable
 {
     private readonly string _tempDir;
@@ -175,6 +183,255 @@ public sealed class WhisperLocalAlignmentEngineTests : IDisposable
 
         // Act & Assert
         await Assert.ThrowsAsync<FileNotFoundException>(() => sut.GenerateAsync(request));
+    }
+
+    /// <summary>
+    /// Whisper.net のネイティブライブラリ欠損（Native Library not found / DllNotFoundException / TypeInitializationException）時に
+    /// 英語生メッセージを露出せず NativeRuntimeUnavailable の LrcGenerationException へラップし NLog へ記録することを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("FileNotFoundNative")]
+    [InlineData("DllNotFound")]
+    [InlineData("TypeInitialization")]
+    public async Task GenerateAsync_ネイティブライブラリ欠損例外_日本語エラーへラップしNLogへ記録する(string scenario)
+    {
+        // Arrange
+        string audioPath = Path.Combine(_tempDir, "usb_song.flac");
+        string modelPath = Path.Combine(_tempDir, "ggml-base.bin");
+        await File.WriteAllBytesAsync(audioPath, [0, 1, 2]);
+        await File.WriteAllBytesAsync(modelPath, [0, 1, 2]);
+
+        Exception injected = scenario switch
+        {
+            "FileNotFoundNative" => new FileNotFoundException(
+                "Native Library not found in default paths.Verify you have have included the native Whisper library in your application, or install the default libraries with the Whisper.net.Runtime NuGet."),
+            "DllNotFound" => new DllNotFoundException("Unable to load DLL 'whisper.dll' or one of its dependencies."),
+            _ => new TypeInitializationException("Whisper.net.Native.NativeMethods", new BadImageFormatException("Bad image format for whisper.dll")),
+        };
+
+        var sut = new WhisperLocalAlignmentEngine(
+            new WhisperModelManager(_tempDir),
+            new LrcParser(),
+            new LyricsForcedAligner(),
+            new StubPcmDecoder(new float[16000], TimeSpan.FromSeconds(10)),
+            transcribeFunc: (_, _, _, _, _, _) => Task.FromException<IReadOnlyList<AlignmentSegment>>(injected));
+
+        var request = new AlignmentRequest(audioPath, LrcGenerationMode.AudioTranscription);
+
+        LoggingConfiguration? previousConfig = LogManager.Configuration;
+        using var memoryTarget = new MemoryTarget("issue465_test_target")
+        {
+            Layout = "${level:uppercase=true}|${message}|${exception:format=tostring}",
+        };
+        var testConfig = new LoggingConfiguration();
+        testConfig.AddRule(LogLevel.Error, LogLevel.Fatal, memoryTarget);
+        LogManager.Configuration = testConfig;
+
+        try
+        {
+            // Act
+            LrcGenerationException ex = await Assert.ThrowsAsync<LrcGenerationException>(() => sut.GenerateAsync(request));
+
+            // Assert
+            Assert.Equal(LrcGenerationErrorCategory.NativeRuntimeUnavailable, ex.Category);
+            Assert.Equal(LrcGenerationErrorMessageResolver.NATIVE_RUNTIME_UNAVAILABLE_MESSAGE, ex.Message);
+            Assert.DoesNotContain("Native Library", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Whisper.net", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Same(injected, ex.InnerException);
+            Assert.True(ex.IsLogged);
+            Assert.NotEmpty(memoryTarget.Logs);
+            Assert.Contains(injected.GetType().FullName!, memoryTarget.Logs[0], StringComparison.Ordinal);
+        }
+        finally
+        {
+            LogManager.Configuration = previousConfig;
+        }
+    }
+
+    /// <summary>
+    /// 音声デコード時の USB 取り外し・権限不足（IOException / UnauthorizedAccessException / DirectoryNotFoundException）が
+    /// AudioFileAccessFailed へ分類されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("IO")]
+    [InlineData("Unauthorized")]
+    [InlineData("DirectoryNotFound")]
+    public async Task GenerateAsync_音声ファイルアクセス失敗_AudioFileAccessFailedへ分類する(string scenario)
+    {
+        // Arrange
+        string audioPath = Path.Combine(_tempDir, "usb_track.mp3");
+        string modelPath = Path.Combine(_tempDir, "ggml-base.bin");
+        await File.WriteAllBytesAsync(audioPath, [0, 1, 2]);
+        await File.WriteAllBytesAsync(modelPath, [0, 1, 2]);
+
+        Exception injected = scenario switch
+        {
+            "IO" => new IOException("The device is not ready.", unchecked((int)0x80070015)),
+            "Unauthorized" => new UnauthorizedAccessException("Access to the path 'E:\\Music\\track.mp3' is denied."),
+            _ => new DirectoryNotFoundException("Could not find a part of the path 'E:\\Music'."),
+        };
+
+        var sut = new WhisperLocalAlignmentEngine(
+            new WhisperModelManager(_tempDir),
+            new LrcParser(),
+            new LyricsForcedAligner(),
+            new ThrowingPcmDecoder(injected),
+            transcribeFunc: (_, _, _, _, _, _) => Task.FromResult<IReadOnlyList<AlignmentSegment>>(Array.Empty<AlignmentSegment>()));
+
+        var request = new AlignmentRequest(audioPath, LrcGenerationMode.AudioTranscription);
+
+        // Act
+        LrcGenerationException ex = await Assert.ThrowsAsync<LrcGenerationException>(() => sut.GenerateAsync(request));
+
+        // Assert
+        Assert.Equal(LrcGenerationErrorCategory.AudioFileAccessFailed, ex.Category);
+        Assert.Equal(LrcGenerationErrorMessageResolver.AUDIO_FILE_ACCESS_FAILED_MESSAGE, ex.Message);
+        Assert.Same(injected, ex.InnerException);
+    }
+
+    /// <summary>
+    /// 音声デコード時の破損・未対応形式例外（FormatException / InvalidDataException / EndOfStreamException / COMException / MmException）が
+    /// AudioDecodeFailed へ分類されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("Format")]
+    [InlineData("InvalidData")]
+    [InlineData("EndOfStream")]
+    [InlineData("COM")]
+    [InlineData("MmException")]
+    public async Task GenerateAsync_音声デコード失敗_AudioDecodeFailedへ分類する(string scenario)
+    {
+        // Arrange
+        string audioPath = Path.Combine(_tempDir, "broken.flac");
+        string modelPath = Path.Combine(_tempDir, "ggml-base.bin");
+        await File.WriteAllBytesAsync(audioPath, [0, 1, 2]);
+        await File.WriteAllBytesAsync(modelPath, [0, 1, 2]);
+
+        Exception injected = scenario switch
+        {
+            "Format" => new FormatException("Not a WAVE file - no RIFF header"),
+            "InvalidData" => new InvalidDataException("Invalid FLAC frame header"),
+            "EndOfStream" => new EndOfStreamException("Unable to read beyond the end of the stream."),
+            "COM" => new COMException("MF_E_UNSUPPORTED_BYTESTREAM_TYPE", unchecked((int)0xC00D36C4)),
+            _ => new MmException(MmResult.AcmNotPossible, "acmStreamOpen"),
+        };
+
+        var sut = new WhisperLocalAlignmentEngine(
+            new WhisperModelManager(_tempDir),
+            new LrcParser(),
+            new LyricsForcedAligner(),
+            new ThrowingPcmDecoder(injected),
+            transcribeFunc: (_, _, _, _, _, _) => Task.FromResult<IReadOnlyList<AlignmentSegment>>(Array.Empty<AlignmentSegment>()));
+
+        var request = new AlignmentRequest(audioPath, LrcGenerationMode.AudioTranscription);
+
+        // Act
+        LrcGenerationException ex = await Assert.ThrowsAsync<LrcGenerationException>(() => sut.GenerateAsync(request));
+
+        // Assert
+        Assert.Equal(LrcGenerationErrorCategory.AudioDecodeFailed, ex.Category);
+        Assert.Equal(LrcGenerationErrorMessageResolver.AUDIO_DECODE_FAILED_MESSAGE, ex.Message);
+        Assert.Same(injected, ex.InnerException);
+    }
+
+    /// <summary>
+    /// モデル読込失敗・メモリ不足・未分類英語例外のそれぞれが期待するカテゴリと日本語メッセージへ変換されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GenerateAsync_モデル破損とメモリ不足と未分類英語例外_期待するカテゴリへ分類する()
+    {
+        // Arrange
+        string audioPath = Path.Combine(_tempDir, "song.wav");
+        string modelPath = Path.Combine(_tempDir, "ggml-base.bin");
+        await File.WriteAllBytesAsync(audioPath, [0, 1, 2]);
+        await File.WriteAllBytesAsync(modelPath, [0, 1, 2]);
+        var request = new AlignmentRequest(audioPath, LrcGenerationMode.AudioTranscription);
+
+        var modelBrokenSut = new WhisperLocalAlignmentEngine(
+            new WhisperModelManager(_tempDir),
+            new LrcParser(),
+            new LyricsForcedAligner(),
+            new StubPcmDecoder(new float[16000], TimeSpan.FromSeconds(10)),
+            transcribeFunc: (_, _, _, _, _, _) => Task.FromException<IReadOnlyList<AlignmentSegment>>(
+                new InvalidDataException("Failed to load ggml model file: invalid magic.")));
+
+        var oomSut = new WhisperLocalAlignmentEngine(
+            new WhisperModelManager(_tempDir),
+            new LrcParser(),
+            new LyricsForcedAligner(),
+            new StubPcmDecoder(new float[16000], TimeSpan.FromSeconds(10)),
+            transcribeFunc: (_, _, _, _, _, _) => Task.FromException<IReadOnlyList<AlignmentSegment>>(
+                new OutOfMemoryException("Out of memory during whisper_full.")));
+
+        var unexpectedSut = new WhisperLocalAlignmentEngine(
+            new WhisperModelManager(_tempDir),
+            new LrcParser(),
+            new LyricsForcedAligner(),
+            new StubPcmDecoder(new float[16000], TimeSpan.FromSeconds(10)),
+            transcribeFunc: (_, _, _, onModelLoaded, _, _) =>
+            {
+                onModelLoaded?.Invoke();
+                return Task.FromException<IReadOnlyList<AlignmentSegment>>(
+                    new InvalidOperationException("Unexpected internal state error."));
+            });
+
+        // Act
+        LrcGenerationException modelEx = await Assert.ThrowsAsync<LrcGenerationException>(() => modelBrokenSut.GenerateAsync(request));
+        LrcGenerationException oomEx = await Assert.ThrowsAsync<LrcGenerationException>(() => oomSut.GenerateAsync(request));
+        LrcGenerationException unexpectedEx = await Assert.ThrowsAsync<LrcGenerationException>(() => unexpectedSut.GenerateAsync(request));
+
+        // Assert
+        Assert.Equal(LrcGenerationErrorCategory.ModelLoadFailed, modelEx.Category);
+        Assert.Equal(LrcGenerationErrorMessageResolver.MODEL_LOAD_FAILED_MESSAGE, modelEx.Message);
+
+        Assert.Equal(LrcGenerationErrorCategory.OutOfMemory, oomEx.Category);
+        Assert.Equal(LrcGenerationErrorMessageResolver.OUT_OF_MEMORY_MESSAGE, oomEx.Message);
+
+        Assert.Equal(LrcGenerationErrorCategory.Unexpected, unexpectedEx.Category);
+        Assert.Equal(LrcGenerationErrorMessageResolver.DEFAULT_GENERATION_ERROR_MESSAGE, unexpectedEx.Message);
+        Assert.DoesNotContain("Unexpected internal", unexpectedEx.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// ユーザーキャンセル要求時に OperationCanceledException がラップされずそのまま再送出されることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task GenerateAsync_ユーザーキャンセル要求時_OperationCanceledExceptionをそのまま伝播する()
+    {
+        // Arrange
+        string audioPath = Path.Combine(_tempDir, "cancel.wav");
+        string modelPath = Path.Combine(_tempDir, "ggml-base.bin");
+        await File.WriteAllBytesAsync(audioPath, [0, 1, 2]);
+        await File.WriteAllBytesAsync(modelPath, [0, 1, 2]);
+
+        using var cts = new CancellationTokenSource();
+        var sut = new WhisperLocalAlignmentEngine(
+            new WhisperModelManager(_tempDir),
+            new LrcParser(),
+            new LyricsForcedAligner(),
+            new StubPcmDecoder(new float[16000], TimeSpan.FromSeconds(10)),
+            transcribeFunc: (_, _, _, _, _, ct) =>
+            {
+                cts.Cancel();
+                ct.ThrowIfCancellationRequested();
+                return Task.FromResult<IReadOnlyList<AlignmentSegment>>(Array.Empty<AlignmentSegment>());
+            });
+
+        var request = new AlignmentRequest(audioPath, LrcGenerationMode.AudioTranscription);
+
+        // Act & Assert
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sut.GenerateAsync(request, cancellationToken: cts.Token));
+    }
+
+    private sealed class ThrowingPcmDecoder(Exception exception) : IAudioPcmDecoder
+    {
+        public Task<DecodedAudioPcm> DecodeToMono16kHzAsync(
+            string audioFilePath,
+            IProgress<double>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromException<DecodedAudioPcm>(exception);
+        }
     }
 
     private sealed class StubPcmDecoder(float[] samples, TimeSpan duration) : IAudioPcmDecoder

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -24,6 +25,7 @@ public class LrcGenerationApplicationService
     private readonly ILocalSpeechModelManager _modelManager;
     private readonly ILrcParser _lrcParser;
     private readonly LyricsApplicationService _lyricsApplicationService;
+    private readonly IAppLogger? _logger;
 
     /// <summary>
     /// 現在使用している解析エンジン名を取得します
@@ -38,18 +40,21 @@ public class LrcGenerationApplicationService
     /// <param name="modelManager">ローカル音声認識モデルマネージャー</param>
     /// <param name="lrcParser">LRC パーサー・フォーマッター</param>
     /// <param name="lyricsApplicationService">歌詞表示アプリケーションサービス（保存後キャッシュ更新連携用）</param>
+    /// <param name="logger">エラー詳細記録用ロガー（省略可能）</param>
     public LrcGenerationApplicationService(
         IAudioAlignmentEngine alignmentEngine,
         ITextEncodingService textEncodingService,
         ILocalSpeechModelManager modelManager,
         ILrcParser lrcParser,
-        LyricsApplicationService lyricsApplicationService)
+        LyricsApplicationService lyricsApplicationService,
+        IAppLogger? logger = null)
     {
         _alignmentEngine = alignmentEngine ?? throw new ArgumentNullException(nameof(alignmentEngine));
         _textEncodingService = textEncodingService ?? throw new ArgumentNullException(nameof(textEncodingService));
         _modelManager = modelManager ?? throw new ArgumentNullException(nameof(modelManager));
         _lrcParser = lrcParser ?? throw new ArgumentNullException(nameof(lrcParser));
         _lyricsApplicationService = lyricsApplicationService ?? throw new ArgumentNullException(nameof(lyricsApplicationService));
+        _logger = logger;
     }
 
     /// <summary>
@@ -76,9 +81,10 @@ public class LrcGenerationApplicationService
             _modelManager.SelectModel(modelId);
             return Result.Success();
         }
-        catch (Exception ex) when (ex is ArgumentException or FileNotFoundException)
+        catch (Exception ex)
         {
-            return Result.Failure(ex.Message);
+            LogException($"標準モデルの選択に失敗しました (ModelId={modelId})", ex);
+            return Result.Failure(LrcGenerationErrorMessageResolver.ResolveModelSelectionErrorMessage(ex));
         }
     }
 
@@ -94,9 +100,10 @@ public class LrcGenerationApplicationService
             _modelManager.SetCustomModelPath(modelFilePath);
             return Result.Success();
         }
-        catch (Exception ex) when (ex is ArgumentException or FileNotFoundException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
-            return Result.Failure(ex.Message);
+            LogException($"カスタムモデルパスの設定に失敗しました (Path={modelFilePath})", ex);
+            return Result.Failure(LrcGenerationErrorMessageResolver.ResolveModelSelectionErrorMessage(ex));
         }
     }
 
@@ -119,13 +126,17 @@ public class LrcGenerationApplicationService
                 .ConfigureAwait(false);
             return Result.Success(info);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
         {
             throw;
         }
         catch (Exception ex)
         {
-            return Result.Failure<LocalSpeechModelInfo>($"モデルのダウンロードに失敗しました: {ex.Message}");
+            bool isTimeout = ex is OperationCanceledException or TimeoutException
+                || LrcGenerationErrorMessageResolver.ContainsException<TimeoutException>(ex)
+                || LrcGenerationErrorMessageResolver.ContainsException<TaskCanceledException>(ex);
+            LogException($"ローカルモデルのダウンロードに失敗しました (ModelId={modelId ?? "default"}, IsTimeout={isTimeout})", ex);
+            return Result.Failure<LocalSpeechModelInfo>(LrcGenerationErrorMessageResolver.ResolveModelDownloadErrorMessage(ex, isTimeout));
         }
     }
 
@@ -164,17 +175,20 @@ public class LrcGenerationApplicationService
 
             return Result.Success(inspection);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
         {
             throw;
         }
-        catch (FileNotFoundException)
+        catch (FileNotFoundException ex)
         {
+            LogException($"テキストファイルが見つかりませんでした (Path={textFilePath})", ex);
             return Result.Failure<TextEncodingInspectionResult>("指定されたテキストファイルが見つかりません。");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex)
         {
-            return Result.Failure<TextEncodingInspectionResult>($"テキストファイルの読み込みに失敗しました: {ex.Message}");
+            LogException($"テキストファイルの事前検査に失敗しました (Path={textFilePath})", ex);
+            return Result.Failure<TextEncodingInspectionResult>(
+                LrcGenerationErrorMessageResolver.ResolveTextReadErrorMessage(ex, isExistingLrc: false));
         }
     }
 
@@ -259,13 +273,14 @@ public class LrcGenerationApplicationService
 
             return Result.Success(result);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
         {
             throw;
         }
         catch (Exception ex)
         {
-            return Result.Failure<AlignmentResult>(ex.Message);
+            LogException($"テキスト強制アライメントによる LRC 生成に失敗しました (Track={track.FilePath})", ex);
+            return Result.Failure<AlignmentResult>(LrcGenerationErrorMessageResolver.ResolveGenerationErrorMessage(ex));
         }
     }
 
@@ -305,13 +320,14 @@ public class LrcGenerationApplicationService
 
             return Result.Success(result);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
         {
             throw;
         }
         catch (Exception ex)
         {
-            return Result.Failure<AlignmentResult>(ex.Message);
+            LogException($"音声直接文字起こしによる LRC 生成に失敗しました (Track={track.FilePath})", ex);
+            return Result.Failure<AlignmentResult>(LrcGenerationErrorMessageResolver.ResolveGenerationErrorMessage(ex));
         }
     }
 
@@ -375,7 +391,9 @@ public class LrcGenerationApplicationService
         }
         catch (ArgumentException ex)
         {
-            return Result.Failure<LyricsDocument?>($"既存の .lrc パス解決に失敗しました: {ex.Message}");
+            LogException($"既存の .lrc パス解決に失敗しました (Track={track.FilePath})", ex);
+            return Result.Failure<LyricsDocument?>(
+                LrcGenerationErrorMessageResolver.ResolveTextReadErrorMessage(ex, isExistingLrc: true));
         }
 
         if (!File.Exists(lrcPath))
@@ -403,7 +421,7 @@ public class LrcGenerationApplicationService
             LyricsDocument loaded = parsed.WithSource(LyricsSourceType.LrcFile, lrcPath);
             return Result.Success<LyricsDocument?>(loaded);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
         {
             throw;
         }
@@ -413,7 +431,9 @@ public class LrcGenerationApplicationService
         }
         catch (Exception ex)
         {
-            return Result.Failure<LyricsDocument?>($"既存の .lrc ファイルの読み込みに失敗しました: {ex.Message}");
+            LogException($"既存の .lrc ファイルの読み込みに失敗しました (LrcPath={lrcPath})", ex);
+            return Result.Failure<LyricsDocument?>(
+                LrcGenerationErrorMessageResolver.ResolveTextReadErrorMessage(ex, isExistingLrc: true));
         }
     }
 
@@ -464,7 +484,8 @@ public class LrcGenerationApplicationService
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return Result.Failure<string>($"保存先パスが不正です: {ex.Message}");
+            LogException($"LRC 保存先パスが不正です (DestinationPath={destinationPath ?? track.FilePath})", ex);
+            return Result.Failure<string>(LrcGenerationErrorMessageResolver.ResolveSaveLrcErrorMessage(ex));
         }
 
         try
@@ -486,13 +507,32 @@ public class LrcGenerationApplicationService
 
             return Result.Success(targetPath);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
         {
             throw;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex)
         {
-            return Result.Failure<string>($"LRC ファイルの保存に失敗しました: {ex.Message}");
+            LogException($"LRC ファイルの保存に失敗しました (TargetPath={targetPath})", ex);
+            return Result.Failure<string>(LrcGenerationErrorMessageResolver.ResolveSaveLrcErrorMessage(ex));
+        }
+    }
+
+    private void LogException(string context, Exception ex)
+    {
+        if (ex is LrcGenerationException { IsLogged: true })
+        {
+            return;
+        }
+
+        string message = $"{context} [ExceptionType={ex.GetType().FullName}]";
+        if (_logger is not null)
+        {
+            _logger.Error(message, ex);
+        }
+        else
+        {
+            Debug.WriteLine($"[LrcGenerationApplicationService] {context} ({ex.GetType().Name})");
         }
     }
 

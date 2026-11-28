@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
@@ -100,9 +101,32 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
             : new DirectProgress<double>(p =>
                 progress.Report(new AlignmentProgress(AlignmentPhase.DecodingAudio, 0.02 + (p * 0.18), "音声ファイルを 16kHz モノラルへ変換中...")));
 
-        DecodedAudioPcm decoded = await _audioDecoder
-            .DecodeToMono16kHzAsync(request.AudioFilePath, decodeProgress, cancellationToken)
-            .ConfigureAwait(false);
+        DecodedAudioPcm decoded;
+        try
+        {
+            decoded = await _audioDecoder
+                .DecodeToMono16kHzAsync(request.AudioFilePath, decodeProgress, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
+        {
+            throw;
+        }
+        catch (LrcGenerationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(
+                ex,
+                "LRC 生成の音声デコードフェーズでエラーが発生しました: Mode={Mode}, Phase={Phase}, AudioFilePath={AudioFilePath}, ExceptionType={ExceptionType}",
+                request.Mode,
+                AlignmentPhase.DecodingAudio,
+                request.AudioFilePath,
+                ex.GetType().FullName);
+            throw LrcInfrastructureExceptionTranslator.TranslateDecodeException(ex, isLogged: true);
+        }
 
         if (decoded.Samples.Length == 0)
         {
@@ -124,25 +148,51 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
             }
         }
 
-        IReadOnlyList<AlignmentSegment> segments = await _transcribeFunc(
-            modelPath,
-            decoded.Samples,
-            request.LanguageCode,
-            NotifyTranscribingStarted,
-            whisperPercent =>
-            {
-                NotifyTranscribingStarted();
-                int clamped = Math.Clamp(whisperPercent, 0, 100);
-                if (Interlocked.Exchange(ref lastPercent, clamped) != clamped)
+        IReadOnlyList<AlignmentSegment> segments;
+        try
+        {
+            segments = await _transcribeFunc(
+                modelPath,
+                decoded.Samples,
+                request.LanguageCode,
+                NotifyTranscribingStarted,
+                whisperPercent =>
                 {
-                    double overall = 0.25 + ((clamped / 100.0) * 0.60);
-                    progress?.Report(new AlignmentProgress(
-                        AlignmentPhase.Transcribing,
-                        overall,
-                        $"音声認識・文字起こし中 ({clamped}%)..."));
-                }
-            },
-            cancellationToken).ConfigureAwait(false);
+                    NotifyTranscribingStarted();
+                    int clamped = Math.Clamp(whisperPercent, 0, 100);
+                    if (Interlocked.Exchange(ref lastPercent, clamped) != clamped)
+                    {
+                        double overall = 0.25 + ((clamped / 100.0) * 0.60);
+                        progress?.Report(new AlignmentProgress(
+                            AlignmentPhase.Transcribing,
+                            overall,
+                            $"音声認識・文字起こし中 ({clamped}%)..."));
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
+        {
+            throw;
+        }
+        catch (LrcGenerationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AlignmentPhase currentPhase = Volatile.Read(ref transcribingStarted) == 0
+                ? AlignmentPhase.LoadingModel
+                : AlignmentPhase.Transcribing;
+            Logger.Error(
+                ex,
+                "LRC 生成の音声認識フェーズでエラーが発生しました: Mode={Mode}, Phase={Phase}, ModelPath={ModelPath}, ExceptionType={ExceptionType}",
+                request.Mode,
+                currentPhase,
+                modelPath,
+                ex.GetType().FullName);
+            throw LrcInfrastructureExceptionTranslator.TranslateTranscriptionException(ex, currentPhase, isLogged: true);
+        }
 
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -154,25 +204,46 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
 
         // Phase 4: モード別ドキュメント構築 (85% -> 95%)
         LyricsDocument document;
-        if (request.Mode == LrcGenerationMode.TextAlignment)
+        try
         {
-            progress?.Report(new AlignmentProgress(AlignmentPhase.AligningLyrics, 0.88, "歌詞テキストと音声タイミングを合わせています..."));
-            document = _forcedAligner.Align(
-                request.LyricsLines,
-                segments,
-                decoded.Duration,
-                request.Title,
-                request.Artist,
-                request.Album);
+            if (request.Mode == LrcGenerationMode.TextAlignment)
+            {
+                progress?.Report(new AlignmentProgress(AlignmentPhase.AligningLyrics, 0.88, "歌詞テキストと音声タイミングを合わせています..."));
+                document = _forcedAligner.Align(
+                    request.LyricsLines,
+                    segments,
+                    decoded.Duration,
+                    request.Title,
+                    request.Artist,
+                    request.Album);
+            }
+            else
+            {
+                progress?.Report(new AlignmentProgress(AlignmentPhase.AligningLyrics, 0.88, "文字起こしセグメントから同期歌詞を構築しています..."));
+                document = _forcedAligner.BuildDocumentFromSegments(
+                    segments,
+                    request.Title,
+                    request.Artist,
+                    request.Album);
+            }
         }
-        else
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
         {
-            progress?.Report(new AlignmentProgress(AlignmentPhase.AligningLyrics, 0.88, "文字起こしセグメントから同期歌詞を構築しています..."));
-            document = _forcedAligner.BuildDocumentFromSegments(
-                segments,
-                request.Title,
-                request.Artist,
-                request.Album);
+            throw;
+        }
+        catch (LrcGenerationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(
+                ex,
+                "LRC 生成のアライメント構築フェーズでエラーが発生しました: Mode={Mode}, Phase={Phase}, ExceptionType={ExceptionType}",
+                request.Mode,
+                AlignmentPhase.AligningLyrics,
+                ex.GetType().FullName);
+            throw LrcInfrastructureExceptionTranslator.TranslateTranscriptionException(ex, AlignmentPhase.AligningLyrics, isLogged: true);
         }
 
         if (!document.HasVisibleLyrics)
@@ -182,7 +253,29 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
 
         // Phase 5: LRC フォーマット (95% -> 100%)
         progress?.Report(new AlignmentProgress(AlignmentPhase.FormattingLrc, 0.96, "LRC 形式へ整形しています..."));
-        string lrcContent = _lrcParser.Format(document);
+        string lrcContent;
+        try
+        {
+            lrcContent = _lrcParser.Format(document);
+        }
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
+        {
+            throw;
+        }
+        catch (LrcGenerationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(
+                ex,
+                "LRC フォーマット整形フェーズでエラーが発生しました: Mode={Mode}, Phase={Phase}, ExceptionType={ExceptionType}",
+                request.Mode,
+                AlignmentPhase.FormattingLrc,
+                ex.GetType().FullName);
+            throw LrcInfrastructureExceptionTranslator.TranslateTranscriptionException(ex, AlignmentPhase.FormattingLrc, isLogged: true);
+        }
 
         progress?.Report(new AlignmentProgress(AlignmentPhase.Completed, 1.0, "LRC の生成が完了しました。"));
         Logger.Info(
@@ -227,38 +320,95 @@ public sealed class WhisperLocalAlignmentEngine : IAudioAlignmentEngine
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        using WhisperFactory factory = WhisperFactory.FromPath(modelPath);
-        WhisperProcessorBuilder builder = factory.CreateBuilder();
-
-        if (string.IsNullOrWhiteSpace(languageCode)
-            || string.Equals(languageCode, "auto", StringComparison.OrdinalIgnoreCase))
+        WhisperFactory factory;
+        WhisperProcessor processor;
+        try
         {
-            builder = builder.WithLanguageDetection();
-        }
-        else
-        {
-            builder = builder.WithLanguage(languageCode.Trim());
-        }
-
-        if (onProgress is not null)
-        {
-            builder = builder.WithProgressHandler(percent => onProgress(percent));
-        }
-
-        using WhisperProcessor processor = builder.Build();
-        onModelLoaded?.Invoke();
-
-        var segments = new List<AlignmentSegment>();
-        await foreach (SegmentData seg in processor.ProcessAsync(samples, cancellationToken).ConfigureAwait(false))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!string.IsNullOrWhiteSpace(seg.Text))
+            factory = WhisperFactory.FromPath(modelPath);
+            try
             {
-                segments.Add(new AlignmentSegment(seg.Start, seg.End, seg.Text));
+                WhisperProcessorBuilder builder = factory.CreateBuilder();
+
+                if (string.IsNullOrWhiteSpace(languageCode)
+                    || string.Equals(languageCode, "auto", StringComparison.OrdinalIgnoreCase))
+                {
+                    builder = builder.WithLanguageDetection();
+                }
+                else
+                {
+                    builder = builder.WithLanguage(languageCode.Trim());
+                }
+
+                if (onProgress is not null)
+                {
+                    builder = builder.WithProgressHandler(percent => onProgress(percent));
+                }
+
+                processor = builder.Build();
+            }
+            catch
+            {
+                factory.Dispose();
+                throw;
             }
         }
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
+        {
+            throw;
+        }
+        catch (LrcGenerationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(
+                ex,
+                "Whisper ローカルモデルの読み込みに失敗しました: Phase={Phase}, ModelPath={ModelPath}, ExceptionType={ExceptionType}",
+                AlignmentPhase.LoadingModel,
+                modelPath,
+                ex.GetType().FullName);
+            throw LrcInfrastructureExceptionTranslator.TranslateModelLoadException(ex, isLogged: true);
+        }
 
-        return segments;
+        using (factory)
+        using (processor)
+        {
+            onModelLoaded?.Invoke();
+
+            var segments = new List<AlignmentSegment>();
+            try
+            {
+                await foreach (SegmentData seg in processor.ProcessAsync(samples, cancellationToken).ConfigureAwait(false))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!string.IsNullOrWhiteSpace(seg.Text))
+                    {
+                        segments.Add(new AlignmentSegment(seg.Start, seg.End, seg.Text));
+                    }
+                }
+            }
+            catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
+            {
+                throw;
+            }
+            catch (LrcGenerationException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(
+                    ex,
+                    "Whisper 推論処理中にエラーが発生しました: Phase={Phase}, ModelPath={ModelPath}, ExceptionType={ExceptionType}",
+                    AlignmentPhase.Transcribing,
+                    modelPath,
+                    ex.GetType().FullName);
+                throw LrcInfrastructureExceptionTranslator.TranslateTranscriptionException(ex, AlignmentPhase.Transcribing, isLogged: true);
+            }
+
+            return segments;
+        }
     }
 
     private sealed class DirectProgress<T>(Action<T> handler) : IProgress<T>

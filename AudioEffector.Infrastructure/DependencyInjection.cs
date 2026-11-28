@@ -73,6 +73,7 @@ public static class DependencyInjection
 
         // ロギングサービスおよび動的ログ構成マネージャ
         services.AddSingleton<NLogService>();
+        services.AddSingleton<IAppLogger>(sp => sp.GetRequiredService<NLogService>());
         services.AddSingleton<ILogConfigurationManager, LogConfigurationManager>();
 
         return services;

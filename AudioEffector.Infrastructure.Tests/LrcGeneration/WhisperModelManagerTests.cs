@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Infrastructure.LrcGeneration;
 
@@ -97,6 +100,64 @@ public sealed class WhisperModelManagerTests : IDisposable
         // Assert
         Assert.False(activeInfo.IsAvailable);
         Assert.Throws<InvalidDataException>(() => sut.SetCustomModelPath(brokenCustom));
+    }
+
+    /// <summary>
+    /// モデルダウンロード時のネットワーク障害・タイムアウト・ディスク容量不足・権限不足が
+    /// 日本語メッセージの LrcGenerationException へラップされ一時ファイルを残さないことを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("Network", LrcGenerationErrorMessageResolver.MODEL_DOWNLOAD_NETWORK_ERROR_MESSAGE)]
+    [InlineData("Timeout", LrcGenerationErrorMessageResolver.MODEL_DOWNLOAD_TIMEOUT_MESSAGE)]
+    [InlineData("DiskFull", LrcGenerationErrorMessageResolver.MODEL_DOWNLOAD_DISK_FULL_MESSAGE)]
+    [InlineData("AccessDenied", LrcGenerationErrorMessageResolver.MODEL_DOWNLOAD_ACCESS_DENIED_MESSAGE)]
+    public async Task DownloadModelAsync_各種ダウンロード障害_日本語LrcGenerationExceptionへラップする(string scenario, string expectedMessage)
+    {
+        // Arrange
+        Exception injected = scenario switch
+        {
+            "Network" => new HttpRequestException("The remote name could not be resolved."),
+            "Timeout" => new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout."),
+            "DiskFull" => new IOException("There is not enough space on the disk.", unchecked((int)0x80070070)),
+            _ => new UnauthorizedAccessException("Access to the path is denied."),
+        };
+
+        var sut = new WhisperModelManager(
+            _tempDir,
+            downloaderFunc: (_, _) => Task.FromException<Stream>(injected));
+
+        // Act
+        LrcGenerationException ex = await Assert.ThrowsAsync<LrcGenerationException>(() => sut.DownloadModelAsync("base"));
+
+        // Assert
+        Assert.Equal(LrcGenerationErrorCategory.ModelDownloadFailed, ex.Category);
+        Assert.Equal(expectedMessage, ex.Message);
+        Assert.Same(injected, ex.InnerException);
+        Assert.True(ex.IsLogged);
+        Assert.Empty(Directory.GetFiles(_tempDir, "*.download"));
+    }
+
+    /// <summary>
+    /// モデルダウンロード中にユーザーキャンセルが要求された場合はラップせず OperationCanceledException を再送出することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DownloadModelAsync_ユーザーキャンセル要求時_OperationCanceledExceptionをそのまま伝播する()
+    {
+        // Arrange
+        using var cts = new CancellationTokenSource();
+        var sut = new WhisperModelManager(
+            _tempDir,
+            downloaderFunc: (_, ct) =>
+            {
+                cts.Cancel();
+                ct.ThrowIfCancellationRequested();
+                return Task.FromResult<Stream>(new MemoryStream());
+            });
+
+        // Act & Assert
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            sut.DownloadModelAsync("base", cancellationToken: cts.Token));
+        Assert.Empty(Directory.GetFiles(_tempDir, "*.download"));
     }
 
     private sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>

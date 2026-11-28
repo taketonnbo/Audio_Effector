@@ -1,4 +1,5 @@
 ﻿using System;
+using AudioEffector.Application.Common;
 using NLog;
 
 namespace AudioEffector.Infrastructure.Logging;
@@ -6,7 +7,7 @@ namespace AudioEffector.Infrastructure.Logging;
 /// <summary>
 /// NLogを利用してアプリケーション全体のログ出力を行うサービス具象クラス
 /// </summary>
-public class NLogService
+public class NLogService : IAppLogger
 {
     private readonly Logger _logger;
 

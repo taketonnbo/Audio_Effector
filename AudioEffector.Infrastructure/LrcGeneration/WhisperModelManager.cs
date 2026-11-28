@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using AudioEffector.Application.Common;
 using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
 using NLog;
@@ -188,7 +189,6 @@ public sealed class WhisperModelManager : ILocalSpeechModelManager
         }
 
         ModelCatalogEntry entry = FindCatalogEntry(targetId);
-        Directory.CreateDirectory(_modelsDirectory);
 
         string destinationPath = Path.Combine(_modelsDirectory, entry.FileName);
         string tempPath = $"{destinationPath}.{Environment.ProcessId}.{Guid.NewGuid():N}.download";
@@ -198,6 +198,8 @@ public sealed class WhisperModelManager : ILocalSpeechModelManager
 
         try
         {
+            Directory.CreateDirectory(_modelsDirectory);
+
             await using Stream remoteStream = await _downloaderFunc(entry.GgmlType, cancellationToken).ConfigureAwait(false);
             long totalBytes = remoteStream.CanSeek && remoteStream.Length > 0
                 ? remoteStream.Length
@@ -253,6 +255,34 @@ public sealed class WhisperModelManager : ILocalSpeechModelManager
             progress?.Report(1.0);
             Logger.Info(CultureInfo.InvariantCulture, "Whisper ローカルモデルのダウンロードが完了しました: {0}", destinationPath);
             return BuildModelInfo(entry);
+        }
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cancellationToken))
+        {
+            Logger.Info(CultureInfo.InvariantCulture, "Whisper ローカルモデルのダウンロードがユーザーによりキャンセルされました: ModelId={0}", entry.ModelId);
+            throw;
+        }
+        catch (LrcGenerationException)
+        {
+            throw;
+        }
+        catch (InvalidDataException ex) when (LrcGenerationErrorMessageResolver.IsSafeUserMessage(ex.Message))
+        {
+            Logger.Warn(ex, "Whisper ローカルモデルのダウンロード結果が不正です: ModelId={ModelId}", entry.ModelId);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            bool isTimeout = ex is OperationCanceledException or TimeoutException
+                || LrcGenerationErrorMessageResolver.ContainsException<TimeoutException>(ex)
+                || LrcGenerationErrorMessageResolver.ContainsException<TaskCanceledException>(ex);
+            Logger.Error(
+                ex,
+                "Whisper ローカルモデルのダウンロードに失敗しました: ModelId={ModelId}, DestinationPath={DestinationPath}, IsTimeout={IsTimeout}, ExceptionType={ExceptionType}",
+                entry.ModelId,
+                destinationPath,
+                isTimeout,
+                ex.GetType().FullName);
+            throw LrcInfrastructureExceptionTranslator.TranslateModelDownloadException(ex, isTimeout, isLogged: true);
         }
         finally
         {
