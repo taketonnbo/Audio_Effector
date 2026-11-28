@@ -11,17 +11,18 @@
 ```text
 【コンパクト表示モード (IsAlbumViewMaximized=False)】
 +-----------------------------------------------------------------------------------------+
-| [Art 50] Midnight City / M83   [Hi-Res] FLAC 96kHz/24bit                     [🗖 最大化] |
+| [Art 50] Midnight City / M83   [Hi-Res] FLAC 96kHz/24bit                [♪] [🗖 最大化] |
 |   [🔀] [|<] [ ▶ ] [>|] [🔁]   01:23 ========O============ 04:03   [+] [★] [≡]           |
 +-----------------------------------------------------------------------------------------+
 |                                                                                         |
-| (下部拡張予約領域: リスニング統計・タグクラウド等の拡張スペース #121/#123/#124/#130)     |
+| (下部拡張領域 Grid.Row="1": 歌詞パネル LyricsView [#401/#403]・LRC 自動生成 [#98]・     |
+|  リスニング統計/タグクラウド等の拡張ウィジェット [#121/#123/#124/#130] を排他表示)      |
 |                                                                                         |
 +-----------------------------------------------------------------------------------------+
 
 【最大化表示モード (IsAlbumViewMaximized=True / 初期状態)】
 +-----------------------------------------------------------------------------------------+
-|                                                                              [🗗 縮小]   |
+|                                                                         [♪] [🗗 縮小]   |
 | +-----------------------------------+ +-----------------------------------------------+ |
 | |       +-------------------+       | | Playlist: Hurry Up, We're Dreaming  22 Tracks | |
 | |       |                   |       | |-----------------------------------------------| |
@@ -46,7 +47,7 @@
 
 ## 3. 画面配置とペインレイアウト
 
-右側 `Grid` は最大化時（`IsAlbumViewMaximized = True`、初期状態）に `1* / 0*`、コンパクト時（`IsAlbumViewMaximized = False`）に `Auto / 1*` の2行構成。最大化表示は左カラム（アルバムアート・基本情報・Player Podカード）と右カラム（メタリックコンテナ内の収録曲一覧）の2列に分ける。右上端には `28×28px` の拡大/縮小トグルボタン（`ToggleAlbumViewSizeModeCommand`）を固定配置する。
+右側 `Grid` は最大化時（`IsAlbumViewMaximized = True`、初期状態）に `1* / 0*`、コンパクト時（`IsAlbumViewMaximized = False`）に `Auto / 1*` の2行構成。最大化表示は左カラム（アルバムアート・基本情報・Player Podカード）と右カラム（メタリックコンテナ内の収録曲一覧）の2列に分ける。右上端には `28×28px` の歌詞表示トグルボタンおよび拡大/縮小トグルボタン（`ToggleAlbumViewSizeModeCommand`）を水平並列で固定配置する。コンパクト時の下部拡張領域（`Grid.Row="1"`）には、[歌詞表示UI仕様書](../歌詞表示/歌詞表示UI仕様書.md)で定義する歌詞パネル（`LyricsView`）、LRC 自動生成パネル（#98）、および拡張ウィジェット（#121）を排他表示する。
 
 ## 4. デザイントークンの適用
 
@@ -63,7 +64,7 @@
 
 ## 5. 構成要素と共通コントロール
 
-- **コンパクト表示 (`IsAlbumViewMaximized = False`)**: 上部に `50×50px` サムネイルアート、曲名・アーティスト名（`MarqueeTextBlock`）、音質バッジ・フォーマット詳細、再生制御5ボタン・シークバー・プレイリスト追加/お気に入り/再生キューボタンを配置し、下部は拡張予約領域とする。
+- **コンパクト表示 (`IsAlbumViewMaximized = False`)**: 上部に `50×50px` サムネイルアート、曲名・アーティスト名（`MarqueeTextBlock`、右上2ボタン領域と干渉しない右マージンを確保）、音質バッジ・フォーマット詳細、再生制御5ボタン・シークバー・プレイリスト追加/お気に入り/再生キューボタンを配置し、下部拡張領域（`Grid.Row="1"`）で歌詞パネル（`LyricsView`）等の拡張パネルを排他表示する。
 - **最大化表示 (`IsAlbumViewMaximized = True`)**:
   - 左カラム: 多層メタリックベゼルアート、`PlaybackListName` / `PlaybackListSubtitle`（`MarqueeTextBlock`）、音質バッジ、Player Pod（現在曲名 `MarqueeTextBlock`、クイックアクション3種、`48×48px` 再生ボタンを含む5ボタン、ワイドシークバー、経過/総時間）。
   - 右カラム: ヘッダー（`Playlist: {PlaybackListName}` と `{Count} Tracks`）、および `PlaybackListTracks` 一覧（0件時は空状態「プレイリストは空です」を表示）。奇数行には `ZebraOddBackgroundBrush`、左端カラムには2桁トラック番号（`01.`）と再生中 `▶` / 一時停止 `⏸` アイコンをインライン統合し、曲名には `MarqueeTextBlock` を適用する。
@@ -71,6 +72,7 @@
 ## 6. アニメーションとインタラクション
 
 - `ToggleAlbumViewSizeModeCommand` で `IsAlbumViewMaximized` を反転し、最大化GridとコンパクトGridを `Visibility`（`Visible` / `Collapsed`）で排他切り替えする。
+- **歌詞表示トグルボタンとの自動連動（[歌詞表示UI仕様書](../歌詞表示/歌詞表示UI仕様書.md)）**: 最大化表示時に歌詞表示を ON にすると自動的にコンパクト表示へ切り替わり下部拡張領域へ歌詞パネルを展開する。歌詞表示を OFF にした際、直前の ON 操作によって最大化から自動でコンパクト表示へ切り替わっていた場合は元の最大化表示へ自動復帰し、もともとコンパクト表示だった場合はコンパクト表示を維持する。歌詞パネル表示中にユーザーが手動で最大化ボタンをクリックした場合は、歌詞表示を自動的に OFF とする。
 - スペクトラム開閉時の左カラム幅およびアート寸法は `300ms`・`CubicEase` (`EaseInOut`) でアニメーション伸縮する。
 - 右カラムの収録曲行クリックで再生開始（再生中トラックの再クリックで一時停止/再開トグル）。右クリックコンテキストメニューから「再生」「次に再生」「最後に再生」「お気に入りに追加 / 解除」「プレイリストに追加...」「プロパティ」「ファイルの場所を開く」「削除」を実行できる。
 
@@ -86,6 +88,7 @@
 - [ユースケース](../../ユースケース/01_楽曲再生・再生制御.md)
 - [主要オブジェクト一覧](../../主要オブジェクト/index.md)
 - [デザイントークン](../../デザインシステム/01_デザイントークン仕様書.md)・[共通コントロール](../../デザインシステム/02_共通コントロールスタイル仕様書.md)
+- [歌詞表示UI仕様書](../歌詞表示/歌詞表示UI仕様書.md)
 - [コードビハインド](../../../AudioEffector/Presentation/Views/MainWindow.xaml.cs)
 - [MainViewModel](../../../AudioEffector/Presentation/ViewModels/MainViewModel.cs)
-- 関連Issue（設計経緯）: [#121](https://github.com/taketonnbo/Audio_Effector/issues/121)、[#122](https://github.com/taketonnbo/Audio_Effector/issues/122)
+- 関連Issue（設計経緯）: [#121](https://github.com/taketonnbo/Audio_Effector/issues/121)、[#122](https://github.com/taketonnbo/Audio_Effector/issues/122)、[#401](https://github.com/taketonnbo/Audio_Effector/issues/401)、[#403](https://github.com/taketonnbo/Audio_Effector/issues/403)
