@@ -85,6 +85,10 @@ python tools/check_equivalence.py --indexer
 # ※ PR レビュー時は PR の baseRefName（通常は develop、Epic 子 Issue PR は epic/<Epic番号>-<説明>）を基準に比較する
 python tools/check_spec_sync.py --base origin/<baseRefName>
 # ※ PR 対象ブランチをチェックアウトしていない場合は、PR の変更ファイル一覧を --files で渡して確認可能
+
+# 5. サードパーティライセンス記載同期チェック（製品 *.csproj のパッケージ追加・更新、外部アセット/モデル変更時の THIRD-PARTY-NOTICES.md 更新漏れ・LGPLリスク確認）
+python tools/check_license_sync.py --base origin/<baseRefName> --strict
+# ※ PR 対象ブランチをチェックアウトしていない場合は、PR の変更ファイル一覧を --files で渡して確認可能
 ```
 
 > **注意**: テストがバックグラウンド実行になった場合は長時間放置せずログ進行を監視し、ハング時は速やかに中断して原因を報告します。また、未コミット変更がある状態では勝手に `git checkout` を行わないでください。
@@ -114,12 +118,12 @@ python tools/check_spec_sync.py --base origin/<baseRefName>
 3. **ロジック・コーディング規約・XML コメント**: Null 安全、並行・状態遷移のスレッド安全性（ロック解放後ディスパッチ時の最新状態・破棄済みガードを含む）、ソート昇降順の対称性（タイブレーカー）、`public` 要素への日本語 XML コメント（句点なし・`<param>`/`<returns>` 完備）、命名規則。
 4. **パフォーマンス最適化**: `CollectionChanged` 連続発火のコアレッシング、検索デバウンス、親 `ScrollViewer` 禁止＋UI 仮想化 4 属性（`IsVirtualizing`, `VirtualizationMode="Recycling"`, `ScrollUnit="Pixel"`, `CanContentScroll`）、**仮想化 `ListBox`（`ScrollViewer.CanContentScroll="True"`）で `ItemsPresenter.Margin` 等により `VirtualizingStackPanel` の利用可能高さが圧迫されビューポート縮小や自動スクロール座標ズレによるコンテナ消滅が起きないか**、非表示パネルの `Visibility="Collapsed"`、高負荷エフェクト禁止、画像 `Freeze()`、安全な `Dispatcher` ガード。
 5. **UI / XAML・テーマ・インタラクション**: ダーク/ライト両テーマ視認性（ハードコード色禁止、`AlwaysNeonCyanBrush` 適用）、列ヘッダーとスクロールバーによる幅ズレ、`MouseDoubleClick` の `OriginalSource` 判定、**`ProgressBar.Value`（`RangeBase.Value`）等の `BindsTwoWayByDefault` 依存関係プロパティへ ViewModel の読み取り専用（`private set` / getter のみ）プロパティをバインドする際の `Mode=OneWay` 明示（省略時の実行時 `InvalidOperationException` 防止）**、**`RelayCommand` の `CanExecute` 条件が変わる状態遷移時に `CommandManager.InvalidateRequerySuggested()` または明示的 `CanExecuteChanged` 発火が漏れておらず実 WPF 上でボタン非活性固着しないか**、実データ結合。
-6. **テスト品質・仕様書同期**: 4 層対称配置、`sut` 命名、AAA コメント、日本語テスト名・XML コメント、`using` による確実な破棄、STA スレッドの `ShutdownMode.OnExplicitShutdown` 設定および `InvokeShutdown()`、**非同期コマンドを含む ViewModel を実 WPF ホスト `Window` 上で検証するテストでワーカースレッドから UI 要素へ直接アクセスしない STA 実 `Dispatcher` 連携スタブ（`Dispatcher.CheckAccess()` 分岐）を用いているか**、不足ケース（境界値・`Dispose` 後・実 View の `BindingErrorTraceListener` 検証・仮想化 `ListBox` の可視領域および自動スクロール検証・実 WPF ホスト上での `Button.IsEnabled` 遷移検証）、**仕様書同期（`check_spec_sync.py` で検出された主要仕様書が更新されているか、仕様・UI・永続化・アーキテクチャ変更を伴うのに `設計/` が未更新でないか、PR 本文に同期結果・更新不要理由・スコープ差分が明記されているか）**。
+6. **テスト品質・仕様書同期・ライセンス記載確認**: 4 層対称配置、`sut` 命名、AAA コメント、日本語テスト名・XML コメント、`using` による確実な破棄、STA スレッドの `ShutdownMode.OnExplicitShutdown` 設定および `InvokeShutdown()`、**非同期コマンドを含む ViewModel を実 WPF ホスト `Window` 上で検証するテストでワーカースレッドから UI 要素へ直接アクセスしない STA 実 `Dispatcher` 連携スタブ（`Dispatcher.CheckAccess()` 分岐）を用いているか**、不足ケース（境界値・`Dispose` 後・実 View の `BindingErrorTraceListener` 検証・仮想化 `ListBox` の可視領域および自動スクロール検証・実 WPF ホスト上での `Button.IsEnabled` 遷移検証）、**仕様書同期（`check_spec_sync.py` で検出された主要仕様書が更新されているか、仕様・UI・永続化・アーキテクチャ変更を伴うのに `設計/` が未更新でないか、PR 本文に同期結果・更新不要理由・スコープ差分が明記されているか）**、**サードパーティライセンス記載確認（製品 `*.csproj` の `<PackageReference>` 追加・バージョン更新、新規外部アセット、モデル定義変更時に `THIRD-PARTY-NOTICES.md` の更新漏れがないか、`PublishSingleFile` による LGPL ライブラリ静的結合リスクや `bin/` 配下 DLL の誤追跡がないか、`check_license_sync.py` の確認結果が PR 本文に明記されているか）**。
 
 #### 重要度基準
 - 🔴 **Critical**: マージブロッカー（クラッシュ、UI フリーズ、状態破綻・イベント多重発火、データ破損）
-- 🟠 **High**: 重大な不具合・機能欠損（実アプリ上で動作しない・ボタン非活性固着、`lock` 保持中の同期 UI ディスパッチ等のデッドロックリスク、誤操作による意図しない挙動、明確な仕様違反）
-- 🟡 **Medium**: 品質・UX・保守性・運用規約改善（**コミット粒度の過大・単一コミット集約**、**仕様・UI・永続化変更に伴う該当仕様書の未更新**、テーマ視認性低下、レイアウトズレ、デバウンス欠如、ソート不安定、軽微な `CanExecute` 更新漏れ）
+- 🟠 **High**: 重大な不具合・機能欠損（実アプリ上で動作しない・ボタン非活性固着、`lock` 保持中の同期 UI ディスパッチ等のデッドロックリスク、**`PublishSingleFile` による LGPL 静的結合等のライセンス違反リスク・`bin/` 配下 DLL 誤追跡**、誤操作による意図しない挙動、明確な仕様違反）
+- 🟡 **Medium**: 品質・UX・保守性・運用規約改善（**コミット粒度の過大・単一コミット集約**、**仕様・UI・永続化変更に伴う該当仕様書の未更新**、**製品 `*.csproj` のパッケージ追加・更新に伴う `THIRD-PARTY-NOTICES.md` の更新漏れ**、テーマ視認性低下、レイアウトズレ、デバウンス欠如、ソート不安定、軽微な `CanExecute` 更新漏れ）
 - 🟢 **Low**: 軽微・改善提案（テスト拡充、`using` 化、文言・規約微調整）
 
 各指摘には必ず **根拠（ファイルパス・行番号またはコミット SHA・具体的な実行経路/再現条件）** と **具体的な改善案** を記載します。
