@@ -71,8 +71,9 @@ public static class DependencyInjection
         services.AddSingleton<ILocalSpeechModelManager, WhisperModelManager>();
         services.AddSingleton<IAudioAlignmentEngine, WhisperLocalAlignmentEngine>();
 
-        // ロギングサービス
+        // ロギングサービスおよび動的ログ構成マネージャ
         services.AddSingleton<NLogService>();
+        services.AddSingleton<ILogConfigurationManager, LogConfigurationManager>();
 
         return services;
     }
