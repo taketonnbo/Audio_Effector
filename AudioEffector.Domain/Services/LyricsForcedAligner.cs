@@ -1,0 +1,511 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text;
+using AudioEffector.Domain.Entities;
+using AudioEffector.Domain.ValueObjects;
+
+namespace AudioEffector.Domain.Services;
+
+/// <summary>
+/// 音声認識セグメント列と入力歌詞テキスト行を動的計画法（DP）により単調強制アライメントし、
+/// タイムタグ付き <see cref="LyricsDocument"/> を構築する純粋ドメインサービスです
+/// </summary>
+public sealed class LyricsForcedAligner
+{
+    private const double MIN_ANCHOR_SIMILARITY = 0.25;
+    private const double SKIP_LINE_PENALTY = -0.05;
+    private const double SKIP_SEGMENT_PENALTY = -0.02;
+
+    /// <summary>
+    /// 入力歌詞行と音声認識セグメント列を強制アライメントして同期 <see cref="LyricsDocument"/> を生成します
+    /// </summary>
+    /// <param name="lyricsLines">入力された歌詞行一覧（空行を含む場合は間奏行として除外または時刻補完されます）</param>
+    /// <param name="recognizedSegments">音声認識エンジンが抽出した発話セグメント一覧</param>
+    /// <param name="audioDuration">楽曲全体の総再生時間（任意）</param>
+    /// <param name="title">曲名メタデータ（任意）</param>
+    /// <param name="artist">アーティスト名メタデータ（任意）</param>
+    /// <param name="album">アルバム名メタデータ（任意）</param>
+    /// <returns>全歌詞行に単調非減少タイムスタンプが付与された <see cref="LyricsDocument"/></returns>
+    public LyricsDocument Align(
+        IReadOnlyList<string> lyricsLines,
+        IReadOnlyList<AlignmentSegment> recognizedSegments,
+        TimeSpan? audioDuration = null,
+        string? title = null,
+        string? artist = null,
+        string? album = null)
+    {
+        ArgumentNullException.ThrowIfNull(lyricsLines);
+        ArgumentNullException.ThrowIfNull(recognizedSegments);
+
+        List<string> cleanedLyrics = lyricsLines
+            .Select(line => (line ?? string.Empty).Trim())
+            .Where(line => !string.IsNullOrEmpty(line))
+            .ToList();
+
+        if (cleanedLyrics.Count == 0)
+        {
+            return LyricsDocument.Empty;
+        }
+
+        List<AlignmentSegment> validSegments = recognizedSegments
+            .Where(seg => seg is not null && !string.IsNullOrWhiteSpace(seg.Text))
+            .OrderBy(seg => seg.Start)
+            .ThenBy(seg => seg.End)
+            .ToList();
+
+        if (validSegments.Count == 0)
+        {
+            return LyricsDocument.Empty;
+        }
+
+        TimeSpan effectiveEnd = ResolveEffectiveEndTime(validSegments, audioDuration);
+        TimeSpan[] assignedTimestamps = ComputeMonotonicTimestamps(cleanedLyrics, validSegments, effectiveEnd);
+
+        var resultLines = new List<LyricLine>(cleanedLyrics.Count);
+        for (int i = 0; i < cleanedLyrics.Count; i++)
+        {
+            resultLines.Add(new LyricLine(i, assignedTimestamps[i], cleanedLyrics[i]));
+        }
+
+        return new LyricsDocument(
+            lines: resultLines,
+            isSynced: true,
+            title: title,
+            artist: artist,
+            album: album,
+            sourceType: LyricsSourceType.LrcFile);
+    }
+
+    /// <summary>
+    /// 音声認識セグメント列のみから（歌詞テキスト入力なしで）直接文字起こし <see cref="LyricsDocument"/> を構築します
+    /// </summary>
+    /// <param name="recognizedSegments">音声認識エンジンが抽出した発話セグメント一覧</param>
+    /// <param name="title">曲名メタデータ（任意）</param>
+    /// <param name="artist">アーティスト名メタデータ（任意）</param>
+    /// <param name="album">アルバム名メタデータ（任意）</param>
+    /// <returns>文字起こし結果の同期 <see cref="LyricsDocument"/></returns>
+    public LyricsDocument BuildDocumentFromSegments(
+        IReadOnlyList<AlignmentSegment> recognizedSegments,
+        string? title = null,
+        string? artist = null,
+        string? album = null)
+    {
+        ArgumentNullException.ThrowIfNull(recognizedSegments);
+
+        List<AlignmentSegment> validSegments = recognizedSegments
+            .Where(seg => seg is not null && !string.IsNullOrWhiteSpace(seg.Text))
+            .OrderBy(seg => seg.Start)
+            .ThenBy(seg => seg.End)
+            .ToList();
+
+        if (validSegments.Count == 0)
+        {
+            return LyricsDocument.Empty;
+        }
+
+        var lines = new List<LyricLine>(validSegments.Count);
+        for (int i = 0; i < validSegments.Count; i++)
+        {
+            lines.Add(new LyricLine(i, validSegments[i].Start, validSegments[i].Text));
+        }
+
+        return new LyricsDocument(
+            lines: lines,
+            isSynced: true,
+            title: title,
+            artist: artist,
+            album: album,
+            sourceType: LyricsSourceType.LrcFile);
+    }
+
+    /// <summary>
+    /// 2 つのテキスト文字列の正規化後類似度（0.0〜1.0）を計算します
+    /// </summary>
+    /// <param name="left">比較元テキスト</param>
+    /// <param name="right">比較先テキスト</param>
+    /// <returns>0.0〜1.0 の類似度スコア</returns>
+    public static double ComputeTextSimilarity(string? left, string? right)
+    {
+        string normalizedLeft = NormalizeForComparison(left);
+        string normalizedRight = NormalizeForComparison(right);
+
+        if (normalizedLeft.Length == 0 || normalizedRight.Length == 0)
+        {
+            return 0.0;
+        }
+
+        if (string.Equals(normalizedLeft, normalizedRight, StringComparison.Ordinal))
+        {
+            return 1.0;
+        }
+
+        // 一方が他方に含まれる場合は文字長比率ベースで高いスコアを付与（1 セグメントに複数歌詞行が含まれるケース対応）
+        if (normalizedRight.Contains(normalizedLeft, StringComparison.Ordinal))
+        {
+            double ratio = (double)normalizedLeft.Length / normalizedRight.Length;
+            return 0.65 + (0.35 * ratio);
+        }
+
+        if (normalizedLeft.Contains(normalizedRight, StringComparison.Ordinal))
+        {
+            double ratio = (double)normalizedRight.Length / normalizedLeft.Length;
+            return 0.65 + (0.35 * ratio);
+        }
+
+        int distance = ComputeLevenshteinDistance(normalizedLeft, normalizedRight);
+        int maxLen = Math.Max(normalizedLeft.Length, normalizedRight.Length);
+        return Math.Max(0.0, 1.0 - ((double)distance / maxLen));
+    }
+
+    /// <summary>
+    /// 比較用に文字列を正規化します（NFKC 正規化・小文字化・句読点および空白の除去）
+    /// </summary>
+    /// <param name="text">対象テキスト</param>
+    /// <returns>正規化済み文字列</returns>
+    public static string NormalizeForComparison(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        string decomposed = text.Normalize(NormalizationForm.FormKC).ToLowerInvariant();
+        var sb = new StringBuilder(decomposed.Length);
+        foreach (char c in decomposed)
+        {
+            UnicodeCategory category = CharUnicodeInfo.GetUnicodeCategory(c);
+            if (char.IsLetterOrDigit(c)
+                || category == UnicodeCategory.OtherLetter
+                || category == UnicodeCategory.NonSpacingMark)
+            {
+                sb.Append(c);
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static TimeSpan ResolveEffectiveEndTime(
+        List<AlignmentSegment> validSegments,
+        TimeSpan? audioDuration)
+    {
+        TimeSpan lastSegmentEnd = validSegments.Max(s => s.End > s.Start ? s.End : s.Start + TimeSpan.FromSeconds(2));
+        if (audioDuration.HasValue && audioDuration.Value > lastSegmentEnd)
+        {
+            return audioDuration.Value;
+        }
+
+        return lastSegmentEnd;
+    }
+
+    private static TimeSpan[] ComputeMonotonicTimestamps(
+        List<string> lyrics,
+        List<AlignmentSegment> segments,
+        TimeSpan effectiveEnd)
+    {
+        int lineCount = lyrics.Count;
+        int segmentCount = segments.Count;
+
+        // 類似度行列を事前計算
+        double[,] similarity = new double[lineCount, segmentCount];
+        for (int i = 0; i < lineCount; i++)
+        {
+            for (int j = 0; j < segmentCount; j++)
+            {
+                similarity[i, j] = ComputeTextSimilarity(lyrics[i], segments[j].Text);
+            }
+        }
+
+        // 単調増加制約付き DP テーブル:
+        // dp[i, j] = 歌詞行 0..i-1 とセグメント 0..j-1 の最良アライメントスコア
+        // 遷移:
+        //   0: 行 i-1 とセグメント j-1 を 1対1 対応 (i-1, j-1)
+        //   1: 行 i-1 をスキップして未対応にする (i-1, j)
+        //   2: セグメント j-1 をスキップする (i, j-1)
+        //   3: 複数歌詞行を同一セグメント j-1 へ割り当て (i-1, j) with match bonus (セグメントが長い場合)
+        double[,] dp = new double[lineCount + 1, segmentCount + 1];
+        byte[,] trace = new byte[lineCount + 1, segmentCount + 1];
+
+        for (int i = 1; i <= lineCount; i++)
+        {
+            dp[i, 0] = dp[i - 1, 0] + SKIP_LINE_PENALTY;
+            trace[i, 0] = 1;
+        }
+
+        for (int j = 1; j <= segmentCount; j++)
+        {
+            dp[0, j] = dp[0, j - 1] + SKIP_SEGMENT_PENALTY;
+            trace[0, j] = 2;
+        }
+
+        for (int i = 1; i <= lineCount; i++)
+        {
+            for (int j = 1; j <= segmentCount; j++)
+            {
+                double sim = similarity[i - 1, j - 1];
+                // 相対位置の近さによる微弱バイアス（繰り返しサビ等で順序位置が近いセグメントを優先）
+                double linePos = lineCount > 1 ? (double)(i - 1) / (lineCount - 1) : 0.0;
+                double segPos = segmentCount > 1 ? (double)(j - 1) / (segmentCount - 1) : 0.0;
+                double positionBonus = (1.0 - Math.Abs(linePos - segPos)) * 0.08;
+
+                double matchScore = dp[i - 1, j - 1] + sim + positionBonus;
+                double skipLineScore = dp[i - 1, j] + SKIP_LINE_PENALTY;
+                double skipSegmentScore = dp[i, j - 1] + SKIP_SEGMENT_PENALTY;
+
+                double best = matchScore;
+                byte bestMove = 0;
+
+                if (skipLineScore > best)
+                {
+                    best = skipLineScore;
+                    bestMove = 1;
+                }
+
+                if (skipSegmentScore > best)
+                {
+                    best = skipSegmentScore;
+                    bestMove = 2;
+                }
+
+                dp[i, j] = best;
+                trace[i, j] = bestMove;
+            }
+        }
+
+        // バックトラックでアンカー（確定マッチした行→セグメント対応）を復元
+        int[] matchedSegmentIndex = new int[lineCount];
+        Array.Fill(matchedSegmentIndex, -1);
+
+        int ci = lineCount;
+        int cj = segmentCount;
+        while (ci > 0 && cj > 0)
+        {
+            byte move = trace[ci, cj];
+            if (move == 0)
+            {
+                if (similarity[ci - 1, cj - 1] >= MIN_ANCHOR_SIMILARITY)
+                {
+                    matchedSegmentIndex[ci - 1] = cj - 1;
+                }
+
+                ci--;
+                cj--;
+            }
+            else if (move == 1)
+            {
+                ci--;
+            }
+            else
+            {
+                cj--;
+            }
+        }
+
+        // アンカー時刻を起点に未確定行を文字長比例で線形補間し、単調非減少を保証する
+        var timestamps = new TimeSpan?[lineCount];
+        for (int i = 0; i < lineCount; i++)
+        {
+            if (matchedSegmentIndex[i] >= 0)
+            {
+                timestamps[i] = segments[matchedSegmentIndex[i]].Start;
+            }
+        }
+
+        InterpolateMissingTimestamps(lyrics, segments, effectiveEnd, timestamps);
+
+        TimeSpan[] finalTimestamps = new TimeSpan[lineCount];
+        TimeSpan previous = TimeSpan.Zero;
+        for (int i = 0; i < lineCount; i++)
+        {
+            TimeSpan current = timestamps[i] ?? previous;
+            if (current < previous)
+            {
+                current = previous;
+            }
+
+            finalTimestamps[i] = RoundToCentiseconds(current);
+            previous = finalTimestamps[i];
+        }
+
+        return finalTimestamps;
+    }
+
+    private static void InterpolateMissingTimestamps(
+        List<string> lyrics,
+        List<AlignmentSegment> segments,
+        TimeSpan effectiveEnd,
+        TimeSpan?[] timestamps)
+    {
+        int lineCount = lyrics.Count;
+        TimeSpan firstStart = segments[0].Start;
+        TimeSpan lastEnd = effectiveEnd > firstStart ? effectiveEnd : firstStart + TimeSpan.FromSeconds(lineCount * 2);
+
+        List<int> anchorIndices = new List<int>();
+        for (int i = 0; i < lineCount; i++)
+        {
+            if (timestamps[i].HasValue)
+            {
+                anchorIndices.Add(i);
+            }
+        }
+
+        // アンカーが 1 つもない場合は、最初のセグメント開始〜有効終了時刻を文字数比率で均等配分
+        if (anchorIndices.Count == 0)
+        {
+            DistributeRangeByCharWeight(lyrics, timestamps, 0, lineCount - 1, firstStart, lastEnd, includeEndBoundary: false);
+            return;
+        }
+
+        // 最初のアンカーより前の未確定区間
+        int firstAnchor = anchorIndices[0];
+        if (firstAnchor > 0)
+        {
+            TimeSpan rangeStart = firstStart <= timestamps[firstAnchor]!.Value
+                ? firstStart
+                : TimeSpan.Zero;
+            DistributeRangeByCharWeight(
+                lyrics,
+                timestamps,
+                0,
+                firstAnchor - 1,
+                rangeStart,
+                timestamps[firstAnchor]!.Value,
+                includeEndBoundary: false);
+        }
+
+        // 隣接アンカー間の未確定区間
+        for (int a = 0; a < anchorIndices.Count - 1; a++)
+        {
+            int leftIdx = anchorIndices[a];
+            int rightIdx = anchorIndices[a + 1];
+            if (rightIdx - leftIdx <= 1)
+            {
+                continue;
+            }
+
+            TimeSpan leftTime = timestamps[leftIdx]!.Value;
+            TimeSpan rightTime = timestamps[rightIdx]!.Value;
+            if (rightTime < leftTime)
+            {
+                rightTime = leftTime;
+            }
+
+            DistributeRangeByCharWeight(
+                lyrics,
+                timestamps,
+                leftIdx,
+                rightIdx - 1,
+                leftTime,
+                rightTime,
+                includeEndBoundary: false,
+                skipStartIndex: true);
+        }
+
+        // 最後のアンカーより後の未確定区間
+        int lastAnchor = anchorIndices[^1];
+        if (lastAnchor < lineCount - 1)
+        {
+            TimeSpan rangeStart = timestamps[lastAnchor]!.Value;
+            TimeSpan rangeEnd = lastEnd > rangeStart
+                ? lastEnd
+                : rangeStart + TimeSpan.FromSeconds((lineCount - lastAnchor) * 2);
+            DistributeRangeByCharWeight(
+                lyrics,
+                timestamps,
+                lastAnchor,
+                lineCount - 1,
+                rangeStart,
+                rangeEnd,
+                includeEndBoundary: false,
+                skipStartIndex: true);
+        }
+    }
+
+    private static void DistributeRangeByCharWeight(
+        List<string> lyrics,
+        TimeSpan?[] timestamps,
+        int startIndex,
+        int endIndex,
+        TimeSpan rangeStart,
+        TimeSpan rangeEnd,
+        bool includeEndBoundary,
+        bool skipStartIndex = false)
+    {
+        int count = endIndex - startIndex + 1;
+        if (count <= 0)
+        {
+            return;
+        }
+
+        double totalWeight = 0.0;
+        double[] weights = new double[count];
+        for (int k = 0; k < count; k++)
+        {
+            int len = Math.Max(1, NormalizeForComparison(lyrics[startIndex + k]).Length);
+            weights[k] = len;
+            totalWeight += len;
+        }
+
+        double totalMs = Math.Max(0.0, (rangeEnd - rangeStart).TotalMilliseconds);
+        double cumulative = 0.0;
+
+        for (int k = 0; k < count; k++)
+        {
+            int idx = startIndex + k;
+            if (skipStartIndex && k == 0)
+            {
+                cumulative += weights[k];
+                continue;
+            }
+
+            double fraction = includeEndBoundary && count > 1
+                ? (double)k / (count - 1)
+                : (totalWeight > 0.0 ? cumulative / totalWeight : 0.0);
+
+            timestamps[idx] = rangeStart + TimeSpan.FromMilliseconds(totalMs * fraction);
+            cumulative += weights[k];
+        }
+    }
+
+    private static int ComputeLevenshteinDistance(string s, string t)
+    {
+        int n = s.Length;
+        int m = t.Length;
+        int[] prev = new int[m + 1];
+        int[] curr = new int[m + 1];
+
+        for (int j = 0; j <= m; j++)
+        {
+            prev[j] = j;
+        }
+
+        for (int i = 1; i <= n; i++)
+        {
+            curr[0] = i;
+            for (int j = 1; j <= m; j++)
+            {
+                int cost = s[i - 1] == t[j - 1] ? 0 : 1;
+                curr[j] = Math.Min(
+                    Math.Min(prev[j] + 1, curr[j - 1] + 1),
+                    prev[j - 1] + cost);
+            }
+
+            (prev, curr) = (curr, prev);
+        }
+
+        return prev[m];
+    }
+
+    private static TimeSpan RoundToCentiseconds(TimeSpan value)
+    {
+        if (value <= TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        long centiseconds = (long)Math.Round(value.TotalMilliseconds / 10.0, MidpointRounding.AwayFromZero);
+        return TimeSpan.FromMilliseconds(centiseconds * 10L);
+    }
+}
