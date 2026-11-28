@@ -63,6 +63,16 @@ DEPENDS_BLOCK_RE = re.compile(
     r"(?:depends(?:\s+on)?|依存)(?:\s*[:：]\s*|\s+)(#\d+(?:[\s,、/]+#\d+)*)",
     re.IGNORECASE,
 )
+# テーブルの「依存」列セルが明示的に依存なしを示す表現（空欄・なし・無し・-・None・N/A 等）
+NO_DEPENDS_CELL_RE = re.compile(
+    r"^(?:なし|無し|特になし|不要|none|n/?a|[-‐‑‒–—―]+)?$",
+    re.IGNORECASE,
+)
+# チェックリスト行等で「依存: なし」「depends: none」のように明示的に依存なしを指定する表現
+EXPLICIT_NO_DEPENDS_TEXT_RE = re.compile(
+    r"(?:depends(?:\s+on)?|依存)\s*(?:[:：]\s*|\s+)(?:なし|無し|特になし|不要|none|n/?a|[-‐‑‒–—―]+)(?:\s|[)）\]】,、。]|$)",
+    re.IGNORECASE,
+)
 ISSUE_NUM_RE = re.compile(r"#(\d+)")
 CHECKLIST_LINE_RE = re.compile(
     r"^\s*[-*]\s*\[(?P<checked>[ xX])\]\s*(?P<rest>.*)$"
@@ -113,6 +123,7 @@ class ChildIssueSpec:
     scope: str = ""
     checked_in_epic: bool = False
     explicit_depends: List[int] = field(default_factory=list)
+    explicit_no_depends: bool = False
     depends_on: List[int] = field(default_factory=list)
     parallel_group: int = 0
 
@@ -206,11 +217,17 @@ def _parse_tables(body: str, epic_number: Optional[int]) -> Dict[int, ChildIssue
                         scope = cells[scope_idx] if (scope_idx is not None and scope_idx < len(cells)) else ""
                         row_text = " ".join(cells)
                         explicit_deps = extract_explicit_depends(row_text, num, epic_number)
+                        explicit_no_deps = False
                         if depends_idx is not None and depends_idx < len(cells):
-                            for m_dep in ISSUE_NUM_RE.finditer(cells[depends_idx]):
+                            dep_cell = cells[depends_idx].strip()
+                            for m_dep in ISSUE_NUM_RE.finditer(dep_cell):
                                 dep_num = int(m_dep.group(1))
                                 if dep_num != num and dep_num != epic_number and dep_num not in explicit_deps:
                                     explicit_deps.append(dep_num)
+                            if not explicit_deps and bool(NO_DEPENDS_CELL_RE.fullmatch(dep_cell)):
+                                explicit_no_deps = True
+                        if not explicit_deps and EXPLICIT_NO_DEPENDS_TEXT_RE.search(row_text):
+                            explicit_no_deps = True
 
                         if num not in specs:
                             specs[num] = ChildIssueSpec(
@@ -218,6 +235,7 @@ def _parse_tables(body: str, epic_number: Optional[int]) -> Dict[int, ChildIssue
                                 order=order_val,
                                 scope=scope,
                                 explicit_depends=explicit_deps,
+                                explicit_no_depends=explicit_no_deps,
                             )
                         else:
                             existing = specs[num]
@@ -226,6 +244,10 @@ def _parse_tables(body: str, epic_number: Optional[int]) -> Dict[int, ChildIssue
                             for dep in explicit_deps:
                                 if dep not in existing.explicit_depends:
                                     existing.explicit_depends.append(dep)
+                            if existing.explicit_depends:
+                                existing.explicit_no_depends = False
+                            elif explicit_no_deps:
+                                existing.explicit_no_depends = True
                     i = row_pos
                     continue
         i += 1
@@ -265,11 +287,13 @@ def parse_epic_body(body: str, epic_number: Optional[int] = None) -> Tuple[List[
 
         checked = m_chk.group("checked").lower() == "x"
         explicit_deps = extract_explicit_depends(rest, num, epic_number)
+        explicit_no_deps = (not explicit_deps) and bool(EXPLICIT_NO_DEPENDS_TEXT_RE.search(rest))
         m_order = ORDER_TAG_RE.search(rest)
         tag_order = int(m_order.group(1)) if m_order else None
 
         # タイトルヒントの抽出（#番号 と depends / order タグを除去）
         cleaned = DEPENDS_BLOCK_RE.sub("", rest)
+        cleaned = EXPLICIT_NO_DEPENDS_TEXT_RE.sub("", cleaned)
         cleaned = ORDER_TAG_RE.sub("", cleaned)
         cleaned = re.sub(rf"#?{num}\b", "", cleaned, count=1).strip(" -:：|()（）")
 
@@ -283,6 +307,10 @@ def parse_epic_body(body: str, epic_number: Optional[int] = None) -> Tuple[List[
             for dep in explicit_deps:
                 if dep not in spec.explicit_depends:
                     spec.explicit_depends.append(dep)
+            if spec.explicit_depends:
+                spec.explicit_no_depends = False
+            elif explicit_no_deps:
+                spec.explicit_no_depends = True
         else:
             order_val = tag_order if tag_order is not None else next_fallback_order
             next_fallback_order = max(next_fallback_order + 1, order_val + 1)
@@ -292,6 +320,7 @@ def parse_epic_body(body: str, epic_number: Optional[int] = None) -> Tuple[List[
                 title_hint=cleaned,
                 checked_in_epic=checked,
                 explicit_depends=explicit_deps,
+                explicit_no_depends=explicit_no_deps,
             )
 
     ordered = sorted(specs.values(), key=lambda s: (s.order, s.number))
@@ -315,6 +344,8 @@ def parse_epic_body(body: str, epic_number: Optional[int] = None) -> Tuple[List[
                     )
                 valid_deps.append(dep)
             spec.depends_on = valid_deps
+        elif spec.explicit_no_depends:
+            spec.depends_on = []
         else:
             idx = level_index[spec.order]
             if idx > 0:
@@ -1392,15 +1423,21 @@ def compute_next_actions(
         )
 
     if pending_items and available_slots > 0 and not integration_branch_missing:
-        # 最も早い並列グループに属する pending Issue 群から空きスロット上限の範囲内で提案
-        min_group = min(c["parallel_group"] for c in pending_items)
-        group_candidates = [c for c in pending_items if c["parallel_group"] == min_group]
-        ready_batch = group_candidates[:available_slots]
+        # 依存解消済み（pending）の全子 Issue から順序・番号昇順で空きスロット上限の範囲内を並列候補として提案
+        sorted_pending = sorted(
+            pending_items,
+            key=lambda c: (c.get("parallel_group", c.get("order", 0)), c.get("order", 0), c["number"]),
+        )
+        ready_batch = sorted_pending[:available_slots]
         issue_list_str = ", ".join(f"#{c['number']}" for c in ready_batch)
         notes: List[str] = []
         if len(ready_batch) > 1:
-            notes.append("同一順序グループのため git worktree 等で並列実行可能")
-        if len(group_candidates) > len(ready_batch):
+            batch_groups = {c.get("parallel_group", c.get("order", 0)) for c in ready_batch}
+            if len(batch_groups) == 1:
+                notes.append("同一順序グループのため git worktree 等で並列実行可能")
+            else:
+                notes.append("依存なし／依存解消済みのため git worktree 等で並列実行可能")
+        if len(sorted_pending) > len(ready_batch):
             notes.append(f"並列スロット上限 {active_slots}/{max_parallel} により最大 {available_slots} 件を提案")
         note_str = f"（{' / '.join(notes)}）" if notes else ""
         if int_branch_name:
