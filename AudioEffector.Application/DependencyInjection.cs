@@ -27,6 +27,7 @@ public static class DependencyInjection
         services.AddSingleton<DataTransferApplicationService>();
         services.AddSingleton<SettingsApplicationService>();
         services.AddSingleton<ISettingsService>(sp => sp.GetRequiredService<SettingsApplicationService>());
+        services.AddSingleton<LyricsApplicationService>();
 
         return services;
     }
