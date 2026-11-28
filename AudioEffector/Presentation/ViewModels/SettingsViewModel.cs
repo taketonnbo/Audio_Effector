@@ -45,7 +45,7 @@ public class SettingsViewModel : ViewModelBase
     private readonly IDataDirectoryProvider? _dataDirectoryProvider;
     private readonly IDataDirectoryMigrationService? _dataDirectoryMigrationService;
     private readonly ILogConfigurationManager? _logConfigurationManager;
-    private readonly Func<string?, string?> _folderPicker;
+    private readonly Func<string?, string, string?> _folderPicker;
     private readonly Func<string, string, bool, DataMigrationChoice> _migrationPrompt;
     private readonly Action<string, string, bool> _messageNotifier;
     private readonly Action<string> _folderOpener;
@@ -581,7 +581,22 @@ public class SettingsViewModel : ViewModelBase
                 _appSettings.LogLevel = normalized;
                 OnPropertyChanged();
                 _settingsService.UpdateSettings(settings => settings.LogLevel = normalized);
-                _logConfigurationManager?.ApplyConfiguration(normalized, _appSettings.LogDirectoryPath);
+                if (_logConfigurationManager != null)
+                {
+                    string? activeLogDirectory = _logConfigurationManager.IsCustomLogDirectory
+                        ? _logConfigurationManager.CurrentLogDirectory
+                        : null;
+                    LogConfigurationApplyResult applyResult = _logConfigurationManager.ApplyConfiguration(
+                        normalized,
+                        activeLogDirectory,
+                        fallbackToDefaultOnError: true);
+                    if (applyResult.UsedFallbackDirectory)
+                    {
+                        OnPropertyChanged(nameof(LogDirectoryPath));
+                        OnPropertyChanged(nameof(IsCustomLogDirectory));
+                        CommandManager.InvalidateRequerySuggested();
+                    }
+                }
             }
         }
     }
@@ -683,7 +698,9 @@ public class SettingsViewModel : ViewModelBase
         _dataDirectoryProvider = dataDirectoryProvider;
         _dataDirectoryMigrationService = dataDirectoryMigrationService;
         _logConfigurationManager = logConfigurationManager;
-        _folderPicker = folderPicker ?? ShowDefaultFolderPicker;
+        _folderPicker = folderPicker != null
+            ? (initialDir, _) => folderPicker(initialDir)
+            : ShowDefaultFolderPicker;
         _migrationPrompt = migrationPrompt ?? ShowDefaultMigrationPrompt;
         _messageNotifier = messageNotifier ?? ShowDefaultMessage;
         _folderOpener = folderOpener ?? OpenFolderInExplorer;
@@ -714,7 +731,7 @@ public class SettingsViewModel : ViewModelBase
 
     private void BrowseDataDirectory()
     {
-        string? selectedPath = _folderPicker(DataDirectoryPath);
+        string? selectedPath = _folderPicker(DataDirectoryPath, "データ保存先フォルダを選択してください");
         if (string.IsNullOrWhiteSpace(selectedPath))
         {
             return;
@@ -816,11 +833,11 @@ public class SettingsViewModel : ViewModelBase
         DataDirectoryChanged?.Invoke();
     }
 
-    private static string? ShowDefaultFolderPicker(string? initialDirectory)
+    private static string? ShowDefaultFolderPicker(string? initialDirectory, string title)
     {
         var dialog = new OpenFolderDialog
         {
-            Title = "データ保存先フォルダを選択してください",
+            Title = title,
         };
 
         if (!string.IsNullOrWhiteSpace(initialDirectory) && Directory.Exists(initialDirectory))
@@ -882,7 +899,7 @@ public class SettingsViewModel : ViewModelBase
 
     private void BrowseLogDirectory()
     {
-        string? selectedPath = _folderPicker(LogDirectoryPath);
+        string? selectedPath = _folderPicker(LogDirectoryPath, "ログ保存先フォルダを選択してください");
         if (string.IsNullOrWhiteSpace(selectedPath))
         {
             return;
@@ -905,30 +922,26 @@ public class SettingsViewModel : ViewModelBase
     {
         string currentDirectory = LogDirectoryPath;
         string defaultDirectory = _logConfigurationManager?.DefaultLogDirectory ?? _defaultLogDirectoryFallback;
-        string trimmedTarget = string.IsNullOrWhiteSpace(targetDirectory)
+        string rawTarget = string.IsNullOrWhiteSpace(targetDirectory)
             ? defaultDirectory
             : targetDirectory.Trim();
 
-        if (string.Equals(
-            currentDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-            trimmedTarget.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-            StringComparison.OrdinalIgnoreCase))
+        if (AreSameDirectoryPaths(currentDirectory, rawTarget))
         {
             return;
         }
 
         if (_logConfigurationManager != null)
         {
-            string? previousPersistedPath = _appSettings.LogDirectoryPath;
-            LogConfigurationApplyResult result = _logConfigurationManager.ApplyConfiguration(SelectedLogLevel, targetDirectory);
-            if (result.UsedFallbackDirectory)
+            LogConfigurationApplyResult result = _logConfigurationManager.ApplyConfiguration(
+                SelectedLogLevel,
+                targetDirectory,
+                fallbackToDefaultOnError: false);
+            if (!result.Succeeded || result.UsedFallbackDirectory)
             {
-                // 指定先へ書き込めなかった場合、変更前に有効だったカスタムパスがあれば元へ戻して通知する
-                if (!string.IsNullOrWhiteSpace(previousPersistedPath))
-                {
-                    _logConfigurationManager.ApplyConfiguration(SelectedLogLevel, previousPersistedPath);
-                }
-
+                OnPropertyChanged(nameof(LogDirectoryPath));
+                OnPropertyChanged(nameof(IsCustomLogDirectory));
+                CommandManager.InvalidateRequerySuggested();
                 _messageNotifier(
                     result.WarningMessage ?? "指定されたログ保存先フォルダへ書き込めませんでした。",
                     "ログ保存先の変更エラー",
@@ -945,20 +958,44 @@ public class SettingsViewModel : ViewModelBase
             return;
         }
 
-        string? nextPersistedPath = string.IsNullOrWhiteSpace(targetDirectory)
+        string? nextPersistedPath = string.IsNullOrWhiteSpace(targetDirectory) || AreSameDirectoryPaths(rawTarget, defaultDirectory)
             ? null
-            : string.Equals(
-                trimmedTarget.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                defaultDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                StringComparison.OrdinalIgnoreCase)
-                ? null
-                : trimmedTarget;
+            : rawTarget;
 
         _appSettings.LogDirectoryPath = nextPersistedPath;
         _settingsService.UpdateSettings(settings => settings.LogDirectoryPath = nextPersistedPath);
         OnPropertyChanged(nameof(LogDirectoryPath));
         OnPropertyChanged(nameof(IsCustomLogDirectory));
         CommandManager.InvalidateRequerySuggested();
+    }
+
+    private static bool AreSameDirectoryPaths(string pathA, string pathB)
+    {
+        try
+        {
+            string normalizedA = NormalizeComparisonPath(pathA);
+            string normalizedB = NormalizeComparisonPath(pathB);
+            return string.Equals(normalizedA, normalizedB, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return string.Equals(
+                pathA.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                pathB.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string NormalizeComparisonPath(string path)
+    {
+        string full = Path.GetFullPath(path.Trim());
+        string? root = Path.GetPathRoot(full);
+        if (!string.IsNullOrEmpty(root) && string.Equals(full, root, StringComparison.OrdinalIgnoreCase))
+        {
+            return full;
+        }
+
+        return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private void OpenLogFolder()
@@ -969,7 +1006,7 @@ public class SettingsViewModel : ViewModelBase
             Directory.CreateDirectory(targetDirectory);
             _folderOpener(targetDirectory);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.ComponentModel.Win32Exception or InvalidOperationException)
         {
             _messageNotifier(
                 $"ログ保存先フォルダを開けませんでした: {ex.Message}",
@@ -983,9 +1020,9 @@ public class SettingsViewModel : ViewModelBase
         var startInfo = new System.Diagnostics.ProcessStartInfo
         {
             FileName = "explorer.exe",
-            Arguments = $"\"{directoryPath}\"",
-            UseShellExecute = true,
+            UseShellExecute = false,
         };
-        System.Diagnostics.Process.Start(startInfo);
+        startInfo.ArgumentList.Add(directoryPath);
+        using var process = System.Diagnostics.Process.Start(startInfo);
     }
 }
