@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 オープン中の GitHub Issue を棚卸しし、Epic / 通常 Issue 分類・マージ済み PR・
-オープン PR・origin/develop の Git 履歴・直近クローズ済み Issue・Epic チェックリスト
-との突合結果を出力する読み取り専用監査スクリプト。
+オープン PR・origin/develop の Git 履歴・直近クローズ済み Issue・Epic チェックリスト／
+テーブル進捗不整合および進行中子 Issue との突合結果を出力する読み取り専用監査スクリプト。
 """
 
 from __future__ import annotations
@@ -13,6 +13,16 @@ import re
 import subprocess
 import sys
 from typing import Any
+
+
+STALE_TABLE_STATUS_KEYWORDS: tuple[str, ...] = (
+    "未着手",
+    "進行中",
+    "未完了",
+    "作業中",
+    "⬜",
+    "🔄",
+)
 
 
 def run_cmd(cmd: list[str]) -> str:
@@ -175,6 +185,8 @@ def audit_issues(base_ref: str, issue_limit: int, pr_limit: int, git_limit: int)
         if is_epic_issue(iss):
             checked_refs: set[int] = set()
             unchecked_refs: set[int] = set()
+            table_refs: set[int] = set()
+            stale_table_refs: set[int] = set()
             for line in (iss.get("body") or "").splitlines():
                 m_checked = re.search(r"^\s*-\s*\[[xX]\]\s*(?:\*\*[^*]+\*\*:\s*)?#(\d+)", line)
                 if m_checked:
@@ -183,12 +195,51 @@ def audit_issues(base_ref: str, issue_limit: int, pr_limit: int, git_limit: int)
                 m_unchecked = re.search(r"^\s*-\s*\[\s\]\s*(?:\*\*[^*]+\*\*:\s*)?#(\d+)", line)
                 if m_unchecked:
                     unchecked_refs.add(int(m_unchecked.group(1)))
+                    continue
+                stripped = line.strip()
+                if stripped.startswith("|") and stripped.endswith("|"):
+                    # テーブル行は最初に出現する #<番号> を対象子 Issue として抽出（依存列の前提 Issue を誤検知しない）
+                    m_tbl_issue = re.search(r"#(\d+)", stripped)
+                    if m_tbl_issue:
+                        tbl_num = int(m_tbl_issue.group(1))
+                        if tbl_num != num:
+                            table_refs.add(tbl_num)
+                            if any(kw in stripped for kw in STALE_TABLE_STATUS_KEYWORDS):
+                                stale_table_refs.add(tbl_num)
 
             checklist_refs = checked_refs | unchecked_refs
+            all_child_refs = checklist_refs | table_refs
             unchecked_closed_children = sorted(
                 n for n in (unchecked_refs - checked_refs) if n in closed_issue_map
             )
+            stale_table_closed_children = sorted(
+                n for n in stale_table_refs if n in closed_issue_map
+            )
             open_children = sorted(n for n in checklist_refs if n in open_issue_nums and n != num)
+
+            # オープン中の子 Issue のうち、統合ブランチマージ済み PR または OPEN PR が紐づく進行中タスクを検出
+            in_progress_children: list[dict[str, Any]] = []
+            for child_num in sorted(n for n in all_child_refs if n in open_issue_nums and n != num):
+                closing_merged_prs = [
+                    pr for pr in merged_pr_by_issue.get(child_num, [])
+                    if pr["isClosingRef"]
+                ]
+                child_open_prs = open_pr_by_issue.get(child_num, [])
+                if closing_merged_prs or child_open_prs:
+                    in_progress_children.append(
+                        {
+                            "issue": child_num,
+                            "mergedClosingPrs": [
+                                {"prNumber": p["prNumber"], "baseRefName": p["baseRefName"]}
+                                for p in closing_merged_prs
+                            ],
+                            "openPrs": [
+                                {"prNumber": p["prNumber"], "baseRefName": p["baseRefName"]}
+                                for p in child_open_prs
+                            ],
+                        }
+                    )
+
             epics.append(
                 {
                     "number": num,
@@ -196,6 +247,8 @@ def audit_issues(base_ref: str, issue_limit: int, pr_limit: int, git_limit: int)
                     "labels": labels,
                     "url": iss.get("url", ""),
                     "uncheckedClosedChildren": unchecked_closed_children,
+                    "staleTableClosedChildren": stale_table_closed_children,
+                    "inProgressChildren": in_progress_children,
                     "openChecklistChildren": open_children,
                     "checklistChildCount": len(checklist_refs),
                 }
@@ -244,7 +297,7 @@ def print_report(data: dict[str, Any]) -> None:
         f"Merged PRs: {s['mergedPrCount']} | Open PRs: {s['openPrCount']}"
     )
 
-    print(f"\n=== EPICS (EXCLUDE FROM AUTO-CLOSE: {len(data['epics'])}) ===")
+    print(f"\n=== EPICS (EXCLUDE FROM AUTO-CLOSE / UPDATE PROGRESS ONLY: {len(data['epics'])}) ===")
     for e in data["epics"]:
         notes: list[str] = []
         if e["checklistChildCount"] > 0 and not e["openChecklistChildren"]:
@@ -252,6 +305,21 @@ def print_report(data: dict[str, Any]) -> None:
         if e["uncheckedClosedChildren"]:
             nums = ", ".join(f"#{n}" for n in e["uncheckedClosedChildren"])
             notes.append(f"unchecked but closed: {nums}")
+        if e.get("staleTableClosedChildren"):
+            nums = ", ".join(f"#{n}" for n in e["staleTableClosedChildren"])
+            notes.append(f"table stale (closed): {nums}")
+        if e.get("inProgressChildren"):
+            prog_parts: list[str] = []
+            for item in e["inProgressChildren"]:
+                pr_tags = [
+                    f"MERGED PR #{p['prNumber']}->{p['baseRefName']}"
+                    for p in item["mergedClosingPrs"]
+                ] + [
+                    f"OPEN PR #{p['prNumber']}->{p['baseRefName']}"
+                    for p in item["openPrs"]
+                ]
+                prog_parts.append(f"#{item['issue']}({', '.join(pr_tags)})")
+            notes.append(f"in-progress: {'; '.join(prog_parts)}")
         suffix = f"  <-- {'; '.join(notes)}" if notes else ""
         print(f"  #{e['number']}: {e['title']} {e['labels']}{suffix}")
 
