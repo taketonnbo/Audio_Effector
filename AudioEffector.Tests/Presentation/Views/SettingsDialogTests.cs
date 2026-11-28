@@ -106,6 +106,7 @@ public sealed class SettingsDialogTests
     [InlineData("オーディオデバイス")]
     [InlineData("エフェクト・再生")]
     [InlineData("ショートカット")]
+    [InlineData("データ管理・その他")]
     public void スクロール可能状態_画面高さが不足する各カテゴリ表示時_ScrollableHeightが正かつバインディングエラーがないこと(string category)
     {
         RunInStaThread(() =>
@@ -138,17 +139,17 @@ public sealed class SettingsDialogTests
     }
 
     /// <summary>
-    /// プレースホルダー表示となる「データ管理・その他」カテゴリを選択した際、バインディングエラーが発生せず不要なスクロール領域が生じないことを検証します。
+    /// プレースホルダー表示となる未定義カテゴリを選択した際、バインディングエラーが発生せず不要なスクロール領域が生じないことを検証します。
     /// </summary>
     [Fact]
-    public void プレースホルダーカテゴリ_データ管理その他選択時_バインディングエラーがなく不要なスクロールが出ないこと()
+    public void プレースホルダーカテゴリ_未定義カテゴリ選択時_バインディングエラーがなく不要なスクロールが出ないこと()
     {
         RunInStaThread(() =>
         {
             // Arrange
             using var listener = new BindingErrorTraceListener();
             var vm = CreateViewModel();
-            vm.SelectedCategory = "データ管理・その他";
+            vm.SelectedCategory = "未実装カテゴリ";
 
             var sut = new SettingsDialog(vm);
 
@@ -369,6 +370,41 @@ public sealed class SettingsDialogTests
 
             // Assert
             Assert.True(vm.ConvertFlacToMp3);
+            Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
+
+    /// <summary>
+    /// データ管理・その他カテゴリにデータ保存先パス表示（読み取り専用）と「参照...」「リセット」ボタンが配置され、バインディングエラー 0 件で描画されることを検証します。
+    /// </summary>
+    [Fact]
+    public void データ管理その他カテゴリ_データ保存先設定コントロール配置時_読み取り専用表示とコマンド接続が正常でバインディングエラーがないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange
+            using var listener = new BindingErrorTraceListener();
+            var vm = CreateViewModel();
+            vm.SelectedCategory = "データ管理・その他";
+
+            var sut = new SettingsDialog(vm);
+            var rootContent = Assert.IsAssignableFrom<FrameworkElement>(sut.Content);
+
+            // Act
+            rootContent.Measure(new Size(760, 520));
+            rootContent.Arrange(new Rect(0, 0, 760, 520));
+            rootContent.UpdateLayout();
+
+            var pathTextBox = Assert.IsType<TextBox>(sut.FindName("DataDirectoryPathTextBox"));
+            var browseButton = Assert.IsType<Button>(sut.FindName("BrowseDataDirectoryButton"));
+            var resetButton = Assert.IsType<Button>(sut.FindName("ResetDataDirectoryButton"));
+
+            // Assert
+            Assert.True(pathTextBox.IsReadOnly);
+            Assert.Equal(vm.DataDirectoryPath, pathTextBox.Text);
+            Assert.Same(vm.BrowseDataDirectoryCommand, browseButton.Command);
+            Assert.Same(vm.ResetDataDirectoryCommand, resetButton.Command);
+            Assert.False(resetButton.IsEnabled);
             Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
         });
     }

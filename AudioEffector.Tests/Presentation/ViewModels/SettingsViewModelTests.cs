@@ -260,4 +260,135 @@ public class SettingsViewModelTests
         Assert.True(_persistedSettings.ConvertFlacToMp3);
         _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Once);
     }
+
+    /// <summary>
+    /// BrowseDataDirectoryCommand 実行時、既存データがあれば移行確認プロンプトの結果（Copy）に従って移行サービスが呼ばれ、変更通知とイベントが発火することを検証します。
+    /// </summary>
+    [Fact]
+    public void BrowseDataDirectoryCommand_既存データありでコピー選択時_移行サービスがCopyで実行され通知が発火すること()
+    {
+        // Arrange
+        var providerMock = new Mock<AudioEffector.Application.Common.IDataDirectoryProvider>();
+        string currentPath = @"C:\Users\Test\AppData\Roaming\AudioEffector";
+        bool isCustom = false;
+        providerMock.SetupGet(p => p.DefaultDataDirectory).Returns(currentPath);
+        providerMock.SetupGet(p => p.DataDirectory).Returns(() => currentPath);
+        providerMock.SetupGet(p => p.IsCustomDirectory).Returns(() => isCustom);
+
+        var migrationMock = new Mock<IDataDirectoryMigrationService>();
+        migrationMock.Setup(m => m.IsSameDirectory(It.IsAny<string?>(), It.IsAny<string?>())).Returns(false);
+        migrationMock.Setup(m => m.HasExistingDataFiles(currentPath)).Returns(true);
+        migrationMock.Setup(m => m.ChangeDataDirectory(@"D:\SyncData", DataMigrationMode.Copy))
+            .Callback(() =>
+            {
+                currentPath = @"D:\SyncData";
+                isCustom = true;
+            })
+            .Returns(new DataDirectoryChangeResult(true, true, @"D:\SyncData", 3));
+
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            providerMock.Object,
+            migrationMock.Object,
+            folderPicker: _ => @"D:\SyncData",
+            migrationPrompt: (_, _) => DataMigrationChoice.Copy,
+            messageNotifier: (_, _, _) => { });
+
+        var notified = new List<string?>();
+        sut.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+        int changedEventCount = 0;
+        sut.DataDirectoryChanged += () => changedEventCount++;
+
+        // Act
+        sut.BrowseDataDirectoryCommand.Execute(null);
+
+        // Assert
+        Assert.Equal(@"D:\SyncData", sut.DataDirectoryPath);
+        Assert.True(sut.IsCustomDataDirectory);
+        Assert.Contains(nameof(SettingsViewModel.DataDirectoryPath), notified);
+        Assert.Contains(nameof(SettingsViewModel.IsCustomDataDirectory), notified);
+        Assert.Equal(1, changedEventCount);
+        migrationMock.Verify(m => m.ChangeDataDirectory(@"D:\SyncData", DataMigrationMode.Copy), Times.Once);
+    }
+
+    /// <summary>
+    /// 移行確認ダイアログでキャンセルを選択した場合、データディレクトリ変更が中止されることを検証します。
+    /// </summary>
+    [Fact]
+    public void BrowseDataDirectoryCommand_移行確認でキャンセル時_変更処理が実行されないこと()
+    {
+        // Arrange
+        var providerMock = new Mock<AudioEffector.Application.Common.IDataDirectoryProvider>();
+        providerMock.SetupGet(p => p.DefaultDataDirectory).Returns(@"C:\Default");
+        providerMock.SetupGet(p => p.DataDirectory).Returns(@"C:\Default");
+        providerMock.SetupGet(p => p.IsCustomDirectory).Returns(false);
+
+        var migrationMock = new Mock<IDataDirectoryMigrationService>();
+        migrationMock.Setup(m => m.IsSameDirectory(It.IsAny<string?>(), It.IsAny<string?>())).Returns(false);
+        migrationMock.Setup(m => m.HasExistingDataFiles(@"C:\Default")).Returns(true);
+
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            providerMock.Object,
+            migrationMock.Object,
+            folderPicker: _ => @"D:\Other",
+            migrationPrompt: (_, _) => DataMigrationChoice.Cancel,
+            messageNotifier: (_, _, _) => { });
+
+        // Act
+        sut.BrowseDataDirectoryCommand.Execute(null);
+
+        // Assert
+        migrationMock.Verify(m => m.ChangeDataDirectory(It.IsAny<string?>(), It.IsAny<DataMigrationMode>()), Times.Never);
+    }
+
+    /// <summary>
+    /// ResetDataDirectoryCommand がカスタムディレクトリ設定中のみ実行可能であり、実行時に既定ディレクトリへ復帰することを検証します。
+    /// </summary>
+    [Fact]
+    public void ResetDataDirectoryCommand_カスタム設定中のみ実行可能で既定ディレクトリへ復帰すること()
+    {
+        // Arrange
+        var providerMock = new Mock<AudioEffector.Application.Common.IDataDirectoryProvider>();
+        string defaultPath = @"C:\Default";
+        string currentPath = @"D:\Custom";
+        bool isCustom = true;
+        providerMock.SetupGet(p => p.DefaultDataDirectory).Returns(defaultPath);
+        providerMock.SetupGet(p => p.DataDirectory).Returns(() => currentPath);
+        providerMock.SetupGet(p => p.IsCustomDirectory).Returns(() => isCustom);
+
+        var migrationMock = new Mock<IDataDirectoryMigrationService>();
+        migrationMock.Setup(m => m.IsSameDirectory(It.IsAny<string?>(), It.IsAny<string?>())).Returns(false);
+        migrationMock.Setup(m => m.HasExistingDataFiles(@"D:\Custom")).Returns(false);
+        migrationMock.Setup(m => m.ChangeDataDirectory(null, DataMigrationMode.None))
+            .Callback(() =>
+            {
+                currentPath = defaultPath;
+                isCustom = false;
+            })
+            .Returns(new DataDirectoryChangeResult(true, true, defaultPath, 0));
+
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            providerMock.Object,
+            migrationMock.Object,
+            folderPicker: _ => null,
+            migrationPrompt: (_, _) => DataMigrationChoice.Cancel,
+            messageNotifier: (_, _, _) => { });
+
+        // Act
+        bool canExecuteBefore = sut.ResetDataDirectoryCommand.CanExecute(null);
+        sut.ResetDataDirectoryCommand.Execute(null);
+        bool canExecuteAfter = sut.ResetDataDirectoryCommand.CanExecute(null);
+
+        // Assert
+        Assert.True(canExecuteBefore);
+        Assert.False(canExecuteAfter);
+        Assert.Equal(defaultPath, sut.DataDirectoryPath);
+        Assert.False(sut.IsCustomDataDirectory);
+        migrationMock.Verify(m => m.ChangeDataDirectory(null, DataMigrationMode.None), Times.Once);
+    }
 }
