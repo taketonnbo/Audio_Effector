@@ -30,6 +30,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private readonly IAudioTranscodeService _audioTranscodeService;
     private readonly Func<string, long> _getFileSizeBytes;
     private readonly Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)> _readDeviceStorageSpace;
+    private readonly Func<MainViewModel.DeviceViewModel, IMtpDeviceClient?> _resolveMtpClient;
+    private readonly Action<string, string> _showMessage;
     private readonly Dictionary<string, long> _fileSizeCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<Album> _subscribedAlbums = new();
     private readonly HashSet<Track> _subscribedTracks = new();
@@ -169,9 +171,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             if (_selectedDevice != value)
             {
                 // Disconnect previous MTP device if applicable
-                if (_selectedDevice?.Type == MainViewModel.DeviceType.MTP && _selectedDevice.MtpDevice != null && _selectedDevice.MtpDevice.IsConnected)
+                if (_selectedDevice?.Type == MainViewModel.DeviceType.MTP)
                 {
-                    try { _selectedDevice.MtpDevice.Disconnect(); } catch { }
+                    var previousMtpClient = _resolveMtpClient(_selectedDevice);
+                    if (previousMtpClient != null && previousMtpClient.IsConnected)
+                    {
+                        try { previousMtpClient.Disconnect(); } catch { }
+                    }
                 }
 
                 _selectedDevice = value;
@@ -181,34 +187,38 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 {
                     DefaultFolderStatusMessage = string.Empty;
 
-                    if (_selectedDevice.Type == MainViewModel.DeviceType.MTP && _selectedDevice.MtpDevice != null)
+                    if (_selectedDevice.Type == MainViewModel.DeviceType.MTP)
                     {
-                        try
+                        var mtpClient = _resolveMtpClient(_selectedDevice);
+                        if (mtpClient != null)
                         {
-                            _selectedDevice.MtpDevice.Connect();
-                            string initialPath = ResolveInitialDirectoryPath(
-                                _selectedDevice,
-                                @"\",
-                                p =>
-                                {
-                                    try { return _selectedDevice.MtpDevice.DirectoryExists(p); }
-                                    catch { return false; }
-                                },
-                                out bool fellBack);
-                            if (fellBack)
+                            try
                             {
-                                DefaultFolderStatusMessage = "記憶していた既定フォルダが見つからないため、ルートフォルダを表示しました。";
-                            }
+                                mtpClient.Connect();
+                                string initialPath = ResolveInitialDirectoryPath(
+                                    _selectedDevice,
+                                    @"\",
+                                    p =>
+                                    {
+                                        try { return mtpClient.DirectoryExists(p); }
+                                        catch { return false; }
+                                    },
+                                    out bool fellBack);
+                                if (fellBack)
+                                {
+                                    DefaultFolderStatusMessage = "記憶していた既定フォルダが見つからないため、ルートフォルダを表示しました。";
+                                }
 
-                            LoadDeviceDirectories(initialPath);
-                        }
-                        catch (Exception ex)
-                        {
-                            DeviceDirectories.Clear();
-                            CurrentDevicePath = string.Empty;
-                            UpdateDefaultFolderState();
-                            CheckDeviceAlbums();
-                            MessageBox.Show($"Failed to connect to device: {ex.Message}");
+                                LoadDeviceDirectories(initialPath);
+                            }
+                            catch (Exception ex)
+                            {
+                                DeviceDirectories.Clear();
+                                CurrentDevicePath = string.Empty;
+                                UpdateDefaultFolderState();
+                                CheckDeviceAlbums();
+                                _showMessage($"Failed to connect to device: {ex.Message}", string.Empty);
+                            }
                         }
                     }
                     else if (_selectedDevice.Type == MainViewModel.DeviceType.FileSystem)
@@ -386,6 +396,41 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)>? readDeviceStorageSpace = null,
         ISettingsService? settingsService = null,
         IAudioTranscodeService? audioTranscodeService = null)
+        : this(
+            albumsRef,
+            getAlbums,
+            onCheckDeviceAlbumsRequested,
+            getFileSizeBytes,
+            readDeviceStorageSpace,
+            settingsService,
+            audioTranscodeService,
+            resolveMtpClient: null,
+            showMessage: null)
+    {
+    }
+
+    /// <summary>
+    /// テスト差し替え用の MTP クライアント解決・メッセージ通知デリゲートを含む内部コンストラクタ
+    /// </summary>
+    /// <param name="albumsRef">MainViewModelのAlbumsコレクションへの直接参照</param>
+    /// <param name="getAlbums">PCアルバム一覧を取得するコールバック</param>
+    /// <param name="onCheckDeviceAlbumsRequested">デバイスアルバムチェック要求コールバック</param>
+    /// <param name="getFileSizeBytes">トラックのファイルサイズ取得関数</param>
+    /// <param name="readDeviceStorageSpace">接続機器の容量取得関数</param>
+    /// <param name="settingsService">アプリケーション設定永続化サービス</param>
+    /// <param name="audioTranscodeService">転送時の音声フォーマット変換サービス</param>
+    /// <param name="resolveMtpClient">MTPデバイスクライアント解決関数</param>
+    /// <param name="showMessage">ユーザー通知メッセージ表示関数</param>
+    internal DeviceBrowserViewModel(
+        ObservableCollection<Album> albumsRef,
+        Func<IReadOnlyList<Album>> getAlbums,
+        Action onCheckDeviceAlbumsRequested,
+        Func<string, long>? getFileSizeBytes,
+        Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)>? readDeviceStorageSpace,
+        ISettingsService? settingsService,
+        IAudioTranscodeService? audioTranscodeService,
+        Func<MainViewModel.DeviceViewModel, IMtpDeviceClient?>? resolveMtpClient,
+        Action<string, string>? showMessage)
     {
         _albumsRef = albumsRef ?? throw new ArgumentNullException(nameof(albumsRef));
         _getAlbums = getAlbums ?? throw new ArgumentNullException(nameof(getAlbums));
@@ -394,6 +439,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         _readDeviceStorageSpace = readDeviceStorageSpace ?? ReadDeviceStorageSpace;
         _settingsService = settingsService;
         _audioTranscodeService = audioTranscodeService ?? PassthroughAudioTranscodeService.Instance;
+        _resolveMtpClient = resolveMtpClient ?? DefaultResolveMtpClient;
+        _showMessage = showMessage ?? DefaultShowMessage;
 
         RemovableDrives.CollectionChanged += OnRemovableDrivesCollectionChanged;
         _albumsRef.CollectionChanged += OnAlbumsCollectionChanged;
@@ -471,6 +518,17 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="path">ロード対象のディレクトリパス。</param>
     private void LoadDeviceDirectories(string path)
     {
+        LoadDeviceDirectoriesCore(path);
+        CheckDeviceAlbums();
+        _ = RefreshSelectedDeviceStorageAsync();
+    }
+
+    /// <summary>
+    /// 指定されたパスのディレクトリとファイルをデバイスディレクトリリストへ反映します（再走査は呼び出し元で制御します）。
+    /// </summary>
+    /// <param name="path">ロード対象のディレクトリパス。</param>
+    private void LoadDeviceDirectoriesCore(string path)
+    {
         try
         {
             DeviceDirectories.Clear();
@@ -509,12 +567,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                     }
                 }
             }
-            else if (SelectedDevice.Type == MainViewModel.DeviceType.MTP && SelectedDevice.MtpDevice != null)
+            else if (SelectedDevice.Type == MainViewModel.DeviceType.MTP)
             {
-                if (SelectedDevice.MtpDevice.IsConnected)
+                var mtpClient = _resolveMtpClient(SelectedDevice);
+                if (mtpClient != null && mtpClient.IsConnected)
                 {
                     // Add Directories
-                    var dirs = SelectedDevice.MtpDevice.GetDirectories(path);
+                    var dirs = mtpClient.GetDirectories(path);
                     foreach (var dir in dirs)
                     {
                         DeviceDirectories.Add(new MainViewModel.DirectoryItem
@@ -527,7 +586,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
                     // Add Files
                     // ファイルの追加
-                    var files = SelectedDevice.MtpDevice.GetFiles(path);
+                    var files = mtpClient.GetFiles(path);
                     foreach (var file in files)
                     {
                         DeviceDirectories.Add(new MainViewModel.DirectoryItem
@@ -543,11 +602,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Error loading directories: {ex.Message}");
-            MessageBox.Show($"Error loading directory: {ex.Message}");
+            _showMessage($"Error loading directory: {ex.Message}", string.Empty);
         }
-
-        CheckDeviceAlbums();
-        _ = RefreshSelectedDeviceStorageAsync();
     }
 
     /// <summary>
@@ -596,6 +652,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         try
         {
             bool recursive = !IsDeviceRootPath(selectedDevice, currentPath);
+            var knownTargetFolders = recursive ? null : CollectKnownTrackFolderTargets(albums);
 
             var index = await Task.Run(() =>
             {
@@ -603,14 +660,16 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
                 if (selectedDevice.Type == MainViewModel.DeviceType.FileSystem)
                 {
-                    return BuildFileSystemAudioIndex(currentPath, recursive, ct);
+                    return BuildFileSystemAudioIndex(currentPath, recursive, knownTargetFolders, ct);
                 }
 
-                if (selectedDevice.Type == MainViewModel.DeviceType.MTP
-                    && selectedDevice.MtpDevice != null
-                    && selectedDevice.MtpDevice.IsConnected)
+                if (selectedDevice.Type == MainViewModel.DeviceType.MTP)
                 {
-                    return BuildMtpAudioIndex(selectedDevice.MtpDevice, currentPath, recursive, ct);
+                    var mtpClient = _resolveMtpClient(selectedDevice);
+                    if (mtpClient != null && mtpClient.IsConnected)
+                    {
+                        return BuildMtpAudioIndex(mtpClient, currentPath, recursive, knownTargetFolders, ct);
+                    }
                 }
 
                 return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -683,7 +742,8 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             {
                 relativeDir = fullDir.TrimStart('\\');
             }
-            else if (fullDir.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+            else if (fullDir.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase)
+                && (fullDir.Length == normalizedRoot.Length || fullDir[normalizedRoot.Length] == '\\'))
             {
                 relativeDir = fullDir.Substring(normalizedRoot.Length).TrimStart('\\');
             }
@@ -708,6 +768,87 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         string artist = SanitizeFileName(track.Artist);
         string album = SanitizeFileName(track.Album);
         return $"{artist}\\{album}\\{fileKey}";
+    }
+
+    /// <summary>
+    /// トラックの正規化済み転送先キーおよび旧フォルダ名規則（末尾ピリオド保持）の互換キーを列挙します。
+    /// </summary>
+    /// <param name="track">対象トラック</param>
+    /// <returns>照合対象となる相対パス基準キー一覧</returns>
+    internal static IReadOnlyList<string> BuildExpectedTrackRelativeKeys(Track track)
+    {
+        string fileKey = NormalizeTrackDuplicateKey(track.FilePath);
+        if (string.IsNullOrEmpty(fileKey))
+        {
+            return Array.Empty<string>();
+        }
+
+        string artist = SanitizeFileName(track.Artist);
+        string album = SanitizeFileName(track.Album);
+        string primaryKey = $"{artist}\\{album}\\{fileKey}";
+
+        string legacyArtist = SanitizeLegacyFileName(track.Artist);
+        string legacyAlbum = SanitizeLegacyFileName(track.Album);
+        string legacyKey = $"{legacyArtist}\\{legacyAlbum}\\{fileKey}";
+
+        if (string.Equals(primaryKey, legacyKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return new[] { primaryKey };
+        }
+
+        return new[] { primaryKey, legacyKey };
+    }
+
+    /// <summary>
+    /// PCライブラリ内の楽曲から、転送先となり得る既知の「アーティストフォルダ -> アルバムフォルダ集合」マップを構築します。
+    /// 機器ルート選択時に全階層再帰走査を避けつつ既知の転送先のみを照合するために使用します。
+    /// </summary>
+    /// <param name="albums">対象アルバム一覧</param>
+    /// <returns>アーティストフォルダ名をキー、配下の候補アルバムフォルダ名集合を値とするマップ</returns>
+    internal static Dictionary<string, HashSet<string>> CollectKnownTrackFolderTargets(IReadOnlyList<Album> albums)
+    {
+        var targets = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+        static void AddTarget(Dictionary<string, HashSet<string>> map, string artistFolder, string albumFolder)
+        {
+            if (string.IsNullOrWhiteSpace(artistFolder) || string.IsNullOrWhiteSpace(albumFolder))
+            {
+                return;
+            }
+
+            if (!map.TryGetValue(artistFolder, out var albumFolders))
+            {
+                albumFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                map[artistFolder] = albumFolders;
+            }
+
+            albumFolders.Add(albumFolder);
+        }
+
+        foreach (var album in albums)
+        {
+            if (album.Tracks == null)
+            {
+                continue;
+            }
+
+            foreach (var track in album.Tracks)
+            {
+                string artist = SanitizeFileName(track.Artist);
+                string albumFolder = SanitizeFileName(track.Album);
+                AddTarget(targets, artist, albumFolder);
+
+                string legacyArtist = SanitizeLegacyFileName(track.Artist);
+                string legacyAlbumFolder = SanitizeLegacyFileName(track.Album);
+                if (!string.Equals(artist, legacyArtist, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(albumFolder, legacyAlbumFolder, StringComparison.OrdinalIgnoreCase))
+                {
+                    AddTarget(targets, legacyArtist, legacyAlbumFolder);
+                }
+            }
+        }
+
+        return targets;
     }
 
     /// <summary>
@@ -745,10 +886,36 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         string rootPath,
         bool recursive,
         CancellationToken cancellationToken = default)
+        => BuildFileSystemAudioIndex(rootPath, recursive, knownTargetFolders: null, cancellationToken);
+
+    /// <summary>
+    /// ファイルシステム上の指定フォルダ配下にある音声ファイルの重複判定インデックスを構築します。
+    /// </summary>
+    /// <param name="rootPath">走査対象のルートパス</param>
+    /// <param name="recursive">サブフォルダを再帰走査する場合はtrue</param>
+    /// <param name="knownTargetFolders">非再帰走査（ルート選択時）に限定照合する既知のアーティスト／アルバムフォルダマップ（省略時は直下のみ）</param>
+    /// <param name="cancellationToken">キャンセルトークン</param>
+    /// <returns>正規化された重複判定キーのセット</returns>
+    internal static HashSet<string> BuildFileSystemAudioIndex(
+        string rootPath,
+        bool recursive,
+        IReadOnlyDictionary<string, HashSet<string>>? knownTargetFolders,
+        CancellationToken cancellationToken = default)
     {
         var index = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
         {
+            return index;
+        }
+
+        if (!recursive)
+        {
+            IndexFileSystemDirectoryFiles(rootPath, rootPath, index, cancellationToken);
+            if (knownTargetFolders != null && knownTargetFolders.Count > 0)
+            {
+                IndexKnownFileSystemTargetFolders(rootPath, knownTargetFolders, index, cancellationToken);
+            }
+
             return index;
         }
 
@@ -760,37 +927,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             string dir = pendingDirs.Pop();
 
-            try
-            {
-                foreach (var file in Directory.EnumerateFiles(dir))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    string ext = Path.GetExtension(file);
-                    if (!SupportedAudioExtensions.Contains(ext))
-                    {
-                        continue;
-                    }
-
-                    string key = BuildDeviceRelativeDuplicateKey(rootPath, file);
-                    if (!string.IsNullOrEmpty(key))
-                    {
-                        index.Add(key);
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error enumerating files in {dir}: {ex.Message}");
-            }
-
-            if (!recursive)
-            {
-                continue;
-            }
+            IndexFileSystemDirectoryFiles(rootPath, dir, index, cancellationToken);
 
             try
             {
@@ -813,6 +950,91 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         return index;
     }
 
+    private static void IndexFileSystemDirectoryFiles(
+        string rootPath,
+        string dir,
+        HashSet<string> index,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(dir))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string ext = Path.GetExtension(file);
+                if (!SupportedAudioExtensions.Contains(ext))
+                {
+                    continue;
+                }
+
+                string key = BuildDeviceRelativeDuplicateKey(rootPath, file);
+                if (!string.IsNullOrEmpty(key))
+                {
+                    index.Add(key);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error enumerating files in {dir}: {ex.Message}");
+        }
+    }
+
+    private static void IndexKnownFileSystemTargetFolders(
+        string rootPath,
+        IReadOnlyDictionary<string, HashSet<string>> knownTargetFolders,
+        HashSet<string> index,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var artistDir in Directory.EnumerateDirectories(rootPath))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string artistFolderName = GetDirectoryLeafName(artistDir);
+                if (!knownTargetFolders.TryGetValue(artistFolderName, out var expectedAlbums))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    foreach (var albumDir in Directory.EnumerateDirectories(artistDir))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        string albumFolderName = GetDirectoryLeafName(albumDir);
+                        if (!expectedAlbums.Contains(albumFolderName))
+                        {
+                            continue;
+                        }
+
+                        IndexFileSystemDirectoryFiles(rootPath, albumDir, index, cancellationToken);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error enumerating known artist directory {artistDir}: {ex.Message}");
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error enumerating root directories in {rootPath}: {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// MTP デバイスの指定フォルダ配下にある音声ファイルの重複判定インデックスを構築します。
     /// </summary>
@@ -827,9 +1049,44 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         bool recursive,
         CancellationToken cancellationToken = default)
     {
-        var index = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (mtpDevice == null || !mtpDevice.IsConnected || string.IsNullOrWhiteSpace(rootPath))
+        if (mtpDevice == null)
         {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return BuildMtpAudioIndex(new MediaDeviceClientAdapter(mtpDevice), rootPath, recursive, knownTargetFolders: null, cancellationToken);
+    }
+
+    /// <summary>
+    /// 抽象化された MTP デバイスクライアントを用いて、指定フォルダ配下の音声ファイル重複判定インデックスを構築します。
+    /// </summary>
+    /// <param name="mtpClient">接続済みのMTPデバイスクライアント</param>
+    /// <param name="rootPath">走査対象のルートパス</param>
+    /// <param name="recursive">サブフォルダを再帰走査する場合はtrue</param>
+    /// <param name="knownTargetFolders">非再帰走査（ルート選択時）に限定照合する既知のアーティスト／アルバムフォルダマップ（省略時は直下のみ）</param>
+    /// <param name="cancellationToken">キャンセルトークン</param>
+    /// <returns>正規化された重複判定キーのセット</returns>
+    internal static HashSet<string> BuildMtpAudioIndex(
+        IMtpDeviceClient mtpClient,
+        string rootPath,
+        bool recursive,
+        IReadOnlyDictionary<string, HashSet<string>>? knownTargetFolders = null,
+        CancellationToken cancellationToken = default)
+    {
+        var index = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (mtpClient == null || !mtpClient.IsConnected || string.IsNullOrWhiteSpace(rootPath))
+        {
+            return index;
+        }
+
+        if (!recursive)
+        {
+            IndexMtpDirectoryFiles(mtpClient, rootPath, rootPath, index, cancellationToken);
+            if (knownTargetFolders != null && knownTargetFolders.Count > 0)
+            {
+                IndexKnownMtpTargetFolders(mtpClient, rootPath, knownTargetFolders, index, cancellationToken);
+            }
+
             return index;
         }
 
@@ -841,41 +1098,11 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             cancellationToken.ThrowIfCancellationRequested();
             string dir = pendingDirs.Pop();
 
-            try
-            {
-                foreach (var file in mtpDevice.GetFiles(dir))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    string ext = Path.GetExtension(file);
-                    if (!SupportedAudioExtensions.Contains(ext))
-                    {
-                        continue;
-                    }
-
-                    string key = BuildDeviceRelativeDuplicateKey(rootPath, file);
-                    if (!string.IsNullOrEmpty(key))
-                    {
-                        index.Add(key);
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error enumerating MTP files in {dir}: {ex.Message}");
-            }
-
-            if (!recursive)
-            {
-                continue;
-            }
+            IndexMtpDirectoryFiles(mtpClient, rootPath, dir, index, cancellationToken);
 
             try
             {
-                foreach (var subDir in mtpDevice.GetDirectories(dir))
+                foreach (var subDir in mtpClient.GetDirectories(dir))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     pendingDirs.Push(subDir);
@@ -894,6 +1121,104 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         return index;
     }
 
+    private static void IndexMtpDirectoryFiles(
+        IMtpDeviceClient mtpClient,
+        string rootPath,
+        string dir,
+        HashSet<string> index,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var file in mtpClient.GetFiles(dir))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string ext = Path.GetExtension(file);
+                if (!SupportedAudioExtensions.Contains(ext))
+                {
+                    continue;
+                }
+
+                string key = BuildDeviceRelativeDuplicateKey(rootPath, file);
+                if (!string.IsNullOrEmpty(key))
+                {
+                    index.Add(key);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error enumerating MTP files in {dir}: {ex.Message}");
+        }
+    }
+
+    private static void IndexKnownMtpTargetFolders(
+        IMtpDeviceClient mtpClient,
+        string rootPath,
+        IReadOnlyDictionary<string, HashSet<string>> knownTargetFolders,
+        HashSet<string> index,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var artistDir in mtpClient.GetDirectories(rootPath))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string artistFolderName = GetDirectoryLeafName(artistDir);
+                if (!knownTargetFolders.TryGetValue(artistFolderName, out var expectedAlbums))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    foreach (var albumDir in mtpClient.GetDirectories(artistDir))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        string albumFolderName = GetDirectoryLeafName(albumDir);
+                        if (!expectedAlbums.Contains(albumFolderName))
+                        {
+                            continue;
+                        }
+
+                        IndexMtpDirectoryFiles(mtpClient, rootPath, albumDir, index, cancellationToken);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error enumerating known MTP artist directory {artistDir}: {ex.Message}");
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error enumerating MTP root directories in {rootPath}: {ex.Message}");
+        }
+    }
+
+    private static string GetDirectoryLeafName(string directoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath))
+        {
+            return string.Empty;
+        }
+
+        string trimmed = directoryPath.TrimEnd('\\', '/');
+        return Path.GetFileName(trimmed);
+    }
+
     /// <summary>
     /// 構築したデバイスファイルインデックスを用いて、各トラック・アルバムの IsOnDevice 状態を一括反映します。
     /// </summary>
@@ -905,10 +1230,12 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         {
             album.ApplyTracksOnDeviceState(track =>
             {
-                string relativeKey = BuildExpectedTrackRelativeKey(track);
-                if (!string.IsNullOrEmpty(relativeKey) && deviceFileKeys.Contains(relativeKey))
+                foreach (var relativeKey in BuildExpectedTrackRelativeKeys(track))
                 {
-                    return true;
+                    if (!string.IsNullOrEmpty(relativeKey) && deviceFileKeys.Contains(relativeKey))
+                    {
+                        return true;
+                    }
                 }
 
                 // 指定フォルダ直下にフラット配置された既存音声ファイルとの照合フォールバック
@@ -1722,11 +2049,46 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private static string SanitizeFileName(string name)
+    /// <summary>
+    /// 転送先フォルダ名に使用できるよう無効文字および末尾のピリオド・空白を除去して正規化します。
+    /// Windows ファイルシステムが末尾のピリオドや空白を暗黙除去する仕様と保存・照合規則を一致させます。
+    /// </summary>
+    /// <param name="name">元のアーティスト名またはアルバム名</param>
+    /// <returns>安全なフォルダ名（空になる場合は "Unknown"）</returns>
+    internal static string SanitizeFileName(string? name)
     {
-        if (string.IsNullOrWhiteSpace(name)) return "Unknown";
-        var invalid = System.IO.Path.GetInvalidFileNameChars();
-        return new string(name.Where(c => !invalid.Contains(c)).ToArray()).Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "Unknown";
+        }
+
+        var invalid = Path.GetInvalidFileNameChars();
+        string cleaned = new string(name.Where(c => !invalid.Contains(c)).ToArray()).Trim();
+        cleaned = TrimTrailingDotsAndWhitespace(cleaned);
+        return string.IsNullOrEmpty(cleaned) ? "Unknown" : cleaned;
+    }
+
+    private static string SanitizeLegacyFileName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "Unknown";
+        }
+
+        var invalid = Path.GetInvalidFileNameChars();
+        string cleaned = new string(name.Where(c => !invalid.Contains(c)).ToArray()).Trim();
+        return string.IsNullOrEmpty(cleaned) ? "Unknown" : cleaned;
+    }
+
+    private static string TrimTrailingDotsAndWhitespace(string value)
+    {
+        int end = value.Length;
+        while (end > 0 && (value[end - 1] == '.' || char.IsWhiteSpace(value[end - 1])))
+        {
+            end--;
+        }
+
+        return end == value.Length ? value : value.Substring(0, end);
     }
 
     /// <summary>
@@ -1734,9 +2096,18 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// </summary>
     private async void TransferSelected()
     {
+        await TransferSelectedAsync();
+    }
+
+    /// <summary>
+    /// 選択されたアルバムまたはトラックを現在選択されているデバイスへ転送し、再走査による状態反映完了後に完了通知を行います。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    internal async Task TransferSelectedAsync()
+    {
         if (SelectedDevice == null)
         {
-            MessageBox.Show("Please select a device first.", "No Device Selected");
+            _showMessage("Please select a device first.", "No Device Selected");
             return;
         }
 
@@ -1744,7 +2115,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
         if (SelectedDevice.Type == MainViewModel.DeviceType.FileSystem && !destinationFolder.StartsWith(SelectedDevice.RootPath, StringComparison.OrdinalIgnoreCase))
         {
-            MessageBox.Show("Current folder is not on the selected drive.", "Error");
+            _showMessage("Current folder is not on the selected drive.", "Error");
             return;
         }
 
@@ -1753,7 +2124,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
         if (tracksToTransfer.Count == 0)
         {
-            MessageBox.Show("Please select at least one album or track to transfer.", "No Items Selected");
+            _showMessage("Please select at least one album or track to transfer.", "No Items Selected");
             return;
         }
 
@@ -1769,82 +2140,166 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             {
                 await TransferTracksToFileSystemAsync(tracksToTransfer, destinationFolder, transcodeOptions, progress);
             }
-            else if (SelectedDevice.Type == MainViewModel.DeviceType.MTP && SelectedDevice.MtpDevice != null)
+            else if (SelectedDevice.Type == MainViewModel.DeviceType.MTP)
             {
-                var mtpDevice = SelectedDevice.MtpDevice;
-                await Task.Run(async () =>
+                var mtpClient = _resolveMtpClient(SelectedDevice);
+                if (mtpClient != null)
                 {
-                    int total = tracksToTransfer.Count;
-                    int current = 0;
-                    foreach (var track in tracksToTransfer)
-                    {
-                        if (!System.IO.File.Exists(track.FilePath)) continue;
-
-                        string artist = SanitizeFileName(track.Artist);
-                        string album = SanitizeFileName(track.Album);
-                        string targetFileName = _audioTranscodeService.ResolveTargetFileName(track.FilePath, transcodeOptions);
-
-                        string targetDir = System.IO.Path.Combine(destinationFolder, artist, album);
-
-                        try
-                        {
-                            string artistDir = System.IO.Path.Combine(destinationFolder, artist);
-                            if (!mtpDevice.DirectoryExists(artistDir))
-                            {
-                                mtpDevice.CreateDirectory(artistDir);
-                            }
-                            if (!mtpDevice.DirectoryExists(targetDir))
-                            {
-                                mtpDevice.CreateDirectory(targetDir);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Error creating MTP directory: {ex.Message}");
-                        }
-
-                        string destPath = System.IO.Path.Combine(targetDir, targetFileName);
-                        string originalDestPath = System.IO.Path.Combine(targetDir, System.IO.Path.GetFileName(track.FilePath));
-
-                        // 変換後または元ファイル名のいずれかが既に存在する場合はスキップ（#170 重複判定整合）
-                        bool fileExists = false;
-                        try
-                        {
-                            fileExists = mtpDevice.FileExists(destPath)
-                                || (!string.Equals(destPath, originalDestPath, StringComparison.OrdinalIgnoreCase) && mtpDevice.FileExists(originalDestPath));
-                        }
-                        catch { }
-
-                        if (fileExists)
-                        {
-                            current++;
-                            ((IProgress<double>)progress).Report((double)current / total * 100);
-                            continue;
-                        }
-
-                        using var prepared = await _audioTranscodeService.PrepareForTransferAsync(track.FilePath, transcodeOptions).ConfigureAwait(false);
-                        mtpDevice.UploadFile(prepared.OutputFilePath, destPath);
-
-                        current++;
-                        ((IProgress<double>)progress).Report((double)current / total * 100);
-                    }
-                });
+                    await TransferTracksToMtpAsync(mtpClient, tracksToTransfer, destinationFolder, transcodeOptions, progress);
+                }
             }
 
-            LoadDeviceDirectories(destinationFolder);
+            LoadDeviceDirectoriesCore(destinationFolder);
             _ = RefreshSelectedDeviceStorageAsync();
+            await CheckDeviceAlbumsAsync();
 
-            MessageBox.Show("Transfer completed successfully!", "Success");
+            _showMessage("Transfer completed successfully!", "Success");
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Transfer failed: {ex.Message}", "Error");
+            try
+            {
+                LoadDeviceDirectoriesCore(destinationFolder);
+                _ = RefreshSelectedDeviceStorageAsync();
+                await CheckDeviceAlbumsAsync();
+            }
+            catch
+            {
+                // 転送失敗後の再走査エラーは元の失敗通知を優先して握りつぶす
+            }
+
+            _showMessage($"Transfer failed: {ex.Message}", "Error");
         }
         finally
         {
             IsTransferring = false;
             TransferProgress = 0;
         }
+    }
+
+    /// <summary>
+    /// MTP デバイスへトラック群を転送します（設定に応じて形式変換および一時ファイル後始末を実施）。
+    /// </summary>
+    /// <param name="mtpClient">接続済みのMTPデバイスクライアント</param>
+    /// <param name="tracksToTransfer">転送対象トラック一覧</param>
+    /// <param name="destinationFolder">転送先フォルダパス</param>
+    /// <param name="transcodeOptions">音声フォーマット変換オプション</param>
+    /// <param name="progress">進捗通知（0〜100）</param>
+    /// <param name="cancellationToken">キャンセルトークン</param>
+    /// <returns>非同期タスク</returns>
+    internal Task TransferTracksToMtpAsync(
+        IMtpDeviceClient mtpClient,
+        IReadOnlyList<Track> tracksToTransfer,
+        string destinationFolder,
+        AudioTranscodeOptions transcodeOptions,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mtpClient);
+
+        return Task.Run(async () =>
+        {
+            int total = tracksToTransfer.Count;
+            int current = 0;
+            foreach (var track in tracksToTransfer)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!File.Exists(track.FilePath)) continue;
+
+                string artist = SanitizeFileName(track.Artist);
+                string album = SanitizeFileName(track.Album);
+                string targetFileName = _audioTranscodeService.ResolveTargetFileName(track.FilePath, transcodeOptions);
+                string originalFileName = Path.GetFileName(track.FilePath);
+
+                string artistDir = Path.Combine(destinationFolder, artist);
+                string targetDir = Path.Combine(artistDir, album);
+                string destPath = Path.Combine(targetDir, targetFileName);
+
+                // 変換後または元ファイル名のいずれかが既に存在する場合はスキップ（旧末尾ピリオド配置含む）
+                bool fileExists = CheckMtpTrackAlreadyExists(
+                    mtpClient,
+                    destinationFolder,
+                    artist,
+                    album,
+                    targetFileName,
+                    originalFileName,
+                    track);
+
+                if (fileExists)
+                {
+                    current++;
+                    progress?.Report((double)current / total * 100);
+                    continue;
+                }
+
+                try
+                {
+                    if (!mtpClient.DirectoryExists(artistDir))
+                    {
+                        mtpClient.CreateDirectory(artistDir);
+                    }
+                    if (!mtpClient.DirectoryExists(targetDir))
+                    {
+                        mtpClient.CreateDirectory(targetDir);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error creating MTP directory: {ex.Message}");
+                }
+
+                using var prepared = await _audioTranscodeService.PrepareForTransferAsync(track.FilePath, transcodeOptions, cancellationToken).ConfigureAwait(false);
+                mtpClient.UploadFile(prepared.OutputFilePath, destPath);
+
+                current++;
+                progress?.Report((double)current / total * 100);
+            }
+        }, cancellationToken);
+    }
+
+    private static bool CheckMtpTrackAlreadyExists(
+        IMtpDeviceClient mtpClient,
+        string destinationFolder,
+        string artist,
+        string album,
+        string targetFileName,
+        string originalFileName,
+        Track track)
+    {
+        static bool ExistsInDirectory(IMtpDeviceClient client, string dir, string targetFile, string origFile)
+        {
+            string destPath = Path.Combine(dir, targetFile);
+            string originalDestPath = Path.Combine(dir, origFile);
+            try
+            {
+                return client.FileExists(destPath)
+                    || (!string.Equals(destPath, originalDestPath, StringComparison.OrdinalIgnoreCase) && client.FileExists(originalDestPath));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        string targetDir = Path.Combine(destinationFolder, artist, album);
+        if (ExistsInDirectory(mtpClient, targetDir, targetFileName, originalFileName))
+        {
+            return true;
+        }
+
+        string legacyArtist = SanitizeLegacyFileName(track.Artist);
+        string legacyAlbum = SanitizeLegacyFileName(track.Album);
+        if (!string.Equals(artist, legacyArtist, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(album, legacyAlbum, StringComparison.OrdinalIgnoreCase))
+        {
+            string legacyDir = Path.Combine(destinationFolder, legacyArtist, legacyAlbum);
+            if (ExistsInDirectory(mtpClient, legacyDir, targetFileName, originalFileName))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1985,6 +2440,111 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
 
         _ = RefreshSelectedDeviceStorageAsync();
+    }
+
+    private static MediaDeviceClientAdapter? DefaultResolveMtpClient(MainViewModel.DeviceViewModel device)
+        => device.MtpDevice != null ? new MediaDeviceClientAdapter(device.MtpDevice) : null;
+
+    private static void DefaultShowMessage(string message, string caption)
+    {
+        if (string.IsNullOrEmpty(caption))
+        {
+            MessageBox.Show(message);
+        }
+        else
+        {
+            MessageBox.Show(message, caption);
+        }
+    }
+
+    /// <summary>
+    /// MTP デバイス操作を抽象化する内部クライアントインターフェース
+    /// </summary>
+    internal interface IMtpDeviceClient
+    {
+        /// <summary>
+        /// デバイスへ接続済みかどうかを取得します。
+        /// </summary>
+        bool IsConnected { get; }
+
+        /// <summary>
+        /// デバイスへ接続します。
+        /// </summary>
+        void Connect();
+
+        /// <summary>
+        /// デバイスから切断します。
+        /// </summary>
+        void Disconnect();
+
+        /// <summary>
+        /// 指定ディレクトリが存在するかどうかを判定します。
+        /// </summary>
+        /// <param name="path">判定対象パス</param>
+        /// <returns>存在する場合はtrue</returns>
+        bool DirectoryExists(string path);
+
+        /// <summary>
+        /// 指定ディレクトリを作成します。
+        /// </summary>
+        /// <param name="path">作成対象パス</param>
+        void CreateDirectory(string path);
+
+        /// <summary>
+        /// 指定ディレクトリ直下のサブディレクトリ一覧を取得します。
+        /// </summary>
+        /// <param name="path">走査対象パス</param>
+        /// <returns>サブディレクトリパス一覧</returns>
+        IEnumerable<string> GetDirectories(string path);
+
+        /// <summary>
+        /// 指定ディレクトリ直下のファイル一覧を取得します。
+        /// </summary>
+        /// <param name="path">走査対象パス</param>
+        /// <returns>ファイルパス一覧</returns>
+        IEnumerable<string> GetFiles(string path);
+
+        /// <summary>
+        /// 指定ファイルが存在するかどうかを判定します。
+        /// </summary>
+        /// <param name="path">判定対象ファイルパス</param>
+        /// <returns>存在する場合はtrue</returns>
+        bool FileExists(string path);
+
+        /// <summary>
+        /// ローカルファイルをデバイスへアップロードします。
+        /// </summary>
+        /// <param name="sourceFilePath">転送元ローカルファイルパス</param>
+        /// <param name="destinationFilePath">転送先デバイスファイルパス</param>
+        void UploadFile(string sourceFilePath, string destinationFilePath);
+    }
+
+    private sealed class MediaDeviceClientAdapter : IMtpDeviceClient
+    {
+        private readonly MediaDevice _device;
+
+        public MediaDeviceClientAdapter(MediaDevice device)
+        {
+            _device = device ?? throw new ArgumentNullException(nameof(device));
+        }
+
+        public bool IsConnected => _device.IsConnected;
+
+        public void Connect() => _device.Connect();
+
+        public void Disconnect() => _device.Disconnect();
+
+        public bool DirectoryExists(string path) => _device.DirectoryExists(path);
+
+        public void CreateDirectory(string path) => _device.CreateDirectory(path);
+
+        public IEnumerable<string> GetDirectories(string path) => _device.GetDirectories(path);
+
+        public IEnumerable<string> GetFiles(string path) => _device.GetFiles(path);
+
+        public bool FileExists(string path) => _device.FileExists(path);
+
+        public void UploadFile(string sourceFilePath, string destinationFilePath) => _device.UploadFile(sourceFilePath, destinationFilePath);
     }
 
     private sealed class PassthroughAudioTranscodeService : IAudioTranscodeService
