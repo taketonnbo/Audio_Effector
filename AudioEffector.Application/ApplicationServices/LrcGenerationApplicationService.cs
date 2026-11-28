@@ -395,9 +395,9 @@ public class LrcGenerationApplicationService
             }
 
             LyricsDocument parsed = _lrcParser.Parse(lrcContent);
-            if (!parsed.HasVisibleLyrics)
+            if (!parsed.IsSynced || !parsed.HasVisibleLyrics)
             {
-                return Result.Failure<LyricsDocument?>("既存の .lrc ファイルに有効な歌詞行が含まれていないため、編集画面を読み込めませんでした。");
+                return Result.Failure<LyricsDocument?>("既存の .lrc ファイルに有効な同期歌詞行が含まれていないため、編集画面を読み込めませんでした。");
             }
 
             LyricsDocument loaded = parsed.WithSource(LyricsSourceType.LrcFile, lrcPath);
@@ -411,7 +411,7 @@ public class LrcGenerationApplicationService
         {
             return Result.Success<LyricsDocument?>(null);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex)
         {
             return Result.Failure<LyricsDocument?>($"既存の .lrc ファイルの読み込みに失敗しました: {ex.Message}");
         }
