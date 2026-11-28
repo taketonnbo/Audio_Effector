@@ -140,7 +140,9 @@ public sealed class LrcGeneratorViewTests
 
     private sealed class StubLrcParser : ILrcParser
     {
-        public LyricsDocument Parse(string content) => LyricsDocument.Empty;
+        public Func<string, LyricsDocument>? ParseHandler { get; set; }
+
+        public LyricsDocument Parse(string content) => ParseHandler is not null ? ParseHandler(content) : LyricsDocument.Empty;
 
         public string Format(LyricsDocument document) => "[00:04.00]formatted";
     }
@@ -281,14 +283,15 @@ public sealed class LrcGeneratorViewTests
 
     private static (LrcGeneratorViewModel ViewModel, StubAlignmentEngine Engine, StubTextEncodingService TextSvc, StubModelManager ModelMgr) CreateViewModel(
         bool modelAvailable,
-        Func<string, bool>? fileExistsFunc = null)
+        Func<string, bool>? fileExistsFunc = null,
+        StubLrcParser? lrcParser = null)
     {
         var engine = new StubAlignmentEngine();
         var textSvc = new StubTextEncodingService();
         var modelMgr = new StubModelManager(modelAvailable);
         var eventBus = new InMemoryEventBus();
         var lyricsSvc = new LyricsApplicationService(new StubLyricsProvider(), eventBus);
-        var genSvc = new LrcGenerationApplicationService(engine, textSvc, modelMgr, new StubLrcParser(), lyricsSvc);
+        var genSvc = new LrcGenerationApplicationService(engine, textSvc, modelMgr, lrcParser ?? new StubLrcParser(), lyricsSvc);
         var audioMock = new Mock<IAudioService>();
         var vm = new LrcGeneratorViewModel(
             genSvc,
@@ -692,6 +695,92 @@ public sealed class LrcGeneratorViewTests
                     Assert.Empty(listener.Errors);
                     Assert.False(HasHeavyEffect(sut));
                 });
+            }
+        });
+    }
+
+    /// <summary>
+    /// 既存 .lrc ファイルを持つ楽曲を開いた際に両テーマで .lrc 編集画面がメイン表示され、
+    /// 「↺ 再生成」ボタン実行時のみ入力画面へ遷移し生成ボタンの IsEnabled が即時反映されることを検証します。
+    /// </summary>
+    [Theory]
+    [InlineData("DarkTheme.xaml")]
+    [InlineData("LightTheme.xaml")]
+    public Task LrcGeneratorView_既存Lrcあり楽曲で編集画面メイン表示後に再生成ボタン実行_入力画面とボタン活性が即時反映される(string themeFileName)
+    {
+        return RunInStaThreadAsync(async () =>
+        {
+            // Arrange
+            string tempDir = Path.Combine(Path.GetTempPath(), $"ae_view_lrc_editor_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            string audioPath = Path.Combine(tempDir, "EditorUi.flac");
+            string lrcPath = Path.Combine(tempDir, "EditorUi.lrc");
+            File.WriteAllText(audioPath, "dummy");
+            File.WriteAllText(lrcPath, "[00:05.00]既存UI歌詞");
+
+            try
+            {
+                EnsureApplicationResources();
+                using var listener = new BindingErrorTraceListener();
+                var parser = new StubLrcParser
+                {
+                    ParseHandler = _ => new LyricsDocument(
+                        [new LyricLine(0, TimeSpan.FromSeconds(5), "既存UI歌詞")],
+                        isSynced: true,
+                        title: "EditorUi"),
+                };
+                var (vm, _, _, _) = CreateViewModel(modelAvailable: true, fileExistsFunc: File.Exists, lrcParser: parser);
+                var track = new Track { FilePath = audioPath, Title = "EditorUi", Artist = "Artist" };
+
+                using (vm)
+                {
+                    var sut = new LrcGeneratorView { DataContext = vm };
+                    AttachThemeResources(sut.Resources, themeFileName);
+
+                    await RunWithHostWindowAsync(sut, async host =>
+                    {
+                        var regenerateBtn = Assert.IsType<Button>(sut.FindName("RegenerateButton"));
+                        var generateFromTextBtn = Assert.IsType<Button>(sut.FindName("GenerateFromTextButton"));
+                        var transcribeAudioBtn = Assert.IsType<Button>(sut.FindName("TranscribeAudioButton"));
+                        var listBox = Assert.IsType<ListBox>(sut.FindName("PreviewLinesListBox"));
+
+                        // Act 1: 既存 .lrc を持つ楽曲を開く → .lrc 編集画面がメイン表示される
+                        await vm.SetTargetTrackAsync(track);
+                        host.UpdateLayout();
+
+                        // Assert 1
+                        Assert.True(vm.IsPreviewState);
+                        Assert.Equal(Visibility.Visible, listBox.Visibility);
+                        Assert.True(regenerateBtn.IsEnabled);
+                        Assert.Single(vm.PreviewLines);
+                        Assert.Equal("既存UI歌詞", vm.PreviewLines[0].Text);
+
+                        // Act 2: 「↺ 再生成」クリック → 入力画面へ遷移
+                        regenerateBtn.Command.Execute(null);
+                        host.UpdateLayout();
+
+                        // Assert 2: 入力状態へ遷移し、自動文字起こし活性・.txt 選択承諾後にテキスト生成も即時活性
+                        Assert.True(vm.IsInputState);
+                        Assert.Equal(Visibility.Collapsed, listBox.Visibility);
+                        Assert.True(transcribeAudioBtn.IsEnabled);
+                        Assert.False(generateFromTextBtn.IsEnabled);
+
+                        await vm.InspectAndSelectTextFileAsync(@"C:\Lyrics\EditorUi.txt");
+                        vm.ConfirmEncodingConversionCommand.Execute(null);
+                        host.UpdateLayout();
+
+                        Assert.True(generateFromTextBtn.IsEnabled);
+                        Assert.Empty(listener.Errors);
+                        Assert.False(HasHeavyEffect(sut));
+                    });
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                }
             }
         });
     }

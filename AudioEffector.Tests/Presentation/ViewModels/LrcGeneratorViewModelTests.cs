@@ -82,6 +82,7 @@ public sealed class LrcGeneratorViewModelTests
     private sealed class FakeTextEncodingService : ITextEncodingService
     {
         public Func<string, TextEncodingInspectionResult>? InspectionFactory { get; set; }
+        public Func<string, bool, CancellationToken, Task<string>>? ReadHandler { get; set; }
         public string TextToReturn { get; set; } = "一行目の歌詞\n二行目の歌詞";
         public string? LastSavedPath { get; private set; }
         public bool LastOverwriteFlag { get; private set; }
@@ -97,6 +98,11 @@ public sealed class LrcGeneratorViewModelTests
 
         public Task<string> ReadAsUtf8TextAsync(string textFilePath, bool allowEncodingConversion, CancellationToken cancellationToken = default)
         {
+            if (ReadHandler is not null)
+            {
+                return ReadHandler(textFilePath, allowEncodingConversion, cancellationToken);
+            }
+
             return Task.FromResult(TextToReturn);
         }
 
@@ -149,7 +155,9 @@ public sealed class LrcGeneratorViewModelTests
 
     private sealed class StubLrcParser : ILrcParser
     {
-        public LyricsDocument Parse(string content) => LyricsDocument.Empty;
+        public Func<string, LyricsDocument>? ParseHandler { get; set; }
+
+        public LyricsDocument Parse(string content) => ParseHandler is not null ? ParseHandler(content) : LyricsDocument.Empty;
 
         public string Format(LyricsDocument document)
         {
@@ -169,14 +177,15 @@ public sealed class LrcGeneratorViewModelTests
         bool modelAvailable = true,
         Mock<IAudioService>? audioMock = null,
         IUiDispatcher? dispatcher = null,
-        Func<string, bool>? fileExistsFunc = null)
+        Func<string, bool>? fileExistsFunc = null,
+        StubLrcParser? lrcParser = null)
     {
         var engine = new FakeAlignmentEngine();
         var textSvc = new FakeTextEncodingService();
         var modelMgr = new FakeModelManager { IsAvailable = modelAvailable };
         var eventBus = new InMemoryEventBus();
         var lyricsSvc = new LyricsApplicationService(new StubLyricsProvider(), eventBus);
-        var genSvc = new LrcGenerationApplicationService(engine, textSvc, modelMgr, new StubLrcParser(), lyricsSvc);
+        var genSvc = new LrcGenerationApplicationService(engine, textSvc, modelMgr, lrcParser ?? new StubLrcParser(), lyricsSvc);
 
         audioMock ??= new Mock<IAudioService>();
         var sut = new LrcGeneratorViewModel(
@@ -979,6 +988,218 @@ public sealed class LrcGeneratorViewModelTests
             Assert.True(sut.IsPreviewState);
             sut.SetTargetTrack(track, resetCompletedResult: true);
             Assert.True(sut.IsInputState);
+        }
+    }
+
+    /// <summary>
+    /// 既存 .lrc が存在する楽曲で SetTargetTrackAsync を呼ぶと .lrc 手動編集画面がメイン表示され、
+    /// オフセット調整・個別行編集・上書き保存・LyricsUpdated 通知が動作し、
+    /// 「↺ 再生成」押下時のみ入力・待機画面へ遷移してテキスト生成および自動文字起こしを実行できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SetTargetTrackAsync_既存Lrcが存在する楽曲を開く_Lrc編集画面をメイン表示し再生成押下時のみ一から生成画面へ遷移する()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_lrc_editor_main_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "Editable.flac");
+        string lrcPath = Path.Combine(tempDir, "Editable.lrc");
+        File.WriteAllText(audioPath, "dummy");
+        File.WriteAllText(lrcPath, "[00:10.00]既存一行目\r\n[00:20.00]既存二行目");
+
+        try
+        {
+            var parser = new StubLrcParser
+            {
+                ParseHandler = _ => new LyricsDocument(
+                    [
+                        new LyricLine(0, TimeSpan.FromSeconds(10), "既存一行目"),
+                        new LyricLine(1, TimeSpan.FromSeconds(20), "既存二行目"),
+                    ],
+                    isSynced: true,
+                    title: "Editable"),
+            };
+            var (sut, engine, textSvc, _, lyricsSvc) = CreateSut(fileExistsFunc: File.Exists, lrcParser: parser);
+            textSvc.TextToReturn = "[00:10.00]既存一行目\n[00:20.00]既存二行目";
+            var track = new Track { FilePath = audioPath, Title = "Editable", Artist = "Artist" };
+            int updatedCount = 0;
+            lyricsSvc.LyricsUpdated += (_, _) => updatedCount++;
+
+            using (sut)
+            {
+                // Act 1: 既存 .lrc がある楽曲を開く → .lrc 編集画面がメイン表示される
+                await sut.SetTargetTrackAsync(track);
+
+                // Assert 1
+                Assert.True(sut.IsPreviewState);
+                Assert.False(sut.IsInputState);
+                Assert.Equal(2, sut.PreviewLines.Count);
+                Assert.Equal("既存一行目", sut.PreviewLines[0].Text);
+                Assert.True(sut.HasSavedFile);
+                Assert.True(sut.OpenSavedFolderCommand.CanExecute(null));
+
+                // Act 2: オフセット調整 + 個別行編集 → 上書き確認 → 上書き保存
+                sut.AdjustOffsetCommand.Execute("0.5");
+                sut.PreviewLines[0].BeginEditCommand.Execute(null);
+                sut.PreviewLines[0].EditingLyricText = "手動修正済み一行目";
+                sut.PreviewLines[0].CommitEditCommand.Execute(null);
+
+                // 未保存の手動編集がある状態で同一楽曲へ再オープンしても編集内容が破棄されない
+                await sut.SetTargetTrackAsync(track);
+                Assert.True(sut.IsPreviewState);
+                Assert.Equal("手動修正済み一行目", sut.PreviewLines[0].Text);
+
+                await sut.SaveLrcRequestedAsync();
+                Assert.True(sut.IsOverwriteConfirmVisible);
+                await sut.ExecuteSaveAsync(overwrite: true);
+
+                // Assert 2: 保存と LyricsUpdated 通知成功
+                Assert.False(sut.IsOverwriteConfirmVisible);
+                Assert.Equal(lrcPath, textSvc.LastSavedPath);
+                Assert.True(textSvc.LastOverwriteFlag);
+                Assert.Equal(1, updatedCount);
+
+                // Act 3: 保存後に同一楽曲を再オープン → 再び .lrc 編集画面がメイン表示される
+                await sut.SetTargetTrackAsync(track);
+                Assert.True(sut.IsPreviewState);
+
+                // Act 4: 「↺ 再生成」ボタン押下時のみ入力・待機画面へ遷移し、テキスト生成・自動文字起こし双方を利用できる
+                sut.RegenerateCommand.Execute(null);
+                Assert.True(sut.IsInputState);
+                Assert.True(sut.TranscribeAudioCommand.CanExecute(null));
+
+                await sut.InspectAndSelectTextFileAsync(@"C:\Lyrics\Editable.txt");
+                Assert.True(sut.GenerateLrcCommand.CanExecute(null));
+                await sut.GenerateFromTextAsync();
+                Assert.True(sut.IsPreviewState);
+                Assert.Equal(LrcGenerationMode.TextAlignment, engine.LastRequest!.Mode);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ローカルモデル未配置の状態でも、既存 .lrc がある楽曲なら手動編集画面で編集・保存でき、
+    /// 「↺ 再生成」クリック時にモデル未配置ガイドへ遷移することを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SetTargetTrackAsync_モデル未配置かつ既存Lrcあり_編集画面で手動修正でき再生成押下でモデル未配置ガイドへ遷移する()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_lrc_nomodel_edit_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string audioPath = Path.Combine(tempDir, "NoModelSong.flac");
+        string lrcPath = Path.Combine(tempDir, "NoModelSong.lrc");
+        File.WriteAllText(audioPath, "dummy");
+        File.WriteAllText(lrcPath, "[00:05.00]モデル未配置でも編集可能");
+
+        try
+        {
+            var parser = new StubLrcParser
+            {
+                ParseHandler = _ => new LyricsDocument(
+                    [new LyricLine(0, TimeSpan.FromSeconds(5), "モデル未配置でも編集可能")],
+                    isSynced: true,
+                    title: "NoModelSong"),
+            };
+            var (sut, _, textSvc, _, _) = CreateSut(modelAvailable: false, fileExistsFunc: File.Exists, lrcParser: parser);
+            textSvc.TextToReturn = "[00:05.00]モデル未配置でも編集可能";
+            var track = new Track { FilePath = audioPath, Title = "NoModelSong" };
+
+            using (sut)
+            {
+                // Act 1: モデル未配置でも既存 .lrc を読み込んで編集画面を表示
+                await sut.SetTargetTrackAsync(track);
+
+                // Assert 1
+                Assert.True(sut.IsPreviewState);
+                Assert.False(sut.IsModelMissingState);
+                Assert.Single(sut.PreviewLines);
+                Assert.True(sut.SaveLrcCommand.CanExecute(null));
+
+                // Act 2: 保存実行成功
+                await sut.ExecuteSaveAsync(overwrite: true);
+                Assert.Equal(lrcPath, textSvc.LastSavedPath);
+
+                // Act 3: 「↺ 再生成」押下でモデル未配置ガイドへ遷移
+                sut.RegenerateCommand.Execute(null);
+                Assert.True(sut.IsModelMissingState);
+                Assert.False(sut.IsPreviewState);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 楽曲を連続切替した際、古い楽曲の既存 .lrc 非同期読込が遅れて完了しても最新楽曲の状態を上書きしないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task SetTargetTrackAsync_連続楽曲切替時に古い既存Lrc読込が遅延完了_最新楽曲の状態を上書きしない()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), $"ae_lrc_race_load_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string oldAudio = Path.Combine(tempDir, "OldSong.flac");
+        string oldLrc = Path.Combine(tempDir, "OldSong.lrc");
+        string newAudio = Path.Combine(tempDir, "NewSongNoLrc.flac");
+        File.WriteAllText(oldAudio, "dummy");
+        File.WriteAllText(oldLrc, "[00:01.00]古い曲の歌詞");
+        File.WriteAllText(newAudio, "dummy");
+
+        try
+        {
+            var oldReadGate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var parser = new StubLrcParser
+            {
+                ParseHandler = text => new LyricsDocument(
+                    [new LyricLine(0, TimeSpan.FromSeconds(1), text)],
+                    isSynced: true),
+            };
+            var (sut, _, textSvc, _, _) = CreateSut(fileExistsFunc: File.Exists, lrcParser: parser);
+            textSvc.ReadHandler = (path, _, _) => path.EndsWith("OldSong.lrc", StringComparison.OrdinalIgnoreCase)
+                ? oldReadGate.Task
+                : Task.FromResult(string.Empty);
+
+            var oldTrack = new Track { FilePath = oldAudio, Title = "OldSong" };
+            var newTrack = new Track { FilePath = newAudio, Title = "NewSongNoLrc" };
+
+            using (sut)
+            {
+                // Act: 古い楽曲の既存 .lrc 読込中に、.lrc が存在しない新しい楽曲へ切替
+                Task oldLoadTask = sut.SetTargetTrackAsync(oldTrack);
+                await sut.SetTargetTrackAsync(newTrack);
+                Assert.True(sut.IsInputState);
+                Assert.Same(newTrack, sut.TargetTrack);
+
+                // 古い読込を遅延完了させる
+                oldReadGate.TrySetResult("[00:01.00]古い曲の歌詞");
+                await oldLoadTask;
+
+                // Assert: 最新楽曲の入力・待機状態が保持され、古い .lrc で上書きされない
+                Assert.Same(newTrack, sut.TargetTrack);
+                Assert.True(sut.IsInputState);
+                Assert.False(sut.IsPreviewState);
+                Assert.Empty(sut.PreviewLines);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
         }
     }
 }
