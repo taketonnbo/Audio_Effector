@@ -1,7 +1,6 @@
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Application.Common;
 using AudioEffector.Domain.Entities;
-using AudioEffector.Infrastructure.Audio;
 using AudioEffector.Presentation.Views;
 using MediaDevices;
 using System;
@@ -378,7 +377,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="getFileSizeBytes">トラックのファイルサイズ取得関数（テスト差し替え用、省略時はFileInfoを使用）</param>
     /// <param name="readDeviceStorageSpace">接続機器の容量取得関数（テスト差し替え用、省略時は実ストレージ読取を使用）</param>
     /// <param name="settingsService">アプリケーション設定永続化サービス（既定フォルダ記憶・形式変換設定用）</param>
-    /// <param name="audioTranscodeService">転送時の音声フォーマット変換サービス（省略時はMediaFoundation標準実装）</param>
+    /// <param name="audioTranscodeService">転送時の音声フォーマット変換サービス（省略時は変換なしのパススルー動作）</param>
     public DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
@@ -394,7 +393,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         _getFileSizeBytes = getFileSizeBytes ?? DefaultGetFileSizeBytes;
         _readDeviceStorageSpace = readDeviceStorageSpace ?? ReadDeviceStorageSpace;
         _settingsService = settingsService;
-        _audioTranscodeService = audioTranscodeService ?? new MediaFoundationAudioTranscodeService();
+        _audioTranscodeService = audioTranscodeService ?? PassthroughAudioTranscodeService.Instance;
 
         RemovableDrives.CollectionChanged += OnRemovableDrivesCollectionChanged;
         _albumsRef.CollectionChanged += OnAlbumsCollectionChanged;
@@ -1985,5 +1984,21 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
 
         _ = RefreshSelectedDeviceStorageAsync();
+    }
+
+    private sealed class PassthroughAudioTranscodeService : IAudioTranscodeService
+    {
+        public static readonly PassthroughAudioTranscodeService Instance = new();
+
+        public bool NeedsTranscode(string sourceFilePath, AudioTranscodeOptions options) => false;
+
+        public string ResolveTargetFileName(string sourceFilePath, AudioTranscodeOptions options)
+            => Path.GetFileName(sourceFilePath ?? string.Empty);
+
+        public Task<TranscodedAudioResult> PrepareForTransferAsync(
+            string sourceFilePath,
+            AudioTranscodeOptions options,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(TranscodedAudioResult.Passthrough(sourceFilePath));
     }
 }
