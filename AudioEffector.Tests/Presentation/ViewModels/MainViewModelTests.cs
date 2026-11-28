@@ -54,6 +54,8 @@ public sealed class MainViewModelTests
             _data = working.Clone();
             return _data.Clone();
         }
+
+        public void ClearAll() => _data = new ListeningStatsData();
     }
 
     private sealed class ServiceProviderScope : IDisposable
@@ -712,5 +714,112 @@ public sealed class MainViewModelTests
         Assert.Equal(ViewType.Artists, sut.CurrentViewType);
         Assert.Equal("Aimer", sut.Artists.SelectedArtist?.Name);
         Assert.False(sut.LibraryStats.IsActiveView);
+    }
+
+    /// <summary>
+    /// ReloadListeningStatsAfterReset 呼び出し時、最近再生した曲・右側リスニング統計・左側ライブラリ統計の 3 画面すべてが
+    /// 即座に最新（空状態）へ同期されることを検証します。
+    /// </summary>
+    [Fact]
+    public void ReloadListeningStatsAfterReset_全リセット後に呼び出した場合_最近再生した曲および左右統計ビューが即座に空状態へ同期されること()
+    {
+        // Arrange
+        var previousProvider = App.ServiceProvider;
+        var services = new ServiceCollection();
+        var eventBus = new InMemoryEventBus();
+        var dispatcher = new ImmediateDispatcherStub();
+        var settingsMock = new Mock<ISettingsService>();
+        settingsMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+        var audioServiceMock = new Mock<IAudioService>();
+        audioServiceMock.Setup(a => a.UserQueue).Returns(Array.Empty<Track>());
+        audioServiceMock.Setup(a => a.AlbumQueue).Returns(Array.Empty<Track>());
+
+        var track = new Track
+        {
+            FilePath = @"C:\Music\ResetSync\track01.flac",
+            Title = "Sync Target",
+            Artist = "Artist X",
+            Album = "Album X",
+            Duration = TimeSpan.FromMinutes(3),
+        };
+        audioServiceMock.Setup(a => a.CurrentTrack).Returns(track);
+
+        var trackRepoMock = new Mock<ITrackRepository>();
+        trackRepoMock.Setup(r => r.GetAllAsync(It.IsAny<System.Threading.CancellationToken>()))
+            .ReturnsAsync(new[] { track });
+        var favoriteRepoMock = new Mock<IFavoriteRepository>();
+        favoriteRepoMock.Setup(r => r.GetAllAsync(It.IsAny<System.Threading.CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FavoriteTrackEntry>());
+        var playlistRepoMock = new Mock<IPlaylistRepository>();
+        playlistRepoMock.Setup(r => r.GetAllAsync(It.IsAny<System.Threading.CancellationToken>()))
+            .ReturnsAsync(Array.Empty<UserPlaylist>());
+
+        var statsRepo = new InMemoryListeningStatsRepositoryStub();
+        var libraryService = new LibraryApplicationService(
+            trackRepoMock.Object,
+            favoriteRepoMock.Object,
+            new TagLibMetadataExtractor(),
+            eventBus);
+        var playlistService = new PlaylistApplicationService(
+            playlistRepoMock.Object,
+            trackRepoMock.Object,
+            eventBus,
+            favoriteRepoMock.Object);
+        var lyricsService = new LyricsApplicationService(new EmptyLyricsProviderStub(), eventBus);
+
+        services.AddSingleton<IEventBus>(eventBus);
+        services.AddSingleton<IUiDispatcher>(dispatcher);
+        services.AddSingleton(settingsMock.Object);
+        services.AddSingleton(audioServiceMock.Object);
+        services.AddSingleton(Mock.Of<IAudioEngine>());
+        services.AddSingleton<IListeningStatsRepository>(statsRepo);
+        services.AddSingleton(Mock.Of<IAudioTranscodeService>());
+        services.AddSingleton(libraryService);
+        services.AddSingleton(playlistService);
+        services.AddSingleton(lyricsService);
+        services.AddSingleton<ListeningStatsApplicationService>();
+        services.AddSingleton<LibraryStatsApplicationService>();
+        services.AddSingleton<PlayerControlViewModel>();
+        services.AddSingleton<PlaylistViewModel>();
+        services.AddSingleton<LibraryViewModel>();
+        services.AddSingleton<AlbumDetailViewModel>();
+        services.AddSingleton<AllSongsViewModel>();
+        services.AddSingleton<ArtistsViewModel>();
+        services.AddSingleton<RecentViewModel>();
+        services.AddSingleton<LyricsViewModel>();
+        services.AddSingleton<ListeningStatsViewModel>();
+        services.AddSingleton<LibraryStatsViewModel>();
+
+        using var provider = services.BuildServiceProvider();
+        App.ServiceProvider = provider;
+        try
+        {
+            using var sut = new MainViewModel();
+            var statsService = provider.GetRequiredService<ListeningStatsApplicationService>();
+
+            sut.Recent.RecordTrack(track);
+            statsService.RecordPlaybackCompleted(track);
+            sut.ListeningStats!.Refresh();
+            sut.LibraryStats.Refresh();
+
+            Assert.Single(sut.Recent.FilteredEntries);
+            Assert.Equal(1, sut.ListeningStats.TotalPlayCount);
+            Assert.Equal(1, sut.LibraryStats.TotalPlayCount);
+
+            // Act: リポジトリ直接クリア後に ReloadListeningStatsAfterReset を実行
+            statsRepo.ClearAll();
+            sut.ReloadListeningStatsAfterReset();
+
+            // Assert: 3 画面すべてが空状態へ即時同期されること
+            Assert.Empty(sut.Recent.FilteredEntries);
+            Assert.Equal(0, sut.ListeningStats.TotalPlayCount);
+            Assert.Empty(sut.ListeningStats.TopPlayedTracks);
+            Assert.Equal(0, sut.LibraryStats.TotalPlayCount);
+            Assert.Empty(sut.LibraryStats.TopTracks);
+        }
+        finally
+        {
+            App.ServiceProvider = previousProvider;
+        }
     }
 }

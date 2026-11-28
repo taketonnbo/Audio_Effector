@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Domain.Repositories;
 using AudioEffector.Presentation.ViewModels;
 using AudioEffector.Presentation.Views;
 using AudioEffector.Tests.Presentation.Diagnostics;
@@ -600,6 +601,58 @@ public sealed class SettingsDialogTests
             Assert.True(vm.TransferManualLrcFiles);
             Assert.True(vm.TransferTextAlignedLrcFiles);
             Assert.True(vm.TransferTranscribedLrcFiles);
+            Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
+        });
+    }
+
+    /// <summary>
+    /// データ管理・その他カテゴリに「再生履歴・リスニング統計をすべてリセット」ボタンが配置され、
+    /// ListeningStatsApplicationService 注入時のみ有効化されバインディングエラー 0 件であることを検証します。
+    /// </summary>
+    [Fact]
+    public void データ管理その他カテゴリ_再生履歴リスニング統計リセットボタン配置時_サービス注入有無で活性切替されバインディングエラーがないこと()
+    {
+        RunInStaThread(() =>
+        {
+            // Arrange: サービス未注入
+            using var listener = new BindingErrorTraceListener();
+            var vmWithoutService = CreateViewModel();
+            vmWithoutService.SelectedCategory = "データ管理・その他";
+
+            var dialogWithoutService = new SettingsDialog(vmWithoutService);
+            var rootWithoutService = Assert.IsAssignableFrom<FrameworkElement>(dialogWithoutService.Content);
+            rootWithoutService.Measure(new Size(760, 520));
+            rootWithoutService.Arrange(new Rect(0, 0, 760, 520));
+            rootWithoutService.UpdateLayout();
+
+            var disabledButton = Assert.IsType<Button>(dialogWithoutService.FindName("ResetListeningStatsButton"));
+
+            // Arrange: サービス注入あり
+            var settingsServiceMock = new Mock<ISettingsService>();
+            settingsServiceMock.Setup(s => s.LoadSettings()).Returns(new AppSettings());
+            var audioServiceMock = new Mock<IAudioService>();
+            var statsRepoMock = new Mock<IListeningStatsRepository>();
+            statsRepoMock.Setup(r => r.Load()).Returns(new ListeningStatsData());
+            using var statsService = new ListeningStatsApplicationService(statsRepoMock.Object, audioServiceMock.Object);
+            var vmWithService = new SettingsViewModel(
+                settingsServiceMock.Object,
+                audioServiceMock.Object,
+                listeningStatsService: statsService);
+            vmWithService.SelectedCategory = "データ管理・その他";
+
+            var dialogWithService = new SettingsDialog(vmWithService);
+            var rootWithService = Assert.IsAssignableFrom<FrameworkElement>(dialogWithService.Content);
+            rootWithService.Measure(new Size(760, 520));
+            rootWithService.Arrange(new Rect(0, 0, 760, 520));
+            rootWithService.UpdateLayout();
+
+            var enabledButton = Assert.IsType<Button>(dialogWithService.FindName("ResetListeningStatsButton"));
+
+            // Assert
+            Assert.Same(vmWithoutService.ResetListeningStatsCommand, disabledButton.Command);
+            Assert.False(disabledButton.IsEnabled);
+            Assert.Same(vmWithService.ResetListeningStatsCommand, enabledButton.Command);
+            Assert.True(enabledButton.IsEnabled);
             Assert.False(listener.HasErrors, $"バインディングエラーが発生しました: {string.Join("; ", listener.Errors)}");
         });
     }

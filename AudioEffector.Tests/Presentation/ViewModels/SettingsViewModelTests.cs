@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
+using AudioEffector.Domain.Repositories;
 using AudioEffector.Presentation.ViewModels;
 using Moq;
 using Xunit;
@@ -667,5 +669,196 @@ public class SettingsViewModelTests
             ],
             changedProps);
         _settingsServiceMock.Verify(s => s.UpdateSettings(It.IsAny<Action<AppSettings>>()), Times.Exactly(3));
+    }
+
+    /// <summary>
+    /// ResetListeningStatsCommand で確認ダイアログを承認した場合、リポジトリが全クリアされ、
+    /// ListeningStatsReset イベントおよび完了通知（エラーでない情報通知）が発火することを検証します。
+    /// </summary>
+    [Fact]
+    public void ResetListeningStatsCommand_承認時_データ全クリアとイベント発火および完了通知が行われること()
+    {
+        // Arrange
+        var statsRepo = new InMemoryListeningStatsRepository();
+        var track = new Track
+        {
+            FilePath = @"C:\Music\sample.flac",
+            Title = "Sample",
+            Artist = "Artist",
+            Album = "Album",
+            Duration = TimeSpan.FromMinutes(3),
+        };
+        using var statsService = new ListeningStatsApplicationService(statsRepo, _audioServiceMock.Object);
+        statsService.RecordPlaybackCompleted(track);
+        Assert.Single(statsRepo.Load().TrackStats);
+        Assert.Single(statsRepo.Load().PlayEvents);
+
+        string? promptTitle = null;
+        string? promptMessage = null;
+        string? notifiedTitle = null;
+        string? notifiedMessage = null;
+        bool? notifiedIsError = null;
+        int resetEventCount = 0;
+
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            dataDirectoryProvider: null,
+            dataDirectoryMigrationService: null,
+            folderPicker: null,
+            migrationPrompt: null,
+            messageNotifier: (msg, title, isError) =>
+            {
+                notifiedMessage = msg;
+                notifiedTitle = title;
+                notifiedIsError = isError;
+            },
+            logConfigurationManager: null,
+            folderOpener: null,
+            listeningStatsService: statsService,
+            resetConfirmationPrompt: (msg, title) =>
+            {
+                promptMessage = msg;
+                promptTitle = title;
+                return true;
+            });
+        sut.ListeningStatsReset += () => resetEventCount++;
+
+        // Act
+        bool canExecute = sut.ResetListeningStatsCommand.CanExecute(null);
+        sut.ResetListeningStatsCommand.Execute(null);
+
+        // Assert
+        Assert.True(canExecute);
+        Assert.True(sut.CanResetListeningStats);
+        Assert.Equal("再生履歴・リスニング統計のリセット確認", promptTitle);
+        Assert.Contains("元に戻せません", promptMessage);
+        Assert.Empty(statsRepo.Load().TrackStats);
+        Assert.Empty(statsRepo.Load().PlayEvents);
+        Assert.Equal(1, resetEventCount);
+        Assert.Equal(false, notifiedIsError);
+        Assert.Equal("リセット完了", notifiedTitle);
+        Assert.Contains("リセットしました", notifiedMessage);
+    }
+
+    /// <summary>
+    /// ResetListeningStatsCommand で確認ダイアログをキャンセルした場合、統計データが保持され、
+    /// ListeningStatsReset イベントおよび完了通知が発生しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void ResetListeningStatsCommand_キャンセル時_データが保持されイベント発火も通知も行われないこと()
+    {
+        // Arrange
+        var statsRepo = new InMemoryListeningStatsRepository();
+        var track = new Track
+        {
+            FilePath = @"C:\Music\keep.flac",
+            Title = "Keep",
+            Artist = "Artist",
+            Album = "Album",
+            Duration = TimeSpan.FromMinutes(4),
+        };
+        using var statsService = new ListeningStatsApplicationService(statsRepo, _audioServiceMock.Object);
+        statsService.RecordPlaybackCompleted(track);
+
+        int notifyCount = 0;
+        int resetEventCount = 0;
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            dataDirectoryProvider: null,
+            dataDirectoryMigrationService: null,
+            folderPicker: null,
+            migrationPrompt: null,
+            messageNotifier: (_, _, _) => notifyCount++,
+            logConfigurationManager: null,
+            folderOpener: null,
+            listeningStatsService: statsService,
+            resetConfirmationPrompt: (_, _) => false);
+        sut.ListeningStatsReset += () => resetEventCount++;
+
+        // Act
+        sut.ResetListeningStatsCommand.Execute(null);
+
+        // Assert
+        Assert.Single(statsRepo.Load().TrackStats);
+        Assert.Single(statsRepo.Load().PlayEvents);
+        Assert.Equal(0, resetEventCount);
+        Assert.Equal(0, notifyCount);
+    }
+
+    /// <summary>
+    /// ListeningStatsApplicationService が未注入の場合、ResetListeningStatsCommand が実行不可であることを検証します。
+    /// </summary>
+    [Fact]
+    public void ResetListeningStatsCommand_サービス未注入時_実行不可であること()
+    {
+        // Arrange
+        var sut = new SettingsViewModel(_settingsServiceMock.Object, _audioServiceMock.Object);
+
+        // Act & Assert
+        Assert.False(sut.CanResetListeningStats);
+        Assert.False(sut.ResetListeningStatsCommand.CanExecute(null));
+    }
+
+    /// <summary>
+    /// ストレージアクセス失敗時に ResetListeningStatsCommand がエラー通知を出し、
+    /// ListeningStatsReset イベントを発火しないことを検証します。
+    /// </summary>
+    [Fact]
+    public void ResetListeningStatsCommand_ストレージ書込失敗時_エラー通知されイベントが発火しないこと()
+    {
+        // Arrange
+        var failingRepoMock = new Mock<IListeningStatsRepository>();
+        failingRepoMock.Setup(r => r.ClearAll()).Throws(new IOException("Disk full"));
+        using var statsService = new ListeningStatsApplicationService(failingRepoMock.Object, _audioServiceMock.Object);
+
+        bool? notifiedIsError = null;
+        string? notifiedTitle = null;
+        int resetEventCount = 0;
+        var sut = new SettingsViewModel(
+            _settingsServiceMock.Object,
+            _audioServiceMock.Object,
+            dataDirectoryProvider: null,
+            dataDirectoryMigrationService: null,
+            folderPicker: null,
+            migrationPrompt: null,
+            messageNotifier: (_, title, isError) =>
+            {
+                notifiedTitle = title;
+                notifiedIsError = isError;
+            },
+            logConfigurationManager: null,
+            folderOpener: null,
+            listeningStatsService: statsService,
+            resetConfirmationPrompt: (_, _) => true);
+        sut.ListeningStatsReset += () => resetEventCount++;
+
+        // Act
+        sut.ResetListeningStatsCommand.Execute(null);
+
+        // Assert
+        Assert.Equal(true, notifiedIsError);
+        Assert.Equal("リセットエラー", notifiedTitle);
+        Assert.Equal(0, resetEventCount);
+    }
+
+    private sealed class InMemoryListeningStatsRepository : IListeningStatsRepository
+    {
+        private ListeningStatsData _data = new();
+
+        public ListeningStatsData Load() => _data.Clone();
+
+        public void Save(ListeningStatsData data) => _data = data.Clone();
+
+        public ListeningStatsData Update(Action<ListeningStatsData> update)
+        {
+            ListeningStatsData working = _data.Clone();
+            update(working);
+            _data = working.Clone();
+            return _data.Clone();
+        }
+
+        public void ClearAll() => _data = new ListeningStatsData();
     }
 }

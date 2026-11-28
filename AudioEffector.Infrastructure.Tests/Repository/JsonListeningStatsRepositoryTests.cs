@@ -237,4 +237,43 @@ public sealed class JsonListeningStatsRepositoryTests : IDisposable
         Assert.True(File.Exists(Path.Combine(dirB, "ListeningStats.json")));
         Assert.Equal("TrackB", Assert.Single(sut.Load().TrackStats).Title);
     }
+
+    /// <summary>
+    /// ClearAll 実行時に ListeningStats.json の曲別統計および日時毎再生履歴が完全に初期化され、
+    /// 旧 RecentTracks.json が残存していても再移行されないことを検証します。
+    /// </summary>
+    [Fact]
+    public void ClearAll_統計と旧履歴ファイル存在時_全データを初期化し旧ファイルからの再移行も行わないこと()
+    {
+        // Arrange
+        string statsPath = Path.Combine(_tempDir, "ListeningStats.json");
+        string legacyPath = Path.Combine(_tempDir, "RecentTracks.json");
+        File.WriteAllText(
+            legacyPath,
+            """[{"FilePath":"C:\\Music\\legacy.mp3","Title":"Legacy","Artist":"Artist","Album":"Album","DurationSeconds":180,"PlayedAt":"2026-05-01T10:00:00"}]""");
+
+        var sut = new JsonListeningStatsRepository(statsPath, legacyRecentTracksFilePath: legacyPath);
+        var track = CreateTrack("CurrentTrack");
+        sut.Update(data =>
+        {
+            var stat = TrackListeningStat.FromTrack(track);
+            stat.RecordPlaybackCompleted(track, new DateTime(2026, 5, 10, 20, 0, 0), TimeSpan.FromMinutes(3));
+            data.TrackStats.Add(stat);
+            data.PlayEvents.Add(TrackPlayEvent.FromTrack(track, new DateTime(2026, 5, 10, 20, 0, 0)));
+        });
+        Assert.NotEmpty(sut.Load().TrackStats);
+
+        // Act
+        sut.ClearAll();
+        ListeningStatsData afterClear = sut.Load();
+        var freshReader = new JsonListeningStatsRepository(statsPath, legacyRecentTracksFilePath: legacyPath);
+        ListeningStatsData reloaded = freshReader.Load();
+
+        // Assert
+        Assert.Empty(afterClear.TrackStats);
+        Assert.Empty(afterClear.PlayEvents);
+        Assert.Empty(reloaded.TrackStats);
+        Assert.Empty(reloaded.PlayEvents);
+        Assert.Empty(((IRecentTrackRepository)freshReader).Load());
+    }
 }
