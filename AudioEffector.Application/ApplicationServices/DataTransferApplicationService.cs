@@ -85,63 +85,152 @@ public class DataTransferApplicationService
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        var summary = await TransferTracksWithResultAsync(
+            tracks,
+            destinationFolder,
+            progress: progress,
+            detailProgress: null,
+            cancellationToken: cancellationToken);
+        return summary.SuccessCount;
+    }
+
+    /// <summary>
+    /// 選択されたトラックコレクションを 1 曲単位のエラーハンドリング・詳細進捗・キャンセル対応付きで順次転送し、結果サマリを返します
+    /// </summary>
+    /// <param name="tracks">転送対象トラックのコレクション</param>
+    /// <param name="destinationFolder">転送先フォルダパス</param>
+    /// <param name="progress">全体進捗通知（0.0〜1.0）</param>
+    /// <param name="detailProgress">詳細進捗通知（件数・曲名・フェーズ）</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>転送結果サマリ</returns>
+    public async Task<TransferResultSummary> TransferTracksWithResultAsync(
+        IEnumerable<Track> tracks,
+        string destinationFolder,
+        IProgress<double>? progress = null,
+        IProgress<TransferProgressInfo>? detailProgress = null,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(tracks);
 
         var trackList = new List<Track>(tracks);
-        if (trackList.Count == 0) return 0;
+        if (trackList.Count == 0)
+        {
+            return new TransferResultSummary(0, 0);
+        }
 
         int successCount = 0;
+        var failedItems = new List<TransferFailedItem>();
+        bool wasCancelled = false;
         int total = trackList.Count;
 
         var (transcodeOptions, lrcTransferOptions) = ResolveTransferOptions();
 
         for (int i = 0; i < total; i++)
         {
-            if (cancellationToken.IsCancellationRequested) break;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                wasCancelled = true;
+                break;
+            }
 
             var track = trackList[i];
-            bool success;
-            string transferredFileName;
-            if (_audioTranscodeService != null && _audioTranscodeService.NeedsTranscode(track.FilePath, transcodeOptions))
+            string sourceFilePath = track.FilePath ?? string.Empty;
+            string sourceFileName = Path.GetFileName(sourceFilePath);
+            string displayTitle = !string.IsNullOrWhiteSpace(track.Title) ? track.Title : sourceFileName;
+
+            try
             {
-                using var prepared = await _audioTranscodeService.PrepareForTransferAsync(
-                    track.FilePath,
-                    transcodeOptions,
-                    cancellationToken);
-                transferredFileName = !string.IsNullOrWhiteSpace(prepared.TargetFileName)
-                    ? prepared.TargetFileName
-                    : Path.GetFileName(prepared.OutputFilePath);
-                success = await _dataTransferRepository.TransferTrackAsync(
-                    prepared.OutputFilePath,
-                    destinationFolder,
-                    null,
-                    cancellationToken);
+                bool success;
+                string transferredFileName;
+                if (_audioTranscodeService != null && _audioTranscodeService.NeedsTranscode(sourceFilePath, transcodeOptions))
+                {
+                    string phaseText = ResolveTranscodePhaseText(sourceFilePath);
+                    detailProgress?.Report(new TransferProgressInfo(i + 1, total, (double)i / total * 100.0, sourceFileName, phaseText));
+
+                    using var prepared = await _audioTranscodeService.PrepareForTransferAsync(
+                        sourceFilePath,
+                        transcodeOptions,
+                        cancellationToken);
+                    transferredFileName = !string.IsNullOrWhiteSpace(prepared.TargetFileName)
+                        ? prepared.TargetFileName
+                        : Path.GetFileName(prepared.OutputFilePath);
+
+                    detailProgress?.Report(new TransferProgressInfo(i + 1, total, (double)i / total * 100.0, transferredFileName, "コピー中..."));
+                    success = await _dataTransferRepository.TransferTrackAsync(
+                        prepared.OutputFilePath,
+                        destinationFolder,
+                        null,
+                        cancellationToken);
+                }
+                else
+                {
+                    transferredFileName = sourceFileName;
+                    detailProgress?.Report(new TransferProgressInfo(i + 1, total, (double)i / total * 100.0, transferredFileName, "コピー中..."));
+                    success = await _dataTransferRepository.TransferTrackAsync(
+                        sourceFilePath,
+                        destinationFolder,
+                        null,
+                        cancellationToken);
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    wasCancelled = true;
+                    break;
+                }
+
+                if (success)
+                {
+                    successCount++;
+                    await TryTransferCompanionLrcAsync(
+                        sourceFilePath,
+                        transferredFileName,
+                        destinationFolder,
+                        lrcTransferOptions,
+                        cancellationToken);
+                }
+                else
+                {
+                    failedItems.Add(new TransferFailedItem(displayTitle, sourceFileName, "ファイルの転送に失敗しました。"));
+                }
             }
-            else
+            catch (OperationCanceledException)
             {
-                transferredFileName = Path.GetFileName(track.FilePath);
-                success = await _dataTransferRepository.TransferTrackAsync(
-                    track.FilePath,
-                    destinationFolder,
-                    null,
-                    cancellationToken);
+                wasCancelled = true;
+                break;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"トラック {track.FilePath} の転送中にエラーが発生しました: {ex.Message}");
+                failedItems.Add(new TransferFailedItem(displayTitle, sourceFileName, ex.Message));
             }
 
-            if (success)
-            {
-                successCount++;
-                await TryTransferCompanionLrcAsync(
-                    track.FilePath,
-                    transferredFileName,
-                    destinationFolder,
-                    lrcTransferOptions,
-                    cancellationToken);
-            }
-
-            progress?.Report((double)(i + 1) / total);
+            double ratio = (double)(i + 1) / total;
+            progress?.Report(ratio);
+            detailProgress?.Report(new TransferProgressInfo(i + 1, total, ratio * 100.0, sourceFileName, "処理完了"));
         }
 
-        return successCount;
+        return new TransferResultSummary(
+            successCount: successCount,
+            skippedCount: 0,
+            failedItems: failedItems,
+            wasCancelled: wasCancelled);
+    }
+
+    private static string ResolveTranscodePhaseText(string? sourceFilePath)
+    {
+        string ext = Path.GetExtension(sourceFilePath ?? string.Empty);
+        if (ext.Equals(".flac", StringComparison.OrdinalIgnoreCase))
+        {
+            return "変換中 (FLAC → MP3)...";
+        }
+
+        if (ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase))
+        {
+            return "変換中 (MP4 → M4A)...";
+        }
+
+        return "変換中...";
     }
 
     private async Task TryTransferCompanionLrcAsync(
