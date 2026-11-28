@@ -301,6 +301,27 @@ public class DataTransferApplicationService
     }
 
     /// <summary>
+    /// デバイス上の指定されたトラックを PC 側の指定パスへダウンロード（逆転送）します
+    /// </summary>
+    /// <param name="deviceFilePath">デバイス上のファイルパス</param>
+    /// <param name="destinationFilePath">PC 側の保存先ファイルパス</param>
+    /// <param name="progress">進捗通知（0.0〜1.0）</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>ダウンロード成功時はtrue</returns>
+    public async Task<bool> DownloadTrackFromDeviceAsync(
+        string deviceFilePath,
+        string destinationFilePath,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dataTransferRepository.DownloadTrackFromDeviceAsync(
+            deviceFilePath,
+            destinationFilePath,
+            progress,
+            cancellationToken);
+    }
+
+    /// <summary>
     /// デバイス上の指定されたトラックを削除します
     /// </summary>
     /// <param name="deviceFilePath">削除対象ファイルパス</param>

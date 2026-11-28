@@ -289,6 +289,111 @@ public class MtpDataTransferAdapter : IDataTransferRepository
     }
 
     /// <summary>
+    /// デバイス上の指定ファイルを PC 側の保存先パスへ非同期ダウンロード（逆転送）します
+    /// </summary>
+    /// <param name="deviceFilePath">デバイス上の転送元ファイルパス</param>
+    /// <param name="destinationFilePath">PC 側の保存先フルファイルパス</param>
+    /// <param name="progress">進捗通知（0.0〜1.0）</param>
+    /// <param name="cancellationToken">キャンセレーショントークン</param>
+    /// <returns>ダウンロード成功時はtrue</returns>
+    public async Task<bool> DownloadTrackFromDeviceAsync(
+        string deviceFilePath,
+        string destinationFilePath,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(deviceFilePath) || !File.Exists(deviceFilePath))
+        {
+            Logger.Warn($"逆転送元のデバイスファイルが存在しません: {deviceFilePath}");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(destinationFilePath))
+        {
+            Logger.Warn("逆転送先の保存ファイルパスが空です。");
+            return false;
+        }
+
+        string? parentDir = Path.GetDirectoryName(destinationFilePath);
+        if (string.IsNullOrWhiteSpace(parentDir))
+        {
+            Logger.Warn($"逆転送先の親ディレクトリを解決できません: {destinationFilePath}");
+            return false;
+        }
+
+        if (File.Exists(destinationFilePath))
+        {
+            Logger.Warn($"逆転送先に同名ファイルが既に存在するため上書きを中止します: {destinationFilePath}");
+            return false;
+        }
+
+        const int BUFFER_SIZE = 64 * 1024;
+        var buffer = new byte[BUFFER_SIZE];
+        bool destCreated = false;
+        bool completed = false;
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!Directory.Exists(parentDir))
+            {
+                Directory.CreateDirectory(parentDir);
+            }
+
+            await using var sourceStream = new FileStream(deviceFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, BUFFER_SIZE, useAsync: true);
+            await using var destStream = new FileStream(destinationFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, BUFFER_SIZE, useAsync: true);
+            destCreated = true;
+
+            long totalBytes = sourceStream.Length;
+            long totalRead = 0;
+            int bytesRead;
+
+            while ((bytesRead = await sourceStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await destStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+                totalRead += bytesRead;
+
+                if (totalBytes > 0)
+                {
+                    progress?.Report((double)totalRead / totalBytes);
+                }
+            }
+
+            await destStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            completed = true;
+            progress?.Report(1.0);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, $"デバイスファイル {deviceFilePath} の逆転送中にエラーが発生しました");
+            return false;
+        }
+        finally
+        {
+            if (!completed && destCreated)
+            {
+                try
+                {
+                    if (File.Exists(destinationFilePath))
+                    {
+                        File.Delete(destinationFilePath);
+                    }
+                }
+                catch (Exception cleanupEx)
+                {
+                    Logger.Warn(cleanupEx, $"不完全な逆転送ファイルの削除に失敗しました: {destinationFilePath}");
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// デバイス上の指定ファイルを削除します
     /// </summary>
     /// <param name="deviceFilePath">削除対象ファイルパス</param>
