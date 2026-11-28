@@ -391,12 +391,14 @@
                                        Margin="4,0,0,0"/>
                         </WrapPanel>
 
-                        <Button Grid.Column="1"
+                        <Button x:Name="RegenerateButton"
+                                Grid.Column="1"
                                 Content="↺ 再生成"
                                 Style="{StaticResource LrcSubtleButtonStyle}"
                                 Command="{Binding RegenerateCommand}"
                                 VerticalAlignment="Center"
-                                ToolTip="入力画面へ戻って再生成する"/>
+                                ToolTip="テキストファイルまたは音声文字起こしから LRC を一から再生成する"
+                                AutomationProperties.Name="LRCを一から再生成"/>
                     </Grid>
                 </Border>
             </Grid>
