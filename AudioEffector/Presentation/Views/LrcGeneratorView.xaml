@@ -167,6 +167,44 @@
             <Setter Property="Margin" Value="0,0,4,0"/>
         </Style>
 
+        <!-- 進捗バー（角丸 4px・確定／不定両モード対応） -->
+        <Style x:Key="LrcProgressBarStyle" TargetType="ProgressBar">
+            <Setter Property="Height" Value="6"/>
+            <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource ControlBackgroundHighlightBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid x:Name="TemplateRoot" SnapsToDevicePixels="True">
+                            <Border x:Name="PART_Track"
+                                    Background="{TemplateBinding Background}"
+                                    CornerRadius="4"/>
+                            <Grid x:Name="PART_Indicator"
+                                  HorizontalAlignment="Left"
+                                  ClipToBounds="True">
+                                <Border Background="{TemplateBinding Foreground}"
+                                        CornerRadius="4"/>
+                                <Border x:Name="PART_GlowRect"
+                                        Width="64"
+                                        HorizontalAlignment="Left"
+                                        Background="{TemplateBinding Foreground}"
+                                        CornerRadius="4"
+                                        Opacity="0.65"
+                                        Visibility="Collapsed"/>
+                            </Grid>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsIndeterminate" Value="True">
+                                <Setter TargetName="PART_Indicator" Property="HorizontalAlignment" Value="Stretch"/>
+                                <Setter TargetName="PART_GlowRect" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- プレビュー ListBox 用テンプレート（仮想化維持・ItemsPresenter.Margin=0 厳守） -->
         <ControlTemplate x:Key="LrcPreviewListBoxTemplate" TargetType="ListBox">
             <Border Background="{TemplateBinding Background}"
@@ -419,10 +457,7 @@
                         <ProgressBar Value="{Binding ModelDownloadProgress, Mode=OneWay}"
                                      Minimum="0"
                                      Maximum="100"
-                                     Height="6"
-                                     Foreground="{DynamicResource NeonCyanBrush}"
-                                     Background="{DynamicResource ControlBackgroundHighlightBrush}"
-                                     BorderThickness="0"
+                                     Style="{StaticResource LrcProgressBarStyle}"
                                      Margin="0,0,0,8"
                                      AutomationProperties.Name="モデルダウンロード進捗"/>
                         <TextBlock Text="{Binding ModelDownloadStatusMessage}"
@@ -430,11 +465,26 @@
                                    Foreground="{DynamicResource SecondaryTextForegroundBrush}"
                                    HorizontalAlignment="Center"
                                    Margin="0,0,0,16"/>
-                        <Button Content="キャンセル"
+                        <Button x:Name="CancelModelDownloadButton"
                                 Style="{StaticResource LrcSecondaryButtonStyle}"
                                 Command="{Binding CancelModelDownloadCommand}"
                                 HorizontalAlignment="Center"
-                                AutomationProperties.Name="モデルダウンロードをキャンセル"/>
+                                AutomationProperties.Name="モデルダウンロードをキャンセル">
+                            <Button.Content>
+                                <TextBlock>
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="キャンセル"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsCancelling}" Value="True">
+                                                    <Setter Property="Text" Value="キャンセル中..."/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Button.Content>
+                        </Button>
                     </StackPanel>
                 </Grid>
 
@@ -512,6 +562,21 @@
                                     </StackPanel>
                                 </Grid>
                             </Grid>
+                        </Border>
+
+                        <!-- 対象楽曲の音声ファイル欠損通知（インライン・テキスト選択エラーとは独立） -->
+                        <Border x:Name="TargetAudioMissingBanner"
+                                Background="{DynamicResource ControlBackgroundBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="12,8"
+                                Margin="0,8,0,0"
+                                Visibility="{Binding IsTargetAudioMissing, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="{Binding TargetAudioMissingMessage}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource NeonCyanBrush}"
+                                       TextWrapping="Wrap"/>
                         </Border>
 
                         <!-- 開始前バリデーション通知（インライン） -->
@@ -614,12 +679,10 @@
                                    HorizontalAlignment="Center"
                                    Margin="0,0,0,12"/>
                         <ProgressBar Value="{Binding Progress, Mode=OneWay}"
+                                     IsIndeterminate="{Binding IsProgressIndeterminate, Mode=OneWay}"
                                      Minimum="0"
                                      Maximum="100"
-                                     Height="6"
-                                     Foreground="{DynamicResource NeonCyanBrush}"
-                                     Background="{DynamicResource ControlBackgroundHighlightBrush}"
-                                     BorderThickness="0"
+                                     Style="{StaticResource LrcProgressBarStyle}"
                                      Margin="0,0,0,8"
                                      AutomationProperties.Name="LRC生成進捗"/>
                         <TextBlock Text="{Binding Progress, StringFormat='{}{0:0}%'}"
@@ -864,6 +927,27 @@
                                         Command="{Binding CancelOverwriteSaveCommand}"/>
                             </WrapPanel>
                         </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- 保存失敗エラーインラインバー -->
+                <Border x:Name="SaveErrorBanner"
+                        Background="{DynamicResource ControlBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,1,0,0"
+                        Visibility="{Binding HasSaveError, Converter={StaticResource BoolToVis}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="3"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Background="{DynamicResource NeonCyanBrush}"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{Binding SaveErrorMessage}"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource NeonCyanBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="12,8"/>
                     </Grid>
                 </Border>
 

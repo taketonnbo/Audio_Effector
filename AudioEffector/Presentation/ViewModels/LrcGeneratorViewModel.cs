@@ -17,8 +17,8 @@ using Microsoft.Win32;
 namespace AudioEffector.Presentation.ViewModels;
 
 /// <summary>
-/// 右側タブ下部拡張領域の LRC 自動生成パネル（<c>LrcGeneratorView</c>）の状態と操作を統括する ViewModel です。
-/// テキストファイル（.txt）からの強制アライメント生成と、音声からの直接文字起こし生成の 2 モードを独立して提供します。
+/// 右側タブ下部拡張領域の LRC 自動生成パネル（<c>LrcGeneratorView</c>）の状態と操作を統括する ViewModel です
+/// テキストファイル（.txt）からの強制アライメント生成と、音声からの直接文字起こし生成の 2 モードを独立して提供します
 /// </summary>
 public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 {
@@ -30,6 +30,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     private readonly Func<string?> _selectTextFileFunc;
     private readonly Func<string?> _selectModelFileFunc;
     private readonly Action<string> _openFolderAction;
+    private readonly Func<string, bool> _fileExistsFunc;
 
     private readonly GeneratorCommand _downloadDefaultModelCommand;
     private readonly GeneratorCommand _selectCustomModelFileCommand;
@@ -56,9 +57,12 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
     private readonly object _ctsLock = new();
     private CancellationTokenSource? _operationCts;
-    private bool _disposed;
+    private volatile bool _disposed;
+    private long _operationGeneration;
 
     private Track? _targetTrack;
+    private bool _isTargetAudioMissing;
+    private string _targetAudioMissingMessage = string.Empty;
     private string? _inputTextFilePath;
     private int _inputTextLineCount;
     private bool _isEncodingConversionApproved;
@@ -75,6 +79,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     private LrcLanguageOption _selectedLanguageOption;
     private bool _isGenerating;
     private bool _isCancelling;
+    private bool _isProgressIndeterminate;
     private double _progress;
     private string _statusMessage = string.Empty;
     private string _currentPhaseLabel = string.Empty;
@@ -86,6 +91,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     private double _totalOffsetSeconds;
     private string? _savedFilePath;
     private string _saveCompletedMessage = string.Empty;
+    private string _saveErrorMessage = string.Empty;
     private bool _isOverwriteConfirmVisible;
     private string _overwriteWarningMessage = string.Empty;
 
@@ -260,6 +266,30 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     public bool HasValidationError => !string.IsNullOrEmpty(_validationErrorMessage);
 
     /// <summary>
+    /// 対象楽曲の音声ファイルが欠損しているかどうかを取得します
+    /// </summary>
+    public bool IsTargetAudioMissing
+    {
+        get => _isTargetAudioMissing;
+        private set
+        {
+            if (SetProperty(ref _isTargetAudioMissing, value))
+            {
+                InvalidateAllCommands();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 対象楽曲の音声ファイル欠損時に表示する案内メッセージを取得します
+    /// </summary>
+    public string TargetAudioMissingMessage
+    {
+        get => _targetAudioMissingMessage;
+        private set => SetProperty(ref _targetAudioMissingMessage, value);
+    }
+
+    /// <summary>
     /// 現在アクティブなローカル音声認識モデル情報を取得します
     /// </summary>
     public LocalSpeechModelInfo ActiveModelInfo
@@ -373,6 +403,15 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     /// 生成またはモデルダウンロードの非同期処理が稼働中かどうかを取得します
     /// </summary>
     public bool IsBusy => _isGenerating || _isModelDownloading;
+
+    /// <summary>
+    /// 生成・文字起こしの進捗バーを不定モード（モデル読み込み中等）で表示すべきかどうかを取得します
+    /// </summary>
+    public bool IsProgressIndeterminate
+    {
+        get => _isProgressIndeterminate;
+        private set => SetProperty(ref _isProgressIndeterminate, value);
+    }
 
     /// <summary>
     /// 生成・文字起こしの進捗率（0〜100）を取得します
@@ -516,6 +555,26 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     /// 保存完了メッセージが表示可能かどうかを取得します
     /// </summary>
     public bool HasSaveCompletedMessage => !string.IsNullOrEmpty(_saveCompletedMessage);
+
+    /// <summary>
+    /// 結果プレビュー画面での LRC 保存失敗エラーメッセージを取得します
+    /// </summary>
+    public string SaveErrorMessage
+    {
+        get => _saveErrorMessage;
+        private set
+        {
+            if (SetProperty(ref _saveErrorMessage, value))
+            {
+                OnPropertyChanged(nameof(HasSaveError));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 結果プレビュー画面に保存失敗エラーが表示中かどうかを取得します
+    /// </summary>
+    public bool HasSaveError => !string.IsNullOrEmpty(_saveErrorMessage);
 
     /// <summary>
     /// 既存 `.lrc` 上書き確認インラインバーを表示すべきかどうかを取得します
@@ -672,12 +731,12 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         LrcGenerationApplicationService generationService,
         IAudioService audioService,
         IUiDispatcher uiDispatcher)
-        : this(generationService, audioService, uiDispatcher, null, null, null)
+        : this(generationService, audioService, uiDispatcher, null, null, null, null)
     {
     }
 
     /// <summary>
-    /// テスト用ダイアログ・フォルダ起動デリゲートを注入して <see cref="LrcGeneratorViewModel"/> を初期化します
+    /// テスト用ダイアログ・フォルダ起動・ファイル存在判定デリゲートを注入して <see cref="LrcGeneratorViewModel"/> を初期化します
     /// </summary>
     /// <param name="generationService">LRC 自動生成アプリケーションサービス</param>
     /// <param name="audioService">オーディオ再生サービス</param>
@@ -685,13 +744,15 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     /// <param name="selectTextFileFunc">`.txt` ファイル選択デリゲート（任意）</param>
     /// <param name="selectModelFileFunc">`.bin` モデルファイル選択デリゲート（任意）</param>
     /// <param name="openFolderAction">保存先フォルダを開くアクション（任意）</param>
+    /// <param name="fileExistsFunc">音声ファイル存在確認デリゲート（任意・既定 <see cref="File.Exists"/>）</param>
     internal LrcGeneratorViewModel(
         LrcGenerationApplicationService generationService,
         IAudioService audioService,
         IUiDispatcher uiDispatcher,
         Func<string?>? selectTextFileFunc,
         Func<string?>? selectModelFileFunc,
-        Action<string>? openFolderAction)
+        Action<string>? openFolderAction,
+        Func<string, bool>? fileExistsFunc = null)
     {
         _generationService = generationService ?? throw new ArgumentNullException(nameof(generationService));
         _audioService = audioService ?? throw new ArgumentNullException(nameof(audioService));
@@ -699,6 +760,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         _selectTextFileFunc = selectTextFileFunc ?? ShowSelectTextFileDialog;
         _selectModelFileFunc = selectModelFileFunc ?? ShowSelectModelFileDialog;
         _openFolderAction = openFolderAction ?? OpenFolderInExplorer;
+        _fileExistsFunc = fileExistsFunc ?? File.Exists;
 
         _activeModelInfo = _generationService.GetActiveModelInfo();
         _selectedLanguageOption = LanguageOptions[0];
@@ -714,10 +776,10 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
         _generateLrcCommand = new GeneratorCommand(
             _ => _ = GenerateFromTextAsync(),
-            _ => !IsBusy && IsModelAvailable && _targetTrack is not null && HasInputTextFile && !IsEncodingWarningVisible);
+            _ => !IsBusy && IsModelAvailable && _targetTrack is not null && !IsTargetAudioMissing && HasInputTextFile && !IsEncodingWarningVisible);
         _transcribeAudioCommand = new GeneratorCommand(
             _ => _ = TranscribeFromAudioAsync(),
-            _ => !IsBusy && IsModelAvailable && _targetTrack is not null);
+            _ => !IsBusy && IsModelAvailable && _targetTrack is not null && !IsTargetAudioMissing);
         _cancelGenerationCommand = new GeneratorCommand(_ => CancelActiveOperation(), _ => IsGenerating && !IsCancelling);
 
         _adjustOffsetCommand = new GeneratorCommand(AdjustOffset, _ => HasResult && !IsBusy);
@@ -756,14 +818,13 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
         if (!isSameTrack)
         {
+            ClearTextFile();
             ClearResultState();
             ClearErrorState();
             ValidationErrorMessage = string.Empty;
-            if (_targetTrack is not null && !string.IsNullOrWhiteSpace(_targetTrack.FilePath) && !File.Exists(_targetTrack.FilePath))
-            {
-                ValidationErrorMessage = "対象楽曲の音声ファイルが見つかりません。ファイルの配置を確認してください。";
-            }
         }
+
+        UpdateTargetAudioMissingState();
     }
 
     /// <summary>
@@ -787,38 +848,59 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         }
 
         ValidationErrorMessage = string.Empty;
-        Result<TextEncodingInspectionResult> inspectionResult = await _generationService
-            .InspectLyricsTextAsync(textFilePath)
-            .ConfigureAwait(false);
-
-        _uiDispatcher.Invoke(() =>
+        try
         {
-            if (inspectionResult.IsFailure)
+            Result<TextEncodingInspectionResult> inspectionResult = await _generationService
+                .InspectLyricsTextAsync(textFilePath)
+                .ConfigureAwait(false);
+
+            _uiDispatcher.Invoke(() =>
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                if (inspectionResult.IsFailure)
+                {
+                    ClearTextFile();
+                    ValidationErrorMessage = inspectionResult.ErrorMessage;
+                    return;
+                }
+
+                TextEncodingInspectionResult inspection = inspectionResult.Value;
+                _inputTextLineCount = inspection.NonEmptyLineCount;
+                DetectedEncodingName = inspection.DetectedEncodingName;
+                InputTextFilePath = textFilePath;
+
+                if (inspection.RequiresConversion)
+                {
+                    _isEncodingConversionApproved = false;
+                    EncodingWarningMessage =
+                        $"文字コード {inspection.DetectedEncodingName} が検出されました。標準入力は UTF-8 です。内部処理用に UTF-8 へ変換して続行しますか？（元の .txt ファイル自体は上書きされません）";
+                    IsEncodingWarningVisible = true;
+                }
+                else
+                {
+                    _isEncodingConversionApproved = false;
+                    EncodingWarningMessage = string.Empty;
+                    IsEncodingWarningVisible = false;
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _uiDispatcher.Invoke(() =>
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 ClearTextFile();
-                ValidationErrorMessage = inspectionResult.ErrorMessage;
-                return;
-            }
-
-            TextEncodingInspectionResult inspection = inspectionResult.Value;
-            _inputTextLineCount = inspection.NonEmptyLineCount;
-            DetectedEncodingName = inspection.DetectedEncodingName;
-            InputTextFilePath = textFilePath;
-
-            if (inspection.RequiresConversion)
-            {
-                _isEncodingConversionApproved = false;
-                EncodingWarningMessage =
-                    $"文字コード {inspection.DetectedEncodingName} が検出されました。標準入力は UTF-8 です。内部処理用に UTF-8 へ変換して続行しますか？（元の .txt ファイル自体は上書きされません）";
-                IsEncodingWarningVisible = true;
-            }
-            else
-            {
-                _isEncodingConversionApproved = false;
-                EncodingWarningMessage = string.Empty;
-                IsEncodingWarningVisible = false;
-            }
-        });
+                ValidationErrorMessage = ex.Message;
+            });
+        }
     }
 
     /// <summary>
@@ -827,11 +909,12 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     /// <returns>非同期タスク</returns>
     public async Task DownloadDefaultModelAsync()
     {
-        if (IsBusy)
+        if (IsBusy || _disposed)
         {
             return;
         }
 
+        long operationId = Interlocked.Increment(ref _operationGeneration);
         ClearErrorState();
         ModelDownloadProgress = 0;
         ModelDownloadStatusMessage = "無料 Whisper モデル (base) をダウンロードしています...";
@@ -846,7 +929,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                 double percent = Math.Round(Math.Clamp(p * 100.0, 0.0, 100.0), 1);
                 _uiDispatcher.BeginInvoke(() =>
                 {
-                    if (_disposed)
+                    if (_disposed || Volatile.Read(ref _operationGeneration) != operationId || !IsModelDownloading)
                     {
                         return;
                     }
@@ -862,8 +945,14 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                 .DownloadModelAsync(progress: progress, cancellationToken: cts.Token)
                 .ConfigureAwait(false);
 
+            Interlocked.Increment(ref _operationGeneration);
             _uiDispatcher.Invoke(() =>
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 IsModelDownloading = false;
                 IsCancelling = false;
                 RefreshModelInfo();
@@ -876,11 +965,33 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         }
         catch (OperationCanceledException)
         {
+            Interlocked.Increment(ref _operationGeneration);
             _uiDispatcher.Invoke(() =>
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 IsModelDownloading = false;
                 IsCancelling = false;
                 RefreshModelInfo();
+            });
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Increment(ref _operationGeneration);
+            _uiDispatcher.Invoke(() =>
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                IsModelDownloading = false;
+                IsCancelling = false;
+                RefreshModelInfo();
+                SetError("モデルをダウンロードできませんでした", ex.Message, isModelDownloadError: true);
             });
         }
         finally
@@ -895,7 +1006,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     /// <returns>非同期タスク</returns>
     public async Task GenerateFromTextAsync()
     {
-        if (IsBusy || _targetTrack is null || string.IsNullOrWhiteSpace(_inputTextFilePath) || IsEncodingWarningVisible)
+        if (IsBusy || _targetTrack is null || IsTargetAudioMissing || string.IsNullOrWhiteSpace(_inputTextFilePath) || IsEncodingWarningVisible)
         {
             return;
         }
@@ -909,7 +1020,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     /// <returns>非同期タスク</returns>
     public async Task TranscribeFromAudioAsync()
     {
-        if (IsBusy || _targetTrack is null)
+        if (IsBusy || _targetTrack is null || IsTargetAudioMissing)
         {
             return;
         }
@@ -928,6 +1039,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        SaveErrorMessage = string.Empty;
         if (_generationService.LrcFileExists(_targetTrack))
         {
             string fileName = Path.GetFileName(DestinationFilePath);
@@ -946,32 +1058,55 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
     /// <returns>非同期タスク</returns>
     public async Task ExecuteSaveAsync(bool overwrite)
     {
-        if (!HasResult || _targetTrack is null || IsBusy)
+        if (!HasResult || _targetTrack is null || IsBusy || _disposed)
         {
             return;
         }
 
-        LyricsDocument currentDoc = RebuildDocumentFromPreviewLines();
-        Result<string> saveResult = await _generationService
-            .SaveLrcAsync(_targetTrack, currentDoc, destinationPath: null, overwrite: overwrite)
-            .ConfigureAwait(false);
-
-        _uiDispatcher.Invoke(() =>
+        SaveErrorMessage = string.Empty;
+        try
         {
-            IsOverwriteConfirmVisible = false;
-            OverwriteWarningMessage = string.Empty;
+            LyricsDocument currentDoc = RebuildDocumentFromPreviewLines();
+            Result<string> saveResult = await _generationService
+                .SaveLrcAsync(_targetTrack, currentDoc, destinationPath: null, overwrite: overwrite)
+                .ConfigureAwait(false);
 
-            if (saveResult.IsFailure)
+            _uiDispatcher.Invoke(() =>
             {
-                ValidationErrorMessage = saveResult.ErrorMessage;
-                return;
-            }
+                if (_disposed)
+                {
+                    return;
+                }
 
-            ValidationErrorMessage = string.Empty;
-            SavedFilePath = saveResult.Value;
-            SaveCompletedMessage = $"保存しました: {Path.GetFileName(saveResult.Value)}";
-            LrcSaved?.Invoke(saveResult.Value);
-        });
+                IsOverwriteConfirmVisible = false;
+                OverwriteWarningMessage = string.Empty;
+
+                if (saveResult.IsFailure)
+                {
+                    SaveErrorMessage = saveResult.ErrorMessage;
+                    return;
+                }
+
+                SaveErrorMessage = string.Empty;
+                SavedFilePath = saveResult.Value;
+                SaveCompletedMessage = $"保存しました: {Path.GetFileName(saveResult.Value)}";
+                LrcSaved?.Invoke(saveResult.Value);
+            });
+        }
+        catch (Exception ex)
+        {
+            _uiDispatcher.Invoke(() =>
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                IsOverwriteConfirmVisible = false;
+                OverwriteWarningMessage = string.Empty;
+                SaveErrorMessage = ex.Message;
+            });
+        }
     }
 
     /// <summary>
@@ -985,6 +1120,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         }
 
         _disposed = true;
+        Interlocked.Increment(ref _operationGeneration);
         CancelActiveOperation();
         lock (_ctsLock)
         {
@@ -1046,17 +1182,19 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
     private async Task ExecuteGenerationAsync(LrcGenerationMode mode)
     {
-        if (_targetTrack is null)
+        if (_targetTrack is null || _disposed)
         {
             return;
         }
 
+        long operationId = Interlocked.Increment(ref _operationGeneration);
         _lastExecutedMode = mode;
         ClearErrorState();
         ClearResultState();
         ValidationErrorMessage = string.Empty;
 
         Progress = 0;
+        IsProgressIndeterminate = true;
         _lastReportedPercent = -10.0;
         _lastReportedPhase = AlignmentPhase.DecodingAudio;
         CurrentPhaseLabel = mode == LrcGenerationMode.AudioTranscription
@@ -1073,7 +1211,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
         try
         {
-            var progressReporter = new DirectProgress<AlignmentProgress>(OnAlignmentProgressReported);
+            var progressReporter = new DirectProgress<AlignmentProgress>(u => OnAlignmentProgressReported(operationId, u));
             Result<AlignmentResult> result = mode == LrcGenerationMode.TextAlignment
                 ? await _generationService
                     .GenerateLrcAsync(
@@ -1092,10 +1230,17 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                         cts.Token)
                     .ConfigureAwait(false);
 
+            Interlocked.Increment(ref _operationGeneration);
             _uiDispatcher.Invoke(() =>
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 IsGenerating = false;
                 IsCancelling = false;
+                IsProgressIndeterminate = false;
 
                 if (result.IsFailure)
                 {
@@ -1108,13 +1253,37 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         }
         catch (OperationCanceledException)
         {
+            Interlocked.Increment(ref _operationGeneration);
             _uiDispatcher.Invoke(() =>
             {
+                if (_disposed)
+                {
+                    return;
+                }
+
                 IsGenerating = false;
                 IsCancelling = false;
+                IsProgressIndeterminate = false;
                 Progress = 0;
                 StatusMessage = string.Empty;
                 CurrentPhaseLabel = string.Empty;
+            });
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Increment(ref _operationGeneration);
+            _uiDispatcher.Invoke(() =>
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                IsGenerating = false;
+                IsCancelling = false;
+                IsProgressIndeterminate = false;
+                Progress = 0;
+                SetError("LRC を生成できませんでした", ex.Message, isModelDownloadError: false);
             });
         }
         finally
@@ -1123,8 +1292,13 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private void OnAlignmentProgressReported(AlignmentProgress update)
+    private void OnAlignmentProgressReported(long operationId, AlignmentProgress update)
     {
+        if (_disposed || Volatile.Read(ref _operationGeneration) != operationId)
+        {
+            return;
+        }
+
         double percent = Math.Round(update.Percentage * 100.0, 1);
         bool phaseChanged = update.Phase != _lastReportedPhase;
         if (!phaseChanged && Math.Abs(percent - _lastReportedPercent) < PROGRESS_REPORT_MIN_DELTA && percent < 100.0)
@@ -1134,6 +1308,10 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
         _lastReportedPhase = update.Phase;
         _lastReportedPercent = percent;
+
+        bool isIndeterminate = update.Phase is AlignmentPhase.LoadingModel
+            or AlignmentPhase.AligningLyrics
+            or AlignmentPhase.FormattingLrc;
 
         string phaseLabel = update.Phase switch
         {
@@ -1148,11 +1326,12 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
         _uiDispatcher.BeginInvoke(() =>
         {
-            if (_disposed)
+            if (_disposed || Volatile.Read(ref _operationGeneration) != operationId || !IsGenerating)
             {
                 return;
             }
 
+            IsProgressIndeterminate = isIndeterminate;
             Progress = percent;
             CurrentPhaseLabel = phaseLabel;
             StatusMessage = update.Message;
@@ -1288,8 +1467,21 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         PreviewLrcText = string.Empty;
         SavedFilePath = null;
         SaveCompletedMessage = string.Empty;
+        SaveErrorMessage = string.Empty;
         IsOverwriteConfirmVisible = false;
         OverwriteWarningMessage = string.Empty;
+    }
+
+    private void UpdateTargetAudioMissingState()
+    {
+        bool isMissing = _targetTrack is not null
+            && !string.IsNullOrWhiteSpace(_targetTrack.FilePath)
+            && !_fileExistsFunc(_targetTrack.FilePath);
+
+        TargetAudioMissingMessage = isMissing
+            ? "対象楽曲の音声ファイルが見つかりません。ファイルの配置を確認してください。"
+            : string.Empty;
+        IsTargetAudioMissing = isMissing;
     }
 
     private void CancelOverwriteConfirm()
@@ -1332,12 +1524,26 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         if (retryModelDownload)
         {
             await DownloadDefaultModelAsync().ConfigureAwait(false);
+            return;
         }
-        else if (_lastExecutedMode == LrcGenerationMode.TextAlignment && HasInputTextFile && !IsEncodingWarningVisible)
+
+        if (_lastExecutedMode == LrcGenerationMode.TextAlignment)
         {
-            await GenerateFromTextAsync().ConfigureAwait(false);
+            if (HasInputTextFile && !IsEncodingWarningVisible && !IsTargetAudioMissing && _targetTrack is not null)
+            {
+                await GenerateFromTextAsync().ConfigureAwait(false);
+            }
+            else if (!IsTargetAudioMissing)
+            {
+                ValidationErrorMessage = "テキストからの LRC 生成を再試行するには、有効なテキストファイル (.txt) を選択してください。";
+            }
+
+            return;
         }
-        else
+
+        if (_lastExecutedMode == LrcGenerationMode.AudioTranscription
+            && !IsTargetAudioMissing
+            && _targetTrack is not null)
         {
             await TranscribeFromAudioAsync().ConfigureAwait(false);
         }

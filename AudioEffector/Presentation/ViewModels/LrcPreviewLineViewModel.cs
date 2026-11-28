@@ -14,6 +14,7 @@ public sealed partial class LrcPreviewLineViewModel : ViewModelBase
     private readonly Action<LrcPreviewLineViewModel>? _onEdited;
 
     private TimeSpan _baseTimestamp;
+    private double _appliedGlobalOffsetSeconds;
     private TimeSpan _timestamp;
     private string _text;
     private bool _isEditing;
@@ -159,6 +160,7 @@ public sealed partial class LrcPreviewLineViewModel : ViewModelBase
     /// <param name="totalOffsetSeconds">累計オフセット秒数</param>
     public void ApplyGlobalOffset(double totalOffsetSeconds)
     {
+        _appliedGlobalOffsetSeconds = totalOffsetSeconds;
         TimeSpan shifted = _baseTimestamp + TimeSpan.FromSeconds(totalOffsetSeconds);
         Timestamp = shifted < TimeSpan.Zero ? TimeSpan.Zero : RoundToCentiseconds(shifted);
     }
@@ -187,8 +189,9 @@ public sealed partial class LrcPreviewLineViewModel : ViewModelBase
         }
 
         string trimmedText = (EditingLyricText ?? string.Empty).Trim();
-        _baseTimestamp = parsed;
-        Timestamp = parsed;
+        TimeSpan roundedParsed = RoundToCentiseconds(parsed);
+        _baseTimestamp = roundedParsed - TimeSpan.FromSeconds(_appliedGlobalOffsetSeconds);
+        Timestamp = roundedParsed;
         Text = trimmedText;
         ClearEditError();
         IsEditing = false;

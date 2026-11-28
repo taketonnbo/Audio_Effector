@@ -73,7 +73,14 @@ public partial class LrcGeneratorView : UserControl
         if (TryExtractFirstDroppedFilePath(e.Data, out string filePath))
         {
             e.Handled = true;
-            await vm.InspectAndSelectTextFileAsync(filePath).ConfigureAwait(false);
+            try
+            {
+                await vm.InspectAndSelectTextFileAsync(filePath).ConfigureAwait(false);
+            }
+            catch
+            {
+                // 想定外例外で UI スレッドを落とさない（VM 側でエラー表示済み）
+            }
         }
     }
 
