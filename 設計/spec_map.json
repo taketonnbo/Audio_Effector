@@ -426,7 +426,8 @@
       "id": "settings",
       "name": "設定（UI）",
       "code_patterns": [
-        "AudioEffector/Presentation/**/*Settings*"
+        "AudioEffector/Presentation/**/*Settings*",
+        "AudioEffector/Presentation/**/*DataMigration*"
       ],
       "primary_specs": [
         "設計/画面設計/設定/設定UI仕様書.md"
@@ -441,6 +442,7 @@
       "code_patterns": [
         "AudioEffector.Domain/**/*Settings*",
         "AudioEffector.Application/**/*Settings*",
+        "AudioEffector.Application/**/*DataDirectoryMigration*",
         "AudioEffector.Infrastructure/**/*Settings*",
         "AudioEffector.Infrastructure/Windows/**"
       ],
