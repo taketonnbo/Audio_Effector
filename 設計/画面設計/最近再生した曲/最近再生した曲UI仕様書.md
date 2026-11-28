@@ -83,7 +83,7 @@
    - **記録トリガー**: `IAudioService.TrackChanged` イベント発火時に自動記録（再生完了時の累計カウント・日時毎再生履歴イベント記録は `ListeningStatsApplicationService` が担う）。
    - **重複排除と上限**: 同一 `FilePath`（大文字小文字無視）の既存エントリの `RecentPlayedAt` を最新日時へ更新し、表示側で最新 **`MaxHistoryCount = 100`** 件に絞って一覧表示する。永続化側の全曲統計（`TrackStats`）および日時毎再生イベント（`PlayEvents`）は 100 件で切り捨てず保持する。
    - **永続化フォーマット**: `%AppData%\AudioEffector\ListeningStats.json`（カスタムデータディレクトリ設定時は指定フォルダ配下）に `TrackStats`（曲別累計統計＋`RecentPlayedAt`）および `PlayEvents`（日時毎再生履歴）をアトミック保存する。旧 `RecentTracks.json` が存在する場合は初回読み込み時にデータ欠損なく自動マイグレーションし、破損時やファイル不在時は空データへフォールバックする。
-   - **履歴削除・全クリア時の統計保護および全リセット同期**: 本画面での個別削除（「履歴から削除」）および「履歴をクリア」では対象曲の `RecentPlayedAt` のみをクリアし、累計再生統計および日時毎再生イベントは破壊せず保持する。統計全体の初期化は設定画面（「データ管理・その他」→「再生履歴・リスニング統計をすべてリセット」）から確認ダイアログ付きで実行し、全リセット時は `ListeningStatsApplicationService.StatsReset` イベントおよび `MainViewModel.ReloadListeningStatsAfterReset()` により本画面の一覧も即座に空状態へ同期される。
+   - **履歴削除・全クリア時の統計保護および全リセット同期**: 本画面での個別削除（「履歴から削除」）および「履歴をクリア」では対象曲の `RecentPlayedAt` のみをクリアし、累計再生統計および日時毎再生イベントは破壊せず保持する。統計全体の初期化は設定画面（「データ管理・その他」→「再生履歴・リスニング統計をすべてリセット」）から確認ダイアログ付きで実行し、全リセット時は共有 `ListeningStatsApplicationService.StatsReset` イベントにより本画面の一覧も即座に空状態へ同期される。
    - **ライブラリ実体同期**: 起動時および `LibraryViewModel.Tracks.CollectionChanged` 発火時（`DispatcherPriority.Background` コアレッシング）に、`FilePath` でライブラリ上の最新 `Track` インスタンスへ差し替え（`WithTrack`）、お気に入り状態や再生中状態のバインディング連動を維持する。
 
 ---

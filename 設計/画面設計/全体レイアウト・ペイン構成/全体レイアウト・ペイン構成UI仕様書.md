@@ -68,7 +68,7 @@
 
 - 左サイドバーの項目選択で中央ワークスペースを即時切り替え。
 - 右側パネル開閉ハンドルは `600ms`、スペクトラムアナライザは開 `300ms`・閉 `250ms` でサイズをアニメーション変更する。
-- `AppSettings.StartMinimized = true` の場合は起動時に最小化状態（`DisableMiniPlayerOnMinimize == false` 時はミニプレイヤー、`true` 時はタスクバー最小化）で開始する。また、7種のキーボードショートカットおよびハードウェアメディアキーを `PreviewKeyDown` / `WM_APPCOMMAND`（`WindowShortcutHandler`）で処理し、設定ダイアログ終了時の `SettingsUpdated` イベントで最新設定を反映する（データ保存先変更時は `DataDirectoryChanged` 経由でプレイリスト・お気に入り・再生履歴・左右リスニング統計・イコライザープリセットを即時再読込し、再生履歴・リスニング統計全リセット時は `ListeningStatsReset` / `StatsReset` 経由で最近再生した曲・右側ダッシュボード・左側リスニング統計の 3 画面を即座に空状態へ同期し、ログ出力設定変更時は `ILogConfigurationManager` で NLog 構成へ即時反映する）。
+- `AppSettings.StartMinimized = true` の場合は起動時に最小化状態（`DisableMiniPlayerOnMinimize == false` 時はミニプレイヤー、`true` 時はタスクバー最小化）で開始する。また、7種のキーボードショートカットおよびハードウェアメディアキーを `PreviewKeyDown` / `WM_APPCOMMAND`（`WindowShortcutHandler`）で処理し、設定ダイアログ終了時の `SettingsUpdated` イベントで最新設定を反映する（データ保存先変更時は `DataDirectoryChanged` 経由でプレイリスト・お気に入り・再生履歴・左右リスニング統計・イコライザープリセットを即時再読込し、再生履歴・リスニング統計全リセット時は共有 `ListeningStatsApplicationService.StatsReset` 経由で最近再生した曲・右側ダッシュボード・左側リスニング統計の 3 画面を即座に空状態へ同期し、ログ出力設定変更時は `ILogConfigurationManager` で NLog 構成へ即時反映する）。
 - メインウィンドウ最小化時は、`AppSettings.DisableMiniPlayerOnMinimize == false` の場合に `MiniPlayerWindow` を表示してメインウィンドウを非表示とし、`true` の場合は OS 標準のタスクバー最小化状態を維持する。データ転送中（`DeviceBrowser.IsTransferring`）の終了操作には確認 `MessageBox` を表示する。
 
 ## 7. パフォーマンス最適化要件

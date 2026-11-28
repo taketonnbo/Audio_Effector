@@ -74,7 +74,7 @@
 - **ショートカット変更**: ダイアログを閉じた後に `MainViewModel.SettingsUpdated` イベント経由で `MainWindow` および `MiniPlayerWindow` の `WindowShortcutHandler` へ最新設定を反映。
 - **データ保存先変更 (Issue #45)**: `IDataDirectoryMigrationService` で保存先検証・既存データ移行（コピー／移動／移行なし）と `IDataDirectoryProvider.UpdateDataDirectory()` を実行し、`SettingsViewModel.DataDirectoryChanged` 経由で `MainViewModel` がプレイリスト・お気に入り・再生履歴・イコライザープリセットを即時再読込する。
 - **ログ出力設定変更 (Issue #46)**: `ILogConfigurationManager.ApplyConfiguration()` により NLog の `LoggingRules` 最小レベルおよび `FileTarget`（`logfile`）の出力先・アーカイブ先を動的更新し、`LogManager.ReconfigExistingLoggers()` でアプリ再起動なしに即時反映する。
-- **再生履歴・リスニング統計全リセット (Issue #454)**: 警告確認ダイアログ（既定「いいえ」）で承認された場合、`ListeningStatsApplicationService.ResetAllStats()` が `ListeningStats.json` を空データへ原子初期化し、`StatsReset` イベントおよび `SettingsViewModel.ListeningStatsReset` 経由で「最近再生した曲」・右側「ダッシュボード」・左側「リスニング統計」の 3 画面を即座に空状態へ同期して完了通知を表示する。キャンセル時はデータを一切変更せず保持する。
+- **再生履歴・リスニング統計全リセット (Issue #454)**: 警告確認ダイアログ（既定「いいえ」）で承認された場合、`ListeningStatsApplicationService.ResetAllStats()` が `ListeningStats.json` を空データへ原子初期化して `StatsReset` イベントを発火し、「最近再生した曲」・右側「ダッシュボード」・左側「リスニング統計」の 3 画面を即座に空状態へ同期して完了通知を表示する。キャンセル時はデータを一切変更せず保持する。
 
 ## 7. パフォーマンス最適化要件
 
