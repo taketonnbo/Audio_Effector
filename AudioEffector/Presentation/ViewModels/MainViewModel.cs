@@ -2791,6 +2791,7 @@ namespace AudioEffector.Presentation.ViewModels
                         }
                     }
                     Folder?.Dispose();
+                    DeviceBrowser?.Dispose();
                     _fallbackAudioService?.Dispose();
                     _fallbackSettings?.Dispose();
                     _fallbackSettingsRepository?.Dispose();
