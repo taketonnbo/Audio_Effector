@@ -10,6 +10,7 @@ using AudioEffector.Domain.Events;
 using AudioEffector.Domain.Services;
 using AudioEffector.Domain.ValueObjects;
 using AudioEffector.Presentation.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Xunit;
 
@@ -173,12 +174,88 @@ public sealed class LrcGeneratorViewModelTests
             => Task.FromResult<LyricsDocument?>(null);
     }
 
+    private sealed class FakeSettingsService : ISettingsService
+    {
+        private readonly object _sync = new();
+        private AppSettings _settings;
+
+        public FakeSettingsService(bool hasAcceptedLrcCopyrightGuideline = true)
+        {
+            _settings = new AppSettings
+            {
+                HasAcceptedLrcCopyrightGuideline = hasAcceptedLrcCopyrightGuideline,
+            };
+        }
+
+        public int UpdateSettingsAsyncCallCount { get; private set; }
+
+        public bool StoredHasAcceptedLrcCopyrightGuideline
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _settings.HasAcceptedLrcCopyrightGuideline;
+                }
+            }
+        }
+
+        public AppSettings LoadSettings()
+        {
+            lock (_sync)
+            {
+                return new AppSettings
+                {
+                    HasAcceptedLrcCopyrightGuideline = _settings.HasAcceptedLrcCopyrightGuideline,
+                };
+            }
+        }
+
+        public void SaveSettings(AppSettings settings)
+        {
+            lock (_sync)
+            {
+                _settings = settings;
+            }
+        }
+
+        public Task<AppSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(LoadSettings());
+
+        public Task SaveSettingsAsync(AppSettings settings, CancellationToken cancellationToken = default)
+        {
+            SaveSettings(settings);
+            return Task.CompletedTask;
+        }
+
+        public void UpdateSettings(Action<AppSettings> update)
+        {
+            lock (_sync)
+            {
+                update(_settings);
+            }
+        }
+
+        public Task UpdateSettingsAsync(Action<AppSettings> update, CancellationToken cancellationToken = default)
+        {
+            lock (_sync)
+            {
+                UpdateSettingsAsyncCallCount++;
+                update(_settings);
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
     private static (LrcGeneratorViewModel Sut, FakeAlignmentEngine Engine, FakeTextEncodingService TextSvc, FakeModelManager ModelMgr, LyricsApplicationService LyricsSvc) CreateSut(
         bool modelAvailable = true,
         Mock<IAudioService>? audioMock = null,
         IUiDispatcher? dispatcher = null,
         Func<string, bool>? fileExistsFunc = null,
-        StubLrcParser? lrcParser = null)
+        StubLrcParser? lrcParser = null,
+        bool acceptedCopyrightGuideline = true,
+        ISettingsService? settingsService = null)
     {
         var engine = new FakeAlignmentEngine();
         var textSvc = new FakeTextEncodingService();
@@ -188,6 +265,7 @@ public sealed class LrcGeneratorViewModelTests
         var genSvc = new LrcGenerationApplicationService(engine, textSvc, modelMgr, lrcParser ?? new StubLrcParser(), lyricsSvc);
 
         audioMock ??= new Mock<IAudioService>();
+        ISettingsService resolvedSettings = settingsService ?? new FakeSettingsService(acceptedCopyrightGuideline);
         var sut = new LrcGeneratorViewModel(
             genSvc,
             audioMock.Object,
@@ -195,7 +273,8 @@ public sealed class LrcGeneratorViewModelTests
             selectTextFileFunc: () => null,
             selectModelFileFunc: () => null,
             openFolderAction: _ => { },
-            fileExistsFunc: fileExistsFunc ?? (_ => true));
+            fileExistsFunc: fileExistsFunc ?? (_ => true),
+            settingsService: resolvedSettings);
 
         return (sut, engine, textSvc, modelMgr, lyricsSvc);
     }
@@ -1319,5 +1398,173 @@ public sealed class LrcGeneratorViewModelTests
                 Directory.Delete(tempDir, recursive: true);
             }
         }
+    }
+
+    /// <summary>
+    /// 著作権・利用ガイドライン未承諾の初期状態では、モデル準備済み・楽曲設定済み・UTF-8 テキスト選択済みであっても
+    /// 両生成コマンドが非活性であり、直接メソッド呼び出しでも生成エンジンが実行されないことを検証します。
+    /// </summary>
+    [Fact]
+    public async Task 著作権ガイドライン未承諾時_モデル準備済みとテキスト選択済みでも生成コマンドは非活性で直接呼び出しも実行されない()
+    {
+        // Arrange
+        var settings = new FakeSettingsService(hasAcceptedLrcCopyrightGuideline: false);
+        var (sut, engine, _, _, _) = CreateSut(modelAvailable: true, settingsService: settings);
+
+        using (sut)
+        {
+            sut.SetTargetTrack(new Track { FilePath = @"C:\Music\Unaccepted.flac", Title = "Unaccepted" });
+            await sut.InspectAndSelectTextFileAsync(@"C:\Lyrics\utf8.txt");
+
+            // Act
+            await sut.GenerateFromTextAsync();
+            await sut.TranscribeFromAudioAsync();
+
+            // Assert
+            Assert.False(sut.HasAcceptedCopyrightGuideline);
+            Assert.True(sut.NeedsCopyrightGuidelineAcceptance);
+            Assert.False(sut.IsCopyrightGuidelineExpanded);
+            Assert.True(sut.AcceptCopyrightGuidelineCommand.CanExecute(null));
+            Assert.False(sut.ToggleCopyrightGuidelineCommand.CanExecute(null));
+            Assert.False(sut.GenerateLrcCommand.CanExecute(null));
+            Assert.False(sut.TranscribeAudioCommand.CanExecute(null));
+            Assert.Null(engine.LastRequest);
+            Assert.False(sut.IsPreviewState);
+        }
+    }
+
+    /// <summary>
+    /// AcceptCopyrightGuidelineCommand 実行後に承諾済み状態へ遷移して設定へ永続化され、
+    /// 両生成コマンドが即座に活性化して実際に LRC 生成を実行できることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task AcceptCopyrightGuidelineCommand_実行後_承諾状態へ遷移して設定永続化され両生成コマンドが活性および実行可能になる()
+    {
+        // Arrange
+        var settings = new FakeSettingsService(hasAcceptedLrcCopyrightGuideline: false);
+        var (sut, engine, _, _, _) = CreateSut(modelAvailable: true, settingsService: settings);
+        var changedProps = new List<string?>();
+        sut.PropertyChanged += (_, e) => changedProps.Add(e.PropertyName);
+
+        using (sut)
+        {
+            sut.SetTargetTrack(new Track { FilePath = @"C:\Music\AcceptFlow.flac", Title = "AcceptFlow" });
+            await sut.InspectAndSelectTextFileAsync(@"C:\Lyrics\utf8.txt");
+            Assert.False(sut.GenerateLrcCommand.CanExecute(null));
+            Assert.False(sut.TranscribeAudioCommand.CanExecute(null));
+
+            // Act
+            sut.AcceptCopyrightGuidelineCommand.Execute(null);
+            await sut.AcceptCopyrightGuidelineAsync();
+
+            // Assert (承諾反映・永続化・コマンド活性)
+            Assert.True(sut.HasAcceptedCopyrightGuideline);
+            Assert.False(sut.NeedsCopyrightGuidelineAcceptance);
+            Assert.True(settings.StoredHasAcceptedLrcCopyrightGuideline);
+            Assert.Equal(1, settings.UpdateSettingsAsyncCallCount);
+            Assert.Contains(nameof(LrcGeneratorViewModel.HasAcceptedCopyrightGuideline), changedProps);
+            Assert.Contains(nameof(LrcGeneratorViewModel.NeedsCopyrightGuidelineAcceptance), changedProps);
+            Assert.False(sut.AcceptCopyrightGuidelineCommand.CanExecute(null));
+            Assert.True(sut.ToggleCopyrightGuidelineCommand.CanExecute(null));
+            Assert.True(sut.GenerateLrcCommand.CanExecute(null));
+            Assert.True(sut.TranscribeAudioCommand.CanExecute(null));
+
+            // Act 2: 生成実行が正常に完了する
+            await sut.GenerateFromTextAsync();
+
+            // Assert 2
+            Assert.NotNull(engine.LastRequest);
+            Assert.Equal(LrcGenerationMode.TextAlignment, engine.LastRequest!.Mode);
+            Assert.True(sut.IsPreviewState);
+        }
+    }
+
+    /// <summary>
+    /// 設定に HasAcceptedLrcCopyrightGuideline = true が保存済みの状態で初期化した場合、
+    /// 初回承諾操作なしで即座に両生成コマンドが利用可能であることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task コンストラクタ_設定に承諾済みが保存されている場合_初回承諾なしで即座に生成コマンドが利用可能である()
+    {
+        // Arrange
+        var settings = new FakeSettingsService(hasAcceptedLrcCopyrightGuideline: true);
+        var (sut, _, _, _, _) = CreateSut(modelAvailable: true, settingsService: settings);
+
+        using (sut)
+        {
+            // Act
+            sut.SetTargetTrack(new Track { FilePath = @"C:\Music\PreAccepted.flac", Title = "PreAccepted" });
+            await sut.InspectAndSelectTextFileAsync(@"C:\Lyrics\utf8.txt");
+
+            // Assert
+            Assert.True(sut.HasAcceptedCopyrightGuideline);
+            Assert.False(sut.NeedsCopyrightGuidelineAcceptance);
+            Assert.False(sut.AcceptCopyrightGuidelineCommand.CanExecute(null));
+            Assert.True(sut.ToggleCopyrightGuidelineCommand.CanExecute(null));
+            Assert.True(sut.GenerateLrcCommand.CanExecute(null));
+            Assert.True(sut.TranscribeAudioCommand.CanExecute(null));
+        }
+    }
+
+    /// <summary>
+    /// ToggleCopyrightGuidelineCommand で IsCopyrightGuidelineExpanded が正しく展開・折りたたみトグルされることを検証します。
+    /// </summary>
+    [Fact]
+    public void ToggleCopyrightGuidelineCommand_承諾済み状態で実行_IsCopyrightGuidelineExpandedが正しく開閉トグルされる()
+    {
+        // Arrange
+        var (sut, _, _, _, _) = CreateSut(acceptedCopyrightGuideline: true);
+        var changedProps = new List<string?>();
+        sut.PropertyChanged += (_, e) => changedProps.Add(e.PropertyName);
+
+        using (sut)
+        {
+            Assert.False(sut.IsCopyrightGuidelineExpanded);
+
+            // Act & Assert 1: 展開
+            sut.ToggleCopyrightGuidelineCommand.Execute(null);
+            Assert.True(sut.IsCopyrightGuidelineExpanded);
+            Assert.Contains(nameof(LrcGeneratorViewModel.IsCopyrightGuidelineExpanded), changedProps);
+
+            // Act & Assert 2: 折りたたみ
+            sut.ToggleCopyrightGuidelineCommand.Execute(null);
+            Assert.False(sut.IsCopyrightGuidelineExpanded);
+        }
+    }
+
+    /// <summary>
+    /// DI コンテナから LrcGeneratorViewModel を解決した際に ISettingsService が自動注入され、
+    /// 著作権ガイドラインの承諾状態が正しく読み書きされることを検証します。
+    /// </summary>
+    [Fact]
+    public async Task DIコンテナ解決_ISettingsService登録済みの場合_設定サービスが自動注入され承諾状態が連動する()
+    {
+        // Arrange
+        var settings = new FakeSettingsService(hasAcceptedLrcCopyrightGuideline: false);
+        var services = new ServiceCollection();
+        var engine = new FakeAlignmentEngine();
+        var textSvc = new FakeTextEncodingService();
+        var modelMgr = new FakeModelManager { IsAvailable = true };
+        var lyricsSvc = new LyricsApplicationService(new StubLyricsProvider(), new InMemoryEventBus());
+        var genSvc = new LrcGenerationApplicationService(engine, textSvc, modelMgr, new StubLrcParser(), lyricsSvc);
+
+        services.AddSingleton(genSvc);
+        services.AddSingleton(new Mock<IAudioService>().Object);
+        services.AddSingleton<IUiDispatcher>(new ImmediateDispatcherStub());
+        services.AddSingleton<ISettingsService>(settings);
+        services.AddSingleton<LrcGeneratorViewModel>();
+
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        // Act
+        using LrcGeneratorViewModel sut = provider.GetRequiredService<LrcGeneratorViewModel>();
+        bool initialAccepted = sut.HasAcceptedCopyrightGuideline;
+        await sut.AcceptCopyrightGuidelineAsync();
+
+        // Assert
+        Assert.False(initialAccepted);
+        Assert.True(sut.HasAcceptedCopyrightGuideline);
+        Assert.True(settings.StoredHasAcceptedLrcCopyrightGuideline);
+        Assert.Equal(1, settings.UpdateSettingsAsyncCallCount);
     }
 }
