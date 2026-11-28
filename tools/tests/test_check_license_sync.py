@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -503,6 +504,75 @@ class CheckLicenseSyncUnitTests(unittest.TestCase):
         self.assertTrue(data_both["needs_update"])
         self.assertTrue(any("Whisper.net" in err for err in data_both["blocking_errors"]))
         self.assertTrue(any("--strict-all" in err for err in data_both["blocking_errors"]))
+
+
+class RepositoryLicensePackagingRegressionTests(unittest.TestCase):
+    """実リポジトリのライセンス同梱設定・LGPL配布形式・全量整合の回帰テスト。"""
+
+    REPO_ROOT = TOOLS_DIR.parent
+
+    @staticmethod
+    def _extract_copied_none_items(csproj_path: Path) -> dict[str, tuple[str, str]]:
+        """csproj から CopyToOutputDirectory が設定された <None Include=...> を抽出する。"""
+        root = ET.fromstring(csproj_path.read_text(encoding="utf-8-sig"))
+        copied: dict[str, tuple[str, str]] = {}
+        for elem in root.iter():
+            tag = elem.tag.split("}", 1)[-1]
+            if tag != "None":
+                continue
+            include = (elem.attrib.get("Include") or "").replace("\\", "/").strip()
+            if not include:
+                continue
+            link = (elem.attrib.get("Link") or "").strip()
+            copy_mode = (elem.attrib.get("CopyToOutputDirectory") or "").strip()
+            for child in elem:
+                child_tag = child.tag.split("}", 1)[-1]
+                if child_tag == "Link" and child.text and not link:
+                    link = child.text.strip()
+                elif child_tag == "CopyToOutputDirectory" and child.text and not copy_mode:
+                    copy_mode = child.text.strip()
+            if copy_mode:
+                copied[include] = (link, copy_mode)
+        return copied
+
+    def test_製品実行プロジェクトにLICENSEとTHIRD_PARTY_NOTICESの出力コピー設定があること(self) -> None:
+        # Arrange
+        target_projects = [
+            "AudioEffector/AudioEffector.csproj",
+            "AudioEffector.McpServer/AudioEffector.McpServer.csproj",
+        ]
+        expected_files = {
+            "../LICENSE": "LICENSE",
+            "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md",
+        }
+
+        # Act & Assert
+        self.assertTrue((self.REPO_ROOT / "LICENSE").is_file())
+        self.assertTrue((self.REPO_ROOT / "THIRD-PARTY-NOTICES.md").is_file())
+
+        for rel_csproj in target_projects:
+            with self.subTest(project=rel_csproj):
+                copied = self._extract_copied_none_items(self.REPO_ROOT / rel_csproj)
+                for include_path, expected_link in expected_files.items():
+                    self.assertIn(
+                        include_path,
+                        copied,
+                        msg=f"{rel_csproj} に {include_path} の CopyToOutputDirectory 設定がありません。",
+                    )
+                    link, copy_mode = copied[include_path]
+                    self.assertEqual(link, expected_link)
+                    self.assertIn(copy_mode, ("PreserveNewest", "Always"))
+
+    def test_実リポジトリでライセンス全量整合およびLGPLとbin追跡チェックが合格すること(self) -> None:
+        # Act
+        result = check_license_sync.analyze_license_sync(repo_root=self.REPO_ROOT)
+
+        # Assert
+        self.assertTrue(result["passed"], msg=f"blocking_errors: {result['blocking_errors']}")
+        self.assertEqual(result["missing_packages"], [])
+        self.assertEqual(result["version_mismatches"], [])
+        self.assertEqual(result["lgpl_single_file_risks"], [])
+        self.assertEqual(result["tracked_bin_dlls"], [])
 
 
 if __name__ == "__main__":
