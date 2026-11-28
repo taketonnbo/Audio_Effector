@@ -101,13 +101,40 @@ flowchart TD
 ### Phase 3: ローカル Merge Queue（統合ブランチへの直列マージ）・追従同期・次サイクル遷移
 1. 承認済み（`ready_to_merge`、かつ `base_branch` が `<統合ブランチ>` と一致）の子 Issue PR は、複数同時マージを行わず **必ず 1 件ずつ直列** で以下の手順を実施する：
    - **マージ前追従同期・再検証**: 対象 PR のワークツリー上で `.\tools\sync_branch.ps1 -BaseBranch "<統合ブランチ>" -Json` を実行する。`MERGED`（先行子 Issue PR 取り込みあり）となった場合は、`.\tools\verify_loop.ps1 -Full -BaseBranch "<統合ブランチ>" -PreferOriginBase` の全 5 ゲート合格を確認したうえで通常 Push する（`CONFLICT` 時は `loop_engineering_rules.md` Section 4 の自動解消基準または `-Abort` エスカレーションを適用）。
-   - **統合ブランチへのマージ実行とワークツリー後始末**: 子 Issue PR を **Epic 統合ブランチ** へマージしたら、**必ず親リポジトリルートへ戻ったうえで**以下を実行する（対象ワークツリー配下にカレントディレクトリがあるままだと削除時のディレクトリロックやチェックアウト競合で失敗するため）：
+   - **統合ブランチへのマージ実行とワークツリー後始末（`--delete-branch` 禁止・安全順序の厳守）**:
+     - 対象作業ブランチが `.agent_worktrees/issue-<子Issue番号>` でチェックアウトされた状態のまま `gh pr merge <PR番号> --merge --delete-branch` を実行すると、GitHub 上のマージは成功する一方でローカルブランチ削除がエラー（終了コード `1`）となり後続の自動化処理が中断する。また、対象ワークツリー配下にカレントディレクトリがあるままだと削除時のディレクトリロックやチェックアウト競合で失敗する。
+     - そのため、以下の 4 ステップの順序を標準手順とする（Windows PowerShell 5.1 互換のため `&&` は使用せず、`if ($?)` または `$LASTEXITCODE` で制御すること）：
+       1. 親リポジトリルートへ戻る（`Set-Location -LiteralPath "<親リポジトリルート>"`）
+       2. `gh pr merge <PR番号> --merge`（**`--delete-branch` なし**）で GitHub 上の **Epic 統合ブランチ** へのマージを実行する
+       3. `.\tools\worktree_manager.ps1 -Action remove -IssueNumber <子Issue番号> -Force -Json` でワークツリーを削除する
+       4. `git branch -D "<作業ブランチ名>"` でローカル作業ブランチを削除し、必要に応じてリモート作業ブランチ削除（`git push origin --delete "<作業ブランチ名>"`）および `git fetch origin "<統合ブランチ>" --prune` を実行したうえで、`git checkout "<統合ブランチ>"` および `git pull origin "<統合ブランチ>"` を実行する
      ```powershell
      Set-Location -LiteralPath "<親リポジトリルート>"
-     if ($?) { .\tools\worktree_manager.ps1 -Action remove -IssueNumber <子Issue番号> -Force -Json }
-     if ($?) { git checkout "<統合ブランチ>" }
-     if ($?) { git pull origin "<統合ブランチ>" }
+     if ($?) {
+         $prevEap = $ErrorActionPreference
+         $ErrorActionPreference = "Continue"
+         try {
+             gh pr merge <PR番号> --merge
+             if ($LASTEXITCODE -ne 0) { throw "gh pr merge に失敗しました (exit=$LASTEXITCODE)" }
+             .\tools\worktree_manager.ps1 -Action remove -IssueNumber <子Issue番号> -Force -Json
+             if (-not $? -or $LASTEXITCODE -ne 0) { throw "worktree 削除に失敗しました (exit=$LASTEXITCODE)" }
+             git branch -D "<作業ブランチ名>"
+             if ($LASTEXITCODE -ne 0) { throw "ローカル作業ブランチ削除に失敗しました (exit=$LASTEXITCODE)" }
+             # リモート作業ブランチ削除が必要な場合（未削除なら削除）
+             $null = git push origin --delete "<作業ブランチ名>" 2>&1
+             if ($LASTEXITCODE -ne 0) { Write-Warning "リモート作業ブランチの削除をスキップしました（既に削除済みの可能性があります / exit=$LASTEXITCODE）" }
+             $null = git fetch origin "<統合ブランチ>" --prune 2>&1
+             if ($LASTEXITCODE -ne 0) { throw "git fetch origin <統合ブランチ> --prune に失敗しました (exit=$LASTEXITCODE)" }
+             $null = git checkout "<統合ブランチ>" 2>&1
+             if ($LASTEXITCODE -ne 0) { throw "git checkout <統合ブランチ> に失敗しました (exit=$LASTEXITCODE)" }
+             $null = git pull origin "<統合ブランチ>" 2>&1
+             if ($LASTEXITCODE -ne 0) { throw "git pull origin <統合ブランチ> に失敗しました (exit=$LASTEXITCODE)" }
+         } finally {
+             $ErrorActionPreference = $prevEap
+         }
+     }
      ```
+     - **PowerShell `$ErrorActionPreference = "Stop"` 下での注意点**: `git push origin --delete`、`git fetch`、`git checkout`、`git pull` などの Git コマンドは正常終了時にも標準エラー出力（stderr）へ進捗・削除ログを出力する。PowerShell 5.1 で `$ErrorActionPreference = "Stop"` が有効な場合、stderr への正常ログが `NativeCommandError` として例外中断する原因となるため、上記のように一時的に `$ErrorActionPreference = "Continue"` へ切り替えたうえで出力リダイレクト（`2>&1`）と終了コード（`$LASTEXITCODE`）判定により成否を制御すること。
    - **残存並列 PR への順次追従同期**: 他に稼働中またはレビュー済みの並列 PR が残っている場合、`python tools/epic_tracker.py --epic <Epic番号> --next --max-parallel 3` を再実行して `sync_branch` / `ready_to_merge` 状態を再評価し、次の 1 件に対して追従同期 → 検証 → 統合ブランチへマージを順次繰り返す。
    - 孤立ディレクトリが残っている場合は `.\tools\worktree_manager.ps1 -Action prune -Json` で整理する（既定で稼働中ワークツリーの `.agent_build/` は保護される）。
 2. 子 Issue が Inner Loop の停止条件に到達し `blocked` となった場合：
