@@ -29,6 +29,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <ComboBox Grid.Column="0" ItemsSource="{Binding RemovableDrives}" SelectedItem="{Binding SelectedDevice}" 
                               Height="30"
@@ -45,15 +46,37 @@
                             </Style>
                         </ComboBox.Resources>
                     </ComboBox>
+
+                    <Button Grid.Column="1" Content="↻ 機器を再検出" Command="{Binding RefreshDrivesCommand}"
+                            ToolTip="接続されているUSB/MTP機器を再検出します"
+                            Height="30" Margin="5,0,0,0" Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" BorderThickness="0" Padding="10,0"/>
                     
-                    <Button Grid.Column="1" Content="⚙ Manage" Command="{Binding ShowDeviceManagerCommand}"
+                    <Button Grid.Column="2" Content="⚙ Manage" Command="{Binding ShowDeviceManagerCommand}"
                             ToolTip="Open Device Storage Manager"
                             Height="30" Margin="5,0,0,0" Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" BorderThickness="0" Padding="10,0"/>
+                </Grid>
+
+                <!-- 接続機器の詳細情報（接続種別・空き容量バー） -->
+                <Grid Margin="0,6,0,0" Visibility="{Binding HasConnectedDevices, Converter={StaticResource BoolToVis}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Background="{DynamicResource ControlBackgroundHighlightBrush}" CornerRadius="3" Padding="6,2" Margin="0,0,8,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding SelectedDevice.ConnectionTypeLabel}" Foreground="#00FFFF" FontSize="11" FontWeight="SemiBold"/>
+                    </Border>
+                    <ProgressBar Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding SelectedDevice.UsedSpaceRatio, Mode=OneWay}"
+                                 Height="8" VerticalAlignment="Center" Margin="0,0,10,0"
+                                 Background="{DynamicResource ControlBackgroundBrush}" Foreground="#00FFFF" BorderThickness="0"/>
+                    <TextBlock Grid.Column="2" Text="{Binding SelectedDevice.StorageSummaryText}" Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="11" VerticalAlignment="Center"/>
                 </Grid>
             </StackPanel>
 
             <!-- Navigation Bar -->
-            <Grid Grid.Row="1" Margin="0,0,0,5" IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}">
+            <Grid Grid.Row="1" Margin="0,0,0,5"
+                  IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}"
+                  Visibility="{Binding HasConnectedDevices, Converter={StaticResource BoolToVis}}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
@@ -66,7 +89,8 @@
 
             <!-- Folder List -->
             <ListBox Grid.Row="2" ItemsSource="{Binding DeviceDirectories}" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" Margin="0,0,0,5"
-                     IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}">
+                     IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}"
+                     Visibility="{Binding HasConnectedDevices, Converter={StaticResource BoolToVis}}">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -90,6 +114,18 @@
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
+
+            <!-- 機器未接続時のエンプティ状態案内 -->
+            <Border Grid.Row="2" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,5" Padding="16"
+                    Visibility="{Binding HasConnectedDevices, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="接続された機器が見つかりません" Foreground="{DynamicResource TextForegroundBrush}" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                    <TextBlock Text="USB ケーブルで機器を接続し、再検出ボタンを押してください。" Foreground="{DynamicResource SecondaryTextForegroundBrush}" FontSize="12" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                    <Button Content="↻ 機器を再検出" Command="{Binding RefreshDrivesCommand}"
+                            Height="30" Padding="14,0" HorizontalAlignment="Center"
+                            Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" BorderThickness="0"/>
+                </StackPanel>
+            </Border>
         </Grid>
 
         <!-- Splitter -->
@@ -101,7 +137,26 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <TextBlock Text="SELECT ALBUMS / TRACKS TO TRANSFER:" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" Margin="0,0,0,5"/>
+            <Grid Margin="0,0,0,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="SELECT ALBUMS / TRACKS TO TRANSFER:" Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="12" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="{Binding SelectedSizeSummaryText}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextForegroundBrush}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsInsufficientSpace}" Value="True">
+                                    <Setter Property="Foreground" Value="#FF6B6B"/>
+                                    <Setter Property="FontWeight" Value="Bold"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
             
             <ListBox Grid.Row="1" ItemsSource="{Binding Albums}" 
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
