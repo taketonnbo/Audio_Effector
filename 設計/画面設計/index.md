@@ -1,6 +1,6 @@
 # 画面仕様一覧
 
-Audio Effectorにおける全29本のUI仕様書の一覧です。
+Audio Effectorにおける全30本のUI仕様書の一覧です。
 各画面の仕様書には、主要オブジェクト（Track, Album, UserPlaylist, PlayQueue, EqualizerPreset, Device等）およびインタラクション標準化ガイドラインに基づいた**ASCIIアートモックアップ**と、**Figmaデザインリンク**が配置されています。
 
 ---
@@ -38,6 +38,7 @@ Audio Effectorにおける全29本のUI仕様書の一覧です。
 | 27 | [スクロールバー](スクロールバー/スクロールバーUI仕様書.md) | Common Control Style | 共通スタイル |
 | 28 | [歌詞表示](歌詞表示/歌詞表示UI仕様書.md) | [楽曲 (`Track`)](../主要オブジェクト/01_楽曲_Track.md) & 歌詞データ (`LyricsView`) | 拡張パネル / 再利用コンポーネント |
 | 29 | [LRC自動生成](LRC自動生成/LRC自動生成UI仕様書.md) | [楽曲 (`Track`)](../主要オブジェクト/01_楽曲_Track.md) & 歌詞データ (`LrcGeneratorView`) | 拡張パネル |
+| 30 | [リスニング統計ダッシュボード](リスニング統計ダッシュボード/リスニング統計ダッシュボードUI仕様書.md) | [楽曲 (`Track`)](../主要オブジェクト/01_楽曲_Track.md) & 統計 (`ListeningStatsView`) | 拡張パネル |
 
 ---
 
