@@ -44,11 +44,16 @@ public sealed class LyricsViewModel :
     private readonly Timer _autoScrollResumeTimer;
     private readonly object _loadLock = new();
     private readonly object _timerLock = new();
+    private readonly LyricsCommand _seekToLineCommand;
+    private readonly LyricsCommand _resumeAutoScrollCommand;
+    private readonly LyricsCommand _reloadLyricsCommand;
+    private readonly LyricsCommand _requestGenerateLrcCommand;
+    private readonly LyricsCommand _closePanelCommand;
 
     private CancellationTokenSource? _loadCts;
     private long _loadGeneration;
     private int _syncTickInProgress;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     private Track? _currentTrack;
     private LyricsDocument? _currentDocument;
@@ -206,6 +211,11 @@ public sealed class LyricsViewModel :
     }
 
     /// <summary>
+    /// 歌詞リストを表示すべきかどうかを取得します
+    /// </summary>
+    public bool ShowLyricsList => HasLyrics && !IsLoading && !HasError;
+
+    /// <summary>
     /// 楽曲未再生のエンプティステートを表示すべきかどうかを取得します
     /// </summary>
     public bool IsNoTrackState => !HasTrack && !IsLoading && !HasError;
@@ -226,6 +236,7 @@ public sealed class LyricsViewModel :
             if (SetProperty(ref _isAutoScrollPaused, value))
             {
                 OnPropertyChanged(nameof(ShowResumeAutoScrollButton));
+                InvalidateCommandsCanExecute();
             }
         }
     }
@@ -482,11 +493,17 @@ public sealed class LyricsViewModel :
         _syncInterval = syncInterval > TimeSpan.Zero ? syncInterval : TimeSpan.FromMilliseconds(DEFAULT_SYNC_INTERVAL_MS);
         _autoScrollResumeDelay = autoScrollResumeDelay > TimeSpan.Zero ? autoScrollResumeDelay : TimeSpan.FromSeconds(DEFAULT_AUTO_SCROLL_RESUME_SECONDS);
 
-        SeekToLineCommand = new RelayCommand(ExecuteSeekToLine, CanExecuteSeekToLine);
-        ResumeAutoScrollCommand = new RelayCommand(_ => ResumeAutoScroll(), _ => IsAutoScrollPaused);
-        ReloadLyricsCommand = new RelayCommand(_ => ReloadLyrics(), _ => CanReloadLyrics);
-        RequestGenerateLrcCommand = new RelayCommand(_ => ExecuteRequestGenerateLrc(), _ => CanGenerateLrc);
-        ClosePanelCommand = new RelayCommand(_ => CloseRequested?.Invoke());
+        _seekToLineCommand = new LyricsCommand(ExecuteSeekToLine, CanExecuteSeekToLine);
+        _resumeAutoScrollCommand = new LyricsCommand(_ => ResumeAutoScroll(), _ => IsAutoScrollPaused);
+        _reloadLyricsCommand = new LyricsCommand(_ => ReloadLyrics(), _ => CanReloadLyrics);
+        _requestGenerateLrcCommand = new LyricsCommand(_ => ExecuteRequestGenerateLrc(), _ => CanGenerateLrc);
+        _closePanelCommand = new LyricsCommand(_ => CloseRequested?.Invoke());
+
+        SeekToLineCommand = _seekToLineCommand;
+        ResumeAutoScrollCommand = _resumeAutoScrollCommand;
+        ReloadLyricsCommand = _reloadLyricsCommand;
+        RequestGenerateLrcCommand = _requestGenerateLrcCommand;
+        ClosePanelCommand = _closePanelCommand;
 
         _syncTimer = new Timer(OnSyncTimerCallback, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _autoScrollResumeTimer = new Timer(OnAutoScrollResumeTimerCallback, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
@@ -703,7 +720,7 @@ public sealed class LyricsViewModel :
         }
 
         long generation;
-        CancellationToken cancellationToken;
+        CancellationToken cancellationToken = CancellationToken.None;
 
         lock (_loadLock)
         {
@@ -715,25 +732,28 @@ public sealed class LyricsViewModel :
             generation = Interlocked.Increment(ref _loadGeneration);
             CancelAndDisposeLoadCtsLocked();
 
-            if (track == null)
+            if (track != null)
             {
-                _uiDispatcher.Invoke(() =>
-                {
-                    if (_disposed || generation != Volatile.Read(ref _loadGeneration))
-                    {
-                        return;
-                    }
-
-                    ClearLyricsState();
-                });
-                return;
+                _loadCts = new CancellationTokenSource();
+                cancellationToken = _loadCts.Token;
             }
-
-            _loadCts = new CancellationTokenSource();
-            cancellationToken = _loadCts.Token;
         }
 
-        _uiDispatcher.Invoke(() =>
+        if (track == null)
+        {
+            _uiDispatcher.BeginInvoke(() =>
+            {
+                if (_disposed || generation != Volatile.Read(ref _loadGeneration))
+                {
+                    return;
+                }
+
+                ClearLyricsState();
+            });
+            return;
+        }
+
+        _uiDispatcher.BeginInvoke(() =>
         {
             if (_disposed || generation != Volatile.Read(ref _loadGeneration))
             {
@@ -758,7 +778,7 @@ public sealed class LyricsViewModel :
                 return;
             }
 
-            _uiDispatcher.Invoke(() =>
+            _uiDispatcher.BeginInvoke(() =>
             {
                 if (_disposed || generation != Volatile.Read(ref _loadGeneration))
                 {
@@ -781,7 +801,7 @@ public sealed class LyricsViewModel :
                 return;
             }
 
-            _uiDispatcher.Invoke(() =>
+            _uiDispatcher.BeginInvoke(() =>
             {
                 if (_disposed || generation != Volatile.Read(ref _loadGeneration))
                 {
@@ -845,7 +865,7 @@ public sealed class LyricsViewModel :
 
     private void HandleTrackChanged(Track? track)
     {
-        _uiDispatcher.Invoke(() =>
+        _uiDispatcher.BeginInvoke(() =>
         {
             if (_disposed)
             {
@@ -1262,6 +1282,7 @@ public sealed class LyricsViewModel :
     private void NotifyStatePropertiesChanged()
     {
         OnPropertyChanged(nameof(IsUnsynced));
+        OnPropertyChanged(nameof(ShowLyricsList));
         OnPropertyChanged(nameof(IsNoTrackState));
         OnPropertyChanged(nameof(IsLyricsNotFoundState));
         OnPropertyChanged(nameof(ShowResumeAutoScrollButton));
@@ -1277,6 +1298,76 @@ public sealed class LyricsViewModel :
     {
         OnPropertyChanged(nameof(CanGenerateLrc));
         OnPropertyChanged(nameof(GenerateLrcToolTip));
+        InvalidateCommandsCanExecute();
+    }
+
+    private void InvalidateCommandsCanExecute()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        void NotifyOnUiThread()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _seekToLineCommand.RaiseCanExecuteChanged();
+            _resumeAutoScrollCommand.RaiseCanExecuteChanged();
+            _reloadLyricsCommand.RaiseCanExecuteChanged();
+            _requestGenerateLrcCommand.RaiseCanExecuteChanged();
+            CommandManager.InvalidateRequerySuggested();
+        }
+
+        var currentThreadDispatcher = System.Windows.Threading.Dispatcher.FromThread(Thread.CurrentThread);
+        if (currentThreadDispatcher != null &&
+            !currentThreadDispatcher.HasShutdownStarted &&
+            !currentThreadDispatcher.HasShutdownFinished)
+        {
+            NotifyOnUiThread();
+            return;
+        }
+
+        _uiDispatcher.BeginInvoke(NotifyOnUiThread);
+    }
+
+    private sealed class LyricsCommand : ICommand
+    {
+        private readonly Action<object?> _execute;
+        private readonly Predicate<object?>? _canExecute;
+        private EventHandler? _canExecuteChanged;
+
+        public LyricsCommand(Action<object?> execute, Predicate<object?>? canExecute = null)
+        {
+            _execute = execute ?? throw new ArgumentNullException(nameof(execute));
+            _canExecute = canExecute;
+        }
+
+        public bool CanExecute(object? parameter) => _canExecute == null || _canExecute(parameter);
+
+        public void Execute(object? parameter) => _execute(parameter);
+
+        public event EventHandler? CanExecuteChanged
+        {
+            add
+            {
+                _canExecuteChanged += value;
+                CommandManager.RequerySuggested += value;
+            }
+            remove
+            {
+                _canExecuteChanged -= value;
+                CommandManager.RequerySuggested -= value;
+            }
+        }
+
+        public void RaiseCanExecuteChanged()
+        {
+            _canExecuteChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private static bool AreSameTrack(Track? left, Track? right)
