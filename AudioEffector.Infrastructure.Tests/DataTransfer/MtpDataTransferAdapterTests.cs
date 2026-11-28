@@ -254,6 +254,8 @@ public sealed class MtpDataTransferAdapterTests : IDisposable
         bool copiedRenamed = await sut.TransferCompanionFileAsync(sourceLrc, _destinationDirectory, "01_Converted.lrc");
         bool copiedDefault = await sut.TransferCompanionFileAsync(sourceLrc, _destinationDirectory);
         bool rejectedTraversal = await sut.TransferCompanionFileAsync(sourceLrc, _destinationDirectory, @"..\escape.lrc");
+        bool rejectedDot = await sut.TransferCompanionFileAsync(sourceLrc, _destinationDirectory, ".");
+        bool rejectedDotDot = await sut.TransferCompanionFileAsync(sourceLrc, _destinationDirectory, "..");
         bool missingSource = await sut.TransferCompanionFileAsync(Path.Combine(_sourceDirectory, "missing.lrc"), _destinationDirectory);
 
         // Assert
@@ -265,6 +267,8 @@ public sealed class MtpDataTransferAdapterTests : IDisposable
         Assert.True(File.Exists(Path.Combine(_destinationDirectory, "01_Track.lrc")));
 
         Assert.False(rejectedTraversal);
+        Assert.False(rejectedDot);
+        Assert.False(rejectedDotDot);
         Assert.False(File.Exists(Path.Combine(_tempDirectory, "escape.lrc")));
         Assert.False(missingSource);
     }

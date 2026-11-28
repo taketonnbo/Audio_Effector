@@ -465,4 +465,36 @@ public sealed class DataTransferApplicationServiceTests
             if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
         }
     }
+
+    /// <summary>
+    /// ISettingsService.LoadSettings が例外送出または null を返却した場合でも、既定オプションへフォールバックして音声転送が継続されることを検証します。
+    /// </summary>
+    /// <returns>非同期タスク</returns>
+    [Fact]
+    public async Task TransferTracksAsync_設定読み込み例外またはNull返却時_既定値へフォールバックし音声転送を継続すること()
+    {
+        // Arrange
+        var track = CreateTestTrack("FallbackSong");
+        var mockRepo = new Mock<IDataTransferRepository>();
+        mockRepo.Setup(r => r.TransferTrackAsync(track.FilePath, @"E:\Music", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var throwingSettings = new Mock<ISettingsService>();
+        throwingSettings.Setup(s => s.LoadSettings()).Throws(new IOException("settings read failed"));
+
+        var nullSettings = new Mock<ISettingsService>();
+        nullSettings.Setup(s => s.LoadSettings()).Returns((AppSettings)null!);
+
+        var sutThrow = new DataTransferApplicationService(mockRepo.Object, null, throwingSettings.Object);
+        var sutNull = new DataTransferApplicationService(mockRepo.Object, null, nullSettings.Object);
+
+        // Act
+        int countFromThrow = await sutThrow.TransferTracksAsync([track], @"E:\Music");
+        int countFromNull = await sutNull.TransferTracksAsync([track], @"E:\Music");
+
+        // Assert
+        Assert.Equal(1, countFromThrow);
+        Assert.Equal(1, countFromNull);
+        mockRepo.Verify(r => r.TransferCompanionFileAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }
