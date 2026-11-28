@@ -91,4 +91,4 @@
 - [歌詞表示UI仕様書](../歌詞表示/歌詞表示UI仕様書.md)
 - [コードビハインド](../../../AudioEffector/Presentation/Views/MainWindow.xaml.cs)
 - [MainViewModel](../../../AudioEffector/Presentation/ViewModels/MainViewModel.cs)
-- 関連Issue（設計経緯）: [#121](https://github.com/taketonnbo/Audio_Effector/issues/121)、[#122](https://github.com/taketonnbo/Audio_Effector/issues/122)、[#401](https://github.com/taketonnbo/Audio_Effector/issues/401)、[#403](https://github.com/taketonnbo/Audio_Effector/issues/403)
+- 関連Issue（設計経緯）: [#121](https://github.com/taketonnbo/Audio_Effector/issues/121)、[#122](https://github.com/taketonnbo/Audio_Effector/issues/122)、[#401](https://github.com/taketonnbo/Audio_Effector/issues/401)、[#403](https://github.com/taketonnbo/Audio_Effector/issues/403)、[#406](https://github.com/taketonnbo/Audio_Effector/issues/406)

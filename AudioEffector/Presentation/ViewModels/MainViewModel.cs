@@ -41,6 +41,10 @@ namespace AudioEffector.Presentation.ViewModels
         private readonly bool _ownsArtists;
         private readonly bool _ownsRecent;
         private readonly bool _ownsAlbumDetail;
+        private readonly bool _ownsLyrics;
+        private RightExtensionPanelType _activeRightExtensionPanel = RightExtensionPanelType.None;
+        private bool _wasMaximizedBeforeLyrics;
+        private bool _isSuppressingMaximizedLyricsClose;
         private bool _disposed;
 
         /// <summary>
@@ -97,6 +101,11 @@ namespace AudioEffector.Presentation.ViewModels
         /// 再生中情報専用ViewModel
         /// </summary>
         public Presentation.ViewModels.NowPlayingViewModel? NowPlaying { get; }
+
+        /// <summary>
+        /// 歌詞表示専用ViewModel
+        /// </summary>
+        public Presentation.ViewModels.LyricsViewModel? Lyrics { get; }
 
         /// <summary>
         /// フォルダーブラウズ専用ViewModel
@@ -193,8 +202,13 @@ namespace AudioEffector.Presentation.ViewModels
             get => _isRightPanelOpen;
             set
             {
-                _isRightPanelOpen = value;
-                OnPropertyChanged();
+                if (_isRightPanelOpen != value)
+                {
+                    _isRightPanelOpen = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsLyricsViewVisible));
+                    UpdateLyricsActiveViewState();
+                }
             }
         }
 
@@ -277,6 +291,18 @@ namespace AudioEffector.Presentation.ViewModels
                 {
                     _isAlbumViewMaximized = value;
                     OnPropertyChanged();
+
+                    if (value && !_isSuppressingMaximizedLyricsClose)
+                    {
+                        _wasMaximizedBeforeLyrics = false;
+                        if (_activeRightExtensionPanel == RightExtensionPanelType.Lyrics)
+                        {
+                            ActiveRightExtensionPanel = RightExtensionPanelType.None;
+                        }
+                    }
+
+                    OnPropertyChanged(nameof(IsLyricsViewVisible));
+                    UpdateLyricsActiveViewState();
                 }
             }
         }
@@ -285,6 +311,45 @@ namespace AudioEffector.Presentation.ViewModels
         /// 右側アルバム表示のサイズモード（最大化 / コンパクト）を切り替えるコマンドを取得します
         /// </summary>
         public ICommand ToggleAlbumViewSizeModeCommand { get; }
+
+        /// <summary>
+        /// 右側タブ下部拡張領域に現在選択されている排他パネル種別を取得または設定します
+        /// </summary>
+        public RightExtensionPanelType ActiveRightExtensionPanel
+        {
+            get => _activeRightExtensionPanel;
+            set
+            {
+                if (_activeRightExtensionPanel != value)
+                {
+                    _activeRightExtensionPanel = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsLyricsPanelVisible));
+                    OnPropertyChanged(nameof(IsLyricsViewVisible));
+                    UpdateLyricsActiveViewState();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 歌詞パネルの表示トグルが ON 状態かどうかを取得します（右側タブ閉鎖中も状態を保持します）
+        /// </summary>
+        public bool IsLyricsPanelVisible => _activeRightExtensionPanel == RightExtensionPanelType.Lyrics;
+
+        /// <summary>
+        /// 歌詞パネルが画面上に実際に表示されているかどうかを取得します（非表示時は Collapsed 連動）
+        /// </summary>
+        public bool IsLyricsViewVisible => IsRightPanelOpen && !IsAlbumViewMaximized && IsLyricsPanelVisible;
+
+        /// <summary>
+        /// 右側タブの歌詞表示パネルを ON / OFF 切り替えするコマンドを取得します
+        /// </summary>
+        public ICommand ToggleLyricsPanelCommand { get; }
+
+        /// <summary>
+        /// 右側タブの歌詞表示パネルを閉じるコマンドを取得します
+        /// </summary>
+        public ICommand CloseLyricsPanelCommand { get; }
 
         private bool _isLibraryVisible = true;
         private bool _isFolderViewVisible;
@@ -785,6 +850,34 @@ namespace AudioEffector.Presentation.ViewModels
             Recent.PlaybackRequested += OnRecentPlaybackRequested;
             Recent.EnqueueRequested += OnRecentEnqueueRequested;
 
+            var resolvedLyrics = App.ServiceProvider != null
+                ? Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService<Presentation.ViewModels.LyricsViewModel>(App.ServiceProvider)
+                : null;
+            if (resolvedLyrics != null)
+            {
+                Lyrics = resolvedLyrics;
+                _ownsLyrics = false;
+            }
+            else
+            {
+                var lyricsEventBus = App.ServiceProvider?.GetService(typeof(IEventBus)) as IEventBus
+                    ?? new InMemoryEventBus();
+                var lyricsAppService = App.ServiceProvider?.GetService(typeof(LyricsApplicationService)) as LyricsApplicationService
+                    ?? new LyricsApplicationService(
+                        new Infrastructure.Lyrics.LocalLyricsProvider(new Infrastructure.Lyrics.LrcParser()),
+                        lyricsEventBus);
+                var lyricsUiDispatcher = App.ServiceProvider?.GetService(typeof(IUiDispatcher)) as IUiDispatcher
+                    ?? new Presentation.Services.WpfUiDispatcher();
+                Lyrics = new Presentation.ViewModels.LyricsViewModel(
+                    _audioService,
+                    lyricsEventBus,
+                    lyricsAppService,
+                    lyricsUiDispatcher);
+                _ownsLyrics = true;
+            }
+
+            Lyrics.CloseRequested += OnLyricsCloseRequested;
+
             var appSettings = _settingsService.LoadSettings();
             _audioService.UpdateAudioProperties(appSettings.SampleRate, appSettings.AudioBufferSizeMs);
 
@@ -875,6 +968,9 @@ namespace AudioEffector.Presentation.ViewModels
             TogglePlayQueuePanelCommand = new RelayCommand(o => IsPlayQueuePanelOpen = !IsPlayQueuePanelOpen);
             ClosePlayQueuePanelCommand = new RelayCommand(o => IsPlayQueuePanelOpen = false);
             ToggleAlbumViewSizeModeCommand = new RelayCommand(o => IsAlbumViewMaximized = !IsAlbumViewMaximized);
+            ToggleLyricsPanelCommand = new RelayCommand(_ => ToggleLyricsPanel());
+            CloseLyricsPanelCommand = new RelayCommand(_ => CloseLyricsPanel());
+            UpdateLyricsActiveViewState();
 
             _audioService.PlaylistEnded += OnPlaylistEnded;
 
@@ -2557,6 +2653,10 @@ namespace AudioEffector.Presentation.ViewModels
         public void Cleanup()
         {
             _timer.Stop();
+            if (Lyrics != null)
+            {
+                Lyrics.IsActiveView = false;
+            }
             _audioService.Dispose();
         }
 
@@ -2742,6 +2842,60 @@ namespace AudioEffector.Presentation.ViewModels
             CurrentViewType = ViewType.Albums;
         }
 
+        private void ToggleLyricsPanel()
+        {
+            if (IsLyricsPanelVisible)
+            {
+                CloseLyricsPanel();
+                return;
+            }
+
+            if (IsAlbumViewMaximized)
+            {
+                _wasMaximizedBeforeLyrics = true;
+                IsAlbumViewMaximized = false;
+            }
+            else
+            {
+                _wasMaximizedBeforeLyrics = false;
+            }
+
+            ActiveRightExtensionPanel = RightExtensionPanelType.Lyrics;
+        }
+
+        private void CloseLyricsPanel()
+        {
+            bool shouldRestoreMaximized = _wasMaximizedBeforeLyrics;
+            _wasMaximizedBeforeLyrics = false;
+            ActiveRightExtensionPanel = RightExtensionPanelType.None;
+
+            if (shouldRestoreMaximized && !IsAlbumViewMaximized)
+            {
+                _isSuppressingMaximizedLyricsClose = true;
+                try
+                {
+                    IsAlbumViewMaximized = true;
+                }
+                finally
+                {
+                    _isSuppressingMaximizedLyricsClose = false;
+                }
+            }
+        }
+
+        private void OnLyricsCloseRequested()
+        {
+            CloseLyricsPanel();
+        }
+
+        private void UpdateLyricsActiveViewState()
+        {
+            if (Lyrics != null)
+            {
+                Lyrics.IsActiveView = IsLyricsViewVisible;
+            }
+        }
+
         private void OnRecentEnqueueRequested(IReadOnlyList<Track> tracks, bool playNext)
         {
             _audioService.EnqueueTracks(tracks, playNext);
@@ -2797,6 +2951,15 @@ namespace AudioEffector.Presentation.ViewModels
                         if (_ownsRecent)
                         {
                             Recent.Dispose();
+                        }
+                    }
+                    if (Lyrics != null)
+                    {
+                        Lyrics.CloseRequested -= OnLyricsCloseRequested;
+                        Lyrics.IsActiveView = false;
+                        if (_ownsLyrics)
+                        {
+                            Lyrics.Dispose();
                         }
                     }
                     Folder?.Dispose();

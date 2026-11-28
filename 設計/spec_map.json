@@ -30,7 +30,8 @@
       "code_patterns": [
         "AudioEffector/Presentation/**/*MainWindow*",
         "AudioEffector/Presentation/**/*MainViewModel*",
-        "AudioEffector/Presentation/**/*ViewType*"
+        "AudioEffector/Presentation/**/*ViewType*",
+        "AudioEffector/Presentation/**/*RightExtensionPanel*"
       ],
       "primary_specs": [
         "設計/画面設計/全体レイアウト・ペイン構成/全体レイアウト・ペイン構成UI仕様書.md",
@@ -550,9 +551,11 @@
         "AudioEffector/Presentation/**/*Lyric*"
       ],
       "primary_specs": [
-        "設計/機能仕様/歌詞表示機能.md"
+        "設計/機能仕様/歌詞表示機能.md",
+        "設計/画面設計/歌詞表示/歌詞表示UI仕様書.md"
       ],
       "related_specs": [
+        "設計/ユースケース/01_楽曲再生・再生制御.md",
         "設計/詳細設計/アーキテクチャ/ドメイン層詳細設計書.md",
         "設計/詳細設計/アーキテクチャ/アプリケーション層詳細設計書.md",
         "設計/詳細設計/アーキテクチャ/インフラストラクチャ層詳細設計書.md",
