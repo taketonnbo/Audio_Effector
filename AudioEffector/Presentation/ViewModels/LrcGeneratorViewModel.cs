@@ -14,6 +14,7 @@ using AudioEffector.Domain.Entities;
 using AudioEffector.Domain.ValueObjects;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Win32;
+using NLog;
 
 namespace AudioEffector.Presentation.ViewModels;
 
@@ -24,6 +25,8 @@ namespace AudioEffector.Presentation.ViewModels;
 public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 {
     private const double PROGRESS_REPORT_MIN_DELTA = 1.0;
+
+    private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
     private readonly LrcGenerationApplicationService _generationService;
     private readonly IAudioService _audioService;
@@ -956,7 +959,9 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
                 if (loadResult.IsFailure)
                 {
-                    ValidationErrorMessage = loadResult.ErrorMessage;
+                    ValidationErrorMessage = LrcGenerationErrorMessageResolver.EnsureSafeUserMessage(
+                        loadResult.ErrorMessage,
+                        "既存の .lrc ファイルを読み込めませんでした。ファイルの存在や USB メモリ・ドライブの接続状態をご確認ください。");
                     return;
                 }
 
@@ -975,6 +980,12 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
+            Logger.Error(
+                ex,
+                "既存 .lrc ファイルの読み込み中に予期しないエラーが発生しました: TrackFilePath={TrackFilePath}, ExceptionType={ExceptionType}",
+                track.FilePath,
+                ex.GetType().FullName);
+            string userMessage = LrcGenerationErrorMessageResolver.ResolveTextReadErrorMessage(ex, isExistingLrc: true);
             _uiDispatcher.Invoke(() =>
             {
                 if (_disposed
@@ -984,7 +995,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                     return;
                 }
 
-                ValidationErrorMessage = $"既存の .lrc ファイルの読み込みに失敗しました: {ex.Message}";
+                ValidationErrorMessage = userMessage;
             });
         }
     }
@@ -1063,7 +1074,9 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                 if (inspectionResult.IsFailure)
                 {
                     ClearTextFile();
-                    ValidationErrorMessage = inspectionResult.ErrorMessage;
+                    ValidationErrorMessage = LrcGenerationErrorMessageResolver.EnsureSafeUserMessage(
+                        inspectionResult.ErrorMessage,
+                        "テキストファイルを読み込めませんでした。ファイルの存在やドライブの接続状態をご確認ください。");
                     return;
                 }
 
@@ -1091,8 +1104,18 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                 InvalidateAllCommands();
             });
         }
+        catch (OperationCanceledException)
+        {
+            // キャンセル時は安全に無視
+        }
         catch (Exception ex)
         {
+            Logger.Error(
+                ex,
+                "入力歌詞テキストファイルの検査中に予期しないエラーが発生しました: TextFilePath={TextFilePath}, ExceptionType={ExceptionType}",
+                textFilePath,
+                ex.GetType().FullName);
+            string userMessage = LrcGenerationErrorMessageResolver.ResolveTextReadErrorMessage(ex, isExistingLrc: false);
             _uiDispatcher.Invoke(() =>
             {
                 if (_disposed)
@@ -1101,7 +1124,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                 }
 
                 ClearTextFile();
-                ValidationErrorMessage = ex.Message;
+                ValidationErrorMessage = userMessage;
             });
         }
     }
@@ -1163,11 +1186,14 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
                 if (result.IsFailure)
                 {
-                    SetError("モデルをダウンロードできませんでした", result.ErrorMessage, isModelDownloadError: true);
+                    string safeMessage = LrcGenerationErrorMessageResolver.EnsureSafeUserMessage(
+                        result.ErrorMessage,
+                        LrcGenerationErrorMessageResolver.DEFAULT_MODEL_DOWNLOAD_ERROR_MESSAGE);
+                    SetError("モデルをダウンロードできませんでした", safeMessage, isModelDownloadError: true);
                 }
             });
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cts.Token))
         {
             Interlocked.Increment(ref _operationGeneration);
             _uiDispatcher.Invoke(() =>
@@ -1185,6 +1211,13 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             Interlocked.Increment(ref _operationGeneration);
+            bool isTimeout = ex is OperationCanceledException or TimeoutException;
+            Logger.Error(
+                ex,
+                "ローカルモデルのダウンロード中に予期しないエラーが発生しました: IsTimeout={IsTimeout}, ExceptionType={ExceptionType}",
+                isTimeout,
+                ex.GetType().FullName);
+            string userMessage = LrcGenerationErrorMessageResolver.ResolveModelDownloadErrorMessage(ex, isTimeout);
             _uiDispatcher.Invoke(() =>
             {
                 if (_disposed)
@@ -1195,7 +1228,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                 IsModelDownloading = false;
                 IsCancelling = false;
                 RefreshModelInfo();
-                SetError("モデルをダウンロードできませんでした", ex.Message, isModelDownloadError: true);
+                SetError("モデルをダウンロードできませんでした", userMessage, isModelDownloadError: true);
             });
         }
         finally
@@ -1317,7 +1350,9 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
                 if (saveResult.IsFailure)
                 {
-                    SaveErrorMessage = saveResult.ErrorMessage;
+                    SaveErrorMessage = LrcGenerationErrorMessageResolver.EnsureSafeUserMessage(
+                        saveResult.ErrorMessage,
+                        LrcGenerationErrorMessageResolver.DEFAULT_SAVE_LRC_ERROR_MESSAGE);
                     return;
                 }
 
@@ -1328,7 +1363,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                 LrcSaved?.Invoke(saveResult.Value);
             });
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
         {
             _uiDispatcher.Invoke(() =>
             {
@@ -1339,7 +1374,26 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
                 IsOverwriteConfirmVisible = false;
                 OverwriteWarningMessage = string.Empty;
-                SaveErrorMessage = ex.Message;
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(
+                ex,
+                "LRC ファイルの保存中に予期しないエラーが発生しました: TrackFilePath={TrackFilePath}, ExceptionType={ExceptionType}",
+                _targetTrack?.FilePath,
+                ex.GetType().FullName);
+            string userMessage = LrcGenerationErrorMessageResolver.ResolveSaveLrcErrorMessage(ex);
+            _uiDispatcher.Invoke(() =>
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                IsOverwriteConfirmVisible = false;
+                OverwriteWarningMessage = string.Empty;
+                SaveErrorMessage = userMessage;
             });
         }
     }
@@ -1385,7 +1439,9 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         Result result = _generationService.SetCustomModelPath(selectedPath);
         if (result.IsFailure)
         {
-            ValidationErrorMessage = result.ErrorMessage;
+            ValidationErrorMessage = LrcGenerationErrorMessageResolver.EnsureSafeUserMessage(
+                result.ErrorMessage,
+                "指定されたモデルファイルを使用できませんでした。ファイルの存在や形式をご確認ください。");
             return;
         }
 
@@ -1481,14 +1537,17 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
 
                 if (result.IsFailure)
                 {
-                    SetError("LRC を生成できませんでした", result.ErrorMessage, isModelDownloadError: false);
+                    string safeMessage = LrcGenerationErrorMessageResolver.EnsureSafeUserMessage(
+                        result.ErrorMessage,
+                        LrcGenerationErrorMessageResolver.DEFAULT_GENERATION_ERROR_MESSAGE);
+                    SetError("LRC を生成できませんでした", safeMessage, isModelDownloadError: false);
                     return;
                 }
 
                 ApplyGenerationResult(result.Value);
             });
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException oce) when (LrcGenerationErrorMessageResolver.IsUserCancellation(oce, cts.Token))
         {
             Interlocked.Increment(ref _operationGeneration);
             _uiDispatcher.Invoke(() =>
@@ -1509,6 +1568,13 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             Interlocked.Increment(ref _operationGeneration);
+            Logger.Error(
+                ex,
+                "LRC 生成処理中に予期しないエラーが発生しました: Mode={Mode}, TrackFilePath={TrackFilePath}, ExceptionType={ExceptionType}",
+                mode,
+                _targetTrack?.FilePath,
+                ex.GetType().FullName);
+            string userMessage = LrcGenerationErrorMessageResolver.ResolveGenerationErrorMessage(ex);
             _uiDispatcher.Invoke(() =>
             {
                 if (_disposed)
@@ -1520,7 +1586,7 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
                 IsCancelling = false;
                 IsProgressIndeterminate = false;
                 Progress = 0;
-                SetError("LRC を生成できませんでした", ex.Message, isModelDownloadError: false);
+                SetError("LRC を生成できませんでした", userMessage, isModelDownloadError: false);
             });
         }
         finally
