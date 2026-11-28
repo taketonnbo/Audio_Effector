@@ -928,17 +928,29 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
         for (int i = 0; i < document.Lines.Count; i++)
         {
             LyricLine line = document.Lines[i];
+            TimeSpan effectiveTimestamp = document.GetEffectiveTimestamp(line) ?? TimeSpan.Zero;
             PreviewLines.Add(new LrcPreviewLineViewModel(
                 i,
-                line.Timestamp ?? TimeSpan.Zero,
+                effectiveTimestamp,
                 line.Text,
                 OnPreviewLineEdited));
         }
 
         _hasUnsavedEdits = false;
         TotalOffsetSeconds = 0.0;
-        GeneratedDocument = document;
-        PreviewLrcText = _generationService.FormatDocument(document);
+        // [offset:] を各行の実効タイムスタンプへ正規化したドキュメントを保持し、編集・再保存時のタイミング消失を防ぐ
+        LyricsDocument normalizedDocument = new(
+            lines: PreviewLines.Select((vm, idx) => vm.ToLyricLine(idx)).ToArray(),
+            isSynced: true,
+            title: document.Title ?? _targetTrack?.Title,
+            artist: document.Artist ?? _targetTrack?.Artist,
+            album: document.Album ?? _targetTrack?.Album,
+            author: document.Author,
+            offset: TimeSpan.Zero,
+            sourceType: LyricsSourceType.LrcFile,
+            sourcePath: existingLrcPath);
+        GeneratedDocument = normalizedDocument;
+        PreviewLrcText = _generationService.FormatDocument(normalizedDocument);
         SavedFilePath = existingLrcPath;
         SaveCompletedMessage = string.Empty;
         SaveErrorMessage = string.Empty;
