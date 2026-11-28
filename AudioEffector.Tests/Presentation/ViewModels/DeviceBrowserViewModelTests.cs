@@ -322,11 +322,15 @@ public sealed class DeviceBrowserViewModelTests
             [track2.FilePath] = 700L * 1024 * 1024, // 700 MB
         };
 
+        long totalCapacity = 2L * 1024 * 1024 * 1024;
+        long freeCapacity = 1L * 1024 * 1024 * 1024; // 空き 1.0 GB
+
         using var sut = new DeviceBrowserViewModel(
             albums,
             () => albums,
             () => { },
-            path => sizes.TryGetValue(path, out var len) ? len : 0L);
+            path => sizes.TryGetValue(path, out var len) ? len : 0L,
+            (_, _) => (true, totalCapacity, freeCapacity));
 
         var device = new MainViewModel.DeviceViewModel
         {
@@ -334,7 +338,7 @@ public sealed class DeviceBrowserViewModelTests
             Type = MainViewModel.DeviceType.FileSystem,
             RootPath = @"E:\"
         };
-        device.UpdateStorageSpace(2L * 1024 * 1024 * 1024, 1L * 1024 * 1024 * 1024); // 空き 1.0 GB
+        device.UpdateStorageSpace(totalCapacity, freeCapacity);
         sut.RemovableDrives.Add(device);
         sut.SelectedDevice = device;
 
