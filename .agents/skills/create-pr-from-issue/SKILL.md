@@ -14,12 +14,13 @@ description: Issueの内容を読み取り、実装・適切な粒度での分�
    - 関連するコードベース・設計書を調査し、実装計画（Implementation Plan）を策定します。
 
 2. **作業用ブランチの作成**:
-   - 指定がなければ、必ず最新の `develop` ブランチから `.agents/rules/branch_operation_rules.md` に従った命名規則（`<Type>/<Issue番号>-<簡潔な説明>`）で作業用ブランチを作成してください。
+   - 対象ベースブランチ `<BaseBranch>` は、通常 Issue の場合は最新の `develop`、**Epic 配下の子 Issue の場合は当該 Epic の統合ブランチ（`epic/<Epic番号>-<説明>`）**とします。
+   - 必ず最新の `<BaseBranch>` から `.agents/rules/branch_operation_rules.md` に従った命名規則（`<Type>/<Issue番号>-<簡潔な説明>`）で作業用ブランチを作成してください。
 
 3. **実装と検証**:
    - 策定した計画に沿ってコードを修正・追加します。
    - **仕様書の確認と更新（必須ゲート）**:
-     - `python tools/check_spec_sync.py --base develop` を実行し、変更コードに紐づく `設計/` 配下の仕様書（Primary / Related）を確認します。
+     - `python tools/check_spec_sync.py --base <BaseBranch>`（通常は `develop`、Epic 子 Issue は `origin/<統合ブランチ>`）を実行し、変更コードに紐づく `設計/` 配下の仕様書（Primary / Related）を確認します。
      - GitHub Wiki の `仕様書同期・メンテナンスルール`（書くこと／書かないこと方針・正本原則）に従い、仕様・UI・永続化・アーキテクチャ境界に変更が生じる場合は該当仕様書を必ず更新します。
      - 完全に新しい画面・独立機能カテゴリを新設した場合のみ、`設計/spec_map.json` へワイルドカード単位でマッピングを追加し、`python tools/check_spec_sync.py --validate` でパス実在を検証します（既存機能の改修や補助クラス追加では `spec_map.json` の更新は不要、Wiki 側へ個別対応表は転記しません）。
    - **ビルド・テスト確認**: `.agents/rules/build_rules.md` に従い、隔離ビルド（`-p:OutDir="$(Get-Location)\.agent_build\"`、確認後に `.agent_build` を削除）と単体テスト（`dotnet test`）を実行してエラー 0・警告 0・全件合格を確認します。
@@ -34,20 +35,20 @@ description: Issueの内容を読み取り、実装・適切な粒度での分�
        3. `feat: ✨ #<Issue番号> DI登録およびMainViewModel/MainWindowへ連携する`（`DependencyInjection.cs`, `MainViewModel.cs`, `MainWindow.xaml`）
        4. `test: ✅ #<Issue番号> 〇〇の単体テストを追加する`（`AudioEffector.Tests/**`）
        5. `docs: 📝 #<Issue番号> 関連仕様書を更新する`（`設計/**`）
-   - コミット完了後、`git log develop..HEAD --stat` を実行し、1 コミットに異なる種類の変更や過大な行数（目安: 500 行超）が偏っていないか確認してください。
+   - コミット完了後、`git log <BaseBranch>..HEAD --stat`（ワークツリー時は `origin/<BaseBranch>..HEAD`）を実行し、1 コミットに異なる種類の変更や過大な行数（目安: 500 行超）が偏っていないか確認してください。
 
 5. **PR（Pull Request）の作成前セルフレビュー（内部レビュー）**:
    - **Wiki チェックリストによる内部レビュー**: GitHub Wiki の `PRレビュー・セルフレビューチェックリスト`（および `review-pr` スキルのセルフレビュー観点）に基づき、PR 作成前に以下を必ず検証します：
      - **パフォーマンス設計書の確認**: `設計/詳細設計/パフォーマンス最適化.md` の共通方針（UI スロットリング・デバウンス、`CollectionChanged` 連続発火による $O(N^2)$ 防止、親 `ScrollViewer` 禁止＋UI 仮想化 4 属性、非表示パネルの `Visibility="Collapsed"`、高負荷エフェクト禁止、画像 `Freeze()`）に違反していないか。
      - **XAML バインディング検証**: XAML を変更した場合は `python tools/check_equivalence.py --indexer` を実行し、新規警告がないか。
-     - **仕様書同期チェック（必須）**: `python tools/check_spec_sync.py --base develop` を実行し、未更新の主要仕様書（Primary）が残っていないか（更新不要と判断した場合はその妥当な理由を説明できるか）。
+     - **仕様書同期チェック（必須）**: `python tools/check_spec_sync.py --base <BaseBranch>` を実行し、未更新の主要仕様書（Primary）が残っていないか（更新不要と判断した場合はその妥当な理由を説明できるか）。
      - **テーマ・実データ結合**: ダーク／ライト両テーマでの視認性、表示・検索対象プロパティが実スキャン経路で設定されているか、イベントとサービスの二重呼び出しがないか。
      - **テスト・規約**: `.agents/rules/test_rules.md` および静的解析・XML コメント規約に準拠しているか。
    - 問題が見つかった場合は、PR 作成前に修正し、適切な粒度でコミットします。
 
 6. **PR（Pull Request）の作成**:
    - 作業ブランチをリモートリポジトリに Push します（`git push -u origin <ブランチ名>`）。
-   - GitHub CLI (`gh pr create --base develop ...`) を利用して PR を作成します。
+   - GitHub CLI (`gh pr create --base "<BaseBranch>" ...`) を利用して PR を作成します（通常 Issue は `--base develop`、Epic 子 Issue は `--base epic/<Epic番号>-<説明>`）。
    - **【重要】PR タイトルの命名規則**:
      - プレフィックスとして `feat:` や `fix:` などの従来の Conventional Commits の英語表記は**使用しないでください**。
      - 代わりに、「`[機能追加]`」、「`[バグ修正]`」、「`[UI改修]`」、「`[リファクタ]`」などのように、対応の概要を**半角の角括弧 `[]`** で囲ってタイトルの先頭に付与してください。
@@ -58,4 +59,4 @@ description: Issueの内容を読み取り、実装・適切な粒度での分�
      - コマンド実行時の文字数制限やエンコーディング問題を回避するため、説明文は一時ファイル（例: `pr_desc.md`）に書き出し、`--body-file pr_desc.md` オプションを使用して PR を作成してください（使用後は一時ファイルを必ず削除してください）。
 
 ## 注意事項
-- PR のターゲット（Base）ブランチは、ユーザーから特別な指示がない限り `develop` となります。デフォルトブランチに作成されてしまった場合は、`gh pr edit <PR番号> --base develop` で修正してください。
+- PR のターゲット（Base）ブランチは、通常 Issue では `develop`、**Epic 配下の子 Issue では当該 Epic の統合ブランチ（`epic/<Epic番号>-<説明>`）**となります。誤ったベースブランチに作成されてしまった場合は、`gh pr edit <PR番号> --base <BaseBranch>` で修正してください。

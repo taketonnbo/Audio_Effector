@@ -14,7 +14,7 @@ description: GitHub Pull Request のコードレビューおよび PR 作成前�
 依頼内容に応じて以下の 2 モードを使い分けます。
 
 1. **GitHub PR レビューモード**: PR 番号・PR URL が指定された場合。差分・コミット履歴（粒度）・関連 Issue・実コードの呼び出し経路を精査し、検証結果と修正完了の条件を実装担当へ報告する。レビュー担当の作業は調査・検証・指摘までとし、PR の実装修正は実装担当が行う。投稿を依頼された場合は Step 5 に従う。マージや関連 Issue のクローズも依頼された場合は、指摘の解消と検証済み HEAD を確認してから実行し、GitHub 上の結果を報告する。
-2. **PR 作成前セルフレビュー（内部レビュー）モード**: ローカル作業ブランチの PR 作成前チェックを依頼された場合。`git log develop..HEAD --stat`・`git diff develop...HEAD`（および未コミット差分）を対象に同じ観点で検証し、修正すべき項目を報告（または修正）する。GitHub 投稿は行わない。
+2. **PR 作成前セルフレビュー（内部レビュー）モード**: ローカル作業ブランチの PR 作成前チェックを依頼された場合。対象ベースブランチ `<BaseBranch>`（通常 Issue は `develop`、Epic 子 Issue は当該 Epic の統合ブランチ `epic/<Epic番号>-<説明>`）を基準に `git log <BaseBranch>..HEAD --stat`・`git diff <BaseBranch>...HEAD`（および未コミット差分）を対象として同じ観点で検証し、修正すべき項目を報告（または修正）する。GitHub 投稿は行わない。
 
 ---
 
@@ -30,13 +30,13 @@ gh pr diff <PR番号>
 gh issue view <関連Issue番号> --json title,body,comments
 ```
 
-> **必須確認（コミット粒度の把握）**: `commits` の件数と `files` の合計変更行数・レイヤー数を確認し、必要に応じてローカルで `git log origin/develop..origin/<headRefName> --stat`（または `gh api repos/<owner>/<repo>/pulls/<PR番号>/commits`）を実行して、**コミットごとの変更ファイル・行数の偏り**を把握します。
+> **必須確認（コミット粒度の把握）**: `commits` の件数と `files` の合計変更行数・レイヤー数を確認し、必要に応じてローカルで `git log origin/<baseRefName>..origin/<headRefName> --stat`（または `gh api repos/<owner>/<repo>/pulls/<PR番号>/commits`）を実行して、**`baseRefName` を基準としたコミットごとの変更ファイル・行数の偏り**を把握します（Epic 子 Issue PR の場合は `baseRefName` が `epic/<Epic番号>-<説明>` となります）。
 
 #### PR 作成前セルフレビューモードの場合
 ```powershell
 git status
-git log develop..HEAD --stat
-git diff develop...HEAD
+git log <BaseBranch>..HEAD --stat
+git diff <BaseBranch>...HEAD
 ```
 
 #### 参照すべきプロジェクト基準・設計書
@@ -82,7 +82,8 @@ dotnet test AudioEffector.Tests\AudioEffector.Tests.csproj
 python tools/check_equivalence.py --indexer
 
 # 4. 仕様書同期チェック（変更コードに対応する設計仕様書の更新漏れ確認）
-python tools/check_spec_sync.py --base origin/develop
+# ※ PR レビュー時は PR の baseRefName（通常は develop、Epic 子 Issue PR は epic/<Epic番号>-<説明>）を基準に比較する
+python tools/check_spec_sync.py --base origin/<baseRefName>
 # ※ PR 対象ブランチをチェックアウトしていない場合は、PR の変更ファイル一覧を --files で渡して確認可能
 ```
 
@@ -95,7 +96,10 @@ python tools/check_spec_sync.py --base origin/develop
 以下の 6 カテゴリで漏れなく検証し、検出した指摘を重要度別に分類します：
 
 1. **Git・ブランチ・PR 規約・コミット粒度（必須チェック）**:
-   - Base ブランチが `develop` であるか、ブランチ名が命名規則に従っているか。
+   - Base ブランチが規約に適合しているか、およびブランチ名が命名規則に従っているか：
+     - **通常（単一 Issue）PR**: Base は `develop`、Head は `<Type>/<Issue番号>-<説明>`。
+     - **Epic 子 Issue PR**: Base は当該 Epic の統合ブランチ（`epic/<Epic番号>-<説明>`）、Head は `<Type>/<子Issue番号>-<説明>`（※Epic 子 Issue PR に対して「Base が `develop` でない」という誤指摘をしないこと。逆に、Epic 子 Issue なのに Base が誤って `develop` になっている場合は指摘対象とする）。
+     - **Epic 統合 PR**: Base は `develop`、Head は `epic/<Epic番号>-<説明>`。
    - コミットメッセージが `<Type>: <Emoji> #<Issue番号> <Subject>`（日本語・現在形・20〜30 文字目安）に従っているか。
    - **コミット粒度（巨大単一コミットの禁止）**:
      - `.agents/rules/git_operation_rules.md` および GitHub Wiki「PRレビュー・セルフレビューチェックリスト」に従い、**コミット数・各コミットの変更行数・含まれるレイヤーと種別**を必ず確認する。
