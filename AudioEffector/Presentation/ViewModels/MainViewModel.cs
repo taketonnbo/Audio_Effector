@@ -933,7 +933,8 @@ namespace AudioEffector.Presentation.ViewModels
                 LrcGenerator = new Presentation.ViewModels.LrcGeneratorViewModel(
                     lrcGenAppService,
                     _audioService,
-                    sharedUiDispatcher);
+                    sharedUiDispatcher,
+                    _settingsService);
                 _ownsLrcGenerator = true;
             }
 
