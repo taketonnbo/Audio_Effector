@@ -285,6 +285,75 @@
                                    Margin="0,0,0,20"
                                    TextWrapping="Wrap"/>
 
+                        <TextBlock Text="ログ出力設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}"/>
+
+                        <TextBlock Text="ログ出力レベル" Margin="0,0,0,5" Foreground="{DynamicResource SecondaryTextForegroundBrush}"/>
+                        <ComboBox x:Name="LogLevelComboBox"
+                                  ItemsSource="{Binding AvailableLogLevels}"
+                                  SelectedItem="{Binding SelectedLogLevel, Mode=TwoWay}"
+                                  Width="200"
+                                  HorizontalAlignment="Left"
+                                  Padding="5"
+                                  Margin="0,0,0,12">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <TextBlock Text="ログ保存先フォルダ" Margin="0,0,0,5" Foreground="{DynamicResource SecondaryTextForegroundBrush}"/>
+                        <Grid Margin="0,0,0,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="LogDirectoryPathTextBox"
+                                     Grid.Column="0"
+                                     Text="{Binding LogDirectoryPath, Mode=OneWay}"
+                                     IsReadOnly="True"
+                                     VerticalContentAlignment="Center"
+                                     Padding="6,4"
+                                     Margin="0,0,8,0"
+                                     Background="{DynamicResource ControlBackgroundBrush}"
+                                     Foreground="{DynamicResource TextForegroundBrush}"
+                                     BorderBrush="{DynamicResource BorderBrush}"
+                                     BorderThickness="1"/>
+                            <Button x:Name="BrowseLogDirectoryButton"
+                                    Grid.Column="1"
+                                    Content="参照..."
+                                    Command="{Binding BrowseLogDirectoryCommand}"
+                                    Padding="12,5"
+                                    Margin="0,0,8,0"
+                                    Background="{DynamicResource ControlBackgroundHighlightBrush}"
+                                    Foreground="{DynamicResource TextForegroundBrush}"
+                                    BorderThickness="0"/>
+                            <Button x:Name="ResetLogDirectoryButton"
+                                    Grid.Column="2"
+                                    Content="リセット"
+                                    Command="{Binding ResetLogDirectoryCommand}"
+                                    Padding="12,5"
+                                    Margin="0,0,8,0"
+                                    Background="{DynamicResource ControlBackgroundHighlightBrush}"
+                                    Foreground="{DynamicResource TextForegroundBrush}"
+                                    BorderThickness="0"/>
+                            <Button x:Name="OpenLogFolderButton"
+                                    Grid.Column="3"
+                                    Content="フォルダを開く"
+                                    Command="{Binding OpenLogFolderCommand}"
+                                    Padding="12,5"
+                                    Background="{DynamicResource ControlBackgroundHighlightBrush}"
+                                    Foreground="{DynamicResource TextForegroundBrush}"
+                                    BorderThickness="0"/>
+                        </Grid>
+                        <TextBlock Text="※トラブルシューティング時に Debug / Trace へ切り替えると詳細な動作ログが出力されます（日次ローテーション・最大7世代）。書き込み不可のフォルダが指定された場合は既定フォルダへフォールバックします。"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource SecondaryTextForegroundBrush}"
+                                   Margin="0,0,0,20"
+                                   TextWrapping="Wrap"/>
+
                         <TextBlock Text="ライブラリ・スキャン設定" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" Foreground="{DynamicResource TextForegroundBrush}"/>
 
                         <CheckBox Content="再スキャン時に更新されたファイルのメタデータを再読み込みする"

@@ -84,9 +84,17 @@ public partial class App : System.Windows.Application
 
         ServiceProvider = services.BuildServiceProvider();
 
-        // テーマ設定およびデータ保存先ディレクトリの適用（各 ViewModel 解決前に確定させる）
+        // テーマ設定・ログ出力設定・データ保存先ディレクトリの適用（各 ViewModel 解決前に確定させる）
         var settingsService = ServiceProvider.GetRequiredService<ISettingsService>();
         var settings = settingsService.LoadSettings();
+
+        var logConfigurationManager = ServiceProvider.GetRequiredService<ILogConfigurationManager>();
+        var logApplyResult = logConfigurationManager.ApplyConfiguration(settings.LogLevel, settings.LogDirectoryPath);
+        if (logApplyResult.UsedFallbackDirectory && !string.IsNullOrWhiteSpace(logApplyResult.WarningMessage))
+        {
+            Logger.Warn(logApplyResult.WarningMessage);
+        }
+
         if (!string.IsNullOrWhiteSpace(settings.DataDirectoryPath))
         {
             var dataDirectoryProvider = ServiceProvider.GetRequiredService<IDataDirectoryProvider>();

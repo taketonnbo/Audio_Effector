@@ -44,10 +44,13 @@ public class SettingsViewModel : ViewModelBase
     private readonly IAudioService _audioService;
     private readonly IDataDirectoryProvider? _dataDirectoryProvider;
     private readonly IDataDirectoryMigrationService? _dataDirectoryMigrationService;
+    private readonly ILogConfigurationManager? _logConfigurationManager;
     private readonly Func<string?, string?> _folderPicker;
     private readonly Func<string, string, bool, DataMigrationChoice> _migrationPrompt;
     private readonly Action<string, string, bool> _messageNotifier;
+    private readonly Action<string> _folderOpener;
     private readonly string _defaultDataDirectoryFallback;
+    private readonly string _defaultLogDirectoryFallback;
     private AppSettings _appSettings;
 
     /// <summary>
@@ -547,6 +550,83 @@ public class SettingsViewModel : ViewModelBase
     /// </summary>
     public ICommand ResetDataDirectoryCommand { get; }
 
+    // --- Logging ---
+
+    private static readonly IReadOnlyList<string> DefaultAvailableLogLevels =
+    [
+        "Trace",
+        "Debug",
+        "Info",
+        "Warn",
+        "Error",
+        "Off",
+    ];
+
+    /// <summary>
+    /// 選択可能なログ出力レベル一覧を取得します
+    /// </summary>
+    public IReadOnlyList<string> AvailableLogLevels => _logConfigurationManager?.AvailableLogLevels ?? DefaultAvailableLogLevels;
+
+    /// <summary>
+    /// 選択されているログ出力レベルを取得または設定します
+    /// </summary>
+    public string SelectedLogLevel
+    {
+        get => NormalizeLogLevel(_appSettings.LogLevel);
+        set
+        {
+            string normalized = NormalizeLogLevel(value);
+            if (!string.Equals(NormalizeLogLevel(_appSettings.LogLevel), normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                _appSettings.LogLevel = normalized;
+                OnPropertyChanged();
+                _settingsService.UpdateSettings(settings => settings.LogLevel = normalized);
+                _logConfigurationManager?.ApplyConfiguration(normalized, _appSettings.LogDirectoryPath);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 現在有効なログ保存先ディレクトリのパスを取得します
+    /// </summary>
+    public string LogDirectoryPath
+    {
+        get
+        {
+            if (_logConfigurationManager != null)
+            {
+                return _logConfigurationManager.CurrentLogDirectory;
+            }
+
+            return !string.IsNullOrWhiteSpace(_appSettings.LogDirectoryPath)
+                ? _appSettings.LogDirectoryPath
+                : _defaultLogDirectoryFallback;
+        }
+    }
+
+    /// <summary>
+    /// 既定ディレクトリ以外のカスタムログ保存先ディレクトリが設定されているかどうかを取得します
+    /// </summary>
+    public bool IsCustomLogDirectory =>
+        _logConfigurationManager != null
+            ? _logConfigurationManager.IsCustomLogDirectory
+            : !string.IsNullOrWhiteSpace(_appSettings.LogDirectoryPath);
+
+    /// <summary>
+    /// ログ保存先フォルダを参照・選択するコマンドを取得します
+    /// </summary>
+    public ICommand BrowseLogDirectoryCommand { get; }
+
+    /// <summary>
+    /// ログ保存先フォルダを既定のフォルダへリセットするコマンドを取得します
+    /// </summary>
+    public ICommand ResetLogDirectoryCommand { get; }
+
+    /// <summary>
+    /// 現在のログ保存先フォルダをエクスプローラーで開くコマンドを取得します
+    /// </summary>
+    public ICommand OpenLogFolderCommand { get; }
+
     /// <summary>
     /// 設定サービスとオーディオサービスを指定してインスタンスを初期化します
     /// </summary>
@@ -554,12 +634,14 @@ public class SettingsViewModel : ViewModelBase
     /// <param name="audioService">オーディオサービス</param>
     /// <param name="dataDirectoryProvider">データディレクトリ解決プロバイダ（任意）</param>
     /// <param name="dataDirectoryMigrationService">データディレクトリ変更・移行サービス（任意）</param>
+    /// <param name="logConfigurationManager">ログ出力構成マネージャ（任意）</param>
     [ActivatorUtilitiesConstructor]
     public SettingsViewModel(
         ISettingsService settingsService,
         IAudioService audioService,
         IDataDirectoryProvider? dataDirectoryProvider = null,
-        IDataDirectoryMigrationService? dataDirectoryMigrationService = null)
+        IDataDirectoryMigrationService? dataDirectoryMigrationService = null,
+        ILogConfigurationManager? logConfigurationManager = null)
         : this(
             settingsService,
             audioService,
@@ -567,7 +649,9 @@ public class SettingsViewModel : ViewModelBase
             dataDirectoryMigrationService,
             folderPicker: null,
             migrationPrompt: null,
-            messageNotifier: null)
+            messageNotifier: null,
+            logConfigurationManager: logConfigurationManager,
+            folderOpener: null)
     {
     }
 
@@ -581,6 +665,8 @@ public class SettingsViewModel : ViewModelBase
     /// <param name="folderPicker">フォルダ選択ダイアログデリゲート</param>
     /// <param name="migrationPrompt">既存データ移行確認ダイアログデリゲート</param>
     /// <param name="messageNotifier">結果・エラー通知デリゲート</param>
+    /// <param name="logConfigurationManager">ログ出力構成マネージャ</param>
+    /// <param name="folderOpener">フォルダを開く操作デリゲート</param>
     internal SettingsViewModel(
         ISettingsService settingsService,
         IAudioService audioService,
@@ -588,22 +674,31 @@ public class SettingsViewModel : ViewModelBase
         IDataDirectoryMigrationService? dataDirectoryMigrationService,
         Func<string?, string?>? folderPicker,
         Func<string, string, bool, DataMigrationChoice>? migrationPrompt,
-        Action<string, string, bool>? messageNotifier)
+        Action<string, string, bool>? messageNotifier,
+        ILogConfigurationManager? logConfigurationManager = null,
+        Action<string>? folderOpener = null)
     {
         _settingsService = settingsService;
         _audioService = audioService;
         _dataDirectoryProvider = dataDirectoryProvider;
         _dataDirectoryMigrationService = dataDirectoryMigrationService;
+        _logConfigurationManager = logConfigurationManager;
         _folderPicker = folderPicker ?? ShowDefaultFolderPicker;
         _migrationPrompt = migrationPrompt ?? ShowDefaultMigrationPrompt;
         _messageNotifier = messageNotifier ?? ShowDefaultMessage;
+        _folderOpener = folderOpener ?? OpenFolderInExplorer;
         _defaultDataDirectoryFallback = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "AudioEffector");
+        _defaultLogDirectoryFallback = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "logs"))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         _appSettings = _settingsService.LoadSettings();
 
         BrowseDataDirectoryCommand = new RelayCommand(_ => BrowseDataDirectory());
         ResetDataDirectoryCommand = new RelayCommand(_ => ResetDataDirectory(), _ => IsCustomDataDirectory);
+        BrowseLogDirectoryCommand = new RelayCommand(_ => BrowseLogDirectory());
+        ResetLogDirectoryCommand = new RelayCommand(_ => ResetLogDirectory(), _ => IsCustomLogDirectory);
+        OpenLogFolderCommand = new RelayCommand(_ => OpenLogFolder());
 
         Categories = new ObservableCollection<string>
         {
@@ -759,5 +854,138 @@ public class SettingsViewModel : ViewModelBase
             title,
             MessageBoxButton.OK,
             isError ? MessageBoxImage.Error : MessageBoxImage.Warning);
+    }
+
+    private string NormalizeLogLevel(string? logLevel)
+    {
+        if (_logConfigurationManager != null)
+        {
+            return _logConfigurationManager.NormalizeLogLevel(logLevel);
+        }
+
+        if (string.IsNullOrWhiteSpace(logLevel))
+        {
+            return "Info";
+        }
+
+        string trimmed = logLevel.Trim();
+        foreach (string supported in DefaultAvailableLogLevels)
+        {
+            if (string.Equals(supported, trimmed, StringComparison.OrdinalIgnoreCase))
+            {
+                return supported;
+            }
+        }
+
+        return "Info";
+    }
+
+    private void BrowseLogDirectory()
+    {
+        string? selectedPath = _folderPicker(LogDirectoryPath);
+        if (string.IsNullOrWhiteSpace(selectedPath))
+        {
+            return;
+        }
+
+        ApplyLogDirectoryChange(selectedPath);
+    }
+
+    private void ResetLogDirectory()
+    {
+        if (!IsCustomLogDirectory)
+        {
+            return;
+        }
+
+        ApplyLogDirectoryChange(null);
+    }
+
+    private void ApplyLogDirectoryChange(string? targetDirectory)
+    {
+        string currentDirectory = LogDirectoryPath;
+        string defaultDirectory = _logConfigurationManager?.DefaultLogDirectory ?? _defaultLogDirectoryFallback;
+        string trimmedTarget = string.IsNullOrWhiteSpace(targetDirectory)
+            ? defaultDirectory
+            : targetDirectory.Trim();
+
+        if (string.Equals(
+            currentDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            trimmedTarget.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (_logConfigurationManager != null)
+        {
+            string? previousPersistedPath = _appSettings.LogDirectoryPath;
+            LogConfigurationApplyResult result = _logConfigurationManager.ApplyConfiguration(SelectedLogLevel, targetDirectory);
+            if (result.UsedFallbackDirectory)
+            {
+                // 指定先へ書き込めなかった場合、変更前に有効だったカスタムパスがあれば元へ戻して通知する
+                if (!string.IsNullOrWhiteSpace(previousPersistedPath))
+                {
+                    _logConfigurationManager.ApplyConfiguration(SelectedLogLevel, previousPersistedPath);
+                }
+
+                _messageNotifier(
+                    result.WarningMessage ?? "指定されたログ保存先フォルダへ書き込めませんでした。",
+                    "ログ保存先の変更エラー",
+                    true);
+                return;
+            }
+
+            string? persistedPath = _logConfigurationManager.IsCustomLogDirectory ? result.EffectiveLogDirectory : null;
+            _appSettings.LogDirectoryPath = persistedPath;
+            _settingsService.UpdateSettings(settings => settings.LogDirectoryPath = persistedPath);
+            OnPropertyChanged(nameof(LogDirectoryPath));
+            OnPropertyChanged(nameof(IsCustomLogDirectory));
+            CommandManager.InvalidateRequerySuggested();
+            return;
+        }
+
+        string? nextPersistedPath = string.IsNullOrWhiteSpace(targetDirectory)
+            ? null
+            : string.Equals(
+                trimmedTarget.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                defaultDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase)
+                ? null
+                : trimmedTarget;
+
+        _appSettings.LogDirectoryPath = nextPersistedPath;
+        _settingsService.UpdateSettings(settings => settings.LogDirectoryPath = nextPersistedPath);
+        OnPropertyChanged(nameof(LogDirectoryPath));
+        OnPropertyChanged(nameof(IsCustomLogDirectory));
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    private void OpenLogFolder()
+    {
+        string targetDirectory = LogDirectoryPath;
+        try
+        {
+            Directory.CreateDirectory(targetDirectory);
+            _folderOpener(targetDirectory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            _messageNotifier(
+                $"ログ保存先フォルダを開けませんでした: {ex.Message}",
+                "ログフォルダを開くエラー",
+                true);
+        }
+    }
+
+    private static void OpenFolderInExplorer(string directoryPath)
+    {
+        var startInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = $"\"{directoryPath}\"",
+            UseShellExecute = true,
+        };
+        System.Diagnostics.Process.Start(startInfo);
     }
 }
