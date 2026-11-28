@@ -52,6 +52,16 @@ public sealed class LyricsDocument
     public string? Author { get; }
 
     /// <summary>
+    /// メタデータタグ（<c>[re:]</c>）から取得した作成ツール／生成方式識別文字列を取得します
+    /// </summary>
+    public string? Generator { get; }
+
+    /// <summary>
+    /// LRC ファイルの生成元種別を取得します
+    /// </summary>
+    public LrcOriginType OriginType { get; }
+
+    /// <summary>
     /// メタデータタグ（<c>[offset:]</c>）に基づく全体タイミング補正値を取得します（正の値で表示を早め、負の値で遅らせる）
     /// </summary>
     public TimeSpan Offset { get; }
@@ -88,6 +98,8 @@ public sealed class LyricsDocument
     /// <param name="offset">全体タイミング補正値（既定: <see cref="TimeSpan.Zero"/>）</param>
     /// <param name="sourceType">歌詞ソース種別（既定: <see cref="LyricsSourceType.None"/>）</param>
     /// <param name="sourcePath">読み込み元ファイルパス（任意）</param>
+    /// <param name="generator">作成ツール／生成方式識別メタデータ（<c>[re:]</c>、任意）</param>
+    /// <param name="originType">LRC 生成元種別（既定: <see cref="LrcOriginType.ManualOrExternal"/>）</param>
     public LyricsDocument(
         IEnumerable<LyricLine>? lines,
         bool isSynced,
@@ -97,7 +109,9 @@ public sealed class LyricsDocument
         string? author = null,
         TimeSpan offset = default,
         LyricsSourceType sourceType = LyricsSourceType.None,
-        string? sourcePath = null)
+        string? sourcePath = null,
+        string? generator = null,
+        LrcOriginType originType = LrcOriginType.ManualOrExternal)
     {
         LyricLine[] copiedLines = lines is null
             ? Array.Empty<LyricLine>()
@@ -132,6 +146,8 @@ public sealed class LyricsDocument
         Artist = string.IsNullOrWhiteSpace(artist) ? null : artist.Trim();
         Album = string.IsNullOrWhiteSpace(album) ? null : album.Trim();
         Author = string.IsNullOrWhiteSpace(author) ? null : author.Trim();
+        Generator = string.IsNullOrWhiteSpace(generator) ? null : generator.Trim();
+        OriginType = originType;
         Offset = offset;
         SourceType = sourceType;
         SourcePath = string.IsNullOrWhiteSpace(sourcePath) ? null : sourcePath.Trim();
@@ -155,7 +171,9 @@ public sealed class LyricsDocument
             Author,
             Offset,
             sourceType,
-            sourcePath);
+            sourcePath,
+            Generator,
+            OriginType);
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using AudioEffector.Domain.Entities;
@@ -14,6 +15,16 @@ namespace AudioEffector.Infrastructure.Lyrics;
 /// </summary>
 public sealed partial class LrcParser : ILrcParser
 {
+    /// <summary>
+    /// テキストファイルからの強制アライメント生成を示す LRC 標準 <c>[re:...]</c> メタデータ値です
+    /// </summary>
+    public const string TextAlignmentGeneratorTag = "Audio Effector (TextAlignment)";
+
+    /// <summary>
+    /// 音声からの直接文字起こし生成を示す LRC 標準 <c>[re:...]</c> メタデータ値です
+    /// </summary>
+    public const string AudioTranscriptionGeneratorTag = "Audio Effector (AudioTranscription)";
+
     private const int MAX_MINUTES = 99999;
 
     /// <summary>
@@ -35,6 +46,7 @@ public sealed partial class LrcParser : ILrcParser
         string? artist = null;
         string? album = null;
         string? author = null;
+        string? generator = null;
         TimeSpan offset = TimeSpan.Zero;
 
         var syncedEntries = new List<(TimeSpan Timestamp, int Order, string Text)>();
@@ -56,7 +68,7 @@ public sealed partial class LrcParser : ILrcParser
 
             if (TryParseMetadataTag(trimmedLine, out string tagKey, out string tagValue))
             {
-                ApplyMetadata(tagKey, tagValue, ref title, ref artist, ref album, ref author, ref offset);
+                ApplyMetadata(tagKey, tagValue, ref title, ref artist, ref album, ref author, ref generator, ref offset);
                 continue;
             }
 
@@ -68,6 +80,8 @@ public sealed partial class LrcParser : ILrcParser
 
             plainCandidates.Add(trimmedLine);
         }
+
+        LrcOriginType originType = ResolveOriginTypeFromGenerator(generator);
 
         if (syncedEntries.Count > 0)
         {
@@ -85,7 +99,9 @@ public sealed partial class LrcParser : ILrcParser
                 artist: artist,
                 album: album,
                 author: author,
-                offset: offset);
+                offset: offset,
+                generator: generator,
+                originType: originType);
         }
 
         // 有効なタイムタグがない場合はプレーン歌詞として構築（前後余分な空行は除去）
@@ -98,7 +114,45 @@ public sealed partial class LrcParser : ILrcParser
             artist: artist,
             album: album,
             author: author,
-            offset: offset);
+            offset: offset,
+            generator: generator,
+            originType: originType);
+    }
+
+    /// <summary>
+    /// LRC テキスト内の <c>[re:...]</c> メタデータタグから生成元種別を高速に判別します
+    /// </summary>
+    /// <param name="lrcContent">判定対象の LRC テキスト（または先頭メタデータ部）</param>
+    /// <returns>判別された <see cref="LrcOriginType"/>（タグ未付与・他ツール由来時は <see cref="LrcOriginType.ManualOrExternal"/>）</returns>
+    public LrcOriginType ClassifyOrigin(string lrcContent)
+    {
+        if (string.IsNullOrEmpty(lrcContent))
+        {
+            return LrcOriginType.ManualOrExternal;
+        }
+
+        string normalized = lrcContent.TrimStart('\uFEFF');
+        string? generator = null;
+
+        using var reader = new StringReader(normalized);
+        string? rawLine;
+        while ((rawLine = reader.ReadLine()) != null)
+        {
+            string trimmedLine = rawLine.Trim();
+            if (trimmedLine.Length < 5 || trimmedLine[0] != '[' || trimmedLine[^1] != ']')
+            {
+                continue;
+            }
+
+            if (TryParseMetadataTag(trimmedLine, out string tagKey, out string tagValue)
+                && string.Equals(tagKey, "re", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(tagValue))
+            {
+                generator = tagValue;
+            }
+        }
+
+        return ResolveOriginTypeFromGenerator(generator);
     }
 
     /// <summary>
@@ -110,7 +164,7 @@ public sealed partial class LrcParser : ILrcParser
     {
         ArgumentNullException.ThrowIfNull(document);
 
-        var outputLines = new List<string>(document.Lines.Count + 5);
+        var outputLines = new List<string>(document.Lines.Count + 6);
 
         if (!string.IsNullOrWhiteSpace(document.Title))
         {
@@ -130,6 +184,12 @@ public sealed partial class LrcParser : ILrcParser
         if (!string.IsNullOrWhiteSpace(document.Author))
         {
             outputLines.Add($"[by:{document.Author}]");
+        }
+
+        string? generatorTag = ResolveGeneratorTagForFormat(document);
+        if (!string.IsNullOrWhiteSpace(generatorTag))
+        {
+            outputLines.Add($"[re:{generatorTag}]");
         }
 
         if (document.Offset != TimeSpan.Zero)
@@ -276,6 +336,7 @@ public sealed partial class LrcParser : ILrcParser
         ref string? artist,
         ref string? album,
         ref string? author,
+        ref string? generator,
         ref TimeSpan offset)
     {
         if (string.Equals(tagKey, "ti", StringComparison.OrdinalIgnoreCase))
@@ -306,6 +367,13 @@ public sealed partial class LrcParser : ILrcParser
                 author = tagValue;
             }
         }
+        else if (string.Equals(tagKey, "re", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(tagValue))
+            {
+                generator = tagValue;
+            }
+        }
         else if (string.Equals(tagKey, "offset", StringComparison.OrdinalIgnoreCase))
         {
             if (int.TryParse(tagValue, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int offsetMs))
@@ -313,6 +381,37 @@ public sealed partial class LrcParser : ILrcParser
                 offset = TimeSpan.FromMilliseconds(offsetMs);
             }
         }
+    }
+
+    private static LrcOriginType ResolveOriginTypeFromGenerator(string? generator)
+    {
+        if (string.IsNullOrWhiteSpace(generator))
+        {
+            return LrcOriginType.ManualOrExternal;
+        }
+
+        string trimmed = generator.Trim();
+        if (string.Equals(trimmed, TextAlignmentGeneratorTag, StringComparison.OrdinalIgnoreCase))
+        {
+            return LrcOriginType.AutoGeneratedTextAlignment;
+        }
+
+        if (string.Equals(trimmed, AudioTranscriptionGeneratorTag, StringComparison.OrdinalIgnoreCase))
+        {
+            return LrcOriginType.AutoGeneratedAudioTranscription;
+        }
+
+        return LrcOriginType.ManualOrExternal;
+    }
+
+    private static string? ResolveGeneratorTagForFormat(LyricsDocument document)
+    {
+        return document.OriginType switch
+        {
+            LrcOriginType.AutoGeneratedTextAlignment => TextAlignmentGeneratorTag,
+            LrcOriginType.AutoGeneratedAudioTranscription => AudioTranscriptionGeneratorTag,
+            _ => string.IsNullOrWhiteSpace(document.Generator) ? null : document.Generator,
+        };
     }
 
     private static bool IsStandaloneBracketLine(string trimmedLine)

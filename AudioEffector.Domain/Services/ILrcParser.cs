@@ -1,4 +1,5 @@
 ﻿using AudioEffector.Domain.Entities;
+using AudioEffector.Domain.ValueObjects;
 
 namespace AudioEffector.Domain.Services;
 
@@ -20,4 +21,11 @@ public interface ILrcParser
     /// <param name="document">フォーマット対象の歌詞ドキュメント</param>
     /// <returns>LRC 形式に整形された文字列</returns>
     string Format(LyricsDocument document);
+
+    /// <summary>
+    /// LRC テキスト内の <c>[re:...]</c> メタデータタグから生成元種別を高速に判別します
+    /// </summary>
+    /// <param name="lrcContent">判定対象の LRC テキスト（または先頭メタデータ部）</param>
+    /// <returns>判別された <see cref="LrcOriginType"/>（タグ未付与・他ツール由来時は <see cref="LrcOriginType.ManualOrExternal"/>）</returns>
+    LrcOriginType ClassifyOrigin(string lrcContent);
 }

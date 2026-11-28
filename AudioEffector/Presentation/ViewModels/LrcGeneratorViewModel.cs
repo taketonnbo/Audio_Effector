@@ -1425,7 +1425,9 @@ public sealed class LrcGeneratorViewModel : ViewModelBase, IDisposable
             artist: _generatedDocument?.Artist ?? _targetTrack?.Artist,
             album: _generatedDocument?.Album ?? _targetTrack?.Album,
             author: _generatedDocument?.Author,
-            sourceType: LyricsSourceType.LrcFile);
+            sourceType: LyricsSourceType.LrcFile,
+            generator: _generatedDocument?.Generator,
+            originType: _generatedDocument?.OriginType ?? LrcOriginType.ManualOrExternal);
     }
 
     private void SeekToPreviewLine(object? parameter)
