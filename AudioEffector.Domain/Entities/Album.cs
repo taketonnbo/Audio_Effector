@@ -12,12 +12,14 @@ namespace AudioEffector.Domain.Entities;
 /// </summary>
 public class Album : INotifyPropertyChanged, IEquatable<Album>
 {
+    private readonly Dictionary<Track, WeakTrackOnDeviceSubscription> _trackSubscriptions = new();
     private string _title = string.Empty;
     private string _artist = string.Empty;
     private uint _year;
     private bool _isSelected;
     private bool _isOnDevice;
     private bool _isTracksExpanded;
+    private bool _suppressIsOnDeviceSync;
     private List<Track> _tracks = new();
 
     /// <summary>
@@ -242,7 +244,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     {
         ArgumentNullException.ThrowIfNull(track);
         _tracks.Add(track);
-        track.PropertyChanged += OnTrackPropertyChanged;
+        SubscribeTrack(track);
         UpdateIsOnDeviceState();
         OnPropertyChanged(nameof(Tracks));
         OnPropertyChanged(nameof(TrackCount));
@@ -263,7 +265,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
         var removed = _tracks.Remove(track);
         if (removed)
         {
-            track.PropertyChanged -= OnTrackPropertyChanged;
+            UnsubscribeTrack(track);
             UpdateIsOnDeviceState();
             OnPropertyChanged(nameof(Tracks));
             OnPropertyChanged(nameof(TrackCount));
@@ -273,6 +275,30 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
             OnPropertyChanged(nameof(ContainsLossless));
         }
         return removed;
+    }
+
+    /// <summary>
+    /// 所属トラックの IsOnDevice 状態を一括更新し、最後に 1 回だけアルバム全体の IsOnDevice 状態を再評価します。
+    /// </summary>
+    /// <param name="isOnDeviceEvaluator">各トラックがデバイス上に存在するかを返す判定関数</param>
+    public void ApplyTracksOnDeviceState(Func<Track, bool> isOnDeviceEvaluator)
+    {
+        ArgumentNullException.ThrowIfNull(isOnDeviceEvaluator);
+
+        _suppressIsOnDeviceSync = true;
+        try
+        {
+            foreach (var track in _tracks)
+            {
+                track.IsOnDevice = isOnDeviceEvaluator(track);
+            }
+        }
+        finally
+        {
+            _suppressIsOnDeviceSync = false;
+        }
+
+        UpdateIsOnDeviceState();
     }
 
     /// <summary>
@@ -287,7 +313,7 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     {
         foreach (var track in tracks)
         {
-            track.PropertyChanged += OnTrackPropertyChanged;
+            SubscribeTrack(track);
         }
     }
 
@@ -295,15 +321,73 @@ public class Album : INotifyPropertyChanged, IEquatable<Album>
     {
         foreach (var track in tracks)
         {
-            track.PropertyChanged -= OnTrackPropertyChanged;
+            UnsubscribeTrack(track);
         }
     }
 
-    private void OnTrackPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void SubscribeTrack(Track track)
     {
-        if (e.PropertyName == nameof(Track.IsOnDevice))
+        if (_trackSubscriptions.ContainsKey(track))
         {
-            UpdateIsOnDeviceState();
+            return;
+        }
+
+        _trackSubscriptions[track] = new WeakTrackOnDeviceSubscription(this, track);
+    }
+
+    private void UnsubscribeTrack(Track track)
+    {
+        if (_trackSubscriptions.Remove(track, out var subscription))
+        {
+            subscription.Detach();
+        }
+    }
+
+    private void OnTrackIsOnDeviceChanged()
+    {
+        if (_suppressIsOnDeviceSync)
+        {
+            return;
+        }
+
+        UpdateIsOnDeviceState();
+    }
+
+    /// <summary>
+    /// Album が GC 回収された後に Track.PropertyChanged からの強参照リークを防ぐ弱イベントブリッジ
+    /// </summary>
+    private sealed class WeakTrackOnDeviceSubscription
+    {
+        private readonly WeakReference<Album> _albumRef;
+        private readonly Track _track;
+
+        public WeakTrackOnDeviceSubscription(Album album, Track track)
+        {
+            _albumRef = new WeakReference<Album>(album);
+            _track = track;
+            _track.PropertyChanged += OnPropertyChanged;
+        }
+
+        public void Detach()
+        {
+            _track.PropertyChanged -= OnPropertyChanged;
+        }
+
+        private void OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(Track.IsOnDevice))
+            {
+                return;
+            }
+
+            if (_albumRef.TryGetTarget(out var album))
+            {
+                album.OnTrackIsOnDeviceChanged();
+            }
+            else
+            {
+                _track.PropertyChanged -= OnPropertyChanged;
+            }
         }
     }
 
