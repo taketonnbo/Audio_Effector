@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace AudioEffector.Domain.Entities;
 
@@ -122,10 +123,23 @@ public class AppSettings
     /// </summary>
     public ShortcutKeyConfig VolumeUpShortcut { get; set; } = new();
 
+    private Dictionary<string, string> _deviceDefaultTransferFolders = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// 音量ダウンショートカットキー設定
     /// </summary>
     public ShortcutKeyConfig VolumeDownShortcut { get; set; } = new();
+
+    /// <summary>
+    /// 接続機器識別子ごとの既定転送先フォルダパス辞書
+    /// </summary>
+    public Dictionary<string, string> DeviceDefaultTransferFolders
+    {
+        get => _deviceDefaultTransferFolders;
+        set => _deviceDefaultTransferFolders = value != null
+            ? new Dictionary<string, string>(value, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    }
 }
 
 /// <summary>

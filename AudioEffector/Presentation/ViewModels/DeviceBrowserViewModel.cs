@@ -1,3 +1,4 @@
+using AudioEffector.Application.ApplicationServices;
 using AudioEffector.Domain.Entities;
 using AudioEffector.Presentation.Views;
 using MediaDevices;
@@ -24,11 +25,13 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 {
     private readonly Func<IReadOnlyList<Album>> _getAlbums;
     private readonly Action _onCheckDeviceAlbumsRequested;
+    private readonly ISettingsService? _settingsService;
     private readonly Func<string, long> _getFileSizeBytes;
     private readonly Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)> _readDeviceStorageSpace;
     private readonly Dictionary<string, long> _fileSizeCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<Album> _subscribedAlbums = new();
     private readonly HashSet<Track> _subscribedTracks = new();
+    private Dictionary<string, string>? _defaultFoldersCache;
     private CancellationTokenSource? _checkDeviceAlbumsCts;
     private CancellationTokenSource? _storageRefreshCts;
     private bool _suppressSelectionSummaryUpdates;
@@ -98,6 +101,58 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         private set => SetProperty(ref _selectedSizeSummaryText, value);
     }
 
+    private bool _isCurrentFolderDefault;
+    /// <summary>
+    /// 現在表示中のフォルダが選択中機器の既定転送先フォルダとして登録されているかどうかを取得します
+    /// </summary>
+    public bool IsCurrentFolderDefault
+    {
+        get => _isCurrentFolderDefault;
+        private set => SetProperty(ref _isCurrentFolderDefault, value);
+    }
+
+    private string _currentDeviceDefaultFolderPath = string.Empty;
+    /// <summary>
+    /// 選択中機器に登録されている既定転送先フォルダパス（未登録時は空文字）を取得します
+    /// </summary>
+    public string CurrentDeviceDefaultFolderPath
+    {
+        get => _currentDeviceDefaultFolderPath;
+        private set
+        {
+            if (SetProperty(ref _currentDeviceDefaultFolderPath, value))
+            {
+                OnPropertyChanged(nameof(HasDefaultFolderForSelectedDevice));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 選択中機器に既定転送先フォルダが登録されているかどうかを取得します
+    /// </summary>
+    public bool HasDefaultFolderForSelectedDevice => !string.IsNullOrEmpty(_currentDeviceDefaultFolderPath);
+
+    private string _defaultFolderStatusMessage = string.Empty;
+    /// <summary>
+    /// 既定フォルダ自動遷移時のフォールバック通知メッセージを取得します
+    /// </summary>
+    public string DefaultFolderStatusMessage
+    {
+        get => _defaultFolderStatusMessage;
+        private set
+        {
+            if (SetProperty(ref _defaultFolderStatusMessage, value))
+            {
+                OnPropertyChanged(nameof(HasDefaultFolderStatusMessage));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 既定フォルダに関するステータス通知メッセージが存在するかどうかを取得します
+    /// </summary>
+    public bool HasDefaultFolderStatusMessage => !string.IsNullOrEmpty(_defaultFolderStatusMessage);
+
     private MainViewModel.DeviceViewModel? _selectedDevice;
 
     /// <summary>
@@ -122,33 +177,71 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
                 if (_selectedDevice != null)
                 {
+                    DefaultFolderStatusMessage = string.Empty;
+
                     if (_selectedDevice.Type == MainViewModel.DeviceType.MTP && _selectedDevice.MtpDevice != null)
                     {
                         try
                         {
                             _selectedDevice.MtpDevice.Connect();
-                            LoadDeviceDirectories(@"\"); // Root for MTP
+                            string initialPath = ResolveInitialDirectoryPath(
+                                _selectedDevice,
+                                @"\",
+                                p =>
+                                {
+                                    try { return _selectedDevice.MtpDevice.DirectoryExists(p); }
+                                    catch { return false; }
+                                },
+                                out bool fellBack);
+                            if (fellBack)
+                            {
+                                DefaultFolderStatusMessage = "記憶していた既定フォルダが見つからないため、ルートフォルダを表示しました。";
+                            }
+
+                            LoadDeviceDirectories(initialPath);
                         }
                         catch (Exception ex)
                         {
                             DeviceDirectories.Clear();
                             CurrentDevicePath = string.Empty;
+                            UpdateDefaultFolderState();
                             CheckDeviceAlbums();
                             MessageBox.Show($"Failed to connect to device: {ex.Message}");
                         }
                     }
-                    else if (_selectedDevice.Type == MainViewModel.DeviceType.FileSystem && _selectedDevice.Drive != null)
+                    else if (_selectedDevice.Type == MainViewModel.DeviceType.FileSystem)
                     {
-                        LoadDeviceDirectories(_selectedDevice.Drive.RootDirectory.FullName);
+                        string rootPath = _selectedDevice.Drive?.RootDirectory.FullName ?? _selectedDevice.RootPath;
+                        if (!string.IsNullOrEmpty(rootPath))
+                        {
+                            string initialPath = ResolveInitialDirectoryPath(
+                                _selectedDevice,
+                                rootPath,
+                                p =>
+                                {
+                                    try { return Directory.Exists(p); }
+                                    catch { return false; }
+                                },
+                                out bool fellBack);
+                            if (fellBack)
+                            {
+                                DefaultFolderStatusMessage = "記憶していた既定フォルダが見つからないため、ルートフォルダを表示しました。";
+                            }
+
+                            LoadDeviceDirectories(initialPath);
+                        }
                     }
 
+                    UpdateDefaultFolderState();
                     _ = RefreshSelectedDeviceStorageAsync();
                 }
                 else
                 {
                     CancelPendingStorageRefresh();
+                    DefaultFolderStatusMessage = string.Empty;
                     DeviceDirectories.Clear();
                     CurrentDevicePath = string.Empty;
+                    UpdateDefaultFolderState();
                     CheckDeviceAlbums();
                     UpdateSelectionSummary();
                 }
@@ -198,8 +291,12 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         get => _currentDevicePath;
         set
         {
-            _currentDevicePath = value;
-            OnPropertyChanged();
+            if (_currentDevicePath != value)
+            {
+                _currentDevicePath = value;
+                OnPropertyChanged();
+                UpdateDefaultFolderState();
+            }
         }
     }
 
@@ -249,6 +346,21 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     public ICommand ShowDeviceManagerCommand { get; }
 
     /// <summary>
+    /// 現在表示中のフォルダを選択中機器の既定転送先フォルダとして保存するコマンドを取得します
+    /// </summary>
+    public ICommand SetDefaultFolderCommand { get; }
+
+    /// <summary>
+    /// 選択中機器の既定転送先フォルダ設定を解除するコマンドを取得します
+    /// </summary>
+    public ICommand ClearDefaultFolderCommand { get; }
+
+    /// <summary>
+    /// 現在表示中のフォルダに対する既定転送先フォルダ設定の登録／解除を切り替えるコマンドを取得します
+    /// </summary>
+    public ICommand ToggleDefaultFolderCommand { get; }
+
+    /// <summary>
     /// PCアルバム一覧（MainViewModelから委譲されたAlbumsへの読み取り専用参照）
     /// </summary>
     public ObservableCollection<Album> Albums => _albumsRef;
@@ -262,18 +374,21 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     /// <param name="onCheckDeviceAlbumsRequested">デバイスアルバムチェック要求コールバック</param>
     /// <param name="getFileSizeBytes">トラックのファイルサイズ取得関数（テスト差し替え用、省略時はFileInfoを使用）</param>
     /// <param name="readDeviceStorageSpace">接続機器の容量取得関数（テスト差し替え用、省略時は実ストレージ読取を使用）</param>
+    /// <param name="settingsService">アプリケーション設定永続化サービス（既定フォルダ記憶用）</param>
     public DeviceBrowserViewModel(
         ObservableCollection<Album> albumsRef,
         Func<IReadOnlyList<Album>> getAlbums,
         Action onCheckDeviceAlbumsRequested,
         Func<string, long>? getFileSizeBytes = null,
-        Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)>? readDeviceStorageSpace = null)
+        Func<MainViewModel.DeviceViewModel, string, (bool HasInfo, long TotalBytes, long FreeBytes)>? readDeviceStorageSpace = null,
+        ISettingsService? settingsService = null)
     {
         _albumsRef = albumsRef ?? throw new ArgumentNullException(nameof(albumsRef));
         _getAlbums = getAlbums ?? throw new ArgumentNullException(nameof(getAlbums));
         _onCheckDeviceAlbumsRequested = onCheckDeviceAlbumsRequested ?? throw new ArgumentNullException(nameof(onCheckDeviceAlbumsRequested));
         _getFileSizeBytes = getFileSizeBytes ?? DefaultGetFileSizeBytes;
         _readDeviceStorageSpace = readDeviceStorageSpace ?? ReadDeviceStorageSpace;
+        _settingsService = settingsService;
 
         RemovableDrives.CollectionChanged += OnRemovableDrivesCollectionChanged;
         _albumsRef.CollectionChanged += OnAlbumsCollectionChanged;
@@ -286,6 +401,9 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         NavigateUpCommand = new RelayCommand(o => NavigateUp());
         RefreshDirectoryCommand = new RelayCommand(o => LoadDeviceDirectories(CurrentDevicePath));
         ShowDeviceManagerCommand = new RelayCommand(o => ShowDeviceManager());
+        SetDefaultFolderCommand = new RelayCommand(o => SetCurrentFolderAsDefault());
+        ClearDefaultFolderCommand = new RelayCommand(o => ClearDefaultFolderForSelectedDevice());
+        ToggleDefaultFolderCommand = new RelayCommand(o => ToggleDefaultFolderForCurrentPath());
     }
 
     /// <summary>
@@ -311,6 +429,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 Drive = drive,
                 RootPath = drive.RootDirectory.FullName
             };
+            deviceVm.DeviceKey = ResolveDeviceKey(deviceVm);
             TryPopulateFileSystemStorage(deviceVm);
             RemovableDrives.Add(deviceVm);
         }
@@ -322,13 +441,15 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
             var devices = MediaDevice.GetDevices();
             foreach (var device in devices)
             {
-                RemovableDrives.Add(new MainViewModel.DeviceViewModel
+                var deviceVm = new MainViewModel.DeviceViewModel
                 {
                     Name = device.FriendlyName,
                     Type = MainViewModel.DeviceType.MTP,
                     MtpDevice = device,
                     RootPath = @"\" // MTP root
-                });
+                };
+                deviceVm.DeviceKey = ResolveDeviceKey(deviceVm);
+                RemovableDrives.Add(deviceVm);
             }
         }
         catch (Exception ex)
@@ -1293,6 +1414,251 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// 接続機器を一意に識別するキー文字列を解決します。
+    /// </summary>
+    /// <param name="device">対象デバイス</param>
+    /// <returns>永続化用の機器識別子（解決不可時は空文字）</returns>
+    internal static string ResolveDeviceKey(MainViewModel.DeviceViewModel? device)
+    {
+        if (device == null)
+        {
+            return string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(device.DeviceKey))
+        {
+            return device.DeviceKey.Trim();
+        }
+
+        if (device.Type == MainViewModel.DeviceType.MTP)
+        {
+            string? deviceId = null;
+            try { deviceId = device.MtpDevice?.DeviceId; } catch { }
+            if (!string.IsNullOrWhiteSpace(deviceId))
+            {
+                return $"MTP:{deviceId.Trim()}";
+            }
+
+            string? friendlyName = null;
+            try { friendlyName = device.MtpDevice?.FriendlyName; } catch { }
+            string fallbackName = !string.IsNullOrWhiteSpace(friendlyName) ? friendlyName.Trim() : device.Name.Trim();
+            return string.IsNullOrWhiteSpace(fallbackName) ? string.Empty : $"MTP:{fallbackName}";
+        }
+
+        string label = string.Empty;
+        string root = device.RootPath?.Trim() ?? string.Empty;
+        if (device.Drive != null)
+        {
+            try
+            {
+                root = device.Drive.RootDirectory.FullName;
+                if (device.Drive.IsReady && !string.IsNullOrWhiteSpace(device.Drive.VolumeLabel))
+                {
+                    label = device.Drive.VolumeLabel.Trim();
+                }
+            }
+            catch
+            {
+                // ドライブ未準備時はフォールバックキーを使用
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            root = device.Name.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return string.Empty;
+        }
+
+        return string.IsNullOrEmpty(label) ? $"FS:{root}" : $"FS:{label}|{root}";
+    }
+
+    /// <summary>
+    /// 現在表示中のフォルダを選択中機器の既定転送先フォルダとして保存します。
+    /// </summary>
+    public void SetCurrentFolderAsDefault()
+    {
+        if (SelectedDevice == null || string.IsNullOrWhiteSpace(CurrentDevicePath))
+        {
+            return;
+        }
+
+        string deviceKey = ResolveDeviceKey(SelectedDevice);
+        if (string.IsNullOrEmpty(deviceKey))
+        {
+            return;
+        }
+
+        string targetPath = CurrentDevicePath;
+        EnsureDefaultFoldersCacheLoaded()[deviceKey] = targetPath;
+        _settingsService?.UpdateSettings(settings =>
+        {
+            settings.DeviceDefaultTransferFolders[deviceKey] = targetPath;
+        });
+
+        DefaultFolderStatusMessage = string.Empty;
+        UpdateDefaultFolderState();
+    }
+
+    /// <summary>
+    /// 選択中機器の既定転送先フォルダ設定を解除します。
+    /// </summary>
+    public void ClearDefaultFolderForSelectedDevice()
+    {
+        if (SelectedDevice == null)
+        {
+            return;
+        }
+
+        string deviceKey = ResolveDeviceKey(SelectedDevice);
+        if (string.IsNullOrEmpty(deviceKey))
+        {
+            return;
+        }
+
+        EnsureDefaultFoldersCacheLoaded().Remove(deviceKey);
+        _settingsService?.UpdateSettings(settings =>
+        {
+            settings.DeviceDefaultTransferFolders.Remove(deviceKey);
+        });
+
+        DefaultFolderStatusMessage = string.Empty;
+        UpdateDefaultFolderState();
+    }
+
+    /// <summary>
+    /// 現在表示中のフォルダが既定フォルダであれば解除し、そうでなければ既定フォルダとして登録します。
+    /// </summary>
+    public void ToggleDefaultFolderForCurrentPath()
+    {
+        if (IsCurrentFolderDefault)
+        {
+            ClearDefaultFolderForSelectedDevice();
+        }
+        else
+        {
+            SetCurrentFolderAsDefault();
+        }
+    }
+
+    /// <summary>
+    /// 選択中機器の登録済み既定フォルダ有無・存在確認に基づき、初期遷移先フォルダパスを決定します。
+    /// </summary>
+    /// <param name="device">対象デバイス</param>
+    /// <param name="fallbackRootPath">フォールバック先のルートパス</param>
+    /// <param name="directoryExists">対象パスが存在するかを返す判定関数</param>
+    /// <param name="fellBackToRoot">登録済みフォルダが存在せずルートへフォールバックした場合はtrue</param>
+    /// <returns>初期遷移先ディレクトリパス</returns>
+    internal string ResolveInitialDirectoryPath(
+        MainViewModel.DeviceViewModel device,
+        string fallbackRootPath,
+        Func<string, bool> directoryExists,
+        out bool fellBackToRoot)
+    {
+        fellBackToRoot = false;
+        string savedPath = GetSavedDefaultFolder(device);
+        if (string.IsNullOrWhiteSpace(savedPath))
+        {
+            return fallbackRootPath;
+        }
+
+        try
+        {
+            if (directoryExists(savedPath))
+            {
+                return savedPath;
+            }
+        }
+        catch
+        {
+            // 存在確認に失敗した場合は安全にルートへフォールバック
+        }
+
+        fellBackToRoot = true;
+        return fallbackRootPath;
+    }
+
+    private Dictionary<string, string> EnsureDefaultFoldersCacheLoaded()
+    {
+        if (_defaultFoldersCache != null)
+        {
+            return _defaultFoldersCache;
+        }
+
+        var loaded = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (_settingsService != null)
+        {
+            try
+            {
+                var settings = _settingsService.LoadSettings();
+                foreach (var kv in settings.DeviceDefaultTransferFolders)
+                {
+                    if (!string.IsNullOrWhiteSpace(kv.Key) && !string.IsNullOrWhiteSpace(kv.Value))
+                    {
+                        loaded[kv.Key] = kv.Value;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading default device folder: {ex.Message}");
+            }
+        }
+
+        _defaultFoldersCache = loaded;
+        return _defaultFoldersCache;
+    }
+
+    private string GetSavedDefaultFolder(MainViewModel.DeviceViewModel? device)
+    {
+        if (device == null || _settingsService == null)
+        {
+            return string.Empty;
+        }
+
+        string deviceKey = ResolveDeviceKey(device);
+        if (string.IsNullOrEmpty(deviceKey))
+        {
+            return string.Empty;
+        }
+
+        var cache = EnsureDefaultFoldersCacheLoaded();
+        return cache.TryGetValue(deviceKey, out var savedPath) && !string.IsNullOrWhiteSpace(savedPath)
+            ? savedPath
+            : string.Empty;
+    }
+
+    private void UpdateDefaultFolderState()
+    {
+        string savedPath = GetSavedDefaultFolder(SelectedDevice);
+        CurrentDeviceDefaultFolderPath = savedPath;
+        IsCurrentFolderDefault = !string.IsNullOrEmpty(savedPath)
+            && !string.IsNullOrEmpty(CurrentDevicePath)
+            && PathsEqualNormalized(savedPath, CurrentDevicePath);
+    }
+
+    private static bool PathsEqualNormalized(string path1, string path2)
+    {
+        string norm1 = NormalizeComparableDevicePath(path1);
+        string norm2 = NormalizeComparableDevicePath(path2);
+        return string.Equals(norm1, norm2, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeComparableDevicePath(string path)
+    {
+        string normalized = path.Trim().Replace('/', '\\');
+        if (normalized == @"\")
+        {
+            return @"\";
+        }
+
+        return normalized.TrimEnd('\\');
+    }
+
     private static void RunOnUiThread(Action action)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
@@ -1316,6 +1682,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
     private void NavigateDirectory(MainViewModel.DirectoryItem? dir)
     {
         if (dir == null || !dir.IsFolder) return;
+        DefaultFolderStatusMessage = string.Empty;
         LoadDeviceDirectories(dir.FullPath);
     }
 
@@ -1330,6 +1697,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
                 var parent = Directory.GetParent(CurrentDevicePath);
                 if (parent != null)
                 {
+                    DefaultFolderStatusMessage = string.Empty;
                     LoadDeviceDirectories(parent.FullName);
                 }
             }
@@ -1339,6 +1707,7 @@ public class DeviceBrowserViewModel : ViewModelBase, IDisposable
 
                 var parentPath = Path.GetDirectoryName(CurrentDevicePath);
                 if (string.IsNullOrEmpty(parentPath)) parentPath = @"\";
+                DefaultFolderStatusMessage = string.Empty;
                 LoadDeviceDirectories(parentPath);
             }
         }

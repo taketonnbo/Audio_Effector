@@ -74,18 +74,41 @@
             </StackPanel>
 
             <!-- Navigation Bar -->
-            <Grid Grid.Row="1" Margin="0,0,0,5"
-                  IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}"
-                  Visibility="{Binding HasConnectedDevices, Converter={StaticResource BoolToVis}}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <Button Content=".." Command="{Binding NavigateUpCommand}" Width="30" Height="25" Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" Margin="0,0,5,0"/>
-                <TextBlock Text="{Binding CurrentDevicePath}" Grid.Column="1" Foreground="{DynamicResource SecondaryTextForegroundBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                <Button Grid.Column="2" Content="↻" Command="{Binding RefreshDirectoryCommand}" Width="30" Height="25" Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" ToolTip="Refresh"/>
-            </Grid>
+            <StackPanel Grid.Row="1" Margin="0,0,0,5"
+                        IsEnabled="{Binding IsTransferring, Converter={StaticResource InvertBool}}"
+                        Visibility="{Binding HasConnectedDevices, Converter={StaticResource BoolToVis}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Content=".." Command="{Binding NavigateUpCommand}" Width="30" Height="25" Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" Margin="0,0,5,0"/>
+                    <TextBlock Text="{Binding CurrentDevicePath}" Grid.Column="1" Foreground="{DynamicResource SecondaryTextForegroundBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <Button Grid.Column="2" Command="{Binding ToggleDefaultFolderCommand}" Height="25" Padding="8,0" Margin="5,0,5,0"
+                            Background="{DynamicResource ControlBackgroundHighlightBrush}" BorderThickness="0"
+                            ToolTip="現在のフォルダをこの機器の既定転送先フォルダとして登録／解除します">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Content" Value="☆ 既定"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextForegroundBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsCurrentFolderDefault}" Value="True">
+                                        <Setter Property="Content" Value="★ 既定"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource NeonCyanBrush}"/>
+                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Grid.Column="3" Content="↻" Command="{Binding RefreshDirectoryCommand}" Width="30" Height="25" Background="{DynamicResource ControlBackgroundHighlightBrush}" Foreground="{DynamicResource TextForegroundBrush}" ToolTip="Refresh"/>
+                </Grid>
+                <TextBlock Text="{Binding DefaultFolderStatusMessage}"
+                           Foreground="{DynamicResource MutedTextForegroundBrush}" FontSize="11" Margin="0,3,0,0"
+                           Visibility="{Binding HasDefaultFolderStatusMessage, Converter={StaticResource BoolToVis}}"/>
+            </StackPanel>
 
             <!-- Folder List -->
             <ListBox Grid.Row="2" ItemsSource="{Binding DeviceDirectories}" Background="{DynamicResource ControlBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" Margin="0,0,0,5"

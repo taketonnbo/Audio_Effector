@@ -865,7 +865,8 @@ namespace AudioEffector.Presentation.ViewModels
             DeviceBrowser = new DeviceBrowserViewModel(
                 Albums,
                 () => Albums.ToList().AsReadOnly(),
-                () => { });
+                () => { },
+                settingsService: _settingsService);
             ShowSettingsCommand = new RelayCommand(o => ShowSettings());
             ToggleRightPanelCommand = new RelayCommand(o => IsRightPanelOpen = !IsRightPanelOpen);
             TogglePlayQueuePanelCommand = new RelayCommand(o => IsPlayQueuePanelOpen = !IsPlayQueuePanelOpen);
@@ -963,6 +964,11 @@ namespace AudioEffector.Presentation.ViewModels
             /// デバイス名を取得または設定します
             /// </summary>
             public string Name { get; set; } = string.Empty;
+
+            /// <summary>
+            /// 既定転送先フォルダ記憶用の機器識別子を取得または設定します
+            /// </summary>
+            public string DeviceKey { get; set; } = string.Empty;
 
             /// <summary>
             /// デバイス種別を取得または設定します
